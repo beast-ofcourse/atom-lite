@@ -1,8 +1,7 @@
 import type { Message, AgentLimits } from "../types.js";
 import type { ProviderAdapter } from "../providers/types.js";
 import { loadProjectInstructions } from "./instructions.js";
-import { buildMessages } from "./builder.js";
-import { estimateTokens, estimateMessageTokens } from "./budget.js";
+import { estimateMessageTokens } from "./budget.js";
 
 export interface ContextManagerOptions {
   systemPrompt: string;
@@ -39,11 +38,11 @@ export class ContextManager {
       this.opts.maxProjectInstructionBytes,
       this.opts.userInstructionsPath,
     );
-    const messages = buildMessages({
-      systemPrompt: this.opts.systemPrompt,
-      projectInstructions: instructions,
-      history,
-    });
+    const messages: Message[] = [{ role: "system", content: this.opts.systemPrompt }];
+    for (const instr of instructions) {
+      messages.push({ role: "system", content: instr });
+    }
+    messages.push(...history);
 
     const total = messages.reduce((s, m) => s + estimateMessageTokens(m), 0);
     if (total <= this.threshold()) return messages;

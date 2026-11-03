@@ -8,11 +8,13 @@ export function loadProjectInstructions(
 ): string[] {
   const out: string[] = [];
   if (userInstructionsPath && existsSync(userInstructionsPath)) {
-    out.push(readFileSync(userInstructionsPath, "utf8").slice(0, maxBytes));
+    const buf = readFileSync(userInstructionsPath);
+    out.push(buf.subarray(0, maxBytes).toString("utf8"));
   }
   const projectPath = join(workspace, "AGENTS.md");
   if (existsSync(projectPath)) {
-    out.push(readFileSync(projectPath, "utf8").slice(0, maxBytes));
+    const buf = readFileSync(projectPath);
+    out.push(buf.subarray(0, maxBytes).toString("utf8"));
   }
   return out;
 }
