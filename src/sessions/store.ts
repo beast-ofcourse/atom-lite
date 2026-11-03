@@ -61,7 +61,7 @@ export interface JsonlSessionStoreLike {
 }
 
 function defaultDataDir(): string {
-  const base = process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share");
+  const base = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
   return join(base, "atom-lite", "sessions");
 }
 

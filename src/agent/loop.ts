@@ -39,6 +39,12 @@ export class AgentRuntime {
     this.systemPrompt = options.systemPrompt ?? "You are a coding assistant.";
   }
 
+  switchModel(provider: AgentRuntimeOptions["provider"], model?: string): void {
+    this.provider = provider;
+    if (model) this.model = model;
+    this.onEvent?.({ type: "model_switched", provider: provider.id, model: this.model });
+  }
+
   async runAgentTurn(
     input: string,
     session: { messages: Message[]; appendMessage(m: Message): void },

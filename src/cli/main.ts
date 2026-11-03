@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { loadConfig } from "../config/load.js";
 import { join } from "node:path";
+import { execSync } from "node:child_process";
 import { AgentRuntime } from "../agent/loop.js";
 import { JsonlSessionStore } from "../sessions/store.js";
 import { readTool, writeTool, editTool, bashTool } from "../tools/index.js";
@@ -45,7 +46,7 @@ async function main(): Promise<void> {
   }
 
   const config = loadConfig();
-  const provider = createProvider(config, providerOverride, modelOverride);
+  let provider = createProvider(config, providerOverride, modelOverride);
   const useTools = !positional.includes("__notools__");
   const tools = useTools ? [readTool, writeTool, editTool, bashTool] : [];
 
@@ -151,6 +152,24 @@ async function main(): Promise<void> {
   const content = new Container();
   const output = new ScrollView(content, { follow: "end" });
 
+  function headerLabel(): string {
+    const cwd = process.cwd();
+    const home = process.env.HOME ?? "";
+    let displayPath = cwd;
+    if (home && cwd.startsWith(home)) displayPath = "~" + cwd.slice(home.length);
+    let branch = "";
+    try {
+      branch = execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      if (branch === "HEAD") {
+        branch = execSync("git rev-parse --short HEAD", { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      }
+    } catch {
+      branch = "";
+    }
+    return branch ? `${displayPath}:${branch}` : displayPath;
+  }
+  const header = new Text(headerLabel());
+
   const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
   const statusProvider = new Text(dim(`${provider.id}/${(provider as any).model ?? "default"}`));
   const statusTokens = new Text(dim("tokens: 0/0"));
@@ -180,6 +199,7 @@ async function main(): Promise<void> {
   ];
   input.setAutocompleteProvider(new CombinedAutocompleteProvider(slashCommands as any, process.cwd()));
 
+  tui.addChild(header);
   tui.addChild(output);
   tui.addChild(new Spacer());
   tui.addChild(input);
@@ -249,6 +269,9 @@ async function main(): Promise<void> {
       totalInputTokens += e.input ?? 0;
       totalOutputTokens += e.output ?? 0;
       updateStatus();
+    } else if (e.type === "model_switched") {
+      appendLine(`switched model to ${e.provider}/${e.model}`);
+      updateStatus();
     } else if (e.type === "tool_call") {
       finalizeText();
       appendLine(`[tool] ${e.name} ${JSON.stringify(e.args)}`);
@@ -311,7 +334,35 @@ async function main(): Promise<void> {
       return;
     }
     if (trimmed.startsWith("/model")) {
-      appendLine("model switching at safe boundaries is not implemented in this skeleton");
+      const parts = trimmed.split(/\\s+/);
+      if (parts.length < 2) {
+        appendLine(`current model: ${provider.id}/${(provider as any).model ?? "default"}`);
+        return;
+      }
+      const profile = parts[1];
+      const newProvider = createProvider(config, profile, modelOverride);
+      runtime.switchModel(newProvider, modelOverride);
+      (provider as any) = newProvider;
+      appendLine(`switched to ${profile}`);
+      return;
+    }
+    if (trimmed.startsWith("/skill")) {
+      const name = trimmed.split(/\\s+/)[1];
+      if (!name) {
+        const reg = new (await import("../skills/registry.js")).DefaultSkillRegistry(process.cwd());
+        appendLine(reg.list().map((s: any) => `${s.name}: ${s.description}`).join("\\n") || "no skills");
+        return;
+      }
+      const reg = new (await import("../skills/registry.js")).DefaultSkillRegistry(process.cwd());
+      const content = reg.load(name);
+      if (!content) {
+        appendLine(`skill not found: ${name}`);
+        return;
+      }
+      appendLine(`--- skill: ${name} ---\\n${content}`);
+      if (typeof session.appendEvent === "function") {
+        session.appendEvent({ type: "skill_loaded", name });
+      }
       return;
     }
     if (trimmed.startsWith("/effort")) {

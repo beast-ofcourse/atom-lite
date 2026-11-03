@@ -14,6 +14,8 @@ export type AgentEvent =
   | { type: "tool_result"; name: string; content: string; isError?: boolean }
   | { type: "final"; text: string }
   | { type: "usage"; input?: number; output?: number }
+  | { type: "model_switched"; provider: string; model: string }
+  | { type: "skill_loaded"; name: string }
   | { type: "error"; message: string };
 
 export interface AgentRuntimeOptions {

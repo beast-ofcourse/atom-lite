@@ -1,6 +1,9 @@
 import type { Message, AgentLimits } from "../types.js";
 import type { ProviderAdapter } from "../providers/types.js";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import { loadProjectInstructions } from "./instructions.js";
+import { DefaultSkillRegistry } from "../skills/registry.js";
 import { estimateMessageTokens } from "./budget.js";
 
 export interface ContextManagerOptions {
@@ -33,12 +36,18 @@ export class ContextManager {
   }
 
   async build(workspace: string, history: Message[]): Promise<Message[]> {
+    const userPath = this.opts.userInstructionsPath ?? join(homedir(), ".config", "atom-lite", "AGENTS.md");
     const instructions = loadProjectInstructions(
       workspace,
       this.opts.maxProjectInstructionBytes,
-      this.opts.userInstructionsPath,
+      userPath,
     );
-    const messages: Message[] = [{ role: "system", content: this.opts.systemPrompt }];
+    const registry = new DefaultSkillRegistry(workspace);
+    const skillIndex = registry.indexText();
+    const systemPrompt = skillIndex
+      ? `${this.opts.systemPrompt}\n\n${skillIndex}`
+      : this.opts.systemPrompt;
+    const messages: Message[] = [{ role: "system", content: systemPrompt }];
     for (const instr of instructions) {
       messages.push({ role: "system", content: instr });
     }
