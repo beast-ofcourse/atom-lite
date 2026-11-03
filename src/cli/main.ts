@@ -158,9 +158,10 @@ async function main(): Promise<void> {
   const content = new Container();
   const output = new ScrollView(content, { follow: "end" });
 
-  const statusProvider = new Text("provider/model");
-  const statusTokens = new Text("tokens: 0/0");
-  const statusEffort = new Text("effort: medium");
+  const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
+  const statusProvider = new Text(dim("provider/model"));
+  const statusTokens = new Text(dim("tokens: 0/0"));
+  const statusEffort = new Text(dim("effort: medium"));
   const statusBar = new HStack([statusProvider, new Spacer(), statusTokens, new Spacer(), statusEffort]);
 
   const selectListTheme = {
@@ -188,8 +189,8 @@ async function main(): Promise<void> {
 
   tui.addChild(output);
   tui.addChild(new Spacer());
-  tui.addChild(statusBar);
   tui.addChild(input);
+  tui.addChild(statusBar);
   tui.setFocus(input);
 
   let currentText: any = null;
@@ -238,9 +239,9 @@ async function main(): Promise<void> {
   }
 
   function updateStatus(): void {
-    statusTokens.setText(`tokens: ${totalInputTokens}/${totalOutputTokens}`);
-    statusEffort.setText(`effort: ${effortLevel}`);
-    statusProvider.setText(`${provider.id}/${modelOverride ?? "default"}`);
+    statusTokens.setText(dim(`tokens: ${totalInputTokens}/${totalOutputTokens}`));
+    statusEffort.setText(dim(`effort: ${effortLevel}`));
+    statusProvider.setText(dim(`${provider.id}/${modelOverride ?? "default"}`));
     tui.requestRender();
   }
 
