@@ -163,8 +163,28 @@ async function main(): Promise<void> {
   const statusEffort = new Text("effort: medium");
   const statusBar = new HStack([statusProvider, new Spacer(), statusTokens, new Spacer(), statusEffort]);
 
-  const editorTheme = { borderColor: (s: string) => s, selectList: {} as any };
+  const selectListTheme = {
+    selectedPrefix: (s: string) => s,
+    selectedText: (s: string) => s,
+    description: (s: string) => s,
+    scrollInfo: (s: string) => s,
+    noMatch: (s: string) => s,
+  };
+  const editorTheme = { borderColor: (s: string) => s, selectList: selectListTheme };
   const input = new Editor(tui, editorTheme, {});
+  const { CombinedAutocompleteProvider } = await import("@earendil-works/pi-tui");
+  const slashCommands = [
+    { name: "help", description: "show commands" },
+    { name: "model", description: "show/switch model" },
+    { name: "session", description: "session info" },
+    { name: "compact", description: "compact history" },
+    { name: "clear", description: "clear session" },
+    { name: "approval", description: "approval mode" },
+    { name: "doctor", description: "diagnostics" },
+    { name: "effort", description: "set effort level" },
+    { name: "exit", description: "exit" },
+  ];
+  input.setAutocompleteProvider(new CombinedAutocompleteProvider(slashCommands as any, process.cwd()));
 
   tui.addChild(output);
   tui.addChild(new Spacer());
