@@ -1,10 +1,4 @@
-import type {
-  ModelRequest,
-  ModelResponse,
-  ModelStreamEvent,
-  ToolCall,
-  TokenUsage,
-} from "../types.js";
+import type { ModelRequest, ModelResponse, ModelStreamEvent, ToolCall, TokenUsage } from "../types.js";
 import type { ProviderAdapter } from "./types.js";
 
 export interface OpenAICompatibleConfig {
@@ -31,18 +25,45 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
   }
 
   private buildHeaders(): Record<string, string> {
-    const h: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...this.headers,
-    };
+    const h: Record<string, string> = { "Content-Type": "application/json", ...this.headers };
     if (this.apiKey) h["Authorization"] = `Bearer ${this.apiKey}`;
     return h;
   }
 
+  private async fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+    const maxAttempts = 3;
+    let lastErr: Error | undefined;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      let res: Response;
+      try {
+        res = await fetch(url, init);
+      } catch (err) {
+        lastErr = new Error(`PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`);
+        if (attempt < maxAttempts - 1) {
+          await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+          continue;
+        }
+        throw lastErr;
+      }
+      if (res.ok) return res;
+      const text = await res.text().catch(() => "");
+      if (res.status === 401 || res.status === 403) throw new Error(`PROVIDER_AUTH_FAILED: ${text}`);
+      if (res.status === 429) {
+        lastErr = new Error(`PROVIDER_RATE_LIMITED: ${text}`);
+        if (attempt < maxAttempts - 1) {
+          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+          continue;
+        }
+        throw lastErr;
+      }
+      throw new Error(`PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`);
+    }
+    throw lastErr ?? new Error("PROVIDER_INVALID_RESPONSE");
+  }
+
   async generate(request: ModelRequest): Promise<ModelResponse> {
     const url = `${this.baseUrl}/chat/completions`;
-    const model =
-      request.model && request.model !== "default" ? request.model : this.model;
+    const model = request.model && request.model !== "default" ? request.model : this.model;
     const body: Record<string, unknown> = {
       model,
       messages: request.messages.map(toOpenAIMessage),
@@ -51,35 +72,17 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     if (request.tools && request.tools.length) {
       body.tools = request.tools.map((t) => ({
         type: "function",
-        function: {
-          name: t.name,
-          description: t.description,
-          parameters: t.parameters,
-        },
+        function: { name: t.name, description: t.description, parameters: t.parameters },
       }));
     }
     if (request.options) Object.assign(body, request.options);
 
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: this.buildHeaders(),
-        body: JSON.stringify(body),
-        signal: request.signal,
-      });
-    } catch (err) {
-      throw new Error(
-        `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      if (res.status === 401 || res.status === 403)
-        throw new Error(`PROVIDER_AUTH_FAILED: ${text}`);
-      if (res.status === 429) throw new Error(`PROVIDER_RATE_LIMITED: ${text}`);
-      throw new Error(`PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`);
-    }
+    const res = await this.fetchWithRetry(url, {
+      method: "POST",
+      headers: this.buildHeaders(),
+      body: JSON.stringify(body),
+      signal: request.signal,
+    });
     const json = (await res.json()) as any;
     const choice = json.choices?.[0];
     const msg = choice?.message ?? {};
@@ -89,18 +92,12 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       arguments: safeParse(tc.function?.arguments),
     }));
     const usage: TokenUsage | undefined = json.usage
-      ? {
-          input: json.usage.prompt_tokens,
-          output: json.usage.completion_tokens,
-          total: json.usage.total_tokens,
-        }
+      ? { input: json.usage.prompt_tokens, output: json.usage.completion_tokens, total: json.usage.total_tokens }
       : undefined;
     return {
       message: {
         role: "assistant",
-        content: msg.content
-          ? [{ type: "text", text: msg.content }]
-          : undefined,
+        content: msg.content ? [{ type: "text", text: msg.content }] : undefined,
         toolCalls: toolCalls.length ? toolCalls : undefined,
       },
       toolCalls,
@@ -111,8 +108,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
 
   async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
     const url = `${this.baseUrl}/chat/completions`;
-    const model =
-      request.model && request.model !== "default" ? request.model : this.model;
+    const model = request.model && request.model !== "default" ? request.model : this.model;
     const body: Record<string, unknown> = {
       model,
       messages: request.messages.map(toOpenAIMessage),
@@ -121,29 +117,20 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     if (request.tools && request.tools.length) {
       body.tools = request.tools.map((t) => ({
         type: "function",
-        function: {
-          name: t.name,
-          description: t.description,
-          parameters: t.parameters,
-        },
+        function: { name: t.name, description: t.description, parameters: t.parameters },
       }));
     }
     if (request.options) Object.assign(body, request.options);
     let res: Response;
     try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: this.buildHeaders(),
-        body: JSON.stringify(body),
-        signal: request.signal,
-      });
+      res = await fetch(url, { method: "POST", headers: this.buildHeaders(), body: JSON.stringify(body), signal: request.signal });
     } catch (err) {
-      throw new Error(
-        `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      throw new Error(`PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`);
     }
     if (!res.ok || !res.body) {
       const text = await res.text().catch(() => "");
+      if (res.status === 401 || res.status === 403) throw new Error(`PROVIDER_AUTH_FAILED: ${text}`);
+      if (res.status === 429) throw new Error(`PROVIDER_RATE_LIMITED: ${text}`);
       throw new Error(`PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`);
     }
     const reader = res.body.getReader();
@@ -151,6 +138,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     let buffer = "";
     const toolCalls: ToolCall[] = [];
     let text = "";
+    let usage: TokenUsage | undefined;
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -164,6 +152,13 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         if (data === "[DONE]") continue;
         try {
           const json = JSON.parse(data);
+          if (json.usage) {
+            usage = {
+              input: json.usage.prompt_tokens,
+              output: json.usage.completion_tokens,
+              total: json.usage.total_tokens,
+            };
+          }
           const delta = json.choices?.[0]?.delta ?? {};
           if (delta.content) {
             text += delta.content;
@@ -173,40 +168,29 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
             for (const tc of delta.tool_calls) {
               const idx = tc.index ?? toolCalls.length;
               if (!toolCalls[idx]) {
-                toolCalls[idx] = {
-                  id: tc.id ?? `call_${idx}`,
-                  name: tc.function?.name ?? "",
-                  arguments: {},
-                };
+                toolCalls[idx] = { id: tc.id ?? `call_${idx}`, name: tc.function?.name ?? "", arguments: {} };
               }
               if (tc.id) toolCalls[idx].id = tc.id;
               if (tc.function?.name) toolCalls[idx].name = tc.function.name;
               if (tc.function?.arguments) {
-                try {
-                  const prev = toolCalls[idx].arguments;
-                  const merged = (prev as any).__raw
-                    ? (prev as any).__raw + tc.function.arguments
-                    : tc.function.arguments;
-                  (toolCalls[idx].arguments as any).__raw = merged;
-                } catch {
-                  // ignore
-                }
+                const prev = (toolCalls[idx].arguments as any).__raw;
+                (toolCalls[idx].arguments as any).__raw =
+                  (typeof prev === "string" ? prev : "") + tc.function.arguments;
               }
             }
           }
         } catch {
-          // ignore parse errors
+          // ignore
         }
       }
     }
-    // finalize tool call arguments
     for (const tc of toolCalls) {
       if (tc) {
         const raw = (tc.arguments as any).__raw;
         if (typeof raw === "string") {
           tc.arguments = safeParse(raw);
-          delete (tc.arguments as any).__raw;
         }
+        delete (tc.arguments as any).__raw;
       }
     }
     const finalCalls = toolCalls.filter(Boolean);
@@ -218,6 +202,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       },
       toolCalls: finalCalls,
       finishReason: finalCalls.length ? "tool_calls" : "stop",
+      usage,
     };
     yield { type: "done", response };
   }
@@ -225,29 +210,14 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
 
 function toOpenAIMessage(m: any): any {
   if (m.role === "system") return { role: "system", content: m.content };
-  if (m.role === "user")
-    return {
-      role: "user",
-      content: m.content
-        .map((p: any) => (p.type === "text" ? p.text : ""))
-        .join(""),
-    };
+  if (m.role === "user") return { role: "user", content: m.content.map((p: any) => (p.type === "text" ? p.text : "")).join("") };
   if (m.role === "assistant") {
-    const out: any = {
-      role: "assistant",
-      content:
-        m.content
-          ?.map((p: any) => (p.type === "text" ? p.text : ""))
-          .join("") ?? null,
-    };
+    const out: any = { role: "assistant", content: m.content?.map((p: any) => (p.type === "text" ? p.text : "")).join("") ?? null };
     if (m.toolCalls?.length) {
       out.tool_calls = m.toolCalls.map((tc: any) => ({
         id: tc.id,
         type: "function",
-        function: {
-          name: tc.name,
-          arguments: JSON.stringify(tc.arguments ?? {}),
-        },
+        function: { name: tc.name, arguments: JSON.stringify(tc.arguments ?? {}) },
       }));
     }
     return out;
@@ -262,9 +232,7 @@ function safeParse(s: unknown): Record<string, unknown> {
   if (typeof s !== "string") return (s as Record<string, unknown>) ?? {};
   try {
     const v = JSON.parse(s);
-    return typeof v === "object" && v !== null
-      ? (v as Record<string, unknown>)
-      : {};
+    return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
   } catch {
     return {};
   }
