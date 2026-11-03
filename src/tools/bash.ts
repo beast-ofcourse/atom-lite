@@ -40,6 +40,8 @@ export const bashTool: Tool = {
       };
     }
     const { command, cwd, timeout_ms } = parsed.data;
+    const capMs = ctx.maxBashTimeMs ?? 120000;
+    const timeout = Math.min(timeout_ms ?? capMs, capMs);
     const workdir = cwd ? resolve(ctx.workspace, cwd) : ctx.workspace;
     if (cwd && !isWithinWorkspace(ctx.workspace, cwd)) {
       return {
@@ -49,8 +51,23 @@ export const bashTool: Tool = {
         isError: true,
       };
     }
-    const capMs = ctx.maxBashTimeMs ?? 120000;
-    const timeout = Math.min(timeout_ms ?? capMs, capMs);
+    if (ctx.approvals) {
+      const { checkApproval } = await import("../runtime/approvals.js");
+      const decision = await checkApproval(ctx.approvals, {
+        command,
+        cwd: workdir,
+        timeoutMs: timeout,
+        sandboxed: false,
+      });
+      if (!decision.allowed) {
+        return {
+          toolCallId: call.id,
+          name: "bash",
+          content: "COMMAND_APPROVAL_REQUIRED",
+          isError: true,
+        };
+      }
+    }
     const shell = defaultShell();
     const flag = process.platform === "win32" ? "/c" : "-c";
     const start = Date.now();

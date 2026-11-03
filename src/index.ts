@@ -12,5 +12,6 @@ export * from "./sessions/store.js";
 export * from "./sessions/events.js";
 export * from "./sessions/recovery.js";
 export { OllamaAdapter, OllamaProvider } from "./providers/ollama.js";
+export { GeminiAdapter } from "./providers/gemini.js";
 export { InMemoryToolRegistry } from "./tools/registry.js";
 export * from "./types.js";

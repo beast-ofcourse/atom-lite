@@ -27,11 +27,54 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const provider = createProvider(config, providerOverride, modelOverride);
   const tools = [readTool, writeTool, editTool, bashTool];
+
+  const { ContextManager } = await import("../context/manager.js");
+  const contextManager = new ContextManager({
+    systemPrompt: "You are a coding assistant.",
+    maxInputTokens: config.context.maxInputTokens ?? null,
+    reserveOutputTokens: config.context.reserveOutputTokens,
+    compactAtPercent: config.context.compactAtPercent,
+    maxProjectInstructionBytes: config.context.maxProjectInstructionBytes,
+    provider,
+    model: modelOverride ?? "default",
+    userInstructionsPath: undefined,
+  });
+
+  const interactive = process.stdin.isTTY === true;
+  let sessionTrusted = false;
+  const approvals: import("../runtime/approvals.js").ApprovalContext = {
+    mode: (config.runtime.approvalMode as "ask" | "trusted" | "deny") ?? "ask",
+    handler: interactive
+      ? async (req) => {
+          const { createInterface } = await import("node:readline");
+          const rl = createInterface({ input: process.stdin, output: process.stdout });
+          const answer: string = await new Promise((resolve) => {
+            rl.question(
+              `Approve command?\\n  ${req.command}\\n  cwd: ${req.cwd}\\n  timeout: ${req.timeoutMs}ms\\n  [y]es / [n]o / [t]rust session: `,
+              resolve,
+            );
+          });
+          rl.close();
+          const a = answer.trim().toLowerCase();
+          if (a === "t" || a === "trust") return "trust-session";
+          if (a === "y" || a === "yes") return "approve";
+          return "deny";
+        }
+      : undefined,
+    isTrusted: () => sessionTrusted,
+    trustSession: () => {
+      sessionTrusted = true;
+    },
+    nonInteractive: !interactive,
+  };
+
   const runtime = new AgentRuntime({
     provider,
     model: modelOverride,
     workspace: process.cwd(),
     tools,
+    approvals,
+    contextManager,
   });
 
   if (oneShot) {

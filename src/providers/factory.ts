@@ -1,6 +1,7 @@
 import type { Config } from "../config/schema.js";
 import { OpenAICompatibleAdapter } from "./openai-compatible.js";
 import { OllamaAdapter } from "./ollama.js";
+import { GeminiAdapter } from "./gemini.js";
 import { FakeProvider } from "./fake.js";
 
 export function createProvider(
@@ -32,6 +33,16 @@ export function createProvider(
       headers: pcfg.headers,
       keepAlive: pcfg.keepAlive,
       options: pcfg.options,
+    });
+  }
+  if (pcfg.type === "gemini") {
+    const apiKey = pcfg.apiKeyEnv ? (process.env[pcfg.apiKeyEnv] ?? null) : null;
+    return new GeminiAdapter({
+      id: name,
+      baseUrl: pcfg.baseUrl,
+      model: modelOverride ?? pcfg.model,
+      apiKey,
+      headers: pcfg.headers,
     });
   }
   return new FakeProvider([

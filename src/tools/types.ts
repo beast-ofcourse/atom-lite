@@ -18,6 +18,7 @@ export interface ToolContext {
   signal: AbortSignal;
   maxBashTimeMs?: number;
   maxToolOutputBytes?: number;
+  approvals?: import("../runtime/approvals.js").ApprovalContext;
 }
 
 export interface ToolRegistry {
