@@ -334,7 +334,7 @@ async function main(): Promise<void> {
       return;
     }
     if (trimmed.startsWith("/model")) {
-      const parts = trimmed.split(/\\s+/);
+      const parts = trimmed.split(/\s+/);
       if (parts.length < 2) {
         appendLine(`current model: ${provider.id}/${(provider as any).model ?? "default"}`);
         return;
@@ -347,7 +347,7 @@ async function main(): Promise<void> {
       return;
     }
     if (trimmed.startsWith("/skill")) {
-      const name = trimmed.split(/\\s+/)[1];
+      const name = trimmed.split(/\s+/)[1];
       if (!name) {
         const reg = new (await import("../skills/registry.js")).DefaultSkillRegistry(process.cwd());
         appendLine(reg.list().map((s: any) => `${s.name}: ${s.description}`).join("\\n") || "no skills");
