@@ -335,15 +335,50 @@ async function main(): Promise<void> {
     }
     if (trimmed.startsWith("/model")) {
       const parts = trimmed.split(/\s+/);
-      if (parts.length < 2) {
-        appendLine(`current model: ${provider.id}/${(provider as any).model ?? "default"}`);
+      if (parts.length >= 2) {
+        const profile = parts[1];
+        const newProvider = createProvider(config, profile, modelOverride);
+        runtime.switchModel(newProvider, modelOverride);
+        provider = newProvider;
+        appendLine(`switched to ${profile}`);
+        updateStatus();
         return;
       }
-      const profile = parts[1];
-      const newProvider = createProvider(config, profile, modelOverride);
-      runtime.switchModel(newProvider, modelOverride);
-      (provider as any) = newProvider;
-      appendLine(`switched to ${profile}`);
+      // Interactive dropdown
+      const profiles = Object.keys(config.providers ?? {});
+      if (profiles.length === 0) {
+        appendLine("no provider profiles configured");
+        return;
+      }
+      const selectListTheme = {
+        selectedPrefix: (s: string) => s,
+        selectedText: (s: string) => s,
+        description: (s: string) => s,
+        scrollInfo: (s: string) => s,
+        noMatch: (s: string) => s,
+      };
+      const items = profiles.map((p) => ({ value: p, label: p, description: (config.providers as any)[p]?.model }));
+      const { SelectList } = await import("@earendil-works/pi-tui");
+      const selectList = new SelectList(items as any, Math.min(10, items.length), selectListTheme as any);
+      content.addChild(selectList);
+      tui.setFocus(selectList as any);
+      tui.requestRender();
+      selectList.onSelect = (item: any) => {
+        const profile = item.value;
+        const newProvider = createProvider(config, profile, modelOverride);
+        runtime.switchModel(newProvider, modelOverride);
+        provider = newProvider;
+        // remove select list
+        content.removeChild(selectList as any);
+        tui.setFocus(input);
+        appendLine(`switched to ${profile}`);
+        updateStatus();
+      };
+      selectList.onCancel = () => {
+        content.removeChild(selectList as any);
+        tui.setFocus(input);
+        appendLine("cancelled");
+      };
       return;
     }
     if (trimmed.startsWith("/skill")) {
