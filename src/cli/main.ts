@@ -280,25 +280,35 @@ async function main(): Promise<void> {
     if (e.type === "thinking_delta") {
       if (!showThinking) return;
       if (!thinkingText) {
-        thinkingText = new Text("\\x1b[2m── thinking ──\\x1b[0m");
+        thinkingText = new Text("\\x1b[2mThinking...\\x1b[0m");
         content.addChild(thinkingText);
         thinkingBuffer = "";
       }
       thinkingBuffer += e.text;
-      // render thinking in dim italic
-      thinkingText.setText(`\\x1b[2m${thinkingBuffer}\\x1b[0m`);
+      const prefixed = thinkingBuffer
+        .split("\\n")
+        .map((l: string) => `\\x1b[2m| ${l}\\x1b[0m`)
+        .join("\\n");
+      thinkingText.setText(`\\x1b[2mThinking...\\x1b[0m\\n${prefixed}`);
       tui.requestRender();
     } else if (e.type === "assistant_delta") {
       if (thinkingText) {
-        // finalize thinking with separator
-        thinkingText.setText(`\\x1b[2m${thinkingBuffer}\\n── end thinking ──\\x1b[0m`);
+        const prefixed = thinkingBuffer
+          .split("\\n")
+          .map((l: string) => `\\x1b[2m| ${l}\\x1b[0m`)
+          .join("\\n");
+        thinkingText.setText(`\\x1b[2mThinking...\\x1b[0m\\n${prefixed}\\n\\x1b[2m| end\\x1b[0m`);
         thinkingText = null;
         thinkingBuffer = "";
       }
       appendDelta(e.text);
     } else if (e.type === "assistant_text") {
       if (thinkingText) {
-        thinkingText.setText(`\\x1b[2m${thinkingBuffer}\\n── end thinking ──\\x1b[0m`);
+        const prefixed = thinkingBuffer
+          .split("\\n")
+          .map((l: string) => `\\x1b[2m| ${l}\\x1b[0m`)
+          .join("\\n");
+        thinkingText.setText(`\\x1b[2mThinking...\\x1b[0m\\n${prefixed}\\n\\x1b[2m| end\\x1b[0m`);
         thinkingText = null;
         thinkingBuffer = "";
       }
