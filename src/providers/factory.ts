@@ -1,5 +1,6 @@
 import type { Config } from "../config/schema.js";
 import { OpenAICompatibleAdapter } from "./openai-compatible.js";
+import { OllamaAdapter } from "./ollama.js";
 import { FakeProvider } from "./fake.js";
 
 export function createProvider(
@@ -21,6 +22,16 @@ export function createProvider(
       model: modelOverride ?? pcfg.model,
       apiKey,
       headers: pcfg.headers,
+    });
+  }
+  if (pcfg.type === "ollama") {
+    return new OllamaAdapter({
+      id: name,
+      baseUrl: pcfg.baseUrl ?? "http://127.0.0.1:11434",
+      model: modelOverride ?? pcfg.model,
+      headers: pcfg.headers,
+      keepAlive: pcfg.keepAlive,
+      options: pcfg.options,
     });
   }
   return new FakeProvider([

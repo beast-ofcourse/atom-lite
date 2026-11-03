@@ -85,7 +85,12 @@ export async function executeToolBatch(
       // wait for blockers
       await Promise.all(blockers[i].map((b) => completion[b]));
       if (signal.aborted) {
-        results[i] = { toolCallId: call.id, name: call.name, content: "USER_CANCELLED", isError: true };
+        results[i] = {
+          toolCallId: call.id,
+          name: call.name,
+          content: "USER_CANCELLED",
+          isError: true,
+        };
         resolvers[i]();
         return;
       }
@@ -93,7 +98,12 @@ export async function executeToolBatch(
       try {
         const tool = toolMap.get(call.name);
         if (!tool) {
-          results[i] = { toolCallId: call.id, name: call.name, content: `TOOL_NOT_FOUND: ${call.name}`, isError: true };
+          results[i] = {
+            toolCallId: call.id,
+            name: call.name,
+            content: `TOOL_NOT_FOUND: ${call.name}`,
+            isError: true,
+          };
         } else {
           const r = await tool.execute(call, ctx);
           results[i] = r;

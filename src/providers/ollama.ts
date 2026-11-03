@@ -124,7 +124,10 @@ export class OllamaAdapter implements ProviderAdapter {
     });
   }
 
-  private buildBody(request: ModelRequest, stream: boolean): Record<string, unknown> {
+  private buildBody(
+    request: ModelRequest,
+    stream: boolean,
+  ): Record<string, unknown> {
     const model = this.resolveModel(request);
     const body: Record<string, unknown> = {
       model,
@@ -212,7 +215,8 @@ export class OllamaAdapter implements ProviderAdapter {
             input: json.prompt_eval_count,
             output: json.eval_count,
             total:
-              (json.prompt_eval_count ?? 0) + (json.eval_count ?? 0) || undefined,
+              (json.prompt_eval_count ?? 0) + (json.eval_count ?? 0) ||
+              undefined,
           }
         : undefined;
     return {
@@ -319,8 +323,8 @@ export class OllamaAdapter implements ProviderAdapter {
           input: finalJson.prompt_eval_count,
           output: finalJson.eval_count,
           total:
-            (finalJson.prompt_eval_count ?? 0) +
-            (finalJson.eval_count ?? 0) || undefined,
+            (finalJson.prompt_eval_count ?? 0) + (finalJson.eval_count ?? 0) ||
+            undefined,
         }
       : undefined;
     const response: ModelResponse = {
@@ -350,7 +354,10 @@ export class OllamaAdapter implements ProviderAdapter {
         const info = json?.model_info ?? {};
         let ctx: number | undefined;
         for (const [k, v] of Object.entries(info)) {
-          if (k.toLowerCase().includes("context_length") && typeof v === "number") {
+          if (
+            k.toLowerCase().includes("context_length") &&
+            typeof v === "number"
+          ) {
             ctx = v;
             break;
           }
