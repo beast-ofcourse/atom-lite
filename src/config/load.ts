@@ -71,7 +71,12 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     ...DEFAULT_CONFIG,
     ...userRaw,
     ...projectRaw,
+    defaultProvider:
+      (userRaw as any).defaultProvider ??
+      (projectRaw as any).defaultProvider ??
+      DEFAULT_CONFIG.defaultProvider,
     providers: {
+      ...(DEFAULT_CONFIG.providers as Record<string, unknown>),
       ...((userRaw.providers as object) ?? {}),
       ...((projectRaw.providers as object) ?? {}),
     },
@@ -98,6 +103,8 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
   const mergedRuntime = (merged.runtime as Record<string, unknown>) ?? {};
   mergedRuntime.approvalMode = userRuntime.approvalMode ?? "ask";
   merged.runtime = mergedRuntime;
+
+  // no fallback; trust explicit configuration
 
   const env = envOverrides();
   const mergedWithEnv = {

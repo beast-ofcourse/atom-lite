@@ -19,9 +19,11 @@
     "format:check": "prettier --check ."
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19"
   },
   "dependencies": {
+    "@earendil-works/pi-tui": "^1.5.0",
+    "@opentui/core": "^0.5.10",
     "zod": "^3.23.0"
   },
   "devDependencies": {
