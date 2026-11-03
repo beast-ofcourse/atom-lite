@@ -144,28 +144,58 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ---- Interactive TUI ----
+  // ---- Interactive TUI (first-class) ----
+  const { TuiMainScreen, Text, Input, Editor, Container, Spacer, ScrollView, HStack, VStack, Loader, Markdown, Box } =
+    await import("@earendil-works/pi-tui");
+
   const terminal = new ProcessTerminal();
   const tui = new TuiMainScreen(terminal);
-  const { ScrollView } = await import("@earendil-works/pi-tui");
+
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let effortLevel = "medium";
+
   const content = new Container();
   const output = new ScrollView(content, { follow: "end" });
-  const input = new Input({ prompt: "atom-lite> " });
+
+  const statusProvider = new Text("provider/model");
+  const statusTokens = new Text("tokens: 0/0");
+  const statusEffort = new Text("effort: medium");
+  const statusBar = new HStack([statusProvider, new Spacer(), statusTokens, new Spacer(), statusEffort]);
+
+  const editorTheme = { borderColor: (s: string) => s, selectList: {} as any };
+  const input = new Editor(tui, editorTheme, {});
 
   tui.addChild(output);
   tui.addChild(new Spacer());
+  tui.addChild(statusBar);
   tui.addChild(input);
   tui.setFocus(input);
 
-  let currentText: InstanceType<typeof Text> | null = null;
+  let currentText: any = null;
   let currentBuffer = "";
+  let loader: any = null;
+
+  approvals.handler = interactive
+    ? async (req: any) => {
+        appendLine("box: approval");
+        appendLine(req.command);
+        appendLine("type y / n / t");
+        return new Promise<any>((resolve) => {
+          pendingApproval = (d) => {
+            pendingApproval = null;
+            resolve(d);
+          };
+        });
+      }
+    : undefined;
 
   function appendLine(text: string): void {
     if (currentText) {
       currentText = null;
       currentBuffer = "";
     }
-    for (const line of text.split("\\n")) {
+    for (const line of text.split("\n")) {
       content.addChild(new Text(line));
     }
     tui.requestRender();
@@ -187,7 +217,29 @@ async function main(): Promise<void> {
     currentBuffer = "";
   }
 
+  function updateStatus(): void {
+    statusTokens.setText(`tokens: ${totalInputTokens}/${totalOutputTokens}`);
+    statusEffort.setText(`effort: ${effortLevel}`);
+    statusProvider.setText(`${provider.id}/${modelOverride ?? "default"}`);
+    tui.requestRender();
+  }
+
   appendLineFn = appendLine;
+
+  runtime["onEvent"] = (e: any) => {
+    if (e.type === "assistant_delta") appendDelta(e.text);
+    else if (e.type === "assistant_text") {
+      appendDelta(e.text);
+      finalizeText();
+    } else if (e.type === "tool_call") {
+      finalizeText();
+      appendLine(`[tool] ${e.name} ${JSON.stringify(e.args)}`);
+    } else if (e.type === "tool_result") {
+      appendLine(`  -> ${e.content.split("\n")[0]}`);
+    } else if (e.type === "final") {
+      finalizeText();
+    }
+  };
 
   async function runDoctor(): Promise<string> {
     const lines: string[] = ["Doctor:"];
@@ -197,36 +249,12 @@ async function main(): Promise<void> {
       const r = await provider.generate({ model: modelOverride ?? "default", messages: [{ role: "user", content: [{ type: "text", text: "ping" }] }], tools: [] });
       lines.push(`  provider generate: ok (${r.finishReason})`);
     } catch (e) { lines.push(`  provider generate: FAIL ${e instanceof Error ? e.message : String(e)}`); }
-    if (typeof provider.getModelInfo === "function") {
-      try {
-        const info = await provider.getModelInfo();
-        lines.push(`  model info: ${info ? JSON.stringify(info) : "unknown"}`);
-      } catch (e) { lines.push(`  model info: FAIL ${e instanceof Error ? e.message : String(e)}`); }
-    } else {
-      lines.push("  model info: not supported");
-    }
-    try {
-      const tmp = join(process.cwd(), `.atom-doctor-${Date.now()}`);
-      const { writeFileSync, readFileSync, unlinkSync } = await import("node:fs");
-      writeFileSync(tmp, "ok");
-      const read = readFileSync(tmp, "utf8");
-      unlinkSync(tmp);
-      lines.push(`  workspace rw: ok (${read})`);
-    } catch (e) { lines.push(`  workspace rw: FAIL ${e instanceof Error ? e.message : String(e)}`); }
-    try {
-      const r = await provider.generate({
-        model: modelOverride ?? "default",
-        messages: [{ role: "user", content: [{ type: "text", text: "Call the noop tool." }] }],
-        tools: [{ name: "noop", description: "noop", parameters: { type: "object", properties: {}, additionalProperties: false } }],
-      });
-      lines.push(`  tool-call capability: ${r.toolCalls.length ? "ok" : "not observed"}`);
-    } catch (e) { lines.push(`  tool-call capability: FAIL ${e instanceof Error ? e.message : String(e)}`); }
     return lines.join("\n");
   }
 
   input.onSubmit = async (value: string) => {
     const trimmed = value.trim();
-    input.setValue("");
+    input.setText("");
     if (pendingApproval) {
       const a = trimmed.toLowerCase();
       if (a === "y" || a === "yes") pendingApproval("approve");
@@ -237,7 +265,7 @@ async function main(): Promise<void> {
     if (!trimmed) { tui.requestRender(); return; }
     if (trimmed === "/exit") { tui.stop(); process.exit(0); return; }
     if (trimmed === "/help") {
-      appendLine(["/help", "/model", "/session", "/compact", "/clear", "/approval", "/doctor", "/exit"].join("\n"));
+      appendLine(["/help", "/model", "/session", "/compact", "/clear", "/approval", "/doctor", "/effort", "/exit"].join("\n"));
       return;
     }
     if (trimmed === "/session") {
@@ -255,6 +283,8 @@ async function main(): Promise<void> {
     }
     if (trimmed === "/clear") {
       session.messages.length = 0;
+      content.clear();
+      tui.requestRender();
       appendLine("started new session");
       return;
     }
@@ -266,18 +296,42 @@ async function main(): Promise<void> {
       appendLine("model switching at safe boundaries is not implemented in this skeleton");
       return;
     }
+    if (trimmed.startsWith("/effort")) {
+      const lvl = trimmed.split(/\s+/)[1];
+      if (lvl === "low" || lvl === "medium" || lvl === "high") {
+        effortLevel = lvl;
+        updateStatus();
+        appendLine(`effort set to ${effortLevel}`);
+      } else {
+        appendLine("usage: /effort low|medium|high");
+      }
+      return;
+    }
     appendLine(`> ${trimmed}`);
     const controller = new AbortController();
     try {
-      const result = await runtime.runAgentTurn(trimmed, session, controller.signal);
-      appendLine(result);
+      await runtime.runAgentTurn(trimmed, session, controller.signal);
     } catch (err) {
       appendLine(`atom-lite: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
-  // handle approval routing: bash tool calls checkApproval which calls handler (approve-all in TUI for now)
-  // (interactive approval prompts are simplified; full inline approval can be added later)
+  // fix approvals handler to use appendLine (defined above via closure var)
+  approvals.handler = interactive
+    ? async (req: any) => {
+        appendLine("┌─ approval ─────────────────────────────");
+        appendLine(`│ ${req.command}`);
+        appendLine(`│ cwd: ${req.cwd}  timeout: ${req.timeoutMs}ms  sandboxed: ${req.sandboxed}`);
+        appendLine("│ [y]es / [n]o / [t]rust session");
+        appendLine("└────────────────────────────────────────");
+        return new Promise<any>((resolve) => {
+          pendingApproval = (d) => {
+            pendingApproval = null;
+            resolve(d);
+          };
+        });
+      }
+    : undefined;
 
   tui.start();
 }
