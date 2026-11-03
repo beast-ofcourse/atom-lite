@@ -7,6 +7,7 @@ import type {
   Message,
 } from "../types.js";
 import type { ProviderAdapter } from "./types.js";
+import { parseArgs } from "./tool-calls.js";
 
 export interface GeminiConfig {
   id: string;
@@ -160,7 +161,7 @@ export class GeminiAdapter implements ProviderAdapter {
       .map((p: any, i: number) => ({
         id: `gemini_${i}`,
         name: p.functionCall.name,
-        arguments: p.functionCall.args ?? {},
+        arguments: parseArgs(JSON.stringify(p.functionCall.args ?? {})),
       }));
     const usage: TokenUsage | undefined = json.usageMetadata
       ? {

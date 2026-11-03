@@ -20,7 +20,9 @@ export interface Session {
   readonly workspace: string;
   readonly provider: string;
   messages: Message[];
-  append(message: Message): void;
+  appendMessage(message: Message): void;
+  // Back-compat alias.
+  append?(message: Message): void;
 }
 
 export class InMemorySession implements Session {
@@ -35,8 +37,11 @@ export class InMemorySession implements Session {
     this.provider = provider;
   }
 
-  append(message: Message): void {
+  appendMessage(message: Message): void {
     this.messages.push(message);
+  }
+  append(message: Message): void {
+    this.appendMessage(message);
   }
 }
 
@@ -136,12 +141,8 @@ export class JsonlSession {
     }
   }
 
-  append(input: unknown): void {
-    if (isMessage(input)) {
-      this.appendMessage(input as Message);
-    } else if (input && typeof input === "object" && "type" in (input as any)) {
-      this.appendEvent(input as Partial<SessionEvent>);
-    }
+  append(message: Message): void {
+    this.appendMessage(message);
   }
 
   appendMessage(message: Message): void {

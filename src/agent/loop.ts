@@ -41,10 +41,10 @@ export class AgentRuntime {
 
   async runAgentTurn(
     input: string,
-    session: { messages: Message[]; append(m: Message): void },
+    session: { messages: Message[]; appendMessage(m: Message): void },
     signal: AbortSignal,
   ): Promise<string> {
-    session.append({ role: "user", content: [{ type: "text", text: input }] });
+    session.appendMessage({ role: "user", content: [{ type: "text", text: input }] });
 
     let totalToolCalls = 0;
     const start = Date.now();
@@ -100,7 +100,7 @@ export class AgentRuntime {
         streamedText = t;
       }
 
-      session.append(response.message);
+      session.appendMessage(response.message);
 
       if (response.usage) {
         this.onEvent?.({ type: "usage", input: response.usage.input, output: response.usage.output });
@@ -135,7 +135,7 @@ export class AgentRuntime {
         signal,
       );
       for (const r of results) {
-        session.append({
+        session.appendMessage({
           role: "tool",
           toolCallId: r.toolCallId,
           name: r.name,

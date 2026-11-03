@@ -7,6 +7,7 @@ import type {
   ModelInfo,
 } from "../types.js";
 import type { ProviderAdapter } from "./types.js";
+import { parseArgs } from "./tool-calls.js";
 
 export interface OllamaConfig {
   id?: string;
@@ -176,7 +177,7 @@ export class OllamaAdapter implements ProviderAdapter {
         name: tc?.function?.name ?? tc?.name,
         arguments:
           typeof tc?.function?.arguments === "string"
-            ? safeParse(tc.function.arguments)
+            ? parseArgs(tc.function.arguments)
             : (tc?.function?.arguments ?? tc?.arguments ?? {}),
       });
     });
