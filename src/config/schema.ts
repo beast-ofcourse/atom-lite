@@ -9,7 +9,7 @@ export const ProviderConfigSchema = z
     keepAlive: z.string().optional(),
     options: z.record(z.unknown()).optional(),
   })
-  .passthrough();
+  .strict();
 
 export const RuntimeConfigSchema = z
   .object({
@@ -22,7 +22,7 @@ export const RuntimeConfigSchema = z
     bashConcurrency: z.enum(["serial", "parallel"]).default("serial"),
     approvalMode: z.enum(["ask", "trusted", "deny"]).default("ask"),
   })
-  .passthrough();
+  .strict();
 
 export const ContextConfigSchema = z
   .object({
@@ -31,14 +31,14 @@ export const ContextConfigSchema = z
     compactAtPercent: z.number().int().min(1).max(100).default(85),
     maxProjectInstructionBytes: z.number().int().positive().default(30000),
   })
-  .passthrough();
+  .strict();
 
 export const SessionsConfigSchema = z
   .object({
     enabled: z.boolean().default(true),
     retentionDays: z.number().int().positive().nullable().default(null),
   })
-  .passthrough();
+  .strict();
 
 export const ConfigSchema = z
   .object({
@@ -48,6 +48,6 @@ export const ConfigSchema = z
     context: ContextConfigSchema.default({}),
     sessions: SessionsConfigSchema.default({}),
   })
-  .passthrough();
+  .strict();
 
 export type Config = z.infer<typeof ConfigSchema>;

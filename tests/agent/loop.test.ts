@@ -8,6 +8,6 @@ test("agent loop returns final text from a fake provider", async () => {
   const provider = new FakeProvider([{ text: "hello world" }]);
   const runtime = new AgentRuntime({ provider, tools: [] });
   const session = new InMemorySession("s1", "/tmp/ws");
-  const result = await runtime.runTurn("say hi", session, new AbortController().signal);
+  const result = await runtime.runAgentTurn("say hi", session, new AbortController().signal);
   assert.equal(result, "hello world");
 });

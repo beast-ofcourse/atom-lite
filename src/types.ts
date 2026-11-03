@@ -21,7 +21,7 @@ export type Message =
 
 export interface ToolCall {
   id: string;
-  name: string;
+  name: "read" | "write" | "edit" | "bash";
   arguments: Record<string, unknown>;
 }
 

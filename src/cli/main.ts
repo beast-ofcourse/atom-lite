@@ -16,8 +16,15 @@ async function main(): Promise<void> {
 
   if (oneShot) {
     const session = new InMemorySession("cli", process.cwd(), provider.id);
-    const result = await runtime.runTurn(oneShot, session, new AbortController().signal);
-    process.stdout.write(result + "\n");
+    const controller = new AbortController();
+    const onSigint = () => controller.abort();
+    process.on("SIGINT", onSigint);
+    try {
+      const result = await runtime.runAgentTurn(oneShot, session, controller.signal);
+      process.stdout.write(result + "\n");
+    } finally {
+      process.off("SIGINT", onSigint);
+    }
     return;
   }
 
@@ -37,8 +44,17 @@ async function main(): Promise<void> {
       rl.prompt();
       return;
     }
-    const result = await runtime.runTurn(trimmed, session, new AbortController().signal);
-    process.stdout.write(result + "\n");
+    const controller = new AbortController();
+    const onSigint = () => controller.abort();
+    process.on("SIGINT", onSigint);
+    try {
+      const result = await runtime.runAgentTurn(trimmed, session, controller.signal);
+      process.stdout.write(result + "\n");
+    } catch (err) {
+      process.stderr.write(`atom-lite: ${err instanceof Error ? err.message : String(err)}\n`);
+    } finally {
+      process.off("SIGINT", onSigint);
+    }
     rl.prompt();
   });
   rl.on("close", () => process.exit(0));

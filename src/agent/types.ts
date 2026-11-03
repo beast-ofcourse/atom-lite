@@ -6,6 +6,7 @@ import type { ToolDefinition } from "../types.js";
 
 export interface AgentRuntimeOptions {
   provider: ProviderAdapter;
+  model?: string;
   tools: ToolDefinition[];
   limits?: Partial<AgentLimits>;
   systemPrompt?: string;
