@@ -2,6 +2,8 @@
 import { loadConfig } from "../config/load.js";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
+import { readFileSync, existsSync } from "node:fs";
+import { renderDiff } from "./diff.js";
 import { AgentRuntime } from "../agent/loop.js";
 import { JsonlSessionStore } from "../sessions/store.js";
 import { readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool } from "../tools/index.js";
@@ -223,7 +225,7 @@ async function main(): Promise<void> {
   let showThinking = true;
   let loader: any = null;
   let expandTools = false;
-  const toolBoxes: { header: any; output: any; container: any; lines: string[] }[] = [];
+  const toolBoxes: { header: any; output: any; container: any; lines: string[]; toolName?: string; args?: any; oldContent?: string | null }[] = [];
 
   approvals.handler = interactive
     ? async (req: any) => {
@@ -354,16 +356,46 @@ async function main(): Promise<void> {
       const output = new Container();
       box.addChild(output);
       content.addChild(box);
-      toolBoxes.push({ header, output, container: box, lines: [] });
+      const boxRec: any = { header, output, container: box, lines: [], oldContent: null, toolName: e.name, args: e.args };
+      // Capture old content for diff rendering
+      if ((e.name === "write" || e.name === "edit") && e.args?.path) {
+        try {
+          const p = (e.args.path.startsWith("/") ? e.args.path : join(process.cwd(), e.args.path));
+          if (existsSync(p)) boxRec.oldContent = readFileSync(p, "utf8");
+        } catch { /* ignore */ }
+      }
+      toolBoxes.push(boxRec);
       tui.requestRender();
     } else if (e.type === "tool_result") {
       const last = toolBoxes[toolBoxes.length - 1];
       if (last) {
-        last.lines.push(...e.content.split("\n"));
-        if (expandTools) {
-          for (const l of e.content.split("\n")) last.output.addChild(new Text(l));
+        const isDiffTool = last.toolName === "write" || last.toolName === "edit";
+        if (isDiffTool && last.oldContent !== null) {
+          let newContent = "";
+          try {
+            const argPath = String(last.args?.path ?? "");
+            const p = (argPath.startsWith("/") ? argPath : join(process.cwd(), argPath)) as string;
+            newContent = readFileSync(p as string, "utf8");
+          } catch { /* ignore */ }
+          const diffLines = renderDiff(last.oldContent ?? "", newContent);
+          last.lines = diffLines;
+          if (expandTools) {
+            for (const l of diffLines) {
+              const colored = l.startsWith("+") ? `\x1b[32m${l}\x1b[0m` : l.startsWith("-") ? `\x1b[31m${l}\x1b[0m` : l;
+              last.output.addChild(new Text(colored));
+            }
+          } else {
+            const added = diffLines.filter((l) => l.startsWith("+")).length;
+            const removed = diffLines.filter((l) => l.startsWith("-")).length;
+            last.output.addChild(new Text(`  +${added} -${removed} (ctrl+o to expand)`));
+          }
         } else {
-          last.output.addChild(new Text(`  (${e.content.split("\n").length} lines, ctrl+o to expand)`));
+          last.lines.push(...e.content.split("\n"));
+          if (expandTools) {
+            for (const l of e.content.split("\n")) last.output.addChild(new Text(l));
+          } else {
+            last.output.addChild(new Text(`  (${e.content.split("\n").length} lines, ctrl+o to expand)`));
+          }
         }
         tui.requestRender();
       }
