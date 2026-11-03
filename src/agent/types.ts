@@ -5,6 +5,14 @@ import type { ProviderAdapter } from "../providers/types.js";
 import type { Tool } from "../tools/types.js";
 import type { ApprovalContext } from "../runtime/approvals.js";
 import type { ContextManager } from "../context/manager.js";
+import type { ToolCall } from "../types.js";
+
+export type AgentEvent =
+  | { type: "assistant_text"; text: string }
+  | { type: "tool_call"; name: string; args: Record<string, unknown> }
+  | { type: "tool_result"; name: string; content: string; isError?: boolean }
+  | { type: "final"; text: string }
+  | { type: "error"; message: string };
 
 export interface AgentRuntimeOptions {
   provider: ProviderAdapter;
@@ -15,6 +23,7 @@ export interface AgentRuntimeOptions {
   systemPrompt?: string;
   approvals?: ApprovalContext;
   contextManager?: ContextManager;
+  onEvent?: (event: AgentEvent) => void;
 }
 
 export interface RunTurnParams {

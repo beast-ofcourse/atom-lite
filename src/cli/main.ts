@@ -81,12 +81,22 @@ async function main(): Promise<void> {
   });
 
   let sessionTrusted = false;
+  let appendLineFn: (t: string) => void = () => {};
+  let pendingApproval: ((d: "approve" | "deny" | "trust-session") => void) | null = null;
+
   const approvals: import("../runtime/approvals.js").ApprovalContext = {
     mode: (config.runtime.approvalMode as "ask" | "trusted" | "deny") ?? "ask",
     handler: interactive
       ? async (req) => {
-          // In TUI mode, approval is handled by the input router; fall back to allow for non-blocking.
-          return "approve";
+          appendLineFn(`[approval] ${req.command}`);
+          appendLineFn(`  cwd: ${req.cwd}  timeout: ${req.timeoutMs}ms  sandboxed: ${req.sandboxed}`);
+          appendLineFn("  type y (approve) / n (deny) / t (trust session)");
+          return new Promise<"approve" | "deny" | "trust-session">((resolve) => {
+            pendingApproval = (d) => {
+              pendingApproval = null;
+              resolve(d);
+            };
+          });
         }
       : undefined,
     isTrusted: () => sessionTrusted,
@@ -103,6 +113,12 @@ async function main(): Promise<void> {
     tools,
     approvals,
     contextManager,
+    onEvent: (e) => {
+      if (e.type === "assistant_text") appendLineFn(e.text);
+      else if (e.type === "tool_call") appendLineFn(`[tool] ${e.name} ${JSON.stringify(e.args)}`);
+      else if (e.type === "tool_result") appendLineFn(`  -> ${e.content.split("\\n")[0]}`);
+      else if (e.type === "final" && !e.text) appendLineFn("(done)");
+    },
   });
 
   if (oneShot || !interactive) {
@@ -130,7 +146,9 @@ async function main(): Promise<void> {
   // ---- Interactive TUI ----
   const terminal = new ProcessTerminal();
   const tui = new TuiMainScreen(terminal);
-  const output = new Container();
+  const { ScrollView } = await import("@earendil-works/pi-tui");
+  const content = new Container();
+  const output = new ScrollView(content, { follow: "end" });
   const input = new Input({ prompt: "atom-lite> " });
 
   tui.addChild(output);
@@ -139,9 +157,12 @@ async function main(): Promise<void> {
   tui.setFocus(input);
 
   function appendLine(text: string): void {
-    output.addChild(new Text(text));
+    for (const line of text.split("\\n")) {
+      content.addChild(new Text(line));
+    }
     tui.requestRender();
   }
+  appendLineFn = appendLine;
 
   async function runDoctor(): Promise<string> {
     const lines: string[] = ["Doctor:"];
@@ -181,6 +202,13 @@ async function main(): Promise<void> {
   input.onSubmit = async (value: string) => {
     const trimmed = value.trim();
     input.setValue("");
+    if (pendingApproval) {
+      const a = trimmed.toLowerCase();
+      if (a === "y" || a === "yes") pendingApproval("approve");
+      else if (a === "t" || a === "trust") pendingApproval("trust-session");
+      else pendingApproval("deny");
+      return;
+    }
     if (!trimmed) { tui.requestRender(); return; }
     if (trimmed === "/exit") { tui.stop(); process.exit(0); return; }
     if (trimmed === "/help") {

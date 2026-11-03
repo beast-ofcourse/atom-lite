@@ -10,6 +10,7 @@ export class AgentRuntime {
   private workspace: string;
   private approvals: AgentRuntimeOptions["approvals"];
   private contextManager: ContextManager;
+  private onEvent: AgentRuntimeOptions["onEvent"];
   private tools: AgentRuntimeOptions["tools"];
   private toolMap: Map<string, AgentRuntimeOptions["tools"][number]>;
   private limits: AgentLimits;
@@ -20,6 +21,7 @@ export class AgentRuntime {
     this.model = options.model ?? "default";
     this.workspace = options.workspace ?? process.cwd();
     this.approvals = options.approvals;
+    this.onEvent = options.onEvent;
     this.tools = options.tools;
     this.contextManager =
       options.contextManager ??
@@ -74,14 +76,19 @@ export class AgentRuntime {
       const response = await this.provider.generate(request);
       session.append(response.message);
 
+      const text =
+        response.message.content
+          ?.map((p) => (p.type === "text" ? p.text : ""))
+          .join("") ?? "";
+      if (text) this.onEvent?.({ type: "assistant_text", text });
+
       const toolCalls = response.toolCalls ?? [];
       if (toolCalls.length === 0) {
-        const text =
-          response.message.content
-            ?.map((p) => (p.type === "text" ? p.text : ""))
-            .join("") ?? "";
+        this.onEvent?.({ type: "final", text });
         return text;
       }
+      for (const c of toolCalls)
+        this.onEvent?.({ type: "tool_call", name: c.name, args: c.arguments });
 
       totalToolCalls += toolCalls.length;
       if (totalToolCalls > this.limits.maxToolCalls) {
@@ -109,6 +116,7 @@ export class AgentRuntime {
           name: r.name,
           content: r.content,
         });
+        this.onEvent?.({ type: "tool_result", name: r.name, content: r.content, isError: r.isError });
       }
     }
 
