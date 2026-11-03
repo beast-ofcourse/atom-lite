@@ -187,7 +187,9 @@ async function main(): Promise<void> {
   const editorTheme = { borderColor: (s: string) => s, selectList: selectListTheme };
   const input = new Editor(tui, editorTheme, {});
   const { CombinedAutocompleteProvider } = await import("@earendil-works/pi-tui");
-  const slashCommands = [
+  const { DefaultSkillRegistry } = await import("../skills/registry.js");
+  const skillReg = new DefaultSkillRegistry(process.cwd());
+  const slashCommands: { name: string; description?: string }[] = [
     { name: "help", description: "show commands" },
     { name: "model", description: "show/switch model" },
     { name: "session", description: "session info" },
@@ -196,8 +198,12 @@ async function main(): Promise<void> {
     { name: "approval", description: "approval mode" },
     { name: "doctor", description: "diagnostics" },
     { name: "effort", description: "set effort level" },
+    { name: "skills", description: "list/select skills" },
     { name: "exit", description: "exit" },
   ];
+  for (const s of skillReg.list()) {
+    slashCommands.push({ name: s.name, description: s.description });
+  }
   input.setAutocompleteProvider(new CombinedAutocompleteProvider(slashCommands as any, process.cwd()));
 
   tui.addChild(header);
