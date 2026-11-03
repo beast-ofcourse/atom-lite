@@ -66,6 +66,7 @@ export interface ModelResponse {
 
 export type ModelStreamEvent =
   | { type: "text"; text: string }
+  | { type: "thinking"; text: string }
   | { type: "tool_call"; toolCall: ToolCall }
   | { type: "done"; response: ModelResponse };
 

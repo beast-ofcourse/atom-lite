@@ -9,6 +9,7 @@ import type { ToolCall } from "../types.js";
 
 export type AgentEvent =
   | { type: "assistant_delta"; text: string }
+  | { type: "thinking_delta"; text: string }
   | { type: "assistant_text"; text: string }
   | { type: "tool_call"; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; name: string; content: string; isError?: boolean }

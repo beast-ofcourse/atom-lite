@@ -173,6 +173,10 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
             };
           }
           const delta = json.choices?.[0]?.delta ?? {};
+          const reasoning = delta.reasoning_content ?? delta.reasoning;
+          if (reasoning) {
+            yield { type: "thinking", text: reasoning };
+          }
           if (delta.content) {
             text += delta.content;
             yield { type: "text", text: delta.content };

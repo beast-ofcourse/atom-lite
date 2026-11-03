@@ -95,7 +95,9 @@ export class AgentRuntime {
       if (typeof this.provider.stream === "function") {
         // Stream tokens as they arrive.
         for await (const ev of this.provider.stream(request)) {
-          if (ev.type === "text") {
+          if (ev.type === "thinking") {
+            this.onEvent?.({ type: "thinking_delta", text: ev.text });
+          } else if (ev.type === "text") {
             streamedText += ev.text;
             this.onEvent?.({ type: "assistant_delta", text: ev.text });
           } else if (ev.type === "done") {

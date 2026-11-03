@@ -217,6 +217,9 @@ async function main(): Promise<void> {
 
   let currentText: any = null;
   let currentBuffer = "";
+  let thinkingText: any = null;
+  let thinkingBuffer = "";
+  let showThinking = true;
   let loader: any = null;
 
   approvals.handler = interactive
@@ -234,6 +237,10 @@ async function main(): Promise<void> {
     : undefined;
 
   function appendLine(text: string): void {
+    if (thinkingText) {
+      thinkingText = null;
+      thinkingBuffer = "";
+    }
     if (currentText) {
       currentText = null;
       currentBuffer = "";
@@ -270,8 +277,31 @@ async function main(): Promise<void> {
   appendLineFn = appendLine;
 
   runtime["onEvent"] = (e: any) => {
-    if (e.type === "assistant_delta") appendDelta(e.text);
-    else if (e.type === "assistant_text") {
+    if (e.type === "thinking_delta") {
+      if (!showThinking) return;
+      if (!thinkingText) {
+        thinkingText = new Text("\\x1b[2m── thinking ──\\x1b[0m");
+        content.addChild(thinkingText);
+        thinkingBuffer = "";
+      }
+      thinkingBuffer += e.text;
+      // render thinking in dim italic
+      thinkingText.setText(`\\x1b[2m${thinkingBuffer}\\x1b[0m`);
+      tui.requestRender();
+    } else if (e.type === "assistant_delta") {
+      if (thinkingText) {
+        // finalize thinking with separator
+        thinkingText.setText(`\\x1b[2m${thinkingBuffer}\\n── end thinking ──\\x1b[0m`);
+        thinkingText = null;
+        thinkingBuffer = "";
+      }
+      appendDelta(e.text);
+    } else if (e.type === "assistant_text") {
+      if (thinkingText) {
+        thinkingText.setText(`\\x1b[2m${thinkingBuffer}\\n── end thinking ──\\x1b[0m`);
+        thinkingText = null;
+        thinkingBuffer = "";
+      }
       appendDelta(e.text);
       finalizeText();
     } else if (e.type === "usage") {
@@ -345,7 +375,7 @@ async function main(): Promise<void> {
     }
     if (trimmed === "/exit") { tui.stop(); process.exit(0); return; }
     if (trimmed === "/help") {
-      appendLine(["/help", "/model", "/session", "/compact", "/clear", "/approval", "/doctor", "/effort", "/exit"].join("\n"));
+      appendLine(["/help", "/model", "/session", "/compact", "/clear", "/approval", "/doctor", "/effort", "/thinking", "/exit"].join("\n"));
       return;
     }
     if (trimmed === "/session") {
@@ -460,6 +490,11 @@ async function main(): Promise<void> {
       return;
     }
 
+    if (trimmed === "/thinking") {
+      showThinking = !showThinking;
+      appendLine(`thinking display: ${showThinking ? "shown" : "hidden"}`);
+      return;
+    }
     if (trimmed.startsWith("/effort")) {
       const parts = trimmed.split(/\s+/);
       if (parts.length >= 2) {

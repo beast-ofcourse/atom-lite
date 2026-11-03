@@ -293,6 +293,10 @@ export class OllamaAdapter implements ProviderAdapter {
         } catch {
           continue;
         }
+        const chunkThinking = json?.message?.thinking;
+        if (chunkThinking) {
+          yield { type: "thinking", text: chunkThinking };
+        }
         const chunkText = json?.message?.content;
         if (chunkText) {
           text += chunkText;
@@ -320,6 +324,10 @@ export class OllamaAdapter implements ProviderAdapter {
     if (buffer.trim()) {
       try {
         const json = JSON.parse(buffer.trim());
+        const chunkThinking = json?.message?.thinking;
+        if (chunkThinking) {
+          yield { type: "thinking", text: chunkThinking };
+        }
         const chunkText = json?.message?.content;
         if (chunkText) {
           text += chunkText;

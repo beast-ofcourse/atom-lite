@@ -157,10 +157,14 @@ export class GeminiAdapter implements ProviderAdapter {
     const json = (await res.json()) as any;
     const candidate = json.candidates?.[0];
     const parts = candidate?.content?.parts ?? [];
+    const thinkingParts = parts
+      .filter((p: any) => p.thought && typeof p.text === "string")
+      .map((p: any) => p.text);
     const textParts = parts
-      .filter((p: any) => typeof p.text === "string")
+      .filter((p: any) => !p.thought && typeof p.text === "string")
       .map((p: any) => p.text);
     const text = textParts.join("");
+    const thinking = thinkingParts.join("");
     const toolCalls: ToolCall[] = parts
       .filter((p: any) => p.functionCall)
       .map((p: any, i: number) => ({
@@ -189,11 +193,14 @@ export class GeminiAdapter implements ProviderAdapter {
       toolCalls,
       finishReason: toolCalls.length ? "tool_calls" : "stop",
       usage,
+      metadata: thinking ? { thinking } : undefined,
     };
   }
 
   async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
     const resp = await this.generate(request);
+    const thinking = (resp.metadata as any)?.thinking;
+    if (thinking) yield { type: "thinking", text: thinking };
     if (resp.message.content?.[0]?.type === "text") {
       yield { type: "text", text: (resp.message.content[0] as any).text };
     }
