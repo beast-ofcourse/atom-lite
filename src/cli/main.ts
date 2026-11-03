@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { loadConfig } from "../config/load.js";
 import { AgentRuntime } from "../agent/loop.js";
-import { FakeProvider } from "../providers/fake.js";
 import { InMemorySession } from "../sessions/store.js";
-import { InMemoryToolRegistry } from "../tools/registry.js";
+import { readTool, writeTool, editTool, bashTool } from "../tools/index.js";
+import { createProvider } from "../providers/factory.js";
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -25,11 +25,14 @@ async function main(): Promise<void> {
   const oneShot = positional.join(" ").trim();
 
   const config = loadConfig();
-  const provider = new FakeProvider([
-    { text: "Hello from atom-lite skeleton." },
-  ]);
-  const tools = new InMemoryToolRegistry();
-  const runtime = new AgentRuntime({ provider, tools: tools.definitions() });
+  const provider = createProvider(config, providerOverride);
+  const tools = [readTool, writeTool, editTool, bashTool];
+  const runtime = new AgentRuntime({
+    provider,
+    model: modelOverride,
+    workspace: process.cwd(),
+    tools,
+  });
 
   if (oneShot) {
     const session = new InMemorySession("cli", process.cwd(), provider.id);
@@ -37,19 +40,17 @@ async function main(): Promise<void> {
     const onSigint = () => controller.abort();
     process.on("SIGINT", onSigint);
     try {
-      const result = await runtime.runAgentTurn(
-        oneShot,
-        session,
-        controller.signal,
-      );
+      const result = await runtime.runAgentTurn(oneShot, session, controller.signal);
       process.stdout.write(result + "\n");
+    } catch (err) {
+      process.stderr.write(`atom-lite: ${err instanceof Error ? err.message : String(err)}\n`);
+      process.exit(1);
     } finally {
       process.off("SIGINT", onSigint);
     }
     return;
   }
 
-  // Minimal interactive loop
   const { createInterface } = await import("node:readline");
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const session = new InMemorySession("cli", process.cwd(), provider.id);
@@ -69,16 +70,10 @@ async function main(): Promise<void> {
     const onSigint = () => controller.abort();
     process.on("SIGINT", onSigint);
     try {
-      const result = await runtime.runAgentTurn(
-        trimmed,
-        session,
-        controller.signal,
-      );
+      const result = await runtime.runAgentTurn(trimmed, session, controller.signal);
       process.stdout.write(result + "\n");
     } catch (err) {
-      process.stderr.write(
-        `atom-lite: ${err instanceof Error ? err.message : String(err)}\n`,
-      );
+      process.stderr.write(`atom-lite: ${err instanceof Error ? err.message : String(err)}\n`);
     } finally {
       process.off("SIGINT", onSigint);
     }
@@ -88,8 +83,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  process.stderr.write(
-    `atom-lite: ${err instanceof Error ? err.message : String(err)}\n`,
-  );
+  process.stderr.write(`atom-lite: ${err instanceof Error ? err.message : String(err)}\n`);
   process.exit(1);
 });

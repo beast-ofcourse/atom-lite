@@ -5,14 +5,18 @@ import type { Message, ModelRequest, AgentLimits } from "../types.js";
 export class AgentRuntime {
   private provider: AgentRuntimeOptions["provider"];
   private model: string;
+  private workspace: string;
   private tools: AgentRuntimeOptions["tools"];
+  private toolMap: Map<string, AgentRuntimeOptions["tools"][number]>;
   private limits: AgentLimits;
   private systemPrompt: string;
 
   constructor(options: AgentRuntimeOptions) {
     this.provider = options.provider;
     this.model = options.model ?? "default";
+    this.workspace = options.workspace ?? process.cwd();
     this.tools = options.tools;
+    this.toolMap = new Map(options.tools.map((t) => [t.definition.name, t]));
     this.limits = { ...DEFAULT_LIMITS, ...(options.limits ?? {}) };
     this.systemPrompt = options.systemPrompt ?? "You are a coding assistant.";
   }
@@ -47,7 +51,7 @@ export class AgentRuntime {
       const request: ModelRequest = {
         model: this.model,
         messages,
-        tools: this.tools,
+        tools: this.tools.map((t) => t.definition),
         signal,
       };
 
@@ -67,14 +71,34 @@ export class AgentRuntime {
         return "TASK_BUDGET_REACHED";
       }
 
-      // Tool execution is implemented in later tickets; record placeholders.
+      // Execute tool calls sequentially (parallel scheduling lands in ticket 03).
       for (const call of response.toolCalls) {
+        const tool = this.toolMap.get(call.name);
+        let resultContent: string;
+        let isError = false;
+        if (!tool) {
+          resultContent = `TOOL_NOT_FOUND: ${call.name}`;
+          isError = true;
+        } else {
+          try {
+            const r = await tool.execute(call, { workspace: this.workspace, signal });
+            // workspace is injected by caller; set below via context. For now use process cwd.
+            resultContent = r.content;
+            isError = !!r.isError;
+          } catch (err) {
+            resultContent = `COMMAND_FAILED: ${err instanceof Error ? err.message : String(err)}`;
+            isError = true;
+          }
+        }
         session.append({
           role: "tool",
           toolCallId: call.id,
           name: call.name,
-          content: `Tool ${call.name} not implemented in skeleton`,
+          content: resultContent,
         });
+        if (isError) {
+          // still continue; error is part of transcript
+        }
       }
     }
 

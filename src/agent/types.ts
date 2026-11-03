@@ -2,12 +2,13 @@ import type { AgentLimits } from "../types.js";
 export type { AgentLimits };
 import type { Message } from "../types.js";
 import type { ProviderAdapter } from "../providers/types.js";
-import type { ToolDefinition } from "../types.js";
+import type { Tool } from "../tools/types.js";
 
 export interface AgentRuntimeOptions {
   provider: ProviderAdapter;
   model?: string;
-  tools: ToolDefinition[];
+  workspace?: string;
+  tools: Tool[];
   limits?: Partial<AgentLimits>;
   systemPrompt?: string;
 }
