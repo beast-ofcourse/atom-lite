@@ -169,9 +169,9 @@ async function main(): Promise<void> {
     }
     return branch ? `${displayPath}:${branch}` : displayPath;
   }
-  const header = new Text(headerLabel());
-
   const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
+  const header = new Text(dim(headerLabel()));
+
   const statusProvider = new Text(dim(`${provider.id}/${(provider as any).model ?? "default"}`));
   const statusTokens = new Text(dim("tokens: 0/0"));
   const statusEffort = new Text(dim("effort: medium"));
@@ -206,11 +206,12 @@ async function main(): Promise<void> {
   }
   input.setAutocompleteProvider(new CombinedAutocompleteProvider(slashCommands as any, process.cwd()));
 
-  tui.addChild(header);
   tui.addChild(output);
   tui.addChild(new Spacer());
   tui.addChild(input);
   tui.addChild(statusBar);
+  // folder:branch info below the status line, dimmed
+  tui.addChild(header);
   const dropdownContainer = new Container();
   tui.addChild(dropdownContainer);
   tui.setFocus(input);
