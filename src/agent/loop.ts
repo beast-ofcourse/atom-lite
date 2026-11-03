@@ -102,6 +102,10 @@ export class AgentRuntime {
 
       session.append(response.message);
 
+      if (response.usage) {
+        this.onEvent?.({ type: "usage", input: response.usage.input, output: response.usage.output });
+      }
+
       const text = streamedText || (response.message.content?.map((p: any) => (p.type === "text" ? p.text : "")).join("") ?? "");
       const toolCalls = response.toolCalls ?? [];
       if (toolCalls.length === 0) {

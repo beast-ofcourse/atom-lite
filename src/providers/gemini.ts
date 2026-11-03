@@ -82,7 +82,7 @@ function toGeminiContents(messages: Message[]): {
 
 export class GeminiAdapter implements ProviderAdapter {
   readonly id: string;
-  private model: string;
+  public model: string;
   private apiKey: string | null;
   private baseUrl: string;
 

@@ -18,7 +18,7 @@ export interface OpenAICompatibleConfig {
 export class OpenAICompatibleAdapter implements ProviderAdapter {
   readonly id: string;
   private baseUrl: string;
-  private model: string;
+  public model: string;
   private apiKey: string | null;
   private headers: Record<string, string>;
 

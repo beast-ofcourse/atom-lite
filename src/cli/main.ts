@@ -113,13 +113,6 @@ async function main(): Promise<void> {
     tools,
     approvals,
     contextManager,
-    onEvent: (e) => {
-      if (e.type === "assistant_delta") appendDelta(e.text);
-      else if (e.type === "assistant_text") { appendDelta(e.text); finalizeText(); }
-      else if (e.type === "tool_call") { finalizeText(); appendLine(`[tool] ${e.name} ${JSON.stringify(e.args)}`); }
-      else if (e.type === "tool_result") appendLine(`  -> ${e.content.split("\\n")[0]}`);
-      else if (e.type === "final") { finalizeText(); }
-    },
   });
 
   if (oneShot || !interactive) {
@@ -159,7 +152,7 @@ async function main(): Promise<void> {
   const output = new ScrollView(content, { follow: "end" });
 
   const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
-  const statusProvider = new Text(dim("provider/model"));
+  const statusProvider = new Text(dim(`${provider.id}/${(provider as any).model ?? "default"}`));
   const statusTokens = new Text(dim("tokens: 0/0"));
   const statusEffort = new Text(dim("effort: medium"));
   const statusBar = new HStack([statusProvider, new Spacer(), statusTokens, new Spacer(), statusEffort]);
@@ -241,7 +234,7 @@ async function main(): Promise<void> {
   function updateStatus(): void {
     statusTokens.setText(dim(`tokens: ${totalInputTokens}/${totalOutputTokens}`));
     statusEffort.setText(dim(`effort: ${effortLevel}`));
-    statusProvider.setText(dim(`${provider.id}/${modelOverride ?? "default"}`));
+    statusProvider.setText(dim(`${provider.id}/${modelOverride ?? (provider as any).model ?? "default"}`));
     tui.requestRender();
   }
 
@@ -252,6 +245,10 @@ async function main(): Promise<void> {
     else if (e.type === "assistant_text") {
       appendDelta(e.text);
       finalizeText();
+    } else if (e.type === "usage") {
+      totalInputTokens += e.input ?? 0;
+      totalOutputTokens += e.output ?? 0;
+      updateStatus();
     } else if (e.type === "tool_call") {
       finalizeText();
       appendLine(`[tool] ${e.name} ${JSON.stringify(e.args)}`);

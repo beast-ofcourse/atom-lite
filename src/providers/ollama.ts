@@ -25,7 +25,7 @@ export interface OllamaConfig {
 export class OllamaAdapter implements ProviderAdapter {
   readonly id: string;
   private baseUrl: string;
-  private model: string;
+  public model: string;
   private headers: Record<string, string>;
   private keepAlive: string | number | undefined;
   private think: boolean | string | undefined;

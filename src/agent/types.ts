@@ -13,6 +13,7 @@ export type AgentEvent =
   | { type: "tool_call"; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; name: string; content: string; isError?: boolean }
   | { type: "final"; text: string }
+  | { type: "usage"; input?: number; output?: number }
   | { type: "error"; message: string };
 
 export interface AgentRuntimeOptions {
