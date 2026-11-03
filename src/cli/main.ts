@@ -222,6 +222,8 @@ async function main(): Promise<void> {
   let thinkingBuffer = "";
   let showThinking = true;
   let loader: any = null;
+  let expandTools = false;
+  const toolBoxes: { header: any; output: any; container: any; lines: string[] }[] = [];
 
   approvals.handler = interactive
     ? async (req: any) => {
@@ -277,6 +279,28 @@ async function main(): Promise<void> {
 
   appendLineFn = appendLine;
 
+  function toggleTools(): void {
+    expandTools = !expandTools;
+    for (const box of toolBoxes) {
+      box.output.clear();
+      if (expandTools) {
+        for (const l of box.lines) box.output.addChild(new Text(l));
+      } else {
+        box.output.addChild(new Text(`  (${box.lines.length} lines, ctrl+o to expand)`));
+      }
+    }
+    tui.requestRender();
+  }
+
+  tui.addInputListener((data: string) => {
+    // Ctrl+O toggles tool expansion
+    if (data === "\x0f") {
+      toggleTools();
+      return { consume: true };
+    }
+    return undefined;
+  });
+
   runtime["onEvent"] = (e: any) => {
     if (e.type === "thinking_delta") {
       if (!showThinking) return;
@@ -324,9 +348,25 @@ async function main(): Promise<void> {
       updateStatus();
     } else if (e.type === "tool_call") {
       finalizeText();
-      appendLine(`[tool] ${e.name} ${JSON.stringify(e.args)}`);
+      const box = new Container();
+      const header = new Text(`▸ ${e.name} ${JSON.stringify(e.args)}`);
+      box.addChild(header);
+      const output = new Container();
+      box.addChild(output);
+      content.addChild(box);
+      toolBoxes.push({ header, output, container: box, lines: [] });
+      tui.requestRender();
     } else if (e.type === "tool_result") {
-      appendLine(`  -> ${e.content.split("\n")[0]}`);
+      const last = toolBoxes[toolBoxes.length - 1];
+      if (last) {
+        last.lines.push(...e.content.split("\n"));
+        if (expandTools) {
+          for (const l of e.content.split("\n")) last.output.addChild(new Text(l));
+        } else {
+          last.output.addChild(new Text(`  (${e.content.split("\n").length} lines, ctrl+o to expand)`));
+        }
+        tui.requestRender();
+      }
     } else if (e.type === "final") {
       finalizeText();
     }
