@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { AgentRuntime } from "../agent/loop.js";
 import { JsonlSessionStore } from "../sessions/store.js";
-import { readTool, writeTool, editTool, bashTool } from "../tools/index.js";
+import { readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool } from "../tools/index.js";
 import { createProvider } from "../providers/factory.js";
 import { ContextManager } from "../context/manager.js";
 import { ProcessTerminal, TuiMainScreen, Text, Input, Container, Spacer } from "@earendil-works/pi-tui";
@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   const config = loadConfig();
   let provider = createProvider(config, providerOverride, modelOverride);
   const useTools = !positional.includes("__notools__");
-  const tools = useTools ? [readTool, writeTool, editTool, bashTool] : [];
+  const tools = useTools ? [readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool] : [];
 
   const interactive = process.stdin.isTTY === true && !jsonMode;
 

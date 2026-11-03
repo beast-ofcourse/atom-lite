@@ -20,7 +20,7 @@ export type Message =
 
 export interface ToolCall {
   id: string;
-  name: "read" | "write" | "edit" | "bash";
+  name: "read" | "write" | "edit" | "bash" | "webfetch" | "websearch" | "grep" | "glob";
   arguments: Record<string, unknown>;
 }
 

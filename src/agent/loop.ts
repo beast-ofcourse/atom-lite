@@ -38,7 +38,7 @@ export class AgentRuntime {
       });
     this.toolMap = new Map(options.tools.map((t) => [t.definition.name, t]));
     this.limits = { ...DEFAULT_LIMITS, ...(options.limits ?? {}) };
-    this.systemPrompt = options.systemPrompt ?? "You are a coding assistant.";
+    this.systemPrompt = options.systemPrompt ?? "You are a coding assistant with tools: read, write, edit, bash, webfetch, websearch.";
   }
 
   switchModel(provider: AgentRuntimeOptions["provider"], model?: string): void {

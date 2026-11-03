@@ -32,7 +32,12 @@ export async function executeToolBatch(
 
   const acquire = async (call: ToolCall): Promise<Release> => {
     if (isBash(call)) return lm.acquireGlobal(signal);
+    if (call.name === "webfetch" || call.name === "websearch") {
+      // No file lock; network-only. Return a no-op release.
+      return () => {};
+    }
     const key = resourceKey(call);
+    if (key === "") return () => {};
     if (isMutation(call)) return lm.acquireWrite(key, signal);
     return lm.acquireRead(key, signal);
   };
