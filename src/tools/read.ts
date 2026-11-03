@@ -6,11 +6,13 @@ import type { Tool, ToolContext, ToolResult } from "./types.js";
 import type { ToolCall } from "../types.js";
 import { z } from "zod";
 
-const ArgsSchema = z.object({
-  path: z.string(),
-  offset: z.number().int().positive().optional(),
-  limit: z.number().int().positive().optional(),
-});
+const ArgsSchema = z
+  .object({
+    path: z.string(),
+    offset: z.number().int().positive().optional(),
+    limit: z.number().int().positive().optional(),
+  })
+  .strict();
 
 function sha256(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex");
@@ -34,23 +36,56 @@ export const readTool: Tool = {
   async execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {
     const parsed = ArgsSchema.safeParse(call.arguments);
     if (!parsed.success) {
-      return { toolCallId: call.id, name: "read", content: "TOOL_ARGUMENT_INVALID: " + parsed.error.message, isError: true };
+      return {
+        toolCallId: call.id,
+        name: "read",
+        content: "TOOL_ARGUMENT_INVALID: " + parsed.error.message,
+        isError: true,
+      };
     }
     const { path, offset, limit } = parsed.data;
     if (!isWithinWorkspace(ctx.workspace, path)) {
-      return { toolCallId: call.id, name: "read", content: "PATH_OUTSIDE_WORKSPACE", isError: true };
+      return {
+        toolCallId: call.id,
+        name: "read",
+        content: "PATH_OUTSIDE_WORKSPACE",
+        isError: true,
+      };
     }
     const full = resolve(ctx.workspace, path);
     if (!existsSync(full)) {
-      return { toolCallId: call.id, name: "read", content: "FILE_NOT_FOUND", isError: true };
+      return {
+        toolCallId: call.id,
+        name: "read",
+        content: "FILE_NOT_FOUND",
+        isError: true,
+      };
     }
     const stat = statSync(full);
     if (stat.isDirectory()) {
-      return { toolCallId: call.id, name: "read", content: "FILE_NOT_FOUND: path is a directory", isError: true };
+      return {
+        toolCallId: call.id,
+        name: "read",
+        content: "FILE_NOT_FOUND: path is a directory",
+        isError: true,
+      };
+    }
+    if (stat.size > 10 * 1024 * 1024) {
+      return {
+        toolCallId: call.id,
+        name: "read",
+        content: "FILE_TOO_LARGE",
+        isError: true,
+      };
     }
     const buf = readFileSync(full);
     if (buf.includes(0)) {
-      return { toolCallId: call.id, name: "read", content: `Binary file detected (${buf.length} bytes).`, isError: false };
+      return {
+        toolCallId: call.id,
+        name: "read",
+        content: `Binary file detected (${buf.length} bytes).`,
+        isError: false,
+      };
     }
     const text = buf.toString("utf8");
     const lines = text.split(/\r?\n/);
@@ -61,6 +96,11 @@ export const readTool: Tool = {
     const hash = sha256(buf);
     const header = `File: ${path} (${buf.length} bytes, sha256:${hash})`;
     const body = numbered.length > 0 ? numbered : "(empty)";
-    return { toolCallId: call.id, name: "read", content: `${header}\n${body}` };
+    const cap = ctx.maxToolOutputBytes ?? 30000;
+    let content = `${header}\n${body}`;
+    if (content.length > cap) {
+      content = content.slice(0, cap) + "\nOUTPUT_TRUNCATED";
+    }
+    return { toolCallId: call.id, name: "read", content };
   },
 };

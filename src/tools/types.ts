@@ -16,6 +16,8 @@ export interface Tool {
 export interface ToolContext {
   workspace: string;
   signal: AbortSignal;
+  maxBashTimeMs?: number;
+  maxToolOutputBytes?: number;
 }
 
 export interface ToolRegistry {

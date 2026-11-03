@@ -6,11 +6,13 @@ import type { Tool, ToolContext, ToolResult } from "./types.js";
 import type { ToolCall } from "../types.js";
 import { z } from "zod";
 
-const ArgsSchema = z.object({
-  command: z.string(),
-  cwd: z.string().optional(),
-  timeout_ms: z.number().int().positive().optional(),
-});
+const ArgsSchema = z
+  .object({
+    command: z.string(),
+    cwd: z.string().optional(),
+    timeout_ms: z.number().int().positive().optional(),
+  })
+  .strict();
 
 export const bashTool: Tool = {
   definition: {
@@ -30,23 +32,37 @@ export const bashTool: Tool = {
   async execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {
     const parsed = ArgsSchema.safeParse(call.arguments);
     if (!parsed.success) {
-      return { toolCallId: call.id, name: "bash", content: "TOOL_ARGUMENT_INVALID: " + parsed.error.message, isError: true };
+      return {
+        toolCallId: call.id,
+        name: "bash",
+        content: "TOOL_ARGUMENT_INVALID: " + parsed.error.message,
+        isError: true,
+      };
     }
     const { command, cwd, timeout_ms } = parsed.data;
     const workdir = cwd ? resolve(ctx.workspace, cwd) : ctx.workspace;
     if (cwd && !isWithinWorkspace(ctx.workspace, cwd)) {
-      return { toolCallId: call.id, name: "bash", content: "PATH_OUTSIDE_WORKSPACE", isError: true };
+      return {
+        toolCallId: call.id,
+        name: "bash",
+        content: "PATH_OUTSIDE_WORKSPACE",
+        isError: true,
+      };
     }
-    const timeout = Math.min(timeout_ms ?? 120000, 120000);
+    const capMs = ctx.maxBashTimeMs ?? 120000;
+    const timeout = Math.min(timeout_ms ?? capMs, capMs);
     const shell = defaultShell();
     const flag = process.platform === "win32" ? "/c" : "-c";
     const start = Date.now();
     return new Promise<ToolResult>((resolvePromise) => {
-      const child = spawn(shell, [flag, command], { cwd: workdir, env: process.env });
+      const child = spawn(shell, [flag, command], {
+        cwd: workdir,
+        env: process.env,
+      });
       let stdout = "";
       let stderr = "";
       let truncated = false;
-      const cap = 30000;
+      const cap = ctx.maxToolOutputBytes ?? 30000;
       const append = (target: "out" | "err", chunk: Buffer) => {
         const s = chunk.toString("utf8");
         if (target === "out") {

@@ -7,6 +7,7 @@ export const ProviderConfigSchema = z
     model: z.string(),
     apiKeyEnv: z.string().nullable().optional(),
     keepAlive: z.string().optional(),
+    headers: z.record(z.string()).optional(),
     options: z.record(z.unknown()).optional(),
   })
   .strict();

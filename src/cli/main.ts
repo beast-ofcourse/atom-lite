@@ -25,7 +25,7 @@ async function main(): Promise<void> {
   const oneShot = positional.join(" ").trim();
 
   const config = loadConfig();
-  const provider = createProvider(config, providerOverride);
+  const provider = createProvider(config, providerOverride, modelOverride);
   const tools = [readTool, writeTool, editTool, bashTool];
   const runtime = new AgentRuntime({
     provider,
@@ -40,10 +40,16 @@ async function main(): Promise<void> {
     const onSigint = () => controller.abort();
     process.on("SIGINT", onSigint);
     try {
-      const result = await runtime.runAgentTurn(oneShot, session, controller.signal);
+      const result = await runtime.runAgentTurn(
+        oneShot,
+        session,
+        controller.signal,
+      );
       process.stdout.write(result + "\n");
     } catch (err) {
-      process.stderr.write(`atom-lite: ${err instanceof Error ? err.message : String(err)}\n`);
+      process.stderr.write(
+        `atom-lite: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
       process.exit(1);
     } finally {
       process.off("SIGINT", onSigint);
@@ -70,10 +76,16 @@ async function main(): Promise<void> {
     const onSigint = () => controller.abort();
     process.on("SIGINT", onSigint);
     try {
-      const result = await runtime.runAgentTurn(trimmed, session, controller.signal);
+      const result = await runtime.runAgentTurn(
+        trimmed,
+        session,
+        controller.signal,
+      );
       process.stdout.write(result + "\n");
     } catch (err) {
-      process.stderr.write(`atom-lite: ${err instanceof Error ? err.message : String(err)}\n`);
+      process.stderr.write(
+        `atom-lite: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
     } finally {
       process.off("SIGINT", onSigint);
     }
@@ -83,6 +95,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  process.stderr.write(`atom-lite: ${err instanceof Error ? err.message : String(err)}\n`);
+  process.stderr.write(
+    `atom-lite: ${err instanceof Error ? err.message : String(err)}\n`,
+  );
   process.exit(1);
 });

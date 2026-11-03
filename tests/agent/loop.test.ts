@@ -27,9 +27,17 @@ test("agent loop executes a read tool then returns final answer", async () => {
     { toolCalls: [{ id: "c1", name: "read", arguments: { path: "a.txt" } }] },
     { text: "done" },
   ]);
-  const runtime = new AgentRuntime({ provider, workspace: dir, tools: [readTool] });
+  const runtime = new AgentRuntime({
+    provider,
+    workspace: dir,
+    tools: [readTool],
+  });
   const session = new InMemorySession("s1", dir);
-  const result = await runtime.runAgentTurn("read a.txt", session, new AbortController().signal);
+  const result = await runtime.runAgentTurn(
+    "read a.txt",
+    session,
+    new AbortController().signal,
+  );
   assert.equal(result, "done");
   // tool result recorded
   assert.ok(session.messages.some((m) => m.role === "tool"));

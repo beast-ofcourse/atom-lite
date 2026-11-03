@@ -58,7 +58,8 @@ export class AgentRuntime {
       const response = await this.provider.generate(request);
       session.append(response.message);
 
-      if (response.toolCalls.length === 0) {
+      const toolCalls = response.toolCalls ?? [];
+      if (toolCalls.length === 0) {
         const text =
           response.message.content
             ?.map((p) => (p.type === "text" ? p.text : ""))
@@ -66,13 +67,13 @@ export class AgentRuntime {
         return text;
       }
 
-      totalToolCalls += response.toolCalls.length;
+      totalToolCalls += toolCalls.length;
       if (totalToolCalls > this.limits.maxToolCalls) {
         return "TASK_BUDGET_REACHED";
       }
 
       // Execute tool calls sequentially (parallel scheduling lands in ticket 03).
-      for (const call of response.toolCalls) {
+      for (const call of toolCalls) {
         const tool = this.toolMap.get(call.name);
         let resultContent: string;
         let isError = false;
@@ -81,7 +82,12 @@ export class AgentRuntime {
           isError = true;
         } else {
           try {
-            const r = await tool.execute(call, { workspace: this.workspace, signal });
+            const r = await tool.execute(call, {
+              workspace: this.workspace,
+              signal,
+              maxBashTimeMs: this.limits.maxBashTimeMs,
+              maxToolOutputBytes: this.limits.maxToolOutputBytes,
+            });
             // workspace is injected by caller; set below via context. For now use process cwd.
             resultContent = r.content;
             isError = !!r.isError;
