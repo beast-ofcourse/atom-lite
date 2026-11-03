@@ -424,58 +424,42 @@ async function main(): Promise<void> {
       };
       return;
     }
-    if (trimmed === "/skills" || trimmed.startsWith("/skill ")) {
+    if (trimmed === "/skills") {
       const reg = new (await import("../skills/registry.js")).DefaultSkillRegistry(process.cwd());
       const skills = reg.list();
-      const arg = trimmed.split(/\s+/)[1];
-      if (arg) {
-        const content = reg.load(arg);
-        if (!content) {
-          appendLine(`skill not found: ${arg}`);
-          return;
-        }
-        appendLine(`--- skill: ${arg} ---\\n${content}`);
-        if (typeof session.appendEvent === "function") {
-          session.appendEvent({ type: "skill_loaded", name: arg });
-        }
-        return;
-      }
       if (skills.length === 0) {
         appendLine("no skills available");
         return;
       }
-      const items = skills.map((s: any) => ({ value: s.name, label: s.name, description: s.description }));
-      const { SelectList } = await import("@earendil-works/pi-tui");
-      const selectListTheme = {
-        selectedPrefix: (s: string) => s,
-        selectedText: (s: string) => s,
-        description: (s: string) => s,
-        scrollInfo: (s: string) => s,
-        noMatch: (s: string) => s,
-      };
-      const selectList = new SelectList(items as any, Math.min(12, items.length), selectListTheme as any);
-      dropdownContainer.addChild(selectList);
-      tui.requestRender();
-      const removeListener = tui.addInputListener((data: string) => {
-        selectList.handleInput(data);
-        return { consume: true };
-      });
-      selectList.onSelect = (item: any) => {
-        removeListener();
-        const name = item.value;
-        dropdownContainer.clear();
-        tui.setFocus(input);
-        input.setText(`/${name} `);
-        tui.requestRender();
-      };
-      selectList.onCancel = () => {
-        removeListener();
-        dropdownContainer.clear();
-        tui.setFocus(input);
-        appendLine("cancelled");
-      };
+      appendLine(skills.map((sk: any) => `${sk.name} - ${sk.description}`).join("\n"));
       return;
     }
+    if (trimmed.startsWith("/skill ")) {
+      const name = trimmed.split(/\s+/)[1];
+      const reg = new (await import("../skills/registry.js")).DefaultSkillRegistry(process.cwd());
+      const content = reg.load(name);
+      if (!content) {
+        appendLine(`skill not found: ${name}`);
+        return;
+      }
+      session.appendMessage({ role: "system", content });
+      if (typeof session.appendEvent === "function") {
+        session.appendEvent({ type: "skill_loaded", name });
+      }
+      appendLine(`Loaded skill: ${name}`);
+      const extra = trimmed.split(/\s+/).slice(2).join(" ").trim();
+      if (extra) {
+        appendLine(`> ${extra}`);
+        const controller = new AbortController();
+        try {
+          await runtime.runAgentTurn(extra, session, controller.signal);
+        } catch (err) {
+          appendLine(`atom-lite: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      return;
+    }
+
     if (trimmed.startsWith("/effort")) {
       const parts = trimmed.split(/\s+/);
       if (parts.length >= 2) {
