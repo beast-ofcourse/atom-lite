@@ -102,6 +102,11 @@ export class GeminiAdapter implements ProviderAdapter {
     const url = `${this.baseUrl}/v1beta/models/${encodeURIComponent(this.model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
     const body: any = { contents };
     if (systemInstruction) body.systemInstruction = systemInstruction;
+    const effort = (request.options as any)?.effort;
+    if (effort) {
+      const budget = effort === "low" ? 1024 : effort === "high" ? 16384 : 4096;
+      body.generationConfig = { ...(body.generationConfig ?? {}), thinkingConfig: { thinkingBudget: budget } };
+    }
     if (request.tools && request.tools.length) {
       body.tools = [
         {

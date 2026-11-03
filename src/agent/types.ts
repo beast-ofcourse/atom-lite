@@ -28,6 +28,7 @@ export interface AgentRuntimeOptions {
   approvals?: ApprovalContext;
   contextManager?: ContextManager;
   onEvent?: (event: AgentEvent) => void;
+  effort?: string;
 }
 
 export interface RunTurnParams {

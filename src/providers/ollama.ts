@@ -153,7 +153,7 @@ export class OllamaAdapter implements ProviderAdapter {
       Object.assign(mergedOptions, reqOpts.options as Record<string, unknown>);
     }
     for (const [k, v] of Object.entries(reqOpts)) {
-      if (k === "options" || k === "keep_alive" || k === "think") continue;
+      if (k === "options" || k === "keep_alive" || k === "think" || k === "effort") continue;
       mergedOptions[k] = v;
     }
     if (Object.keys(mergedOptions).length) body.options = mergedOptions;
@@ -162,7 +162,10 @@ export class OllamaAdapter implements ProviderAdapter {
       reqOpts.keep_alive !== undefined ? reqOpts.keep_alive : this.keepAlive;
     if (keepAlive !== undefined) body.keep_alive = keepAlive;
 
-    const think = reqOpts.think !== undefined ? reqOpts.think : this.think;
+    let think = reqOpts.think !== undefined ? reqOpts.think : this.think;
+    if (think === undefined && reqOpts.effort !== undefined) {
+      think = reqOpts.effort;
+    }
     if (think !== undefined) body.think = think;
 
     return body;

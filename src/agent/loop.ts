@@ -12,6 +12,7 @@ export class AgentRuntime {
   private contextManager: ContextManager;
   private onEvent: AgentRuntimeOptions["onEvent"];
   private tools: AgentRuntimeOptions["tools"];
+  private effort: string;
   private toolMap: Map<string, AgentRuntimeOptions["tools"][number]>;
   private limits: AgentLimits;
   private systemPrompt: string;
@@ -23,6 +24,7 @@ export class AgentRuntime {
     this.approvals = options.approvals;
     this.onEvent = options.onEvent;
     this.tools = options.tools;
+    this.effort = options.effort ?? "medium";
     this.contextManager =
       options.contextManager ??
       new ContextManager({
@@ -43,6 +45,14 @@ export class AgentRuntime {
     this.provider = provider;
     if (model) this.model = model;
     this.onEvent?.({ type: "model_switched", provider: provider.id, model: this.model });
+  }
+
+  setEffort(effort: string): void {
+    this.effort = effort;
+  }
+
+  getEffort(): string {
+    return this.effort;
   }
 
   async runAgentTurn(
@@ -77,6 +87,7 @@ export class AgentRuntime {
         messages,
         tools: this.tools.map((t) => t.definition),
         signal,
+        options: { effort: this.effort },
       };
 
       let response: any;

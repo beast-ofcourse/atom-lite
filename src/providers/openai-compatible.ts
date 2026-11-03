@@ -76,7 +76,13 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         function: { name: t.name, description: t.description, parameters: t.parameters },
       }));
     }
-    if (request.options) Object.assign(body, request.options);
+    if (request.options) {
+      const opts = { ...request.options };
+      const effort = opts.effort;
+      delete opts.effort;
+      if (effort) opts.reasoning_effort = effort;
+      Object.assign(body, opts);
+    }
 
     const res = await this.fetchWithRetry(url, {
       method: "POST",
@@ -121,7 +127,13 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         function: { name: t.name, description: t.description, parameters: t.parameters },
       }));
     }
-    if (request.options) Object.assign(body, request.options);
+    if (request.options) {
+      const opts = { ...request.options };
+      const effort = opts.effort;
+      delete opts.effort;
+      if (effort) opts.reasoning_effort = effort;
+      Object.assign(body, opts);
+    }
     let res: Response;
     try {
       res = await fetch(url, { method: "POST", headers: this.buildHeaders(), body: JSON.stringify(body), signal: request.signal });

@@ -148,6 +148,7 @@ async function main(): Promise<void> {
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let effortLevel = "medium";
+  runtime.setEffort(effortLevel);
 
   const content = new Container();
   const output = new ScrollView(content, { follow: "end" });
@@ -401,14 +402,51 @@ async function main(): Promise<void> {
       return;
     }
     if (trimmed.startsWith("/effort")) {
-      const lvl = trimmed.split(/\s+/)[1];
-      if (lvl === "low" || lvl === "medium" || lvl === "high") {
+      const parts = trimmed.split(/\s+/);
+      if (parts.length >= 2) {
+        const lvl = parts[1];
+        if (lvl === "low" || lvl === "medium" || lvl === "high") {
+          effortLevel = lvl;
+          runtime.setEffort(lvl);
+          updateStatus();
+          appendLine(`effort set to ${effortLevel}`);
+        } else {
+          appendLine("usage: /effort low|medium|high");
+        }
+        return;
+      }
+      // Interactive dropdown
+      const items = [
+        { value: "low", label: "low", description: "minimal reasoning" },
+        { value: "medium", label: "medium", description: "balanced" },
+        { value: "high", label: "high", description: "deep reasoning" },
+      ];
+      const { SelectList } = await import("@earendil-works/pi-tui");
+      const selectListTheme = {
+        selectedPrefix: (s: string) => s,
+        selectedText: (s: string) => s,
+        description: (s: string) => s,
+        scrollInfo: (s: string) => s,
+        noMatch: (s: string) => s,
+      };
+      const selectList = new SelectList(items as any, 3, selectListTheme as any);
+      content.addChild(selectList);
+      tui.setFocus(selectList as any);
+      tui.requestRender();
+      selectList.onSelect = (item: any) => {
+        const lvl = item.value;
         effortLevel = lvl;
+        runtime.setEffort(lvl);
+        content.removeChild(selectList as any);
+        tui.setFocus(input);
         updateStatus();
         appendLine(`effort set to ${effortLevel}`);
-      } else {
-        appendLine("usage: /effort low|medium|high");
-      }
+      };
+      selectList.onCancel = () => {
+        content.removeChild(selectList as any);
+        tui.setFocus(input);
+        appendLine("cancelled");
+      };
       return;
     }
     appendLine(`> ${trimmed}`);
