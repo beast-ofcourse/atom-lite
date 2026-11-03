@@ -36,7 +36,8 @@ function ensureUserConfig(path: string): void {
 
 function envOverrides(): Partial<Config> {
   const out: Record<string, unknown> = {};
-  if (process.env.ATOM_LITE_PROVIDER) out.defaultProvider = process.env.ATOM_LITE_PROVIDER;
+  if (process.env.ATOM_LITE_PROVIDER)
+    out.defaultProvider = process.env.ATOM_LITE_PROVIDER;
   if (process.env.ATOM_LITE_MODEL) {
     // model override applies to all providers is not precise; store as override hint only
   }
@@ -58,7 +59,10 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
   }
 
   const userRaw = (readJsonFile(userPath) ?? {}) as Record<string, unknown>;
-  const projectRaw = (readJsonFile(projectPath) ?? {}) as Record<string, unknown>;
+  const projectRaw = (readJsonFile(projectPath) ?? {}) as Record<
+    string,
+    unknown
+  >;
 
   // Precedence (low -> high): defaults, user, project (allowed non-secret),
   // env, overrides. Security-critical user settings (approvalMode) are not
@@ -73,32 +77,38 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     },
     runtime: {
       ...DEFAULT_CONFIG.runtime,
-      ...(userRaw.runtime as object ?? {}),
-      ...(projectRaw.runtime as object ?? {}),
+      ...((userRaw.runtime as object) ?? {}),
+      ...((projectRaw.runtime as object) ?? {}),
     },
     context: {
       ...DEFAULT_CONFIG.context,
-      ...(userRaw.context as object ?? {}),
-      ...(projectRaw.context as object ?? {}),
+      ...((userRaw.context as object) ?? {}),
+      ...((projectRaw.context as object) ?? {}),
     },
     sessions: {
       ...DEFAULT_CONFIG.sessions,
-      ...(userRaw.sessions as object ?? {}),
-      ...(projectRaw.sessions as object ?? {}),
+      ...((userRaw.sessions as object) ?? {}),
+      ...((projectRaw.sessions as object) ?? {}),
     },
   };
 
   // Protect security-critical user settings from project override.
-  const userRuntime = (userRaw.runtime as Record<string, unknown> | undefined) ?? {};
+  const userRuntime =
+    (userRaw.runtime as Record<string, unknown> | undefined) ?? {};
   const mergedRuntime = (merged.runtime as Record<string, unknown>) ?? {};
   if (userRuntime.approvalMode !== undefined) {
     mergedRuntime.approvalMode = userRuntime.approvalMode;
   }
   merged.runtime = mergedRuntime;
 
-  const parsed = ConfigSchema.safeParse({
+  const env = envOverrides();
+  const mergedWithEnv = {
     ...merged,
-    ...envOverrides(),
+    ...(env.defaultProvider ? { defaultProvider: env.defaultProvider } : {}),
+    runtime: { ...(merged.runtime as object), ...(env.runtime ?? {}) },
+  };
+  const parsed = ConfigSchema.safeParse({
+    ...mergedWithEnv,
     ...(options.overrides ?? {}),
   });
   if (!parsed.success) {

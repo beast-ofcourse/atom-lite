@@ -27,7 +27,11 @@ export class AgentRuntime {
     let totalToolCalls = 0;
     const start = Date.now();
 
-    for (let iteration = 0; iteration < this.limits.maxIterations; iteration++) {
+    for (
+      let iteration = 0;
+      iteration < this.limits.maxIterations;
+      iteration++
+    ) {
       if (signal.aborted) {
         throw new Error("USER_CANCELLED");
       }
@@ -51,9 +55,10 @@ export class AgentRuntime {
       session.append(response.message);
 
       if (response.toolCalls.length === 0) {
-        const text = response.message.content
-          ?.map((p) => (p.type === "text" ? p.text : ""))
-          .join("") ?? "";
+        const text =
+          response.message.content
+            ?.map((p) => (p.type === "text" ? p.text : ""))
+            .join("") ?? "";
         return text;
       }
 

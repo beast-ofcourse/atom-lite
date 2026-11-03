@@ -172,16 +172,16 @@ These may be explored later, but they must not complicate the initial runtime.
 
 ### Core modules
 
-| Module | Responsibility | Must not become |
-|---|---|---|
-| `agent` | Owns the agentic loop and stopping conditions | A workflow engine |
+| Module      | Responsibility                                              | Must not become                          |
+| ----------- | ----------------------------------------------------------- | ---------------------------------------- |
+| `agent`     | Owns the agentic loop and stopping conditions               | A workflow engine                        |
 | `providers` | Converts canonical requests/responses to provider protocols | A provider-specific agent implementation |
-| `tools` | Defines the four tools and their schemas | A large tool ecosystem |
-| `scheduler` | Handles safe parallel/sequential execution | A task planner |
-| `context` | Builds the model input and manages token budgets | A knowledge-management system |
-| `sessions` | Persists conversation events and supports resume | A hosted database |
-| `security` | Validates paths, approvals, limits, and process policy | A pretend replacement for OS sandboxing |
-| `cli` | Handles input/output and user controls | The place where agent logic lives |
+| `tools`     | Defines the four tools and their schemas                    | A large tool ecosystem                   |
+| `scheduler` | Handles safe parallel/sequential execution                  | A task planner                           |
+| `context`   | Builds the model input and manages token budgets            | A knowledge-management system            |
+| `sessions`  | Persists conversation events and supports resume            | A hosted database                        |
+| `security`  | Validates paths, approvals, limits, and process policy      | A pretend replacement for OS sandboxing  |
+| `cli`       | Handles input/output and user controls                      | The place where agent logic lives        |
 
 The core runtime should not import CLI-specific code. The CLI should call the core through a small public API.
 
@@ -238,7 +238,11 @@ The loop repeats until one of the following happens:
 ### 5.2 Pseudocode
 
 ```ts
-async function runAgentTurn(input: string, session: Session, signal: AbortSignal) {
+async function runAgentTurn(
+  input: string,
+  session: Session,
+  signal: AbortSignal,
+) {
   session.append({ type: "user_message", content: input });
 
   for (let iteration = 0; iteration < limits.maxIterations; iteration++) {
@@ -309,9 +313,20 @@ Suggested schema:
 {
   "type": "object",
   "properties": {
-    "path": { "type": "string", "description": "Path relative to the workspace root." },
-    "offset": { "type": "integer", "minimum": 1, "description": "Starting line, 1-based." },
-    "limit": { "type": "integer", "minimum": 1, "description": "Maximum number of lines to return." }
+    "path": {
+      "type": "string",
+      "description": "Path relative to the workspace root."
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Starting line, 1-based."
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Maximum number of lines to return."
+    }
   },
   "required": ["path"],
   "additionalProperties": false
@@ -341,9 +356,15 @@ Suggested schema:
 {
   "type": "object",
   "properties": {
-    "path": { "type": "string", "description": "Path relative to the workspace root." },
+    "path": {
+      "type": "string",
+      "description": "Path relative to the workspace root."
+    },
     "content": { "type": "string", "description": "Complete file contents." },
-    "expected_hash": { "type": "string", "description": "Hash returned by read when replacing an existing file." }
+    "expected_hash": {
+      "type": "string",
+      "description": "Hash returned by read when replacing an existing file."
+    }
   },
   "required": ["path", "content"],
   "additionalProperties": false
@@ -372,10 +393,16 @@ Suggested schema:
 {
   "type": "object",
   "properties": {
-    "path": { "type": "string", "description": "Path relative to the workspace root." },
+    "path": {
+      "type": "string",
+      "description": "Path relative to the workspace root."
+    },
     "old_string": { "type": "string", "description": "Exact text to replace." },
     "new_string": { "type": "string", "description": "Replacement text." },
-    "expected_hash": { "type": "string", "description": "Optional hash from the most recent read." }
+    "expected_hash": {
+      "type": "string",
+      "description": "Optional hash from the most recent read."
+    }
   },
   "required": ["path", "old_string", "new_string"],
   "additionalProperties": false
@@ -406,8 +433,15 @@ Suggested schema:
   "type": "object",
   "properties": {
     "command": { "type": "string", "description": "Shell command to execute." },
-    "cwd": { "type": "string", "description": "Optional working directory relative to the workspace root." },
-    "timeout_ms": { "type": "integer", "minimum": 1, "description": "Optional timeout, capped by runtime configuration." }
+    "cwd": {
+      "type": "string",
+      "description": "Optional working directory relative to the workspace root."
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Optional timeout, capped by runtime configuration."
+    }
   },
   "required": ["command"],
   "additionalProperties": false
@@ -457,17 +491,17 @@ The model may return several tool calls in one response. The scheduler validates
 
 ### 7.2 Default scheduling policy
 
-| Tool operation | Default scheduling |
-|---|---|
-| `read` on file A + `read` on file B | Parallel |
-| `read` on file A + `read` on file A | Parallel |
-| `read` on file A + `edit` on file A | Sequential; mutation waits for the read |
-| `edit` on file A + `edit` on file A | Sequential in model-emitted order |
-| `write` on file A + `edit` on file A | Sequential in model-emitted order |
-| `write` on file A + `write` on file B | Parallel |
-| `edit` on file A + `edit` on file B | Parallel |
-| `bash` + any mutation | `bash` is an exclusive barrier by default |
-| `bash` + `bash` | Sequential by default |
+| Tool operation                        | Default scheduling                        |
+| ------------------------------------- | ----------------------------------------- |
+| `read` on file A + `read` on file B   | Parallel                                  |
+| `read` on file A + `read` on file A   | Parallel                                  |
+| `read` on file A + `edit` on file A   | Sequential; mutation waits for the read   |
+| `edit` on file A + `edit` on file A   | Sequential in model-emitted order         |
+| `write` on file A + `edit` on file A  | Sequential in model-emitted order         |
+| `write` on file A + `write` on file B | Parallel                                  |
+| `edit` on file A + `edit` on file B   | Parallel                                  |
+| `bash` + any mutation                 | `bash` is an exclusive barrier by default |
+| `bash` + `bash`                       | Sequential by default                     |
 
 The scheduler should use canonical, resolved file paths as lock keys. Reads acquire shared locks; `write` and `edit` acquire exclusive locks.
 
@@ -574,12 +608,12 @@ Create one configurable adapter for endpoints implementing the OpenAI Chat Compl
 
 Initial targets:
 
-| Target | Typical local/base URL | Notes |
-|---|---|---|
-| LM Studio | `http://127.0.0.1:1234/v1` | Tool calling depends on model/template support and server behavior. |
-| llama.cpp / `llama-server` | `http://127.0.0.1:8080/v1` | Server configuration and chat template affect tool-call parsing; function calling may require the appropriate server/template options. |
-| Kilo AI Gateway | `https://ai-gateway.kilo.ai/api/v1` | Uses an API key and provider/model-qualified model IDs. |
-| Other compatible servers | User-configured | Base URL, key, headers, and model are configurable. |
+| Target                     | Typical local/base URL              | Notes                                                                                                                                  |
+| -------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| LM Studio                  | `http://127.0.0.1:1234/v1`          | Tool calling depends on model/template support and server behavior.                                                                    |
+| llama.cpp / `llama-server` | `http://127.0.0.1:8080/v1`          | Server configuration and chat template affect tool-call parsing; function calling may require the appropriate server/template options. |
+| Kilo AI Gateway            | `https://ai-gateway.kilo.ai/api/v1` | Uses an API key and provider/model-qualified model IDs.                                                                                |
+| Other compatible servers   | User-configured                     | Base URL, key, headers, and model are configurable.                                                                                    |
 
 The adapter should support:
 
@@ -861,11 +895,11 @@ A workspace-relative `cwd` is not a sandbox. A command can still access files ou
 
 Recommended approval modes:
 
-| Mode | Behavior |
-|---|---|
-| `ask` | Ask before each shell command. Recommended default for interactive use. |
+| Mode      | Behavior                                                                        |
+| --------- | ------------------------------------------------------------------------------- |
+| `ask`     | Ask before each shell command. Recommended default for interactive use.         |
 | `trusted` | Run commands without interactive approval. User explicitly opts into this risk. |
-| `deny` | Disable shell execution. Useful for read-only or constrained workflows. |
+| `deny`    | Disable shell execution. Useful for read-only or constrained workflows.         |
 
 An optional “trust this session” approval can reduce repeated prompts without permanently changing global configuration.
 
@@ -1289,21 +1323,21 @@ These features should remain optional and should not expand the default tool sur
 
 ## 21. Key architectural decisions
 
-| Decision | Recommendation | Reason |
-|---|---|---|
-| Number of built-in tools | Four | Keeps the action surface small and general. |
-| Agent loops | One | Avoids orchestration complexity and competing state. |
-| Provider abstraction | Canonical interface + native adapters | Keeps the runtime independent of transport protocols. |
-| Ollama integration | Native adapter | Preserves Ollama-specific capabilities and message behavior. |
-| Gemini integration | Native adapter | Preserves Gemini function-call and continuation metadata. |
-| LM Studio / llama.cpp / Kilo | OpenAI-compatible adapter | Shared protocol is sufficient for the initial common path. |
-| Tool parallelism | Scheduler with locks | Fast for independent work, deterministic for conflicts. |
-| Shell concurrency | Serial by default | Arbitrary commands have unknown side effects. |
-| File writes | Hash-aware and atomic | Prevents stale or partial overwrites. |
-| Session persistence | JSONL | Simple, inspectable, append-only. |
-| Context memory | History + compaction | Avoids premature vector/RAG infrastructure. |
-| CLI | First-class, simple | Fastest route to a useful product. |
-| Extensions | Later | Prevents the core from becoming a plugin framework. |
+| Decision                     | Recommendation                        | Reason                                                       |
+| ---------------------------- | ------------------------------------- | ------------------------------------------------------------ |
+| Number of built-in tools     | Four                                  | Keeps the action surface small and general.                  |
+| Agent loops                  | One                                   | Avoids orchestration complexity and competing state.         |
+| Provider abstraction         | Canonical interface + native adapters | Keeps the runtime independent of transport protocols.        |
+| Ollama integration           | Native adapter                        | Preserves Ollama-specific capabilities and message behavior. |
+| Gemini integration           | Native adapter                        | Preserves Gemini function-call and continuation metadata.    |
+| LM Studio / llama.cpp / Kilo | OpenAI-compatible adapter             | Shared protocol is sufficient for the initial common path.   |
+| Tool parallelism             | Scheduler with locks                  | Fast for independent work, deterministic for conflicts.      |
+| Shell concurrency            | Serial by default                     | Arbitrary commands have unknown side effects.                |
+| File writes                  | Hash-aware and atomic                 | Prevents stale or partial overwrites.                        |
+| Session persistence          | JSONL                                 | Simple, inspectable, append-only.                            |
+| Context memory               | History + compaction                  | Avoids premature vector/RAG infrastructure.                  |
+| CLI                          | First-class, simple                   | Fastest route to a useful product.                           |
+| Extensions                   | Later                                 | Prevents the core from becoming a plugin framework.          |
 
 ---
 
@@ -1400,4 +1434,3 @@ These references document the provider protocols and the minimal coding-agent de
 4. [llama.cpp — Function calling](https://github.com/ggml-org/llama.cpp/blob/master/docs/function-calling.md) — server-side function-calling and chat-template considerations.
 5. [Kilo AI Gateway](https://kilo.ai/docs/gateway) — OpenAI-compatible endpoint, streaming, tool calling, and gateway model routing.
 6. [Pi repository](https://github.com/earendil-works/pi) — reference implementation and design inspiration for a minimal, extensible agent harness and coding-agent CLI.
-

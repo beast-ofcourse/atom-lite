@@ -1,4 +1,9 @@
-import type { ModelInfo, ModelRequest, ModelResponse, ModelStreamEvent } from "../types.js";
+import type {
+  ModelInfo,
+  ModelRequest,
+  ModelResponse,
+  ModelStreamEvent,
+} from "../types.js";
 
 // Re-export for convenience
 export type { ModelInfo };

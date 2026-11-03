@@ -7,10 +7,27 @@ import { InMemoryToolRegistry } from "../tools/registry.js";
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const oneShot = args.filter((a) => !a.startsWith("--")).join(" ").trim();
+  let providerOverride: string | undefined;
+  let modelOverride: string | undefined;
+  const positional: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--provider") {
+      providerOverride = args[++i];
+    } else if (a === "--model") {
+      modelOverride = args[++i];
+    } else if (a.startsWith("--")) {
+      // ignore unknown flags for skeleton
+    } else {
+      positional.push(a);
+    }
+  }
+  const oneShot = positional.join(" ").trim();
 
   const config = loadConfig();
-  const provider = new FakeProvider([{ text: "Hello from atom-lite skeleton." }]);
+  const provider = new FakeProvider([
+    { text: "Hello from atom-lite skeleton." },
+  ]);
   const tools = new InMemoryToolRegistry();
   const runtime = new AgentRuntime({ provider, tools: tools.definitions() });
 
@@ -20,7 +37,11 @@ async function main(): Promise<void> {
     const onSigint = () => controller.abort();
     process.on("SIGINT", onSigint);
     try {
-      const result = await runtime.runAgentTurn(oneShot, session, controller.signal);
+      const result = await runtime.runAgentTurn(
+        oneShot,
+        session,
+        controller.signal,
+      );
       process.stdout.write(result + "\n");
     } finally {
       process.off("SIGINT", onSigint);
@@ -48,10 +69,16 @@ async function main(): Promise<void> {
     const onSigint = () => controller.abort();
     process.on("SIGINT", onSigint);
     try {
-      const result = await runtime.runAgentTurn(trimmed, session, controller.signal);
+      const result = await runtime.runAgentTurn(
+        trimmed,
+        session,
+        controller.signal,
+      );
       process.stdout.write(result + "\n");
     } catch (err) {
-      process.stderr.write(`atom-lite: ${err instanceof Error ? err.message : String(err)}\n`);
+      process.stderr.write(
+        `atom-lite: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
     } finally {
       process.off("SIGINT", onSigint);
     }
@@ -61,6 +88,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  process.stderr.write(`atom-lite: ${err instanceof Error ? err.message : String(err)}\n`);
+  process.stderr.write(
+    `atom-lite: ${err instanceof Error ? err.message : String(err)}\n`,
+  );
   process.exit(1);
 });

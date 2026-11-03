@@ -1,7 +1,6 @@
 // Canonical types shared across the runtime. Provider- and transport-agnostic.
 
-export type ContentPart =
-  | { type: "text"; text: string };
+export type ContentPart = { type: "text"; text: string };
 
 export type Message =
   | { role: "system"; content: string }
@@ -46,11 +45,7 @@ export interface TokenUsage {
 }
 
 export type FinishReason =
-  | "stop"
-  | "tool_calls"
-  | "length"
-  | "error"
-  | "cancelled";
+  "stop" | "tool_calls" | "length" | "error" | "cancelled";
 
 export interface ModelRequest {
   model: string;
