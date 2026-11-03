@@ -205,6 +205,8 @@ async function main(): Promise<void> {
   tui.addChild(new Spacer());
   tui.addChild(input);
   tui.addChild(statusBar);
+  const dropdownContainer = new Container();
+  tui.addChild(dropdownContainer);
   tui.setFocus(input);
 
   let currentText: any = null;
@@ -361,7 +363,7 @@ async function main(): Promise<void> {
       const items = profiles.map((p) => ({ value: p, label: p, description: (config.providers as any)[p]?.model }));
       const { SelectList } = await import("@earendil-works/pi-tui");
       const selectList = new SelectList(items as any, Math.min(10, items.length), selectListTheme as any);
-      content.addChild(selectList);
+      dropdownContainer.addChild(selectList);
       tui.setFocus(selectList as any);
       tui.requestRender();
       selectList.onSelect = (item: any) => {
@@ -370,13 +372,13 @@ async function main(): Promise<void> {
         runtime.switchModel(newProvider, modelOverride);
         provider = newProvider;
         // remove select list
-        content.removeChild(selectList as any);
+        dropdownContainer.clear();
         tui.setFocus(input);
         appendLine(`switched to ${profile}`);
         updateStatus();
       };
       selectList.onCancel = () => {
-        content.removeChild(selectList as any);
+        dropdownContainer.clear();
         tui.setFocus(input);
         appendLine("cancelled");
       };
@@ -430,20 +432,20 @@ async function main(): Promise<void> {
         noMatch: (s: string) => s,
       };
       const selectList = new SelectList(items as any, 3, selectListTheme as any);
-      content.addChild(selectList);
+      dropdownContainer.addChild(selectList);
       tui.setFocus(selectList as any);
       tui.requestRender();
       selectList.onSelect = (item: any) => {
         const lvl = item.value;
         effortLevel = lvl;
         runtime.setEffort(lvl);
-        content.removeChild(selectList as any);
+        dropdownContainer.clear();
         tui.setFocus(input);
         updateStatus();
         appendLine(`effort set to ${effortLevel}`);
       };
       selectList.onCancel = () => {
-        content.removeChild(selectList as any);
+        dropdownContainer.clear();
         tui.setFocus(input);
         appendLine("cancelled");
       };
