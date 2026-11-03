@@ -1,17 +1,13 @@
 import type { ToolCall } from "../types.js";
 import type { Tool, ToolContext } from "../tools/types.js";
 import type { ToolResult } from "../tools/types.js";
+import { LockManager, type Release } from "./locks.js";
 
-export interface ScheduledCall {
-  call: ToolCall;
-  tool: Tool | undefined;
-}
-
-function resourceKey(call: ToolCall): string | null {
+function resourceKey(call: ToolCall): string {
   const args = call.arguments ?? {};
   if (call.name === "bash") return "__bash__";
-  const p = (args as any).path ?? (args as any).cwd;
-  return typeof p === "string" ? `file:${p}` : null;
+  const p = (args as any).path ?? (args as any).cwd ?? "";
+  return String(p);
 }
 
 function isMutation(call: ToolCall): boolean {
@@ -22,43 +18,26 @@ function isBash(call: ToolCall): boolean {
   return call.name === "bash";
 }
 
-function conflicts(a: ToolCall, b: ToolCall): boolean {
-  if (isBash(a) || isBash(b)) return true;
-  const ra = resourceKey(a);
-  const rb = resourceKey(b);
-  if (ra === null || rb === null) return false;
-  if (ra !== rb) return false;
-  // same file: conflict if at least one is a mutation
-  return isMutation(a) || isMutation(b);
-}
-
 export async function executeToolBatch(
   calls: ToolCall[],
   toolMap: Map<string, Tool>,
   ctx: ToolContext,
   maxParallel: number,
   signal: AbortSignal,
+  lockManager?: LockManager,
 ): Promise<ToolResult[]> {
+  const lm = lockManager ?? new LockManager();
   const n = calls.length;
   const results: ToolResult[] = new Array(n);
-  const completion: Array<Promise<void>> = new Array(n);
-  const resolvers: Array<() => void> = new Array(n);
 
-  for (let i = 0; i < n; i++) {
-    completion[i] = new Promise<void>((resolve) => {
-      resolvers[i] = resolve;
-    });
-  }
+  const acquire = async (call: ToolCall): Promise<Release> => {
+    if (isBash(call)) return lm.acquireGlobal(signal);
+    const key = resourceKey(call);
+    if (isMutation(call)) return lm.acquireWrite(key, signal);
+    return lm.acquireRead(key, signal);
+  };
 
-  // compute blockers for each call
-  const blockers: number[][] = calls.map((_, i) => {
-    const out: number[] = [];
-    for (let j = 0; j < i; j++) {
-      if (conflicts(calls[i], calls[j])) out.push(j);
-    }
-    return out;
-  });
-
+  // Concurrency pool
   let active = 0;
   const queue: Array<() => void> = [];
   function acquireSlot(): Promise<void> {
@@ -82,28 +61,21 @@ export async function executeToolBatch(
 
   const tasks = calls.map((call, i) => {
     return (async () => {
-      // wait for blockers
-      await Promise.all(blockers[i].map((b) => completion[b]));
       if (signal.aborted) {
-        results[i] = {
-          toolCallId: call.id,
-          name: call.name,
-          content: "USER_CANCELLED",
-          isError: true,
-        };
-        resolvers[i]();
+        results[i] = { toolCallId: call.id, name: call.name, content: "USER_CANCELLED", isError: true };
         return;
       }
+      let release: Release | undefined;
       await acquireSlot();
       try {
+        release = await acquire(call);
+        if (signal.aborted) {
+          results[i] = { toolCallId: call.id, name: call.name, content: "USER_CANCELLED", isError: true };
+          return;
+        }
         const tool = toolMap.get(call.name);
         if (!tool) {
-          results[i] = {
-            toolCallId: call.id,
-            name: call.name,
-            content: `TOOL_NOT_FOUND: ${call.name}`,
-            isError: true,
-          };
+          results[i] = { toolCallId: call.id, name: call.name, content: `TOOL_NOT_FOUND: ${call.name}`, isError: true };
         } else {
           const r = await tool.execute(call, ctx);
           results[i] = r;
@@ -116,8 +88,8 @@ export async function executeToolBatch(
           isError: true,
         };
       } finally {
+        if (release) release();
         releaseSlot();
-        resolvers[i]();
       }
     })();
   });
@@ -125,3 +97,6 @@ export async function executeToolBatch(
   await Promise.all(tasks);
   return results;
 }
+
+export { LockManager };
+export type { Release };
