@@ -447,10 +447,9 @@ async function main(): Promise<void> {
       dropdownContainer.addChild(selectList);
       tui.requestRender();
       const removeListener = tui.addInputListener((data: string) => {
-        const before = (selectList as any).selectedIndex;
+        // Skip kitty-protocol key-release events to avoid double moves.
+        if (/\x1b\[\d+;\d+:3[ABCD]/.test(data)) return { consume: true };
         selectList.handleInput(data);
-        const after = (selectList as any).selectedIndex;
-        console.error("DEBUG handleInput:", JSON.stringify(data), before, "->", after);
         tui.requestRender();
         return { consume: true };
       });
@@ -545,10 +544,9 @@ async function main(): Promise<void> {
       dropdownContainer.addChild(selectList);
       tui.requestRender();
       const removeListener = tui.addInputListener((data: string) => {
-        const before = (selectList as any).selectedIndex;
+        // Skip kitty-protocol key-release events to avoid double moves.
+        if (/\x1b\[\d+;\d+:3[ABCD]/.test(data)) return { consume: true };
         selectList.handleInput(data);
-        const after = (selectList as any).selectedIndex;
-        console.error("DEBUG handleInput:", JSON.stringify(data), before, "->", after);
         tui.requestRender();
         return { consume: true };
       });
