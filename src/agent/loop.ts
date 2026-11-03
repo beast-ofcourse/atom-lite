@@ -1,6 +1,7 @@
 import type { AgentRuntimeOptions } from "./types.js";
 import { DEFAULT_LIMITS } from "../types.js";
 import type { Message, ModelRequest, AgentLimits } from "../types.js";
+import { executeToolBatch } from "../runtime/scheduler.js";
 
 export class AgentRuntime {
   private provider: AgentRuntimeOptions["provider"];
@@ -72,39 +73,26 @@ export class AgentRuntime {
         return "TASK_BUDGET_REACHED";
       }
 
-      // Execute tool calls sequentially (parallel scheduling lands in ticket 03).
-      for (const call of toolCalls) {
-        const tool = this.toolMap.get(call.name);
-        let resultContent: string;
-        let isError = false;
-        if (!tool) {
-          resultContent = `TOOL_NOT_FOUND: ${call.name}`;
-          isError = true;
-        } else {
-          try {
-            const r = await tool.execute(call, {
-              workspace: this.workspace,
-              signal,
-              maxBashTimeMs: this.limits.maxBashTimeMs,
-              maxToolOutputBytes: this.limits.maxToolOutputBytes,
-            });
-            // workspace is injected by caller; set below via context. For now use process cwd.
-            resultContent = r.content;
-            isError = !!r.isError;
-          } catch (err) {
-            resultContent = `COMMAND_FAILED: ${err instanceof Error ? err.message : String(err)}`;
-            isError = true;
-          }
-        }
+      const ctx = {
+        workspace: this.workspace,
+        signal,
+        maxBashTimeMs: this.limits.maxBashTimeMs,
+        maxToolOutputBytes: this.limits.maxToolOutputBytes,
+      };
+      const results = await executeToolBatch(
+        toolCalls,
+        this.toolMap,
+        ctx,
+        this.limits.maxParallelToolCalls,
+        signal,
+      );
+      for (const r of results) {
         session.append({
           role: "tool",
-          toolCallId: call.id,
-          name: call.name,
-          content: resultContent,
+          toolCallId: r.toolCallId,
+          name: r.name,
+          content: r.content,
         });
-        if (isError) {
-          // still continue; error is part of transcript
-        }
       }
     }
 
