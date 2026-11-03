@@ -6,7 +6,7 @@
 > report — do not improvise.
 >
 > **Drift check (run first)**:
-> `git diff --stat d2d4d2b..HEAD -- src/sessions/store.ts src/cli/main.ts tests/sessions`
+> `git diff --stat 37e692e..HEAD -- src/sessions/store.ts src/cli/main.ts tests/sessions`
 > If any of those changed since this plan was written, compare the "Current
 > state" excerpts against the live code before proceeding; on a mismatch, treat
 > it as a STOP condition (the CLI region is also touched by plan 007).
@@ -19,6 +19,7 @@
 - **Depends on**: none (must land **before** plan 007)
 - **Category**: tech-debt / correctness
 - **Planned at**: commit `d2d4d2b`, 2026-11-03
+- **Verified at**: commit `37e692e` (store excerpts unchanged; the `store`/`session` block of `src/cli/main.ts` is still at lines 65-71 — the TUI code around it changed, do not treat that as drift)
 
 ## Why this matters
 

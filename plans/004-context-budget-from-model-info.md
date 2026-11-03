@@ -6,7 +6,7 @@
 > report — do not improvise.
 >
 > **Drift check (run first)**:
-> `git diff --stat d2d4d2b..HEAD -- src/context/manager.ts tests/context/manager.test.ts`
+> `git diff --stat 37e692e..HEAD -- src/context/manager.ts src/providers tests/context/manager.test.ts`
 > If `manager.ts` changed since this plan was written, compare the "Current
 > state" excerpts against the live code before proceeding; on a mismatch, treat
 > it as a STOP condition.
@@ -19,6 +19,7 @@
 - **Depends on**: none
 - **Category**: bug / perf
 - **Planned at**: commit `d2d4d2b`, 2026-11-03
+- **Verified at**: commit `37e692e` (manager excerpts unchanged; adapters gained `listModels` only, `getModelInfo` is still declared once and called nowhere)
 
 ## Why this matters
 

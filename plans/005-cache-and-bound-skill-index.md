@@ -6,7 +6,7 @@
 > report — do not improvise.
 >
 > **Drift check (run first)**:
-> `git diff --stat d2d4d2b..HEAD -- src/context/manager.ts src/skills/registry.ts`
+> `git diff --stat 37e692e..HEAD -- src/context/manager.ts src/skills/registry.ts`
 > If either file changed since this plan was written, compare the "Current
 > state" excerpts against the live code before proceeding; on a mismatch, treat
 > it as a STOP condition. Plan 004 also edits `manager.ts` — apply 004 first and
@@ -20,6 +20,7 @@
 - **Depends on**: plans/004-context-budget-from-model-info.md
 - **Category**: perf
 - **Planned at**: commit `d2d4d2b`, 2026-11-03
+- **Verified at**: commit `37e692e` (excerpts unchanged)
 
 ## Why this matters
 

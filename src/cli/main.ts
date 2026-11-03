@@ -446,7 +446,10 @@ async function main(): Promise<void> {
       dropdownContainer.addChild(selectList);
       tui.requestRender();
       const removeListener = tui.addInputListener((data: string) => {
+        const before = (selectList as any).selectedIndex;
         selectList.handleInput(data);
+        const after = (selectList as any).selectedIndex;
+        tui.requestRender();
         return { consume: true };
       });
       selectList.onSelect = (item: any) => {
@@ -540,7 +543,10 @@ async function main(): Promise<void> {
       dropdownContainer.addChild(selectList);
       tui.requestRender();
       const removeListener = tui.addInputListener((data: string) => {
+        const before = (selectList as any).selectedIndex;
         selectList.handleInput(data);
+        const after = (selectList as any).selectedIndex;
+        tui.requestRender();
         return { consume: true };
       });
       selectList.onSelect = (item: any) => {

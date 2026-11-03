@@ -6,7 +6,7 @@
 > report — do not improvise.
 >
 > **Drift check (run first)**:
-> `git diff --stat d2d4d2b..HEAD -- src/runtime/scheduler.ts tests/runtime/scheduler.test.ts`
+> `git diff --stat 37e692e..HEAD -- src/runtime/scheduler.ts tests/runtime/scheduler.test.ts`
 > If either file changed since this plan was written, compare the "Current
 > state" excerpts against the live code before proceeding; on a mismatch, treat
 > it as a STOP condition.
@@ -19,6 +19,7 @@
 - **Depends on**: none
 - **Category**: bug
 - **Planned at**: commit `d2d4d2b`, 2026-11-03
+- **Verified at**: commit `37e692e` (excerpts unchanged; `const key = resourceKey(call)` is at line 39)
 
 ## Why this matters
 
