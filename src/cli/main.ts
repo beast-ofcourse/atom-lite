@@ -114,10 +114,11 @@ async function main(): Promise<void> {
     approvals,
     contextManager,
     onEvent: (e) => {
-      if (e.type === "assistant_text") appendLineFn(e.text);
-      else if (e.type === "tool_call") appendLineFn(`[tool] ${e.name} ${JSON.stringify(e.args)}`);
-      else if (e.type === "tool_result") appendLineFn(`  -> ${e.content.split("\\n")[0]}`);
-      else if (e.type === "final" && !e.text) appendLineFn("(done)");
+      if (e.type === "assistant_delta") appendDelta(e.text);
+      else if (e.type === "assistant_text") { appendDelta(e.text); finalizeText(); }
+      else if (e.type === "tool_call") { finalizeText(); appendLine(`[tool] ${e.name} ${JSON.stringify(e.args)}`); }
+      else if (e.type === "tool_result") appendLine(`  -> ${e.content.split("\\n")[0]}`);
+      else if (e.type === "final") { finalizeText(); }
     },
   });
 
@@ -156,12 +157,36 @@ async function main(): Promise<void> {
   tui.addChild(input);
   tui.setFocus(input);
 
+  let currentText: InstanceType<typeof Text> | null = null;
+  let currentBuffer = "";
+
   function appendLine(text: string): void {
+    if (currentText) {
+      currentText = null;
+      currentBuffer = "";
+    }
     for (const line of text.split("\\n")) {
       content.addChild(new Text(line));
     }
     tui.requestRender();
   }
+
+  function appendDelta(delta: string): void {
+    if (!currentText) {
+      currentText = new Text("");
+      content.addChild(currentText);
+      currentBuffer = "";
+    }
+    currentBuffer += delta;
+    currentText.setText(currentBuffer);
+    tui.requestRender();
+  }
+
+  function finalizeText(): void {
+    currentText = null;
+    currentBuffer = "";
+  }
+
   appendLineFn = appendLine;
 
   async function runDoctor(): Promise<string> {

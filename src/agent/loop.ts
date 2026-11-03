@@ -73,15 +73,36 @@ export class AgentRuntime {
         signal,
       };
 
-      const response = await this.provider.generate(request);
+      let response: any;
+      let streamedText = "";
+      if (typeof this.provider.stream === "function") {
+        // Stream tokens as they arrive.
+        for await (const ev of this.provider.stream(request)) {
+          if (ev.type === "text") {
+            streamedText += ev.text;
+            this.onEvent?.({ type: "assistant_delta", text: ev.text });
+          } else if (ev.type === "done") {
+            response = ev.response;
+          }
+        }
+        if (!response) {
+          // Fallback if stream ended without done
+          response = {
+            message: { role: "assistant", content: streamedText ? [{ type: "text", text: streamedText }] : undefined, toolCalls: undefined },
+            toolCalls: [],
+            finishReason: "stop",
+          };
+        }
+      } else {
+        response = await this.provider.generate(request);
+        const t = response.message.content?.map((p: any) => (p.type === "text" ? p.text : "")).join("") ?? "";
+        if (t) this.onEvent?.({ type: "assistant_text", text: t });
+        streamedText = t;
+      }
+
       session.append(response.message);
 
-      const text =
-        response.message.content
-          ?.map((p) => (p.type === "text" ? p.text : ""))
-          .join("") ?? "";
-      if (text) this.onEvent?.({ type: "assistant_text", text });
-
+      const text = streamedText || (response.message.content?.map((p: any) => (p.type === "text" ? p.text : "")).join("") ?? "");
       const toolCalls = response.toolCalls ?? [];
       if (toolCalls.length === 0) {
         this.onEvent?.({ type: "final", text });
