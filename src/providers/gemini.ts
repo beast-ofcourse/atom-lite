@@ -96,6 +96,20 @@ export class GeminiAdapter implements ProviderAdapter {
     ).replace(/\/$/, "");
   }
 
+  async listModels(): Promise<string[]> {
+    if (!this.apiKey) return [this.model];
+    try {
+      const res = await fetch(`${this.baseUrl}/v1beta/models?key=${encodeURIComponent(this.apiKey)}`);
+      if (!res.ok) return [this.model];
+      const json = (await res.json()) as any;
+      const models = json.models ?? [];
+      const ids = models.map((m: any) => (m.name ?? "").replace(/^models\//, "")).filter(Boolean);
+      return ids.length ? ids : [this.model];
+    } catch {
+      return [this.model];
+    }
+  }
+
   async generate(request: ModelRequest): Promise<ModelResponse> {
     if (!this.apiKey) throw new Error("PROVIDER_AUTH_FAILED: missing API key");
     const { systemInstruction, contents } = toGeminiContents(request.messages);

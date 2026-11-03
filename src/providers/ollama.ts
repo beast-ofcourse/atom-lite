@@ -187,6 +187,19 @@ export class OllamaAdapter implements ProviderAdapter {
     return out;
   }
 
+  async listModels(): Promise<string[]> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/tags`, { headers: this.buildHeaders() });
+      if (!res.ok) return [this.model];
+      const json = (await res.json()) as any;
+      const models = json.models ?? [];
+      const ids = models.map((m: any) => m.name ?? m.model).filter(Boolean);
+      return ids.length ? ids : [this.model];
+    } catch {
+      return [this.model];
+    }
+  }
+
   async generate(request: ModelRequest): Promise<ModelResponse> {
     const url = `${this.baseUrl}/api/chat`;
     const body = this.buildBody(request, false);

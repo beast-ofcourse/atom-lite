@@ -13,6 +13,7 @@ export interface ProviderAdapter {
   generate(request: ModelRequest): Promise<ModelResponse>;
   stream?(request: ModelRequest): AsyncIterable<ModelStreamEvent>;
   getModelInfo?(): Promise<ModelInfo | undefined>;
+  listModels?(): Promise<string[]>;
 }
 
 export interface ProviderRegistry {

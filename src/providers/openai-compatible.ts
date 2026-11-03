@@ -25,6 +25,24 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     this.headers = config.headers ?? {};
   }
 
+  async getModelInfo(): Promise<import("../types.js").ModelInfo | undefined> {
+    return { id: this.model, supportsTools: true, supportsStreaming: true };
+  }
+
+  async listModels(): Promise<string[]> {
+    const url = `${this.baseUrl}/models`;
+    try {
+      const res = await fetch(url, { headers: this.buildHeaders() });
+      if (!res.ok) return [this.model];
+      const json = (await res.json()) as any;
+      const data = json.data ?? json.models ?? [];
+      const ids = data.map((m: any) => m.id ?? m.name).filter(Boolean);
+      return ids.length ? ids : [this.model];
+    } catch {
+      return [this.model];
+    }
+  }
+
   private buildHeaders(): Record<string, string> {
     const h: Record<string, string> = { "Content-Type": "application/json", ...this.headers };
     if (this.apiKey) h["Authorization"] = `Bearer ${this.apiKey}`;

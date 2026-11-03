@@ -413,12 +413,18 @@ async function main(): Promise<void> {
         updateStatus();
         return;
       }
-      // Interactive dropdown
-      const profiles = Object.keys(config.providers ?? {});
-      if (profiles.length === 0) {
-        appendLine("no provider profiles configured");
-        return;
+      // Interactive dropdown of models from the provider
+      let models: string[] = [];
+      if (typeof (provider as any).listModels === "function") {
+        try {
+          models = await (provider as any).listModels();
+        } catch {
+          models = [];
+        }
       }
+      if (models.length === 0) models = [(provider as any).model ?? "default"];
+      const items = models.map((m: string) => ({ value: m, label: m, description: "" }));
+      const { SelectList } = await import("@earendil-works/pi-tui");
       const selectListTheme = {
         selectedPrefix: (s: string) => s,
         selectedText: (s: string) => s,
@@ -426,9 +432,7 @@ async function main(): Promise<void> {
         scrollInfo: (s: string) => s,
         noMatch: (s: string) => s,
       };
-      const items = profiles.map((p) => ({ value: p, label: p, description: (config.providers as any)[p]?.model }));
-      const { SelectList } = await import("@earendil-works/pi-tui");
-      const selectList = new SelectList(items as any, Math.min(10, items.length), selectListTheme as any);
+      const selectList = new SelectList(items as any, Math.min(15, items.length), selectListTheme as any);
       dropdownContainer.addChild(selectList);
       tui.requestRender();
       const removeListener = tui.addInputListener((data: string) => {
@@ -437,13 +441,12 @@ async function main(): Promise<void> {
       });
       selectList.onSelect = (item: any) => {
         removeListener();
-        const profile = item.value;
-        const newProvider = createProvider(config, profile, modelOverride);
-        runtime.switchModel(newProvider, modelOverride);
-        provider = newProvider;
+        const newModel = item.value;
+        runtime.switchModel(provider, newModel);
+        modelOverride = newModel;
         dropdownContainer.clear();
         tui.setFocus(input);
-        appendLine(`switched to ${profile}`);
+        appendLine(`switched to ${provider.id}/${newModel}`);
         updateStatus();
       };
       selectList.onCancel = () => {
