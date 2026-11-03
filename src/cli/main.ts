@@ -433,7 +433,7 @@ async function main(): Promise<void> {
         }
       }
       if (models.length === 0) models = [(provider as any).model ?? "default"];
-      const items = models.map((m: string) => ({ value: m, label: m, description: "" }));
+      const items = models.map((m: string) => ({ value: m, label: m.length > 40 ? m.slice(0, 37) + "..." : m, description: m.length > 40 ? m : "" }));
       const { SelectList } = await import("@earendil-works/pi-tui");
       const selectListTheme = {
         selectedPrefix: (s: string) => s,
@@ -449,6 +449,7 @@ async function main(): Promise<void> {
         const before = (selectList as any).selectedIndex;
         selectList.handleInput(data);
         const after = (selectList as any).selectedIndex;
+        console.error("DEBUG handleInput:", JSON.stringify(data), before, "->", after);
         tui.requestRender();
         return { consume: true };
       });
@@ -546,6 +547,7 @@ async function main(): Promise<void> {
         const before = (selectList as any).selectedIndex;
         selectList.handleInput(data);
         const after = (selectList as any).selectedIndex;
+        console.error("DEBUG handleInput:", JSON.stringify(data), before, "->", after);
         tui.requestRender();
         return { consume: true };
       });
