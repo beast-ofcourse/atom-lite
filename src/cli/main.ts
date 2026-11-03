@@ -179,7 +179,7 @@ async function main(): Promise<void> {
 
   const selectListTheme = {
     selectedPrefix: (s: string) => s,
-    selectedText: (s: string) => s,
+    selectedText: (s: string) => `\x1b[7m${s}\x1b[0m`,
     description: (s: string) => s,
     scrollInfo: (s: string) => s,
     noMatch: (s: string) => s,
@@ -437,7 +437,7 @@ async function main(): Promise<void> {
       const { SelectList } = await import("@earendil-works/pi-tui");
       const selectListTheme = {
         selectedPrefix: (s: string) => s,
-        selectedText: (s: string) => s,
+        selectedText: (s: string) => `\x1b[7m${s}\x1b[0m`,
         description: (s: string) => s,
         scrollInfo: (s: string) => s,
         noMatch: (s: string) => s,
@@ -531,7 +531,7 @@ async function main(): Promise<void> {
       const { SelectList } = await import("@earendil-works/pi-tui");
       const selectListTheme = {
         selectedPrefix: (s: string) => s,
-        selectedText: (s: string) => s,
+        selectedText: (s: string) => `\x1b[7m${s}\x1b[0m`,
         description: (s: string) => s,
         scrollInfo: (s: string) => s,
         noMatch: (s: string) => s,
