@@ -313,6 +313,36 @@ async function main(): Promise<void> {
       return;
     }
     if (!trimmed) { tui.requestRender(); return; }
+    const firstToken = trimmed.split(/\s+/)[0].replace(/^\//, "");
+    const { DefaultSkillRegistry: _DSR } = await import("../skills/registry.js");
+    const _skillReg = new _DSR(process.cwd());
+    const isSkill = _skillReg.list().some((s: any) => s.name === firstToken) || trimmed.startsWith("/skill ");
+    if (isSkill) {
+      const skillName = trimmed.startsWith("/skill ") ? trimmed.split(/\s+/)[1] : firstToken;
+      const content = _skillReg.load(skillName);
+      if (!content) {
+        appendLine(`skill not found: ${skillName}`);
+        return;
+      }
+      session.appendMessage({ role: "system", content });
+      if (typeof session.appendEvent === "function") {
+        session.appendEvent({ type: "skill_loaded", name: skillName });
+      }
+      appendLine(`Loaded skill: ${skillName}`);
+      const extra = trimmed.startsWith("/skill ")
+        ? trimmed.split(/\s+/).slice(2).join(" ").trim()
+        : trimmed.slice(firstToken.length + 1).trim();
+      if (extra) {
+        appendLine(`> ${extra}`);
+        const controller = new AbortController();
+        try {
+          await runtime.runAgentTurn(extra, session, controller.signal);
+        } catch (err) {
+          appendLine(`atom-lite: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      return;
+    }
     if (trimmed === "/exit") { tui.stop(); process.exit(0); return; }
     if (trimmed === "/help") {
       appendLine(["/help", "/model", "/session", "/compact", "/clear", "/approval", "/doctor", "/effort", "/exit"].join("\n"));
@@ -370,20 +400,24 @@ async function main(): Promise<void> {
       const { SelectList } = await import("@earendil-works/pi-tui");
       const selectList = new SelectList(items as any, Math.min(10, items.length), selectListTheme as any);
       dropdownContainer.addChild(selectList);
-      tui.setFocus(selectList as any);
       tui.requestRender();
+      const removeListener = tui.addInputListener((data: string) => {
+        selectList.handleInput(data);
+        return { consume: true };
+      });
       selectList.onSelect = (item: any) => {
+        removeListener();
         const profile = item.value;
         const newProvider = createProvider(config, profile, modelOverride);
         runtime.switchModel(newProvider, modelOverride);
         provider = newProvider;
-        // remove select list
         dropdownContainer.clear();
         tui.setFocus(input);
         appendLine(`switched to ${profile}`);
         updateStatus();
       };
       selectList.onCancel = () => {
+        removeListener();
         dropdownContainer.clear();
         tui.setFocus(input);
         appendLine("cancelled");
@@ -421,23 +455,21 @@ async function main(): Promise<void> {
       };
       const selectList = new SelectList(items as any, Math.min(12, items.length), selectListTheme as any);
       dropdownContainer.addChild(selectList);
-      tui.setFocus(selectList as any);
       tui.requestRender();
+      const removeListener = tui.addInputListener((data: string) => {
+        selectList.handleInput(data);
+        return { consume: true };
+      });
       selectList.onSelect = (item: any) => {
+        removeListener();
         const name = item.value;
-        const c = reg.load(name);
         dropdownContainer.clear();
         tui.setFocus(input);
-        if (!c) {
-          appendLine(`skill not found: ${name}`);
-          return;
-        }
-        appendLine(`--- skill: ${name} ---\\n${c}`);
-        if (typeof session.appendEvent === "function") {
-          session.appendEvent({ type: "skill_loaded", name });
-        }
+        input.setText(`/${name} `);
+        tui.requestRender();
       };
       selectList.onCancel = () => {
+        removeListener();
         dropdownContainer.clear();
         tui.setFocus(input);
         appendLine("cancelled");
@@ -474,9 +506,13 @@ async function main(): Promise<void> {
       };
       const selectList = new SelectList(items as any, 3, selectListTheme as any);
       dropdownContainer.addChild(selectList);
-      tui.setFocus(selectList as any);
       tui.requestRender();
+      const removeListener = tui.addInputListener((data: string) => {
+        selectList.handleInput(data);
+        return { consume: true };
+      });
       selectList.onSelect = (item: any) => {
+        removeListener();
         const lvl = item.value;
         effortLevel = lvl;
         runtime.setEffort(lvl);
@@ -486,6 +522,7 @@ async function main(): Promise<void> {
         appendLine(`effort set to ${effortLevel}`);
       };
       selectList.onCancel = () => {
+        removeListener();
         dropdownContainer.clear();
         tui.setFocus(input);
         appendLine("cancelled");
