@@ -9,7 +9,9 @@ export interface ApprovalRequest {
   sandboxed: boolean;
 }
 
-export type ApprovalHandler = (request: ApprovalRequest) => Promise<ApprovalDecision>;
+export type ApprovalHandler = (
+  request: ApprovalRequest,
+) => Promise<ApprovalDecision>;
 
 export interface ApprovalContext {
   mode: ApprovalMode;

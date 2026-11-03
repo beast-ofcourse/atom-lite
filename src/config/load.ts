@@ -96,9 +96,7 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
   const userRuntime =
     (userRaw.runtime as Record<string, unknown> | undefined) ?? {};
   const mergedRuntime = (merged.runtime as Record<string, unknown>) ?? {};
-  if (userRuntime.approvalMode !== undefined) {
-    mergedRuntime.approvalMode = userRuntime.approvalMode;
-  }
+  mergedRuntime.approvalMode = userRuntime.approvalMode ?? "ask";
   merged.runtime = mergedRuntime;
 
   const env = envOverrides();

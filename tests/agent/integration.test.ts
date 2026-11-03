@@ -20,9 +20,17 @@ test("partial failure keeps successful result", async () => {
     },
     { text: "done" },
   ]);
-  const runtime = new AgentRuntime({ provider, workspace: dir, tools: [readTool] });
+  const runtime = new AgentRuntime({
+    provider,
+    workspace: dir,
+    tools: [readTool],
+  });
   const session = new InMemorySession("s", dir);
-  const res = await runtime.runAgentTurn("read", session, new AbortController().signal);
+  const res = await runtime.runAgentTurn(
+    "read",
+    session,
+    new AbortController().signal,
+  );
   assert.equal(res, "done");
   const toolMsgs = session.messages.filter((m) => m.role === "tool");
   assert.equal(toolMsgs.length, 2);
@@ -33,10 +41,22 @@ test("partial failure keeps successful result", async () => {
 test("cancellation stops the run", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   const controller = new AbortController();
-  const provider = new FakeProvider([{ toolCalls: [{ id: "b1", name: "bash", arguments: { command: "sleep 5" } }] }]);
+  const provider = new FakeProvider([
+    {
+      toolCalls: [
+        { id: "b1", name: "bash", arguments: { command: "sleep 5" } },
+      ],
+    },
+  ]);
   // cancel immediately
   controller.abort();
-  const runtime = new AgentRuntime({ provider, workspace: dir, tools: [bashTool] });
+  const runtime = new AgentRuntime({
+    provider,
+    workspace: dir,
+    tools: [bashTool],
+  });
   const session = new InMemorySession("s", dir);
-  await assert.rejects(() => runtime.runAgentTurn("run", session, controller.signal));
+  await assert.rejects(() =>
+    runtime.runAgentTurn("run", session, controller.signal),
+  );
 });

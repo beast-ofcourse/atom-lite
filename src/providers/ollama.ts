@@ -186,26 +186,42 @@ export class OllamaAdapter implements ProviderAdapter {
   async generate(request: ModelRequest): Promise<ModelResponse> {
     const url = `${this.baseUrl}/api/chat`;
     const body = this.buildBody(request, false);
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: this.buildHeaders(),
-        body: JSON.stringify(body),
-        signal: request.signal,
-      });
-    } catch (err) {
-      throw new Error(
-        `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-    if (!res.ok) {
+    let res: Response | undefined;
+    let lastErr: Error | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: this.buildHeaders(),
+          body: JSON.stringify(body),
+          signal: request.signal,
+        });
+      } catch (err) {
+        lastErr = new Error(
+          `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+          continue;
+        }
+        throw lastErr;
+      }
+      if (res.ok) break;
       const text = await res.text().catch(() => "");
       if (res.status === 401 || res.status === 403)
         throw new Error(`PROVIDER_AUTH_FAILED: ${text}`);
-      if (res.status === 429) throw new Error(`PROVIDER_RATE_LIMITED: ${text}`);
+      if (res.status === 429) {
+        lastErr = new Error(`PROVIDER_RATE_LIMITED: ${text}`);
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+          continue;
+        }
+        throw lastErr;
+      }
       throw new Error(`PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`);
     }
+    if (!res || !res.ok)
+      throw lastErr ?? new Error("PROVIDER_INVALID_RESPONSE");
     const json = (await res.json()) as any;
     const toolCalls = this.parseToolCalls(json);
     const text = json?.message?.content ?? "";

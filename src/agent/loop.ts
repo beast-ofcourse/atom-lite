@@ -59,7 +59,10 @@ export class AgentRuntime {
         return "TASK_BUDGET_REACHED";
       }
 
-      const messages = await this.contextManager.build(this.workspace, session.messages);
+      const messages = await this.contextManager.build(
+        this.workspace,
+        session.messages,
+      );
 
       const request: ModelRequest = {
         model: this.model,

@@ -73,7 +73,9 @@ export class ContextManager {
       };
       const resp = await this.opts.provider.generate(summaryReq as any);
       summaryText =
-        resp.message.content?.map((p: any) => (p.type === "text" ? p.text : "")).join("") ?? "";
+        resp.message.content
+          ?.map((p: any) => (p.type === "text" ? p.text : ""))
+          .join("") ?? "";
     } catch {
       summaryText = "";
     }
@@ -86,7 +88,10 @@ export class ContextManager {
     const compacted: Message[] = [
       { role: "system", content: this.opts.systemPrompt },
       ...instructions.map((i) => ({ role: "system" as const, content: i })),
-      { role: "assistant", content: [{ type: "text", text: `Context summary: ${summaryText}` }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: `Context summary: ${summaryText}` }],
+      },
       ...recent,
     ];
     return compacted;

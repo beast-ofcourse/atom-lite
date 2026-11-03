@@ -1,4 +1,11 @@
-import type { ModelRequest, ModelResponse, ModelStreamEvent, ToolCall, TokenUsage, Message } from "../types.js";
+import type {
+  ModelRequest,
+  ModelResponse,
+  ModelStreamEvent,
+  ToolCall,
+  TokenUsage,
+  Message,
+} from "../types.js";
 import type { ProviderAdapter } from "./types.js";
 
 export interface GeminiConfig {
@@ -9,7 +16,10 @@ export interface GeminiConfig {
   headers?: Record<string, string>;
 }
 
-function toGeminiContents(messages: Message[]): { systemInstruction?: any; contents: any[] } {
+function toGeminiContents(messages: Message[]): {
+  systemInstruction?: any;
+  contents: any[];
+} {
   const systemParts: any[] = [];
   const contents: any[] = [];
   for (const m of messages) {
@@ -20,22 +30,33 @@ function toGeminiContents(messages: Message[]): { systemInstruction?: any; conte
     if (m.role === "user") {
       contents.push({
         role: "user",
-        parts: m.content.map((p: any) => (p.type === "text" ? { text: p.text } : p)),
+        parts: m.content.map((p: any) =>
+          p.type === "text" ? { text: p.text } : p,
+        ),
       });
       continue;
     }
     if (m.role === "assistant") {
       const parts: any[] = [];
-      const text = m.content?.map((p: any) => (p.type === "text" ? p.text : "")).join("") ?? "";
+      const text =
+        m.content
+          ?.map((p: any) => (p.type === "text" ? p.text : ""))
+          .join("") ?? "";
       if (text) parts.push({ text });
       if (m.toolCalls?.length) {
         for (const tc of m.toolCalls) {
-          parts.push({ functionCall: { name: tc.name, args: tc.arguments ?? {} } });
+          parts.push({
+            functionCall: { name: tc.name, args: tc.arguments ?? {} },
+          });
         }
       }
       // preserve provider state if present
       const state = (m as any).providerState;
-      contents.push({ role: "model", parts, ...(state ? { _state: state } : {}) });
+      contents.push({
+        role: "model",
+        parts,
+        ...(state ? { _state: state } : {}),
+      });
       continue;
     }
     if (m.role === "tool") {
@@ -53,7 +74,9 @@ function toGeminiContents(messages: Message[]): { systemInstruction?: any; conte
       continue;
     }
   }
-  const systemInstruction = systemParts.length ? { parts: systemParts } : undefined;
+  const systemInstruction = systemParts.length
+    ? { parts: systemParts }
+    : undefined;
   return { systemInstruction, contents };
 }
 
@@ -67,7 +90,9 @@ export class GeminiAdapter implements ProviderAdapter {
     this.id = config.id;
     this.model = config.model;
     this.apiKey = config.apiKey ?? null;
-    this.baseUrl = (config.baseUrl ?? "https://generativelanguage.googleapis.com").replace(/\/$/, "");
+    this.baseUrl = (
+      config.baseUrl ?? "https://generativelanguage.googleapis.com"
+    ).replace(/\/$/, "");
   }
 
   async generate(request: ModelRequest): Promise<ModelResponse> {
@@ -87,32 +112,53 @@ export class GeminiAdapter implements ProviderAdapter {
         },
       ];
     }
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: request.signal,
-      });
-    } catch (err) {
-      throw new Error(`PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    if (!res.ok) {
+    let res: Response | undefined;
+    let lastErr: Error | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: request.signal,
+        });
+      } catch (err) {
+        lastErr = new Error(
+          `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+          continue;
+        }
+        throw lastErr;
+      }
+      if (res.ok) break;
       const text = await res.text().catch(() => "");
-      if (res.status === 401 || res.status === 403) throw new Error(`PROVIDER_AUTH_FAILED: ${text}`);
-      if (res.status === 429) throw new Error(`PROVIDER_RATE_LIMITED: ${text}`);
+      if (res.status === 401 || res.status === 403)
+        throw new Error(`PROVIDER_AUTH_FAILED: ${text}`);
+      if (res.status === 429) {
+        lastErr = new Error(`PROVIDER_RATE_LIMITED: ${text}`);
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+          continue;
+        }
+        throw lastErr;
+      }
       throw new Error(`PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`);
     }
+    if (!res || !res.ok)
+      throw lastErr ?? new Error("PROVIDER_INVALID_RESPONSE");
     const json = (await res.json()) as any;
     const candidate = json.candidates?.[0];
     const parts = candidate?.content?.parts ?? [];
-    const textParts = parts.filter((p: any) => typeof p.text === "string").map((p: any) => p.text);
+    const textParts = parts
+      .filter((p: any) => typeof p.text === "string")
+      .map((p: any) => p.text);
     const text = textParts.join("");
     const toolCalls: ToolCall[] = parts
       .filter((p: any) => p.functionCall)
       .map((p: any, i: number) => ({
-        id: `gemini_${i}_${Date.now()}`,
+        id: `gemini_${i}`,
         name: p.functionCall.name,
         arguments: p.functionCall.args ?? {},
       }));

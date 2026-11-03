@@ -36,7 +36,9 @@ export function createProvider(
     });
   }
   if (pcfg.type === "gemini") {
-    const apiKey = pcfg.apiKeyEnv ? (process.env[pcfg.apiKeyEnv] ?? null) : null;
+    const apiKey = pcfg.apiKeyEnv
+      ? (process.env[pcfg.apiKeyEnv] ?? null)
+      : null;
     return new GeminiAdapter({
       id: name,
       baseUrl: pcfg.baseUrl,
