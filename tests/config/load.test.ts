@@ -11,7 +11,7 @@ test("loadConfig returns defaults when no files exist", () => {
     projectRoot: dir,
     userConfigPath: join(dir, "nope.json"),
   });
-  assert.equal(cfg.defaultProvider, "openai-compatible");
+  assert.equal(cfg.defaultProvider, "kilo");
   assert.equal(cfg.runtime.approvalMode, "ask");
 });
 

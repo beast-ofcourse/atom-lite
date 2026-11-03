@@ -1,8 +1,15 @@
 import { DEFAULT_LIMITS } from "../types.js";
 
 export const DEFAULT_CONFIG = {
-  defaultProvider: "openai-compatible",
-  providers: {} as Record<string, unknown>,
+  defaultProvider: "kilo",
+  providers: {
+    kilo: {
+      type: "openai-compatible",
+      baseUrl: "https://api.kilo.ai/api/gateway",
+      model: "kilo-auto/free",
+      apiKeyEnv: null,
+    },
+  } as Record<string, unknown>,
   runtime: {
     ...DEFAULT_LIMITS,
     bashConcurrency: "serial",

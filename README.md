@@ -16,6 +16,10 @@ npx atom-lite "fix the failing test"
 
 Requires Node.js >= 20.
 
+## Default provider
+
+Out of the box, Atom-lite uses the **Kilo AI Gateway** (`https://api.kilo.ai/api/gateway`) with the free `kilo-auto/free` model, which requires no API key (rate-limited to 200 requests/hour per IP for anonymous use). Override via `--provider`/`--model` or config.
+
 ## Quick start
 
 ```sh
@@ -37,6 +41,7 @@ See `project-overview.md` for the full configuration shape. Secrets must be prov
 
 ```sh
 npm install
+npm start          # build and run atom-lite
 npm run typecheck
 npm test
 npm run build
