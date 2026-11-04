@@ -1,5 +1,6 @@
 import type { Component } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { darkTheme, type Theme } from "./theme.js";
 
 /** ANSI Shadow "ATOM-LITE" wordmark. */
 export const BANNER_LINES = [
@@ -11,11 +12,18 @@ export const BANNER_LINES = [
   " ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝     ╚═╝      ╚══════╝╚═╝   ╚═╝   ╚══════╝ ",
 ].map((line) => line.trimEnd());
 
-const RED = "\x1b[1;31m";
-const RESET = "\x1b[0m";
-
-/** Centered, bold-red startup banner. */
+/** Centered startup banner, coloured through the banner theme token. */
 export class Banner implements Component {
+  private theme: Theme;
+
+  constructor(theme: Theme = darkTheme) {
+    this.theme = theme;
+  }
+
+  setTheme(theme: Theme): void {
+    this.theme = theme;
+  }
+
   invalidate(): void {
     // No cached state.
   }
@@ -30,7 +38,7 @@ export class Banner implements Component {
     const pad = Math.max(0, Math.floor((w - blockWidth) / 2));
     return BANNER_LINES.map((line) => {
       const art = truncateToWidth(line, blockWidth);
-      return " ".repeat(pad) + RED + art + RESET;
+      return " ".repeat(pad) + this.theme.tokens.banner(art);
     });
   }
 }

@@ -90,6 +90,12 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
       ...((userRaw.sessions as object) ?? {}),
       ...((projectRaw.sessions as object) ?? {}),
     },
+    // UI settings are user-owned: a repository must not change the user's
+    // colours, mouse capture, or editor behaviour just by being opened.
+    ui: {
+      ...DEFAULT_CONFIG.ui,
+      ...((userRaw.ui as object) ?? {}),
+    },
   };
 
   // Protect security-critical user settings from project override.

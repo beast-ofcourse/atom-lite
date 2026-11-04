@@ -51,6 +51,7 @@ Most coding agents accumulate tools, sub-agents, planning frameworks, retrieval 
 - **Hash guards** — `expected_hash` rejects stale `write`/`edit` operations when the file changed since it was read.
 - **Provider-agnostic** — Ollama, Gemini, and any OpenAI-compatible endpoint (LM Studio, llama.cpp, Kilo AI Gateway, OpenAI, Anthropic, OpenRouter, Groq, Mistral, xAI, …).
 - **Interactive provider/model pickers** — `/provider` adds a provider and stores its key securely; `/model` fuzzy-searches every configured provider's models.
+- **Command palette and themes** — `ctrl+p` fuzzy-searches commands, skills, providers, models, themes, and recent sessions. `/theme` switches between auto, dark, light, and no-colour modes.
 - **Local-first** — runs fully against local providers with no cloud account, telemetry, or hosted database.
 - **Safe path handling** — file tools resolve against the workspace and reject escapes; shell is an explicit, sandbox-aware boundary.
 
@@ -147,7 +148,8 @@ See [`docs/configuration.md`](./docs/configuration.md) for every field, default,
 
 ```
 atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
-          [--no-tools] [--json] [--debug] [--version] [--help]
+          [--no-tools] [--json] [--debug] [--theme NAME] [--no-color]
+          [--version] [--help]
 ```
 
 | Flag | Description |
@@ -160,8 +162,14 @@ atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
 | `--no-tools` | Disable all tools (model-only chat) |
 | `--json` | Non-interactive JSON output |
 | `--debug` | Debug logging |
+| `--theme NAME` | Use `auto`, `dark`, `light`, or `ansi` for this run |
+| `--no-color` | Force the no-colour theme |
 | `--version` | Print version |
 | `--help` | Show help |
+
+In the TUI, type `/help` to see every command grouped by category, or press
+`ctrl+p` for the fuzzy command palette. `/theme` opens a live-preview picker and
+persists your choice to user config; `NO_COLOR` and `--no-color` always win.
 
 ## Tools
 

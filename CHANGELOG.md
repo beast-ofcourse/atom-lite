@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Configuration reference (`docs/configuration.md`) and a documentation index.
+- Single command registry driving dispatch, grouped `/help`, autocomplete, and
+  the new `ctrl+p` command palette (commands, skills, providers, models, themes,
+  and recent sessions).
+- Semantic theme registry with `auto`, `dark`, `light`, and `ansi` (no-colour)
+  themes, live-preview `/theme`, persisted `ui.theme`, and `--no-color` /
+  `NO_COLOR` support.
+- User-owned `ui` config section; project config cannot override it.
 
 ### Fixed
 

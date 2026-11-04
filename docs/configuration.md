@@ -25,9 +25,10 @@ Low to high:
 5. CLI and API overrides
 
 Objects (`providers`, `runtime`, `context`, `sessions`) merge key by key; a
-project config does not replace the whole section. One deliberate exception:
-**`runtime.approvalMode` is read only from user config or the environment**, so a
-repository cannot silently switch a trusted setup into auto-approval.
+project config does not replace the whole section. Two deliberate exceptions:
+**`runtime.approvalMode` and the whole `ui` section are read only from user config
+or the environment**, so a repository cannot silently switch a trusted setup into
+auto-approval or change your colours and editor behaviour.
 
 ## Top level
 
@@ -38,6 +39,7 @@ repository cannot silently switch a trusted setup into auto-approval.
 | `runtime` | object | see below | Loop, scheduler, and execution limits. |
 | `context` | object | see below | Context budget and compaction. |
 | `sessions` | object | see below | Session persistence. |
+| `ui` | object | see below | Theme and editor preferences. User config only. |
 
 ## `providers.<name>`
 
@@ -91,12 +93,30 @@ live provider metadata, then a built-in table of known model families.
 | `enabled` | boolean | `true` | Persist sessions as JSONL. |
 | `retentionDays` | positive integer \| null | `null` | Delete sessions older than this. `null` keeps everything. |
 
+## `ui`
+
+`ui` is user-owned. Project config may include the section, but it is ignored.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `theme` | string | `"auto"` | `auto`, `dark`, `light`, or `ansi` (no colour). Persisted by `/theme`. |
+| `mouse` | boolean | `true` | Reserved for TUI mouse capture. |
+| `vimMode` | boolean | `false` | Reserved for the optional modal editor. |
+| `showThinking` | boolean | `true` | Initial thinking display; `/thinking` toggles it for the session. |
+
+`auto` uses the terminal's colour-scheme report when available, then
+`COLORFGBG`, then falls back to `dark`. `--no-color` and a non-empty `NO_COLOR`
+environment variable force the `ansi` theme. The transcript, status line,
+banner, and pickers read semantic tokens rather than hardcoded escapes.
+
 ## Environment variables
 
 | Variable | Effect |
 | --- | --- |
 | `ATOM_LITE_PROVIDER` | Selects the default provider profile. |
 | `ATOM_LITE_APPROVAL_MODE` | Sets `runtime.approvalMode`. |
+| `NO_COLOR` | Forces the no-colour (`ansi`) theme when non-empty. |
+| `COLORFGBG` | Falls back to this value to detect a light or dark background. |
 | Any name in `apiKeyEnv` | Supplies that provider's API key. |
 
 ## Example
@@ -136,6 +156,9 @@ live provider metadata, then a built-in table of known model families.
   "sessions": {
     "enabled": true,
     "retentionDays": 30
+  },
+  "ui": {
+    "theme": "auto"
   }
 }
 ```

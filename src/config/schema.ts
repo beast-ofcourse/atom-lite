@@ -45,6 +45,15 @@ export const SessionsConfigSchema = z
   })
   .strict();
 
+export const UiConfigSchema = z
+  .object({
+    theme: z.string().default("auto"),
+    mouse: z.boolean().default(true),
+    vimMode: z.boolean().default(false),
+    showThinking: z.boolean().default(true),
+  })
+  .strict();
+
 export const ConfigSchema = z
   .object({
     defaultProvider: z.string().default("openai-compatible"),
@@ -52,6 +61,7 @@ export const ConfigSchema = z
     runtime: RuntimeConfigSchema.prefault({}),
     context: ContextConfigSchema.prefault({}),
     sessions: SessionsConfigSchema.prefault({}),
+    ui: UiConfigSchema.prefault({}),
   })
   .strict();
 

@@ -1,11 +1,26 @@
 import { loadConfig } from "../config/load.js";
-import { saveProviderModel, saveProviderSelection } from "../config/write.js";
+import {
+  saveProviderModel,
+  saveProviderSelection,
+  saveTheme,
+} from "../config/write.js";
 import { resolveApiKey, saveApiKey } from "../config/credentials.js";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { openSearchablePicker, type PickerItem } from "./picker.js";
+import { openCommandPalette, type PaletteItem } from "./palette.js";
+import { bareCommandName, createCommandRegistry, type CommandContext } from "./commands.js";
+import {
+  resolveTheme,
+  themeLabel,
+  themeNames,
+  type Theme,
+} from "./theme.js";
 import { SecretInput } from "./secret-input.js";
 import { StatusLine } from "./status-line.js";
+import { Activity } from "./activity.js";
+import { ToolBox } from "./tool-box.js";
+import { ApprovalPrompt, type ApprovalDecision } from "./approval-prompt.js";
 import { Banner } from "./banner.js";
 import {
   formatContextUsage,
@@ -36,6 +51,7 @@ import {
   Container,
   Spacer,
   isKeyRelease,
+  isKeyRepeat,
   Key,
   matchesKey,
 } from "@earendil-works/pi-tui";
@@ -47,6 +63,8 @@ export async function run(args: string[]): Promise<void> {
   let debug = false;
   let showVersion = false;
   let sessionOverride: string | undefined;
+  let themeOverride: string | undefined;
+  let noColor = false;
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -57,10 +75,12 @@ export async function run(args: string[]): Promise<void> {
     else if (a === "--version") showVersion = true;
     else if (a === "--continue") positional.push("__continue__");
     else if (a === "--session") sessionOverride = args[++i];
+    else if (a === "--theme") themeOverride = args[++i];
+    else if (a === "--no-color") noColor = true;
     else if (a === "--no-tools") positional.push("__notools__");
     else if (a === "--help") {
       process.stdout.write(
-        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--no-tools] [--json] [--debug] [--version] [--help]\n",
+        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--no-tools] [--json] [--debug] [--theme NAME] [--no-color] [--version] [--help]\n",
       );
       return;
     } else if (a.startsWith("--")) {
@@ -103,7 +123,7 @@ export async function run(args: string[]): Promise<void> {
   const oneShot = (taskArgs.join(" ").trim() || stdinTask).trim();
 
   const store = new JsonlSessionStore();
-  const session =
+  let session =
     sessionOverride
       ? store.resume(sessionOverride) ?? store.create(process.cwd(), provider.id)
       : positional.includes("__continue__")
@@ -122,24 +142,11 @@ export async function run(args: string[]): Promise<void> {
   });
 
   let sessionTrusted = false;
-  let appendLineFn: (t: string) => void = () => {};
-  let pendingApproval: ((d: "approve" | "deny" | "trust-session") => void) | null = null;
 
   const approvals: import("../runtime/approvals.js").ApprovalContext = {
     mode: (config.runtime.approvalMode as "ask" | "trusted" | "deny") ?? "ask",
-    handler: interactive
-      ? async (req) => {
-          appendLineFn(`[approval] ${req.command}`);
-          appendLineFn(`  cwd: ${req.cwd}  timeout: ${req.timeoutMs}ms  sandboxed: ${req.sandboxed}`);
-          appendLineFn("  type y (approve) / n (deny) / t (trust session)");
-          return new Promise<"approve" | "deny" | "trust-session">((resolve) => {
-            pendingApproval = (d) => {
-              pendingApproval = null;
-              resolve(d);
-            };
-          });
-        }
-      : undefined,
+    // Installed below once the interactive UI helpers exist.
+    handler: undefined,
     isTrusted: () => sessionTrusted,
     trustSession: () => {
       sessionTrusted = true;
@@ -189,8 +196,18 @@ export async function run(args: string[]): Promise<void> {
   let effortLevel = "medium";
   runtime.setEffort(effortLevel);
 
-  const transcript = new Transcript();
-  transcript.add(new Banner());
+  let themeName = themeOverride ?? config.ui.theme;
+  if (noColor) themeName = "ansi";
+  let terminalScheme: "dark" | "light" | undefined;
+  let theme: Theme = resolveTheme(themeName, {
+    noColor,
+    env: process.env,
+    scheme: terminalScheme,
+  });
+
+  const transcript = new Transcript(theme);
+  const banner = new Banner(theme);
+  transcript.add(banner);
   transcript.add(new Spacer(1));
   const content = transcript.container;
   const output = new ScrollView(content, { follow: "end" });
@@ -212,25 +229,29 @@ export async function run(args: string[]): Promise<void> {
     }
     return branch ? `${displayPath}:${branch}` : displayPath;
   }
-  const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
   // paddingY = 0 keeps the workspace path directly under the status line.
-  const header = new Text(dim(headerLabel()), 1, 0);
+  const header = new Text(theme.tokens.dim(headerLabel()), 1, 0);
 
-  const statusBar = new StatusLine();
+  const statusBar = new StatusLine(theme);
+  const activity = new Activity({ theme, onChange: () => updateStatus() });
   statusBar.setParts({
-    left: dim(`${provider.id}/${(provider as any).model ?? "default"}`),
-    tokens: dim("tokens: ?"),
-    effort: dim("effort: medium"),
+    left: `${provider.id}/${(provider as any).model ?? "default"}`,
+    tokens: "tokens: ?",
+    effort: "effort: medium",
+    activity: activity.text(),
   });
 
   const selectListTheme = {
-    selectedPrefix: (s: string) => s,
-    selectedText: (s: string) => `\x1b[7m${s}\x1b[0m`,
-    description: (s: string) => s,
-    scrollInfo: (s: string) => s,
-    noMatch: (s: string) => s,
+    selectedPrefix: (s: string) => theme.tokens.accent(s),
+    selectedText: (s: string) => theme.tokens.selection(s),
+    description: (s: string) => theme.tokens.dim(s),
+    scrollInfo: (s: string) => theme.tokens.dim(s),
+    noMatch: (s: string) => theme.tokens.dim(s),
   };
-  const editorTheme = { borderColor: (s: string) => s, selectList: selectListTheme };
+  const editorTheme = {
+    borderColor: (s: string) => theme.tokens.border(s),
+    selectList: selectListTheme,
+  };
   const input = new Editor(tui, editorTheme, {});
   const { CombinedAutocompleteProvider } = await import("@earendil-works/pi-tui");
   const { DefaultSkillRegistry, skillCacheSignature } = await import("../skills/registry.js");
@@ -244,23 +265,21 @@ export async function run(args: string[]): Promise<void> {
     }
     return skillReg;
   }
-  const slashCommands: { name: string; description?: string }[] = [
-    { name: "help", description: "show commands" },
-    { name: "model", description: "search/switch model" },
-    { name: "provider", description: "add/select provider" },
-    { name: "session", description: "session info" },
-    { name: "compact", description: "compact history" },
-    { name: "clear", description: "clear session" },
-    { name: "approval", description: "approval mode" },
-    { name: "doctor", description: "diagnostics" },
-    { name: "effort", description: "set effort level" },
-    { name: "skills", description: "list/select skills" },
-    { name: "exit", description: "exit" },
-  ];
-  for (const s of skillReg.list()) {
-    slashCommands.push({ name: s.name, description: s.description });
+
+  let commandRegistry = createCommandRegistry({ skills: skillReg.list() });
+  let registrySkillSignature = skillSignature;
+  function refreshCommandRegistry(): void {
+    const sig = skillCacheSignature(process.cwd());
+    if (sig === registrySkillSignature) return;
+    commandRegistry = createCommandRegistry({ skills: cachedSkillRegistry().list() });
+    registrySkillSignature = sig;
+    input.setAutocompleteProvider(
+      new CombinedAutocompleteProvider(commandRegistry.autocomplete() as any, process.cwd()),
+    );
   }
-  input.setAutocompleteProvider(new CombinedAutocompleteProvider(slashCommands as any, process.cwd()));
+  input.setAutocompleteProvider(
+    new CombinedAutocompleteProvider(commandRegistry.autocomplete() as any, process.cwd()),
+  );
 
   tui.addChild(output);
   tui.addChild(new Spacer());
@@ -272,37 +291,37 @@ export async function run(args: string[]): Promise<void> {
   tui.addChild(dropdownContainer);
   tui.setFocus(input);
 
+  if (!noColor) {
+    try {
+      tui.setTerminalColorSchemeNotifications(true);
+      tui.onTerminalColorSchemeChange((scheme) => {
+        terminalScheme = scheme;
+        if (themeName === "auto") applyTheme("auto", false);
+      });
+    } catch {
+      // Terminals that do not support colour-scheme reports keep the
+      // COLORFGBG/dark fallback.
+    }
+  }
+
   let thinkingText: any = null;
   let thinkingBuffer = "";
-  let showThinking = true;
-  let loader: any = null;
+  let showThinking = config.ui.showThinking;
   let expandTools = false;
   let uiModalOpen = false;
-  const toolBoxes: {
-    id: string;
-    header: any;
-    output: any;
-    container: any;
-    lines: string[];
-    toolName?: string;
-    args?: any;
-    live?: any;
-    liveBuffer?: string;
-  }[] = [];
+  let closeActiveOverlay: (() => void) | undefined;
+  const toolBoxes: ToolBox[] = [];
 
-  approvals.handler = interactive
-    ? async (req: any) => {
-        appendLine("box: approval");
-        appendLine(req.command);
-        appendLine("type y / n / t");
-        return new Promise<any>((resolve) => {
-          pendingApproval = (d) => {
-            pendingApproval = null;
-            resolve(d);
-          };
-        });
-      }
-    : undefined;
+  /**
+   * Close whichever modal overlay owns the keyboard. Callers that clear the
+   * dropdown container directly must use this first, or the overlay's input
+   * listener would keep consuming keys after it disappears from the screen.
+   */
+  function closeOverlay(): void {
+    const close = closeActiveOverlay;
+    closeActiveOverlay = undefined;
+    close?.();
+  }
 
   function appendLine(text: string): void {
     if (thinkingText) {
@@ -310,7 +329,7 @@ export async function run(args: string[]): Promise<void> {
       thinkingBuffer = "";
     }
     streamText.finalize();
-    transcript.add(new Text(text));
+    transcript.addLine(text);
     tui.requestRender();
   }
 
@@ -319,22 +338,68 @@ export async function run(args: string[]): Promise<void> {
     tui.requestRender();
   }
 
+  function thinkingBody(): string {
+    return thinkingBuffer
+      .split("\n")
+      .map((line) => theme.tokens.dim(`| ${line}`))
+      .join("\n");
+  }
+
   function finalizeText(): void {
     streamText.finalize();
+  }
+
+  /** Run one interactive turn while keeping the status bar's activity fresh. */
+  async function runTurn(prompt: string): Promise<void> {
+    activity.start("formulating");
+    const controller = new AbortController();
+    try {
+      await runtime.runAgentTurn(prompt, session, controller.signal);
+    } catch (err) {
+      appendLine(`atom-lite: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      activity.stop();
+    }
   }
 
   function updateStatus(): void {
     const usage = runtime.getContextUsage();
     statusBar.setParts({
-      left: dim(`${provider.id}/${currentModelLabel()}`),
-      tokens: dim(`tokens: ${formatContextUsage(usage.used, usage.window)}`),
-      effort: dim(`effort: ${effortLevel}`),
+      left: `${provider.id}/${currentModelLabel()}`,
+      tokens: `tokens: ${formatContextUsage(usage.used, usage.window)}`,
+      effort: `effort: ${effortLevel}`,
+      activity: activity.text(),
     });
     tui.requestRender();
   }
 
   function currentModelLabel(): string {
     return modelOverride ?? (provider as any).model ?? "default";
+  }
+
+  function applyTheme(name: string, persist: boolean): void {
+    themeName = name;
+    theme = resolveTheme(name, {
+      noColor,
+      env: process.env,
+      scheme: terminalScheme,
+    });
+    banner.setTheme(theme);
+    transcript.setTheme(theme);
+    statusBar.setTheme(theme);
+    activity.setTheme(theme);
+    header.setText(theme.tokens.dim(headerLabel()));
+    if (persist) {
+      try {
+        saveTheme(name);
+      } catch (err) {
+        appendLine(
+          `warning: could not persist theme: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    updateStatus();
+    tui.requestRender();
   }
 
   /**
@@ -469,6 +534,14 @@ export async function run(args: string[]): Promise<void> {
     }
   }
 
+  /** Providers whose model list is missing or older than the cache TTL. */
+  function providersNeedingRefresh(names: string[]): string[] {
+    return names.filter((name) => {
+      const cached = modelCache.get(name);
+      return !cached || Date.now() - cached.at >= MODEL_CACHE_TTL_MS;
+    });
+  }
+
   function switchToModel(profile: string, model: string): void {
     const pcfg = ensureProfile(profile);
     if (!pcfg) {
@@ -490,6 +563,36 @@ export async function run(args: string[]): Promise<void> {
     appendLine(`switched to ${profile}/${model}`);
   }
 
+  /** Interpret `/model` arguments: bare model, provider/model, or provider. */
+  function switchModelTarget(target: string): void {
+    const rest = target.trim();
+    if (!rest) {
+      openModelPicker();
+      return;
+    }
+    const knownModels = modelsFor(provider.id);
+    if (knownModels.includes(rest)) {
+      switchToModel(provider.id, rest);
+      return;
+    }
+    const slash = rest.indexOf("/");
+    if (slash > 0) {
+      const profile = rest.slice(0, slash);
+      const model = rest.slice(slash + 1);
+      if (profileConfig(profile) || getPreset(profile)) {
+        switchToModel(profile, model);
+        return;
+      }
+    }
+    if (profileConfig(rest) || getPreset(rest)) {
+      ensureProfile(rest);
+      const pcfg = profileConfig(rest);
+      switchToModel(rest, String(pcfg?.model ?? modelOverride ?? "default"));
+      return;
+    }
+    switchToModel(provider.id, rest);
+  }
+
   function openModelPicker(): void {
     const names = availableProviderNames(config);
     if (!names.includes(provider.id) && profileConfig(provider.id)) {
@@ -500,6 +603,7 @@ export async function run(args: string[]): Promise<void> {
       tui,
       container: dropdownContainer,
       title: "Select model",
+      theme,
       items: buildModelItems(),
       maxVisible: 15,
       onSelect: (item) => {
@@ -515,9 +619,11 @@ export async function run(args: string[]): Promise<void> {
       },
       restoreFocus: () => tui.setFocus(input),
     });
-    if (names.length) {
-      picker.setStatus(`loading live models from ${names.length} provider${names.length === 1 ? "" : "s"}…`);
-      refreshModelCache(names, () => {
+    closeActiveOverlay = picker.close;
+    const stale = providersNeedingRefresh(names);
+    if (stale.length) {
+      picker.setStatus(`loading live models from ${stale.length} provider${stale.length === 1 ? "" : "s"}…`);
+      refreshModelCache(stale, () => {
         picker.setStatus("");
         picker.updateItems(buildModelItems());
       });
@@ -573,6 +679,7 @@ export async function run(args: string[]): Promise<void> {
   }
 
   function closeApiKeyPrompt(): void {
+    closeOverlay();
     dropdownContainer.clear();
     uiModalOpen = false;
     tui.setFocus(input);
@@ -581,11 +688,12 @@ export async function run(args: string[]): Promise<void> {
 
   function promptForApiKey(preset: ProviderPreset, existingKey: string | null): void {
     uiModalOpen = true;
+    closeOverlay();
     dropdownContainer.clear();
     const wrapper = new Container();
-    wrapper.addChild(new Text(`\x1b[36m${preset.label} API key\x1b[0m`));
-    if (preset.keyUrl) wrapper.addChild(new Text(dim(`create one: ${preset.keyUrl}`)));
-    if (existingKey) wrapper.addChild(new Text(dim("a key is already saved — press Enter to keep it")));
+    wrapper.addChild(new Text(theme.tokens.accent(`${preset.label} API key`)));
+    if (preset.keyUrl) wrapper.addChild(new Text(theme.tokens.dim(`create one: ${preset.keyUrl}`)));
+    if (existingKey) wrapper.addChild(new Text(theme.tokens.dim("a key is already saved — press Enter to keep it")));
     const secret = new SecretInput(
       "API key",
       existingKey ? "hidden (Enter keeps saved key)" : "paste key (hidden)",
@@ -616,18 +724,18 @@ export async function run(args: string[]): Promise<void> {
           }
           return;
         }
-        status.setText(dim("an API key is required"));
+        status.setText(theme.tokens.dim("an API key is required"));
         tui.requestRender();
         return;
       }
       busy = true;
-      status.setText(dim("validating key…"));
+      status.setText(theme.tokens.dim("validating key…"));
       tui.requestRender();
       await new Promise((r) => setImmediate(r));
       const probe = await probeApiKey(preset, key);
       if (probe.invalid) {
         busy = false;
-        status.setText(`\x1b[31m✗ key rejected by ${preset.label}\x1b[0m`);
+        status.setText(theme.tokens.error(`✗ key rejected by ${preset.label}`));
         secret.reset();
         tui.requestRender();
         return;
@@ -637,7 +745,9 @@ export async function run(args: string[]): Promise<void> {
       } catch (err) {
         busy = false;
         status.setText(
-          `\x1b[31m✗ could not save key: ${err instanceof Error ? err.message : String(err)}\x1b[0m`,
+          theme.tokens.error(
+            `✗ could not save key: ${err instanceof Error ? err.message : String(err)}`,
+          ),
         );
         tui.requestRender();
         return;
@@ -676,10 +786,11 @@ export async function run(args: string[]): Promise<void> {
 
   function openProviderPicker(): void {
     uiModalOpen = true;
-    openSearchablePicker({
+    const picker = openSearchablePicker({
       tui,
       container: dropdownContainer,
       title: "Select provider",
+      theme,
       items: providerItems(),
       maxVisible: 12,
       onSelect: (item) => {
@@ -692,27 +803,290 @@ export async function run(args: string[]): Promise<void> {
       },
       restoreFocus: () => tui.setFocus(input),
     });
+    closeActiveOverlay = picker.close;
   }
 
-  appendLineFn = appendLine;
+  function openEffortPicker(): void {
+    uiModalOpen = true;
+    const items = [
+      { value: "low", label: "low", description: "minimal reasoning" },
+      { value: "medium", label: "medium", description: "balanced" },
+      { value: "high", label: "high", description: "deep reasoning" },
+    ];
+    const picker = openSearchablePicker({
+      tui,
+      container: dropdownContainer,
+      title: "Select effort",
+      theme,
+      items,
+      maxVisible: 3,
+      onSelect: (item) => {
+        uiModalOpen = false;
+        setEffortTarget(item.value as "low" | "medium" | "high");
+      },
+      onCancel: () => {
+        uiModalOpen = false;
+        appendLine("cancelled");
+      },
+      restoreFocus: () => tui.setFocus(input),
+    });
+    closeActiveOverlay = picker.close;
+    picker.setStatus("applies to the next turn");
+  }
+
+  function setEffortTarget(level: "low" | "medium" | "high"): void {
+    effortLevel = level;
+    runtime.setEffort(level);
+    updateStatus();
+    appendLine(`effort set to ${effortLevel}`);
+  }
+
+  function themePickerItems(): PickerItem[] {
+    return themeNames().map((name) => ({
+      value: name,
+      label: name,
+      description: themeLabel(name),
+    }));
+  }
+
+  function setThemeTarget(name: string): void {
+    if (!themeNames().includes(name)) {
+      appendLine(
+        `unknown theme: ${name} (available: ${themeNames().join(", ")})`,
+      );
+      return;
+    }
+    applyTheme(name, true);
+    appendLine(`theme: ${themeLabel(name)}`);
+  }
+
+  function openThemePicker(): void {
+    uiModalOpen = true;
+    const original = themeName;
+    const picker = openSearchablePicker({
+      tui,
+      container: dropdownContainer,
+      title: "Select theme",
+      theme,
+      items: themePickerItems(),
+      maxVisible: 4,
+      initialValue: themeName,
+      onPreview: (item) => applyTheme(item.value, false),
+      onSelect: (item) => {
+        uiModalOpen = false;
+        setThemeTarget(item.value);
+      },
+      onCancel: () => {
+        uiModalOpen = false;
+        applyTheme(original, false);
+        appendLine("cancelled");
+      },
+      restoreFocus: () => tui.setFocus(input),
+    });
+    closeActiveOverlay = picker.close;
+  }
+
+  async function loadSkill(name: string, extra: string): Promise<boolean> {
+    const registry = cachedSkillRegistry();
+    const content = registry.load(name);
+    if (!content) {
+      appendLine(`skill not found: ${name}`);
+      return false;
+    }
+    session.appendMessage({ role: "system", content });
+    if (typeof (session as any).appendEvent === "function") {
+      session.appendEvent({ type: "skill_loaded", name });
+    }
+    appendLine(`Loaded skill: ${name}`);
+    if (extra) {
+      appendLine(`> ${extra}`);
+      await runTurn(extra);
+    }
+    return true;
+  }
+
+  const commandContext: CommandContext = {
+    get session() {
+      return session;
+    },
+    runtime,
+    approvals,
+    appendLine,
+    clearContent: () => {
+      session.messages.length = 0;
+      content.clear();
+      tui.requestRender();
+    },
+    updateStatus,
+    runDoctor,
+    openModelPicker,
+    openProviderPicker,
+    openEffortPicker,
+    openThemePicker,
+    switchModel: switchModelTarget,
+    startProviderSetup,
+    setEffort: setEffortTarget,
+    toggleThinking: () => {
+      showThinking = !showThinking;
+      return showThinking;
+    },
+    setTheme: setThemeTarget,
+    listSkills: () =>
+      cachedSkillRegistry().list().map((skill) => ({
+        name: skill.name,
+        description: skill.description,
+      })),
+    loadSkill,
+    runTurn,
+    requestExit: () => {
+      tui.stop();
+      process.exit(0);
+    },
+  };
+
+  function resumeSession(id: string): void {
+    const next = store.resume(id);
+    if (!next) {
+      appendLine(`could not resume session: ${id}`);
+      return;
+    }
+    session = next;
+    if (typeof (session as any).appendEvent === "function") {
+      session.appendEvent({ type: "session_resumed" });
+    }
+    appendLine(
+      `resumed session ${session.id} (${session.messages.length} messages)`,
+    );
+  }
+
+  function buildPaletteItems(): PaletteItem[] {
+    const items: PaletteItem[] = [];
+
+    for (const command of commandRegistry.list()) {
+      const hint = command.argumentHint ? ` ${command.argumentHint}` : "";
+      items.push({
+        id: `command:${command.name}`,
+        label: `/${command.name}${hint}`,
+        description: command.description,
+        category: command.category,
+        keywords: command.aliases,
+        action: async () => {
+          await commandRegistry.dispatch(`/${command.name}`, commandContext);
+        },
+      });
+    }
+
+    const profiles = new Set([
+      ...availableProviderNames(config),
+      ...Object.keys(config.providers as Record<string, unknown>),
+    ]);
+    for (const profile of profiles) {
+      const preset = getPreset(profile);
+      items.push({
+        id: `provider:${profile}`,
+        label: providerLabel(profile),
+        description: preset?.description ?? "configured provider",
+        category: "Providers",
+        action: () => {
+          if (preset) startProviderSetup(profile);
+          else
+            switchModelTarget(
+              `${profile}/${String(profileConfig(profile)?.model ?? "default")}`,
+            );
+        },
+      });
+    }
+
+    for (const item of buildModelItems()) {
+      const separator = item.value.indexOf("\u0000");
+      const profile = item.value.slice(0, separator);
+      const model = item.value.slice(separator + 1);
+      items.push({
+        id: `model:${item.value}`,
+        label: item.label.replace("  (current)", ""),
+        description: `${providerLabel(profile)}${item.label.includes("(current)") ? " · current" : ""}`,
+        category: "Models",
+        action: () => switchToModel(profile, model),
+      });
+    }
+
+    for (const name of themeNames()) {
+      items.push({
+        id: `theme:${name}`,
+        label: name,
+        description: themeLabel(name),
+        category: "Themes",
+        action: () => setThemeTarget(name),
+      });
+    }
+
+    for (const summary of store.list(process.cwd()).slice(0, 8)) {
+      items.push({
+        id: `session:${summary.id}`,
+        label: summary.id,
+        description: `${summary.updatedAt ?? "unknown"} · ${summary.eventCount ?? 0} events`,
+        category: "Sessions",
+        keywords: [summary.provider],
+        action: () => resumeSession(summary.id),
+      });
+    }
+
+    return items;
+  }
+
+  function openPalette(): void {
+    if (uiModalOpen) return;
+    refreshCommandRegistry();
+    uiModalOpen = true;
+    const palette = openCommandPalette({
+      tui,
+      container: dropdownContainer,
+      items: buildPaletteItems(),
+      theme,
+      title: "Command palette",
+      onSelect: () => {
+        uiModalOpen = false;
+      },
+      onCancel: () => {
+        uiModalOpen = false;
+        appendLine("cancelled");
+      },
+      onError: (err) => {
+        uiModalOpen = false;
+        appendLine(
+          `palette: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      },
+      restoreFocus: () => tui.setFocus(input),
+    });
+    closeActiveOverlay = palette.close;
+
+    // The palette lists models too; refresh stale caches in the background and
+    // update the open list when live discovery finishes.
+    const stale = providersNeedingRefresh(availableProviderNames(config));
+    if (stale.length) {
+      refreshModelCache(stale, () => {
+        palette.updateItems(buildPaletteItems());
+      });
+    }
+  }
 
   function toggleTools(): void {
     expandTools = !expandTools;
     for (const box of toolBoxes) {
-      if (box.live) continue; // a running command keeps its live view
-      box.output.clear();
-      if (expandTools) {
-        if (box.lines.length > 0) {
-          box.output.addChild(new Text(box.lines.join("\n")));
-        }
-      } else {
-        box.output.addChild(new Text(`  (${box.lines.length} lines, ctrl+o to expand)`));
-      }
+      box.setExpanded(expandTools);
     }
     tui.requestRender();
   }
 
   tui.addInputListener((data: string) => {
+    // Releases and repeats must not toggle modal shortcuts twice.
+    if (isKeyRelease(data) || isKeyRepeat(data)) return undefined;
+    // Ctrl+P opens the command palette unless a modal owns the keyboard.
+    if (matchesKey(data, Key.ctrl("p")) && !uiModalOpen) {
+      openPalette();
+      return { consume: true };
+    }
     // Ctrl+O toggles tool expansion (unless a modal is capturing input).
     if (matchesKey(data, Key.ctrl("o")) && !uiModalOpen) {
       toggleTools();
@@ -723,37 +1097,34 @@ export async function run(args: string[]): Promise<void> {
 
   runtime["onEvent"] = (e: any) => {
     if (e.type === "thinking_delta") {
+      activity.setPhase("thinking");
       if (!showThinking) return;
       if (!thinkingText) {
-        thinkingText = new Text("\x1b[2mThinking...\x1b[0m");
+        thinkingText = new Text(theme.tokens.dim("Thinking..."));
         transcript.add(thinkingText);
         thinkingBuffer = "";
       }
       thinkingBuffer += e.text;
-      const prefixed = thinkingBuffer
-        .split("\n")
-        .map((l: string) => `\x1b[2m| ${l}\x1b[0m`)
-        .join("\n");
-      thinkingText.setText(`\x1b[2mThinking...\x1b[0m\n${prefixed}`);
+      thinkingText.setText(
+        `${theme.tokens.dim("Thinking...")}\n${thinkingBody()}`,
+      );
       tui.requestRender();
     } else if (e.type === "assistant_delta") {
+      activity.setPhase("working");
       if (thinkingText) {
-        const prefixed = thinkingBuffer
-          .split("\n")
-          .map((l: string) => `\x1b[2m| ${l}\x1b[0m`)
-          .join("\n");
-        thinkingText.setText(`\x1b[2mThinking...\x1b[0m\n${prefixed}\n\x1b[2m| end\x1b[0m`);
+        thinkingText.setText(
+          `${theme.tokens.dim("Thinking...")}\n${thinkingBody()}\n${theme.tokens.dim("| end")}`,
+        );
         thinkingText = null;
         thinkingBuffer = "";
       }
       appendDelta(e.text);
     } else if (e.type === "assistant_text") {
+      activity.setPhase("working");
       if (thinkingText) {
-        const prefixed = thinkingBuffer
-          .split("\n")
-          .map((l: string) => `\x1b[2m| ${l}\x1b[0m`)
-          .join("\n");
-        thinkingText.setText(`\x1b[2mThinking...\x1b[0m\n${prefixed}\n\x1b[2m| end\x1b[0m`);
+        thinkingText.setText(
+          `${theme.tokens.dim("Thinking...")}\n${thinkingBody()}\n${theme.tokens.dim("| end")}`,
+        );
         thinkingText = null;
         thinkingBuffer = "";
       }
@@ -769,36 +1140,17 @@ export async function run(args: string[]): Promise<void> {
       updateStatus();
     } else if (e.type === "tool_call") {
       finalizeText();
-      const box = new Container();
-      const header = new Text(`▸ ${e.name} ${JSON.stringify(e.args)}`);
-      box.addChild(header);
-      const output = new Container();
-      box.addChild(output);
+      activity.setPhase("working", e.name);
+      const box = new ToolBox({ id: e.id, name: e.name, args: e.args });
+      box.setExpanded(expandTools);
       transcript.add(box);
-      toolBoxes.push({
-        id: e.id,
-        header,
-        output,
-        container: box,
-        lines: [],
-        toolName: e.name,
-        args: e.args,
-      });
+      toolBoxes.push(box);
       tui.requestRender();
     } else if (e.type === "tool_output") {
       const box = toolBoxes.find((b) => b.id === e.toolCallId);
       if (box) {
-        if (!box.live) {
-          box.live = new Text("");
-          box.output.addChild(box.live);
-        }
-        box.liveBuffer = (box.liveBuffer ?? "") + e.text;
-        // Keep the live view bounded; the completed result carries the full
-        // capped output, and the JSONL transcript keeps everything.
-        if (box.liveBuffer.length > 60_000) {
-          box.liveBuffer = box.liveBuffer.slice(-60_000);
-        }
-        box.live.setText(box.liveBuffer);
+        activity.setPhase("working", e.name);
+        box.appendLive(e.text);
         tui.requestRender();
       }
     } else if (e.type === "tool_result") {
@@ -806,41 +1158,13 @@ export async function run(args: string[]): Promise<void> {
         toolBoxes.find((b) => b.id === e.toolCallId) ??
         toolBoxes[toolBoxes.length - 1];
       if (last) {
-        last.live = null;
-        last.liveBuffer = "";
-        last.output.clear();
-        if (e.diff) {
-          const diffLines: string[] = e.diff;
-          last.lines = diffLines;
-          if (expandTools) {
-            const colored = diffLines
-              .map((l) =>
-                l.startsWith("+")
-                  ? `\x1b[32m${l}\x1b[0m`
-                  : l.startsWith("-")
-                    ? `\x1b[31m${l}\x1b[0m`
-                    : l,
-              )
-              .join("\n");
-            if (colored) last.output.addChild(new Text(colored));
-          } else {
-            const added = diffLines.filter((l) => l.startsWith("+")).length;
-            const removed = diffLines.filter((l) => l.startsWith("-")).length;
-            last.output.addChild(new Text(`  +${added} -${removed} (ctrl+o to expand)`));
-          }
-        } else {
-          const lines = e.content.split("\n");
-          last.lines = lines;
-          if (expandTools) {
-            last.output.addChild(new Text(lines.join("\n")));
-          } else {
-            last.output.addChild(new Text(`  (${lines.length} lines, ctrl+o to expand)`));
-          }
-        }
+        last.setResult(e.content, { isError: e.isError, diff: e.diff });
+        activity.setPhase("working");
         tui.requestRender();
       }
     } else if (e.type === "final") {
       finalizeText();
+      activity.stop();
     }
   };
 
@@ -858,229 +1182,77 @@ export async function run(args: string[]): Promise<void> {
   input.onSubmit = async (value: string) => {
     const trimmed = value.trim();
     input.setText("");
-    if (pendingApproval) {
-      const a = trimmed.toLowerCase();
-      if (a === "y" || a === "yes") pendingApproval("approve");
-      else if (a === "t" || a === "trust") pendingApproval("trust-session");
-      else pendingApproval("deny");
-      return;
-    }
-    if (!trimmed) { tui.requestRender(); return; }
-    const firstToken = trimmed.split(/\s+/)[0].replace(/^\//, "");
-    const _skillReg = cachedSkillRegistry();
-    const isSkill = _skillReg.list().some((s: any) => s.name === firstToken) || trimmed.startsWith("/skill ");
-    if (isSkill) {
-      const skillName = trimmed.startsWith("/skill ") ? trimmed.split(/\s+/)[1] : firstToken;
-      const content = _skillReg.load(skillName);
-      if (!content) {
-        appendLine(`skill not found: ${skillName}`);
-        return;
-      }
-      session.appendMessage({ role: "system", content });
-      if (typeof session.appendEvent === "function") {
-        session.appendEvent({ type: "skill_loaded", name: skillName });
-      }
-      appendLine(`Loaded skill: ${skillName}`);
-      const extra = trimmed.startsWith("/skill ")
-        ? trimmed.split(/\s+/).slice(2).join(" ").trim()
-        : trimmed.slice(firstToken.length + 1).trim();
-      if (extra) {
-        appendLine(`> ${extra}`);
-        const controller = new AbortController();
-        try {
-          await runtime.runAgentTurn(extra, session, controller.signal);
-        } catch (err) {
-          appendLine(`atom-lite: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
-      return;
-    }
-    if (trimmed === "/exit") { tui.stop(); process.exit(0); return; }
-    if (trimmed === "/help") {
-      appendLine(["/help", "/model", "/provider", "/session", "/compact", "/clear", "/approval", "/doctor", "/effort", "/thinking", "/exit"].join("\n"));
-      return;
-    }
-    if (trimmed === "/session") {
-      appendLine(`session: ${session.id}\nworkspace: ${session.workspace}\nprovider: ${session.provider}\nmessages: ${session.messages.length}`);
-      return;
-    }
-    if (trimmed === "/approval") {
-      appendLine(`approval mode: ${approvals.mode}\ntrusted this session: ${approvals.isTrusted()}`);
-      return;
-    }
-    if (trimmed === "/doctor") {
-      const out = await runDoctor();
-      appendLine(out);
-      return;
-    }
-    if (trimmed === "/clear") {
-      session.messages.length = 0;
-      content.clear();
+    if (!trimmed) {
       tui.requestRender();
-      appendLine("started new session");
       return;
     }
-    if (trimmed === "/compact") {
-      appendLine("compaction is automatic");
-      return;
-    }
-    if (trimmed === "/model" || trimmed.startsWith("/model ")) {
-      const rest = trimmed.slice("/model".length).trim();
-      if (!rest) {
-        openModelPicker();
-        return;
-      }
-      const knownModels = modelsFor(provider.id);
-      if (knownModels.includes(rest)) {
-        switchToModel(provider.id, rest);
-        return;
-      }
-      const slash = rest.indexOf("/");
-      if (slash > 0) {
-        const profile = rest.slice(0, slash);
-        const model = rest.slice(slash + 1);
-        if (profileConfig(profile) || getPreset(profile)) {
-          switchToModel(profile, model);
-          return;
-        }
-      }
-      if (profileConfig(rest) || getPreset(rest)) {
-        ensureProfile(rest);
-        const pcfg = profileConfig(rest);
-        switchToModel(rest, String(pcfg?.model ?? modelOverride ?? "default"));
-        return;
-      }
-      switchToModel(provider.id, rest);
-      return;
-    }
-    if (trimmed === "/provider" || trimmed.startsWith("/provider ")) {
-      const rest = trimmed.slice("/provider".length).trim();
-      if (rest) startProviderSetup(rest);
-      else openProviderPicker();
-      return;
-    }
-    if (trimmed === "/skills") {
-      const reg = new (await import("../skills/registry.js")).DefaultSkillRegistry(process.cwd());
-      const skills = reg.list();
-      if (skills.length === 0) {
-        appendLine("no skills available");
-        return;
-      }
-      appendLine(skills.map((sk: any) => `${sk.name} - ${sk.description}`).join("\n"));
-      return;
-    }
-    if (trimmed.startsWith("/skill ")) {
-      const name = trimmed.split(/\s+/)[1];
-      const reg = new (await import("../skills/registry.js")).DefaultSkillRegistry(process.cwd());
-      const content = reg.load(name);
-      if (!content) {
-        appendLine(`skill not found: ${name}`);
-        return;
-      }
-      session.appendMessage({ role: "system", content });
-      if (typeof session.appendEvent === "function") {
-        session.appendEvent({ type: "skill_loaded", name });
-      }
-      appendLine(`Loaded skill: ${name}`);
-      const extra = trimmed.split(/\s+/).slice(2).join(" ").trim();
-      if (extra) {
-        appendLine(`> ${extra}`);
-        const controller = new AbortController();
-        try {
-          await runtime.runAgentTurn(extra, session, controller.signal);
-        } catch (err) {
-          appendLine(`atom-lite: ${err instanceof Error ? err.message : String(err)}`);
-        }
+
+    refreshCommandRegistry();
+    if (trimmed.startsWith("/")) {
+      const result = await commandRegistry.dispatch(trimmed, commandContext);
+      if (result.exit) return;
+      if (!result.handled) {
+        appendLine(
+          `unknown command: ${trimmed.split(/\s+/)[0]} (type /help for a list of commands)`,
+        );
       }
       return;
     }
 
-    if (trimmed === "/thinking") {
-      showThinking = !showThinking;
-      appendLine(`thinking display: ${showThinking ? "shown" : "hidden"}`);
+    // Skills remain invokable by bare name, but still run through the registry.
+    const bare = bareCommandName(commandRegistry, trimmed);
+    if (bare) {
+      await commandRegistry.dispatch(`/${bare} ${trimmed.slice(bare.length)}`, commandContext);
       return;
     }
-    if (trimmed.startsWith("/effort")) {
-      const parts = trimmed.split(/\s+/);
-      if (parts.length >= 2) {
-        const lvl = parts[1];
-        if (lvl === "low" || lvl === "medium" || lvl === "high") {
-          effortLevel = lvl;
-          runtime.setEffort(lvl);
-          updateStatus();
-          appendLine(`effort set to ${effortLevel}`);
-        } else {
-          appendLine("usage: /effort low|medium|high");
-        }
-        return;
-      }
-      // Interactive dropdown
-      const items = [
-        { value: "low", label: "low", description: "minimal reasoning" },
-        { value: "medium", label: "medium", description: "balanced" },
-        { value: "high", label: "high", description: "deep reasoning" },
-      ];
-      const { SelectList } = await import("@earendil-works/pi-tui");
-      const selectListTheme = {
-        selectedPrefix: (s: string) => s,
-        selectedText: (s: string) => `\x1b[7m${s}\x1b[0m`,
-        description: (s: string) => s,
-        scrollInfo: (s: string) => s,
-        noMatch: (s: string) => s,
-      };
-      const selectList = new SelectList(items as any, 3, selectListTheme as any);
-      dropdownContainer.addChild(selectList);
-      tui.requestRender();
-      const removeListener = tui.addInputListener((data: string) => {
-        // Skip kitty-protocol key-release events to avoid double moves.
-        if (isKeyRelease(data)) return { consume: true };
-        selectList.handleInput(data);
-        tui.requestRender();
-        return { consume: true };
-      });
-      selectList.onSelect = (item: any) => {
-        removeListener();
-        const lvl = item.value;
-        effortLevel = lvl;
-        runtime.setEffort(lvl);
-        dropdownContainer.clear();
-        tui.setFocus(input);
-        updateStatus();
-        appendLine(`effort set to ${effortLevel}`);
-      };
-      selectList.onCancel = () => {
-        removeListener();
-        dropdownContainer.clear();
-        tui.setFocus(input);
-        appendLine("cancelled");
-      };
-      return;
-    }
+
     appendLine(`> ${trimmed}`);
-    const controller = new AbortController();
-    try {
-      await runtime.runAgentTurn(trimmed, session, controller.signal);
-    } catch (err) {
-      appendLine(`atom-lite: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    await runTurn(trimmed);
   };
 
-  // fix approvals handler to use appendLine (defined above via closure var)
   approvals.handler = interactive
-    ? async (req: any) => {
-        appendLine("┌─ approval ─────────────────────────────");
-        appendLine(`│ ${req.command}`);
-        appendLine(`│ cwd: ${req.cwd}  timeout: ${req.timeoutMs}ms  sandboxed: ${req.sandboxed}`);
-        appendLine("│ [y]es / [n]o / [t]rust session");
-        appendLine("└────────────────────────────────────────");
-        return new Promise<any>((resolve) => {
-          pendingApproval = (d) => {
-            pendingApproval = null;
-            resolve(d);
-          };
-        });
-      }
+    ? (req) =>
+        new Promise<ApprovalDecision>((resolve) => {
+          uiModalOpen = true;
+          closeOverlay();
+          dropdownContainer.clear();
+          activity.setPhase("waiting");
+          const prompt = new ApprovalPrompt(req, (decision) => {
+            uiModalOpen = false;
+            dropdownContainer.clear();
+            tui.setFocus(input);
+            activity.setPhase("working");
+            if (decision === "trust-session") {
+              appendLine("trusted this session: shell commands will run without approval");
+            }
+            resolve(decision);
+          });
+          dropdownContainer.addChild(prompt);
+          tui.setFocus(prompt);
+          tui.requestRender();
+        })
     : undefined;
 
   tui.start();
+
+  // Some terminals answer OSC 11 but not the colour-scheme report. Query the
+  // background once and derive light/dark from its luminance.
+  if (!noColor && typeof tui.queryTerminalColors === "function") {
+    void tui
+      .queryTerminalColors({ timeoutMs: 250 })
+      .then((colors) => {
+        const background = colors.background;
+        if (!background) return;
+        const luminance =
+          (0.2126 * background.r +
+            0.7152 * background.g +
+            0.0722 * background.b) /
+          255;
+        terminalScheme = luminance > 0.5 ? "light" : "dark";
+        if (themeName === "auto") applyTheme("auto", false);
+      })
+      .catch(() => {
+        // Keep the static fallback.
+      });
+  }
 }

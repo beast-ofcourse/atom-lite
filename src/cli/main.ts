@@ -6,14 +6,16 @@ if (args.includes("--version")) {
   process.stdout.write("0.1.0\n");
 } else if (args.includes("--help")) {
   process.stdout.write(
-    "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--no-tools] [--json] [--debug] [--version] [--help]\n",
+    "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--no-tools] [--json] [--debug] [--theme NAME] [--no-color] [--version] [--help]\n",
   );
 } else {
   try {
     const { run } = await import("./app.js");
     await run(args);
   } catch (err) {
-    process.stderr.write(`atom-lite: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.stderr.write(
+      `atom-lite: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
     process.exit(1);
   }
 }

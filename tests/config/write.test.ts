@@ -7,6 +7,7 @@ import {
   readUserConfig,
   saveProviderModel,
   saveProviderSelection,
+  saveTheme,
   updateUserConfig,
 } from "../../dist/config/write.js";
 
@@ -21,12 +22,18 @@ test("saveProviderSelection preserves unrelated user config", () => {
     path,
     JSON.stringify({
       runtime: { approvalMode: "trusted" },
-      providers: { kilo: { type: "openai-compatible", model: "kilo-auto/free" } },
+      providers: {
+        kilo: { type: "openai-compatible", model: "kilo-auto/free" },
+      },
     }),
   );
   saveProviderSelection(
     "openai",
-    { type: "openai-compatible", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+    {
+      type: "openai-compatible",
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-4o-mini",
+    },
     { defaultProvider: "openai", path },
   );
   const raw = readUserConfig(path) as any;
@@ -38,7 +45,11 @@ test("saveProviderSelection preserves unrelated user config", () => {
 
 test("saveProviderSelection merges into an existing profile", () => {
   const path = tempConfigPath();
-  saveProviderSelection("openai", { type: "openai-compatible", model: "gpt-4o-mini" }, { path });
+  saveProviderSelection(
+    "openai",
+    { type: "openai-compatible", model: "gpt-4o-mini" },
+    { path },
+  );
   saveProviderSelection("openai", { model: "gpt-4.1" }, { path });
   const raw = readUserConfig(path) as any;
   assert.equal(raw.providers.openai.type, "openai-compatible");
@@ -66,4 +77,20 @@ test("updateUserConfig writes valid JSON with a trailing newline", () => {
   const text = readFileSync(path, "utf8");
   assert.ok(text.endsWith("\n"));
   assert.equal(JSON.parse(text).defaultProvider, "kilo");
+});
+
+test("saveTheme only changes ui.theme", () => {
+  const path = tempConfigPath();
+  writeFileSync(
+    path,
+    JSON.stringify({
+      ui: { mouse: false },
+      runtime: { approvalMode: "trusted" },
+    }),
+  );
+  saveTheme("light", path);
+  const raw = readUserConfig(path) as any;
+  assert.equal(raw.ui.theme, "light");
+  assert.equal(raw.ui.mouse, false);
+  assert.equal(raw.runtime.approvalMode, "trusted");
 });

@@ -22,4 +22,10 @@ export const DEFAULT_CONFIG = {
     maxProjectInstructionBytes: 30000,
   },
   sessions: { enabled: true, retentionDays: null as number | null },
+  ui: {
+    theme: "auto",
+    mouse: true,
+    vimMode: false,
+    showThinking: true,
+  },
 };

@@ -8,6 +8,8 @@ import {
   SelectList,
   Text,
 } from "@earendil-works/pi-tui";
+import { extractPaste } from "./input.js";
+import { darkTheme, type Theme } from "./theme.js";
 
 export interface PickerItem {
   value: string;
@@ -22,9 +24,14 @@ export interface SearchablePickerOptions {
   items: PickerItem[];
   maxVisible?: number;
   initialQuery?: string;
+  /** Value to highlight when the picker opens. */
+  initialValue?: string;
   onSelect: (item: PickerItem) => void;
   onCancel: () => void;
+  /** Called as the highlighted item changes, for live previews. */
+  onPreview?: (item: PickerItem) => void;
   restoreFocus?: () => void;
+  theme?: Theme;
 }
 
 export interface SearchablePicker {
@@ -35,18 +42,6 @@ export interface SearchablePicker {
   close(): void;
 }
 
-const RESET = "\x1b[0m";
-const DIM = "\x1b[2m";
-const CYAN = "\x1b[36m";
-
-const selectListTheme = {
-  selectedPrefix: (s: string) => s,
-  selectedText: (s: string) => `\x1b[7m${s}${RESET}`,
-  description: (s: string) => `${DIM}${s}${RESET}`,
-  scrollInfo: (s: string) => `${DIM}${s}${RESET}`,
-  noMatch: (s: string) => `${DIM}${s}${RESET}`,
-};
-
 /** Fuzzy-filter picker items on label, description and value. */
 export function filterPickerItems(
   items: PickerItem[],
@@ -54,18 +49,11 @@ export function filterPickerItems(
 ): PickerItem[] {
   const q = query.trim();
   if (!q) return items;
-  return fuzzyFilter(items, q, (item) =>
-    `${item.label} ${item.description ?? ""} ${item.value}`,
+  return fuzzyFilter(
+    items,
+    q,
+    (item) => `${item.label} ${item.description ?? ""} ${item.value}`,
   );
-}
-
-/** Extract bracketed-paste payloads; returns null for non-paste input. */
-function extractPaste(data: string): string | null {
-  if (!data.includes("\x1b[200~")) return null;
-  return data
-    .replace(/\x1b\[200~/g, "")
-    .replace(/\x1b\[201~/g, "")
-    .replace(/[\x00-\x1f]/g, "");
 }
 
 export function openSearchablePicker(
@@ -78,18 +66,28 @@ export function openSearchablePicker(
     items: initialItems,
     maxVisible = 15,
     initialQuery = "",
+    initialValue,
     onSelect,
     onCancel,
+    onPreview,
     restoreFocus,
   } = options;
+  const theme = options.theme ?? darkTheme;
+  const selectListTheme = {
+    selectedPrefix: (s: string) => theme.tokens.accent(s),
+    selectedText: (s: string) => theme.tokens.selection(s),
+    description: (s: string) => theme.tokens.dim(s),
+    scrollInfo: (s: string) => theme.tokens.dim(s),
+    noMatch: (s: string) => theme.tokens.dim(s),
+  };
 
   let allItems = initialItems;
   let query = initialQuery;
   let closed = false;
-  let selectedValue: string | undefined;
+  let selectedValue: string | undefined = initialValue;
 
   const wrapper = new Container();
-  const titleText = new Text(`${CYAN}${title}${RESET}`);
+  const titleText = new Text(theme.tokens.accent(title));
   const filterText = new Text("");
   const statusText = new Text("");
   const listHost = new Container();
@@ -102,8 +100,11 @@ export function openSearchablePicker(
   let list: any = null;
 
   function renderFilter(): void {
-    const shown = query ? `${DIM}search:${RESET} ${query}${CYAN}▏${RESET}` : `${DIM}type to search…${RESET}`;
-    filterText.setText(shown);
+    filterText.setText(
+      query
+        ? `${theme.tokens.dim("search:")} ${query}${theme.tokens.accent("▏")}`
+        : theme.tokens.dim("type to search…"),
+    );
   }
 
   function rebuild(): void {
@@ -111,7 +112,9 @@ export function openSearchablePicker(
     listHost.clear();
     if (filtered.length === 0) {
       list = null;
-      listHost.addChild(new Text(`${DIM}  no models match “${query}”${RESET}`));
+      listHost.addChild(
+        new Text(theme.tokens.dim(`  no models match “${query}”`)),
+      );
       renderFilter();
       tui.requestRender();
       return;
@@ -135,6 +138,9 @@ export function openSearchablePicker(
       close();
       onCancel();
     };
+    if (onPreview) {
+      list.onSelectionChange = (item: any) => onPreview(item);
+    }
     listHost.addChild(list);
     renderFilter();
     tui.requestRender();
@@ -235,7 +241,7 @@ export function openSearchablePicker(
     },
     setStatus(status: string): void {
       if (closed) return;
-      statusText.setText(status ? `${DIM}${status}${RESET}` : "");
+      statusText.setText(status ? theme.tokens.dim(status) : "");
       tui.requestRender();
     },
     close,

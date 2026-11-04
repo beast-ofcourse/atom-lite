@@ -11,9 +11,7 @@ import { defaultUserConfigPath } from "./paths.js";
 export type RawUserConfig = Record<string, unknown>;
 
 /** Read the user's raw config object without applying defaults or validation. */
-export function readUserConfig(
-  path = defaultUserConfigPath(),
-): RawUserConfig {
+export function readUserConfig(path = defaultUserConfigPath()): RawUserConfig {
   if (!existsSync(path)) return {};
   try {
     const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
@@ -91,5 +89,16 @@ export function saveProviderModel(
         : {};
     providers[profile] = { ...existing, model };
     config.providers = providers;
+  }, path);
+}
+
+/** Persist the selected UI theme without touching other user settings. */
+export function saveTheme(theme: string, path = defaultUserConfigPath()): void {
+  updateUserConfig((config) => {
+    const ui =
+      config.ui && typeof config.ui === "object"
+        ? (config.ui as Record<string, unknown>)
+        : {};
+    config.ui = { ...ui, theme };
   }, path);
 }

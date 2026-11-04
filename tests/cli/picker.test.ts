@@ -1,11 +1,27 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openSearchablePicker, type PickerItem } from "../../dist/cli/picker.js";
+import {
+  openSearchablePicker,
+  type PickerItem,
+} from "../../dist/cli/picker.js";
+import { ansiTheme } from "../../dist/cli/theme.js";
 
 const ITEMS: PickerItem[] = [
-  { value: "kilo\u0000kilo-auto/free", label: "kilo-auto/free", description: "Kilo" },
-  { value: "openai\u0000gpt-4o-mini", label: "gpt-4o-mini", description: "OpenAI" },
-  { value: "google\u0000gemini-2.5-flash", label: "gemini-2.5-flash", description: "Google" },
+  {
+    value: "kilo\u0000kilo-auto/free",
+    label: "kilo-auto/free",
+    description: "Kilo",
+  },
+  {
+    value: "openai\u0000gpt-4o-mini",
+    label: "gpt-4o-mini",
+    description: "OpenAI",
+  },
+  {
+    value: "google\u0000gemini-2.5-flash",
+    label: "gemini-2.5-flash",
+    description: "Google",
+  },
 ];
 
 function harness() {
@@ -20,17 +36,26 @@ function harness() {
     },
     requestRender() {},
   };
+  const added: any[] = [];
   const container = {
-    addChild() {},
+    addChild(child: unknown) {
+      added.push(child);
+    },
     removeChild() {},
   };
   return {
     tui,
     container,
+    added,
     send(data: string) {
       for (const fn of [...listeners]) fn(data);
     },
   };
+}
+
+function textContent(component: any): string[] {
+  if (typeof component?.text === "string") return [component.text];
+  return (component?.children ?? []).flatMap(textContent);
 }
 
 test("picker moves with Kitty arrow press and ignores the release", () => {
@@ -105,4 +130,39 @@ test("picker decodes Kitty printable keys into the search query", () => {
   h.send("\x1b[109u");
   h.send("\r");
   assert.equal(picked?.label, "gemini-2.5-flash");
+});
+
+test("picker preselects the requested initial value", () => {
+  const h = harness();
+  let picked: PickerItem | undefined;
+  openSearchablePicker({
+    tui: h.tui,
+    container: h.container,
+    title: "theme",
+    items: ITEMS,
+    initialValue: ITEMS[1].value,
+    onSelect: (item) => (picked = item),
+    onCancel: () => assert.fail("unexpected cancel"),
+  });
+
+  h.send("\r");
+  assert.equal(picked?.label, "gpt-4o-mini");
+});
+
+test("picker renders through theme tokens, including no-colour mode", () => {
+  const h = harness();
+  openSearchablePicker({
+    tui: h.tui,
+    container: h.container,
+    title: "model",
+    theme: ansiTheme,
+    items: ITEMS,
+    onSelect: () => {},
+    onCancel: () => {},
+  });
+
+  h.send("g");
+  const rendered = textContent(h.added[0]).join("\n");
+  assert.ok(rendered.includes("search:"));
+  assert.equal(rendered.includes("\x1b"), false);
 });

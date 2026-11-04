@@ -1,10 +1,13 @@
 import type { Component } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { darkTheme, type Theme } from "./theme.js";
 
 export interface StatusLineParts {
   left: string;
   tokens: string;
   effort: string;
+  /** Animated agent state, rendered as an optional third row. Already styled. */
+  activity?: string;
 }
 
 /**
@@ -27,9 +30,18 @@ export function formatStatusLine(
 /** Two-row status bar: provider/model + effort, then context tokens. */
 export class StatusLine implements Component {
   private parts: StatusLineParts = { left: "", tokens: "", effort: "" };
+  private theme: Theme;
+
+  constructor(theme: Theme = darkTheme) {
+    this.theme = theme;
+  }
 
   setParts(parts: StatusLineParts): void {
     this.parts = parts;
+  }
+
+  setTheme(theme: Theme): void {
+    this.theme = theme;
   }
 
   invalidate(): void {
@@ -37,18 +49,26 @@ export class StatusLine implements Component {
   }
 
   render(width: number): string[] {
+    const tokens = this.theme.tokens;
     const contentWidth = Math.max(1, width - 2);
     const top = formatStatusLine(
-      this.parts.left,
-      this.parts.effort,
+      tokens.status(this.parts.left),
+      tokens.dim(this.parts.effort),
       contentWidth,
     );
-    const bottom = truncateToWidth(this.parts.tokens, contentWidth);
-    const topPadding = Math.max(0, width - visibleWidth(top) - 1);
-    const bottomPadding = Math.max(0, width - visibleWidth(bottom) - 1);
-    return [
-      " " + top + " ".repeat(topPadding),
-      " " + bottom + " ".repeat(bottomPadding),
+    const bottom = truncateToWidth(tokens.dim(this.parts.tokens), contentWidth);
+    const rows = [
+      " " + top + " ".repeat(Math.max(0, width - visibleWidth(top) - 1)),
+      " " + bottom + " ".repeat(Math.max(0, width - visibleWidth(bottom) - 1)),
     ];
+    if (this.parts.activity !== undefined) {
+      const activity = truncateToWidth(this.parts.activity, contentWidth);
+      rows.push(
+        " " +
+          activity +
+          " ".repeat(Math.max(0, width - visibleWidth(activity) - 1)),
+      );
+    }
+    return rows;
   }
 }
