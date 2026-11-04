@@ -1,14 +1,52 @@
 {
   "name": "atom-lite",
   "version": "0.1.0",
-  "description": "Minimal-harness, model-agnostic coding agent",
+  "description": "Local-first, model-agnostic coding agent for the terminal",
+  "keywords": [
+    "ai",
+    "agent",
+    "coding-agent",
+    "cli",
+    "tui",
+    "llm",
+    "local-first",
+    "ollama",
+    "openai",
+    "gemini"
+  ],
+  "author": "Atom-lite contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/beast-ofcourse/atom-lite.git"
+  },
+  "homepage": "https://github.com/beast-ofcourse/atom-lite#readme",
+  "bugs": {
+    "url": "https://github.com/beast-ofcourse/atom-lite/issues"
+  },
   "type": "module",
   "bin": {
     "atom-lite": "./dist/cli/main.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "tsc --noEmit -p tsconfig.json",
@@ -17,16 +55,17 @@
     "start": "npm run build && node dist/cli/main.js",
     "dev": "tsx src/cli/main.ts",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run typecheck && npm test"
   },
   "engines": {
     "node": ">=22.19"
   },
   "dependencies": {
     "@earendil-works/pi-tui": "^1.5.0",
-    "@opentui/core": "^0.5.10",
     "turndown": "^7.2.4",
-    "zod": "^3.23.0"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

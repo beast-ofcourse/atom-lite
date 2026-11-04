@@ -9,8 +9,8 @@ export const ProviderConfigSchema = z
     apiKey: z.string().nullable().optional(),
     keepAlive: z.string().optional(),
     think: z.union([z.boolean(), z.string()]).optional(),
-    headers: z.record(z.string()).optional(),
-    options: z.record(z.unknown()).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+    options: z.record(z.string(), z.unknown()).optional(),
     /** Explicit context window for custom/local models without metadata. */
     contextWindow: z.number().int().positive().optional(),
   })
@@ -48,10 +48,10 @@ export const SessionsConfigSchema = z
 export const ConfigSchema = z
   .object({
     defaultProvider: z.string().default("openai-compatible"),
-    providers: z.record(ProviderConfigSchema).default({}),
-    runtime: RuntimeConfigSchema.default({}),
-    context: ContextConfigSchema.default({}),
-    sessions: SessionsConfigSchema.default({}),
+    providers: z.record(z.string(), ProviderConfigSchema).default({}),
+    runtime: RuntimeConfigSchema.prefault({}),
+    context: ContextConfigSchema.prefault({}),
+    sessions: SessionsConfigSchema.prefault({}),
   })
   .strict();
 

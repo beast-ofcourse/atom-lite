@@ -1,5 +1,7 @@
 # Atom-lite
 
+[![npm](https://img.shields.io/npm/v/atom-lite?logo=npm)](https://www.npmjs.com/package/atom-lite)
+[![CI](https://github.com/beast-ofcourse/atom-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/beast-ofcourse/atom-lite/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22.19-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
@@ -163,7 +165,7 @@ atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
 
 ## Tools
 
-Exactly four built-in tools (see [ADR 0001](./docs/adr/0001-four-built-in-tools-only.md)):
+Four core tools (see [ADR 0001](./docs/adr/0001-four-built-in-tools-only.md)) plus the additive network tools from [ADR 0006](./docs/adr/0006-expanded-toolset.md):
 
 | Tool | Purpose |
 | --- | --- |
@@ -171,6 +173,8 @@ Exactly four built-in tools (see [ADR 0001](./docs/adr/0001-four-built-in-tools-
 | `write` | Create or replace files safely (hash-guarded) |
 | `edit` | Precise find-and-replace edits (hash-guarded) |
 | `bash` | Execute shell commands (global exclusive barrier by default) |
+| `webfetch` | Fetch a URL and convert HTML to markdown |
+| `websearch` | Search the web and return ranked results |
 
 File discovery, search, tests, Git, builds, formatters, and package managers are available through `bash`, not through additional built-in tools.
 
@@ -222,6 +226,13 @@ npm run format     # prettier --write .
 ```
 
 Tests live in `tests/` (agent, config, runtime, tools). The project is TypeScript (strict) on NodeNext ESM.
+
+### Releasing
+
+1. Update `version` in `package.json` and add a `CHANGELOG.md` entry.
+2. Run `npm run typecheck && npm test && npm run bench`.
+3. Commit, then tag and push: `git tag vX.Y.Z && git push origin master --tags`.
+4. The `Release` GitHub workflow publishes to npm with provenance and creates the GitHub release. It requires an `NPM_TOKEN` repository secret with publish access.
 
 ## Architecture
 
