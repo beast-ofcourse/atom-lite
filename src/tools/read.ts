@@ -23,6 +23,12 @@ function stripCr(line: string): string {
   return line.endsWith("\r") ? line.slice(0, -1) : line;
 }
 
+/** Split on LF, stripping CRs only when the text actually contains any. */
+function splitLines(text: string): string[] {
+  const lines = text.split("\n");
+  return text.includes("\r") ? lines.map(stripCr) : lines;
+}
+
 /**
  * Return the requested line range without splitting the entire file. Partial
  * reads (offset/limit) are common for large files, where slicing first keeps
@@ -37,7 +43,7 @@ function sliceLines(text: string, offset?: number, limit?: number): string[] {
     start = nl + 1;
   }
   if (limit === undefined) {
-    return text.slice(start).split("\n").map(stripCr);
+    return splitLines(text.slice(start));
   }
   let cursor = start;
   for (let i = 0; i < limit; i++) {
@@ -45,11 +51,11 @@ function sliceLines(text: string, offset?: number, limit?: number): string[] {
     if (nl === -1) {
       // Fewer lines remain than requested: take the rest, including the
       // trailing newline so the split matches a full-file slice.
-      return text.slice(start).split("\n").map(stripCr);
+      return splitLines(text.slice(start));
     }
     cursor = nl + 1;
   }
-  return text.slice(start, cursor - 1).split("\n").map(stripCr);
+  return splitLines(text.slice(start, cursor - 1));
 }
 
 export const readTool: Tool = {

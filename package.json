@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "tsc --noEmit -p tsconfig.json",
     "test": "npm run build && node --test",
+    "bench": "npm run build && node scripts/bench.mjs",
     "start": "npm run build && node dist/cli/main.js",
     "dev": "tsx src/cli/main.ts",
     "format": "prettier --write .",
