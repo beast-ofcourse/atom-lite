@@ -29,4 +29,7 @@ export const DEFAULT_CONFIG = {
     showThinking: true,
   },
   mcpServers: {} as Record<string, unknown>,
+  extensions: {
+    trustedProjects: [] as string[],
+  },
 };

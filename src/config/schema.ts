@@ -71,6 +71,12 @@ export const McpServersConfigSchema = z
   .record(z.string(), McpServerConfigSchema)
   .default({});
 
+export const ExtensionsConfigSchema = z
+  .object({
+    trustedProjects: z.array(z.string()).default([]),
+  })
+  .strict();
+
 export const ConfigSchema = z
   .object({
     defaultProvider: z.string().default("openai-compatible"),
@@ -80,6 +86,7 @@ export const ConfigSchema = z
     sessions: SessionsConfigSchema.prefault({}),
     ui: UiConfigSchema.prefault({}),
     mcpServers: McpServersConfigSchema,
+    extensions: ExtensionsConfigSchema.prefault({}),
   })
   .strict();
 

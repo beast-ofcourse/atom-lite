@@ -42,6 +42,7 @@ export interface CommandContext {
   openSessionsPicker(scope: "workspace" | "all"): void;
   searchSessions(query: string): void;
   renameSession(title: string): void;
+  listExtensions(): string;
   switchModel(target: string): void;
   startProviderSetup(profile: string): void;
   setEffort(level: "low" | "medium" | "high"): void;
@@ -382,6 +383,15 @@ export function createCommandRegistry(
         return;
       }
       await ctx.loadSkill(name, rest.join(" ").trim());
+    },
+  });
+
+  registry.register({
+    name: "extensions",
+    description: "list loaded extensions",
+    category: "Extensions",
+    run(ctx) {
+      ctx.appendLine(ctx.listExtensions());
     },
   });
 

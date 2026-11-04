@@ -31,6 +31,7 @@ import { StreamText } from "./stream-text.js";
 import { Transcript } from "./transcript.js";
 import { AgentRuntime } from "../agent/loop.js";
 import { JsonlSessionStore } from "../sessions/store.js";
+import { ExtensionLoader } from "../extensions/loader.js";
 import {
   formatSessionList,
   formatSessionSearch,
@@ -184,6 +185,15 @@ export async function run(args: string[]): Promise<void> {
         // Observability must not break the session.
       }
     },
+  });
+
+  const extensionLoader = new ExtensionLoader({
+    userDir: join(process.env.HOME ?? "", ".config", "atom-lite", "extensions"),
+    projectDir: process.cwd(),
+    trustedProjects: (config.extensions as { trustedProjects?: string[] })?.trustedProjects,
+  });
+  void extensionLoader.loadAll().catch(() => {
+    // Extension failures are reported per extension.
   });
 
   const contextManager = new ContextManager({
@@ -1010,6 +1020,11 @@ export async function run(args: string[]): Promise<void> {
     openSessionsPicker,
     searchSessions: searchSessionsInStore,
     renameSession,
+    listExtensions: () =>
+      extensionLoader
+        .list()
+        .map((ext) => `${ext.id}\t${ext.source}\t${ext.status}${ext.error ? `\t${ext.error}` : ""}`)
+        .join("\n") || "No extensions loaded.",
     switchModel: switchModelTarget,
     startProviderSetup,
     setEffort: setEffortTarget,
@@ -1104,7 +1119,7 @@ export async function run(args: string[]): Promise<void> {
       };
       return [
         toggle,
-        ...summaries.map((summary) => ({
+        ...summaries.map((summary: any) => ({
           value: `session:${summary.id}`,
           label: summary.title ?? summary.id,
           description: `${summary.updatedAt ?? "unknown"} · ${summary.provider} · ${summary.messageCount ?? 0} messages · ${summary.workspace}`,

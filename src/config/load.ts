@@ -117,6 +117,13 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
       ...DEFAULT_CONFIG.ui,
       ...((userRaw.ui as object) ?? {}),
     },
+    // Extensions trust is user-owned.
+    extensions: {
+      trustedProjects: [
+        ...((userRaw.extensions as { trustedProjects?: string[] })?.trustedProjects ??
+          []),
+      ],
+    },
     // MCP servers are user-owned: opening a repository must never launch a
     // process. Project entries are dropped above with a warning.
     mcpServers: {

@@ -42,6 +42,7 @@ function fakeContext() {
     openSessionsPicker: (scope) => calls.push(`sessions:${scope}`),
     searchSessions: (query) => calls.push(`search:${query}`),
     renameSession: (title) => calls.push(`rename:${title}`),
+    listExtensions: () => "extensions",
     switchModel: (target) => calls.push(`model:${target}`),
     startProviderSetup: (profile) => calls.push(`provider:${profile}`),
     setEffort: (level) => calls.push(`effort:${level}`),
