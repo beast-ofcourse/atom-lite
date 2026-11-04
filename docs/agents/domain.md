@@ -1,11 +1,11 @@
 # Domain Docs
 
-How the engineering skills should consume this repo's domain documentation when exploring the codebase.
+How contributors should consume this repo's domain documentation when exploring the codebase.
 
 ## Before exploring, read these
 
-- **`GLOSSARY.md`** at the repo root.
 - **`docs/adr/`**: read ADRs that touch the area you're about to work in.
+- **`docs/configuration.md`**: config fields and defaults, when the work touches configuration.
 
 If any of these files don't exist, proceed silently.
 
@@ -15,16 +15,17 @@ Single-context repo:
 
 ```
 /
-├── GLOSSARY.md
-├── docs/adr/
+├── docs/
+│   ├── adr/
+│   └── configuration.md
 └── src/
 ```
 
-## Use the glossary's vocabulary
+## Use the project's vocabulary
 
-When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `GLOSSARY.md`. Don't drift to synonyms the glossary explicitly avoids.
+When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term the code, README, and ADRs use. Don't invent synonyms for concepts the project already names.
 
-If the concept you need isn't in the glossary yet, that's a signal: either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/domain-modeling`).
+If the concept you need isn't established yet, that's a signal: either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it as a documentation gap).
 
 ## Flag ADR conflicts
 

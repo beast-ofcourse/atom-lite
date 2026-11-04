@@ -35,6 +35,7 @@ export function createProvider(
       model: modelOverride ?? pcfg.model,
       headers: pcfg.headers,
       keepAlive: pcfg.keepAlive,
+      think: pcfg.think,
       options: pcfg.options,
       contextWindow: pcfg.contextWindow,
     });

@@ -1,6 +1,6 @@
 # Atom-lite
 
-Local-first, model-agnostic coding agent. See `project-overview.md` for the full architecture blueprint, `GLOSSARY.md` for domain vocabulary, and `docs/adr/` for architectural decisions.
+Local-first, model-agnostic coding agent. See `docs/README.md` for documentation and `docs/adr/` for architectural decisions.
 
 ## Agent skills
 
@@ -10,4 +10,4 @@ Issues and specs live as markdown files under `.scratch/`. See `docs/agents/issu
 
 ### Domain docs
 
-Single-context repo: `GLOSSARY.md` at the root, ADRs in `docs/adr/`. See `docs/agents/domain.md`.
+Single-context repo: docs in `docs/`, ADRs in `docs/adr/`. See `docs/agents/domain.md`.

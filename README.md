@@ -8,7 +8,7 @@
 
 **Atom-lite** is a local-first, model-agnostic coding agent with an intentionally small harness: one agent loop, four core built-in tools (`read`, `write`, `edit`, `bash`) plus network tools (`webfetch`, `websearch`), a deterministic conflict-aware scheduler, durable JSONL sessions, and explicit safety boundaries. It runs against local or hosted model providers through interchangeable adapters — no cloud account, telemetry service, or hosted control plane required.
 
-> See [`project-overview.md`](./project-overview.md) for the full architecture blueprint, [`GLOSSARY.md`](./GLOSSARY.md) for domain vocabulary, and [`docs/adr/`](./docs/adr/) for architectural decisions.
+> See [`docs/README.md`](./docs/README.md) for the documentation index and [`docs/adr/`](./docs/adr/) for architectural decisions.
 
 ---
 
@@ -141,7 +141,7 @@ Example `config.json`:
 }
 ```
 
-See [`project-overview.md`](./project-overview.md) for the full configuration shape.
+See [`docs/configuration.md`](./docs/configuration.md) for every field, default, and precedence rule.
 
 ## Usage
 
@@ -264,7 +264,7 @@ Key design decisions are recorded as ADRs in [`docs/adr/`](./docs/adr/):
 
 ## Contributing
 
-Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) before opening a pull request. Issues and specs live as markdown under `.scratch/` (see [`docs/agents/issue-tracker.md`](./docs/agents/issue-tracker.md)); domain vocabulary is in [`GLOSSARY.md`](./GLOSSARY.md). Please keep changes consistent with the "small core" principle: new tools require strong justification against ADR 0001.
+Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) before opening a pull request. Issues and specs live as markdown under `.scratch/` (see [`docs/agents/issue-tracker.md`](./docs/agents/issue-tracker.md)). Please keep changes consistent with the "small core" principle: new tools require strong justification against ADR 0001.
 
 Report vulnerabilities privately as described in [`SECURITY.md`](./SECURITY.md).
 
