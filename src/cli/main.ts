@@ -1,13 +1,27 @@
 #!/usr/bin/env node
 import { loadConfig } from "../config/load.js";
+import { saveProviderModel, saveProviderSelection } from "../config/write.js";
+import { resolveApiKey, saveApiKey } from "../config/credentials.js";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { renderDiff } from "./diff.js";
+import { openSearchablePicker, type PickerItem } from "./picker.js";
+import { SecretInput } from "./secret-input.js";
 import { AgentRuntime } from "../agent/loop.js";
 import { JsonlSessionStore } from "../sessions/store.js";
 import { readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool } from "../tools/index.js";
 import { createProvider } from "../providers/factory.js";
+import {
+  availableProviderNames,
+  getPreset,
+  listModelsForProvider,
+  materializeProviderConfig,
+  probeApiKey,
+  providerLabel,
+  PROVIDER_PRESETS,
+  type ProviderPreset,
+} from "../providers/catalog.js";
 import { ContextManager } from "../context/manager.js";
 import { ProcessTerminal, TuiMainScreen, Text, Input, Container, Spacer } from "@earendil-works/pi-tui";
 
@@ -47,8 +61,18 @@ async function main(): Promise<void> {
     return;
   }
 
-  const config = loadConfig();
+  let config = loadConfig();
+  const initialProfile = providerOverride ?? config.defaultProvider;
+  if (!(config.providers as Record<string, unknown>)[initialProfile]) {
+    const preset = getPreset(initialProfile);
+    if (preset) {
+      (config.providers as Record<string, unknown>)[initialProfile] =
+        materializeProviderConfig(preset);
+    }
+  }
   let provider = createProvider(config, providerOverride, modelOverride);
+  const modelByProvider = new Map<string, string>();
+  if (modelOverride) modelByProvider.set(provider.id, modelOverride);
   const useTools = !positional.includes("__notools__");
   const tools = useTools ? [readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool] : [];
 
@@ -193,7 +217,8 @@ async function main(): Promise<void> {
   const skillReg = new DefaultSkillRegistry(process.cwd());
   const slashCommands: { name: string; description?: string }[] = [
     { name: "help", description: "show commands" },
-    { name: "model", description: "show/switch model" },
+    { name: "model", description: "search/switch model" },
+    { name: "provider", description: "add/select provider" },
     { name: "session", description: "session info" },
     { name: "compact", description: "compact history" },
     { name: "clear", description: "clear session" },
@@ -225,6 +250,7 @@ async function main(): Promise<void> {
   let showThinking = true;
   let loader: any = null;
   let expandTools = false;
+  let uiModalOpen = false;
   const toolBoxes: { header: any; output: any; container: any; lines: string[]; toolName?: string; args?: any; oldContent?: string | null }[] = [];
 
   approvals.handler = interactive
@@ -275,8 +301,334 @@ async function main(): Promise<void> {
   function updateStatus(): void {
     statusTokens.setText(dim(`tokens: ${totalInputTokens}/${totalOutputTokens}`));
     statusEffort.setText(dim(`effort: ${effortLevel}`));
-    statusProvider.setText(dim(`${provider.id}/${modelOverride ?? (provider as any).model ?? "default"}`));
+    statusProvider.setText(dim(`${provider.id}/${currentModelLabel()}`));
     tui.requestRender();
+  }
+
+  function currentModelLabel(): string {
+    return modelOverride ?? (provider as any).model ?? "default";
+  }
+
+  const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
+  const modelCache = new Map<string, { models: string[]; at: number }>();
+
+  function profileConfig(profile: string): Record<string, any> | undefined {
+    return (config.providers as Record<string, any>)[profile];
+  }
+
+  /** Ensure a preset profile exists in the in-memory config. */
+  function ensureProfile(profile: string): Record<string, any> | undefined {
+    let pcfg = profileConfig(profile);
+    if (pcfg) return pcfg;
+    const preset = getPreset(profile);
+    if (!preset) return undefined;
+    pcfg = materializeProviderConfig(preset);
+    (config.providers as Record<string, any>)[profile] = pcfg;
+    saveProviderSelection(profile, pcfg);
+    return pcfg;
+  }
+
+  function modelsFor(profile: string): string[] {
+    const cached = modelCache.get(profile);
+    if (cached && Date.now() - cached.at < MODEL_CACHE_TTL_MS) {
+      return cached.models;
+    }
+    const pcfg = profileConfig(profile);
+    const preset = getPreset(profile);
+    const fallback = [
+      ...(preset?.fallbackModels ?? []),
+      ...(pcfg?.model ? [String(pcfg.model)] : []),
+    ];
+    return [...new Set(fallback.filter(Boolean))];
+  }
+
+  function buildModelItems(): PickerItem[] {
+    const names = availableProviderNames(config);
+    if (!names.includes(provider.id) && profileConfig(provider.id)) {
+      names.unshift(provider.id);
+    } else {
+      const idx = names.indexOf(provider.id);
+      if (idx > 0) {
+        names.splice(idx, 1);
+        names.unshift(provider.id);
+      }
+    }
+    const items: PickerItem[] = [];
+    const seen = new Set<string>();
+    for (const name of names) {
+      let pcfg = profileConfig(name);
+      if (!pcfg) {
+        const preset = getPreset(name);
+        if (!preset) continue;
+        // Materialize env/credential-only presets in memory so they appear in
+        // the picker without being written to disk until the user picks one.
+        pcfg = materializeProviderConfig(preset);
+        (config.providers as Record<string, any>)[name] = pcfg;
+      }
+      for (const model of modelsFor(name)) {
+        const value = `${name}\u0000${model}`;
+        if (seen.has(value)) continue;
+        seen.add(value);
+        const isCurrent = name === provider.id && model === currentModelLabel();
+        items.push({
+          value,
+          label: `${model}${isCurrent ? "  (current)" : ""}`,
+          description: providerLabel(name),
+        });
+      }
+    }
+    return items;
+  }
+
+  function refreshModelCache(
+    names: string[],
+    onUpdate: () => void,
+  ): void {
+    if (names.length === 0) return;
+    let remaining = names.length;
+    for (const name of names) {
+      void listModelsForProvider(config, name, 8000).then((models) => {
+        if (models.length) {
+          const configured = profileConfig(name)?.model;
+          modelCache.set(name, {
+            models: [
+              ...new Set([
+                ...(configured ? [String(configured)] : []),
+                ...models,
+              ]),
+            ],
+            at: Date.now(),
+          });
+        }
+        remaining--;
+        if (remaining === 0) onUpdate();
+      });
+    }
+  }
+
+  function switchToModel(profile: string, model: string): void {
+    const pcfg = ensureProfile(profile);
+    if (!pcfg) {
+      appendLine(`unknown provider: ${profile}`);
+      return;
+    }
+    pcfg.model = model;
+    config.defaultProvider = profile;
+    try {
+      saveProviderSelection(profile, { model }, { defaultProvider: profile });
+    } catch (err) {
+      appendLine(`warning: could not persist model choice: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    modelByProvider.set(profile, model);
+    modelOverride = model;
+    provider = createProvider(config, profile, model);
+    runtime.switchModel(provider, model);
+    updateStatus();
+    appendLine(`switched to ${profile}/${model}`);
+  }
+
+  function openModelPicker(): void {
+    const names = availableProviderNames(config);
+    if (!names.includes(provider.id) && profileConfig(provider.id)) {
+      names.unshift(provider.id);
+    }
+    uiModalOpen = true;
+    const picker = openSearchablePicker({
+      tui,
+      container: dropdownContainer,
+      title: "Select model",
+      items: buildModelItems(),
+      maxVisible: 15,
+      onSelect: (item) => {
+        uiModalOpen = false;
+        const sep = item.value.indexOf("\u0000");
+        const profile = item.value.slice(0, sep);
+        const model = item.value.slice(sep + 1);
+        switchToModel(profile, model);
+      },
+      onCancel: () => {
+        uiModalOpen = false;
+        appendLine("cancelled");
+      },
+      restoreFocus: () => tui.setFocus(input),
+    });
+    if (names.length) {
+      picker.setStatus(`loading live models from ${names.length} provider${names.length === 1 ? "" : "s"}…`);
+      refreshModelCache(names, () => {
+        picker.setStatus("");
+        picker.updateItems(buildModelItems());
+      });
+    }
+  }
+
+  function providerItems(): PickerItem[] {
+    return PROVIDER_PRESETS.map((preset) => {
+      const configured = Boolean(profileConfig(preset.id));
+      const key = preset.requiresKey
+        ? resolveApiKey(preset.id, { apiKeyEnv: preset.keyEnv })
+        : null;
+      const status = !preset.requiresKey
+        ? preset.local
+          ? "local · no key"
+          : "no key"
+        : key
+          ? "key saved"
+          : preset.keyEnv
+            ? `needs key (${preset.keyEnv})`
+            : "needs key";
+      return {
+        value: preset.id,
+        label: `${configured ? "✓ " : "  "}${preset.label}`,
+        description: `${preset.description} · ${status}`,
+      };
+    });
+  }
+
+  function activateProvider(preset: ProviderPreset, models?: string[]): void {
+    const existing = profileConfig(preset.id);
+    const pcfg = materializeProviderConfig(preset, existing);
+    (config.providers as Record<string, any>)[preset.id] = pcfg;
+    config.defaultProvider = preset.id;
+    saveProviderSelection(preset.id, pcfg, { defaultProvider: preset.id });
+    if (models?.length) {
+      modelCache.set(preset.id, {
+        models: [...new Set([String(pcfg.model), ...models])],
+        at: Date.now(),
+      });
+    }
+    const chosen = modelByProvider.get(preset.id) ?? String(pcfg.model);
+    pcfg.model = chosen;
+    modelOverride = chosen;
+    provider = createProvider(config, preset.id, chosen);
+    runtime.switchModel(provider, chosen);
+    if (typeof (session as any).appendEvent === "function") {
+      session.appendEvent({ type: "provider_selected", provider: preset.id, model: chosen });
+    }
+    updateStatus();
+    appendLine(`provider: ${preset.label} (${preset.id}) · model: ${chosen}`);
+    appendLine("tip: /model searches every configured provider");
+  }
+
+  function closeApiKeyPrompt(): void {
+    dropdownContainer.clear();
+    uiModalOpen = false;
+    tui.setFocus(input);
+    tui.requestRender();
+  }
+
+  function promptForApiKey(preset: ProviderPreset, existingKey: string | null): void {
+    uiModalOpen = true;
+    dropdownContainer.clear();
+    const wrapper = new Container();
+    wrapper.addChild(new Text(`\x1b[36m${preset.label} API key\x1b[0m`));
+    if (preset.keyUrl) wrapper.addChild(new Text(dim(`create one: ${preset.keyUrl}`)));
+    if (existingKey) wrapper.addChild(new Text(dim("a key is already saved — press Enter to keep it")));
+    const secret = new SecretInput(
+      "API key",
+      existingKey ? "hidden (Enter keeps saved key)" : "paste key (hidden)",
+    );
+    const status = new Text("");
+    wrapper.addChild(secret);
+    wrapper.addChild(status);
+    dropdownContainer.addChild(wrapper);
+    tui.setFocus(secret);
+    tui.requestRender();
+
+    let busy = false;
+    secret.onCancel = () => {
+      if (busy) return;
+      closeApiKeyPrompt();
+      appendLine(`cancelled ${preset.label} setup`);
+    };
+    secret.onSubmit = async (value: string) => {
+      if (busy) return;
+      const key = value.trim();
+      if (!key) {
+        if (existingKey) {
+          closeApiKeyPrompt();
+          try {
+            activateProvider(preset);
+          } catch (err) {
+            appendLine(`could not activate ${preset.label}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          return;
+        }
+        status.setText(dim("an API key is required"));
+        tui.requestRender();
+        return;
+      }
+      busy = true;
+      status.setText(dim("validating key…"));
+      tui.requestRender();
+      await new Promise((r) => setImmediate(r));
+      const probe = await probeApiKey(preset, key);
+      if (probe.invalid) {
+        busy = false;
+        status.setText(`\x1b[31m✗ key rejected by ${preset.label}\x1b[0m`);
+        secret.reset();
+        tui.requestRender();
+        return;
+      }
+      try {
+        saveApiKey(preset.id, key);
+      } catch (err) {
+        busy = false;
+        status.setText(
+          `\x1b[31m✗ could not save key: ${err instanceof Error ? err.message : String(err)}\x1b[0m`,
+        );
+        tui.requestRender();
+        return;
+      }
+      closeApiKeyPrompt();
+      if (!probe.ok) {
+        appendLine(`warning: could not verify ${preset.label} key (${probe.error ?? "network error"}); saved anyway`);
+      }
+      try {
+        activateProvider(preset, probe.models);
+      } catch (err) {
+        appendLine(
+          `could not activate ${preset.label}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    };
+  }
+
+  function startProviderSetup(profile: string): void {
+    const preset = getPreset(profile);
+    if (!preset) {
+      appendLine(`unknown provider: ${profile}`);
+      return;
+    }
+    if (!preset.requiresKey) {
+      try {
+        activateProvider(preset);
+      } catch (err) {
+        appendLine(`could not activate ${preset.label}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return;
+    }
+    const existingKey = resolveApiKey(preset.id, { apiKeyEnv: preset.keyEnv });
+    promptForApiKey(preset, existingKey);
+  }
+
+  function openProviderPicker(): void {
+    uiModalOpen = true;
+    openSearchablePicker({
+      tui,
+      container: dropdownContainer,
+      title: "Select provider",
+      items: providerItems(),
+      maxVisible: 12,
+      onSelect: (item) => {
+        uiModalOpen = false;
+        startProviderSetup(item.value);
+      },
+      onCancel: () => {
+        uiModalOpen = false;
+        appendLine("cancelled");
+      },
+      restoreFocus: () => tui.setFocus(input),
+    });
   }
 
   appendLineFn = appendLine;
@@ -295,8 +647,8 @@ async function main(): Promise<void> {
   }
 
   tui.addInputListener((data: string) => {
-    // Ctrl+O toggles tool expansion
-    if (data === "\x0f") {
+    // Ctrl+O toggles tool expansion (unless a modal is capturing input).
+    if (data === "\x0f" && !uiModalOpen) {
       toggleTools();
       return { consume: true };
     }
@@ -347,6 +699,9 @@ async function main(): Promise<void> {
       updateStatus();
     } else if (e.type === "model_switched") {
       appendLine(`switched model to ${e.provider}/${e.model}`);
+      if (typeof (session as any).appendEvent === "function") {
+        session.appendEvent({ type: "model_switched", provider: e.provider, model: e.model });
+      }
       updateStatus();
     } else if (e.type === "tool_call") {
       finalizeText();
@@ -458,7 +813,7 @@ async function main(): Promise<void> {
     }
     if (trimmed === "/exit") { tui.stop(); process.exit(0); return; }
     if (trimmed === "/help") {
-      appendLine(["/help", "/model", "/session", "/compact", "/clear", "/approval", "/doctor", "/effort", "/thinking", "/exit"].join("\n"));
+      appendLine(["/help", "/model", "/provider", "/session", "/compact", "/clear", "/approval", "/doctor", "/effort", "/thinking", "/exit"].join("\n"));
       return;
     }
     if (trimmed === "/session") {
@@ -485,62 +840,39 @@ async function main(): Promise<void> {
       appendLine("compaction is automatic");
       return;
     }
-    if (trimmed.startsWith("/model")) {
-      const parts = trimmed.split(/\s+/);
-      if (parts.length >= 2) {
-        const profile = parts[1];
-        const newProvider = createProvider(config, profile, modelOverride);
-        runtime.switchModel(newProvider, modelOverride);
-        provider = newProvider;
-        appendLine(`switched to ${profile}`);
-        updateStatus();
+    if (trimmed === "/model" || trimmed.startsWith("/model ")) {
+      const rest = trimmed.slice("/model".length).trim();
+      if (!rest) {
+        openModelPicker();
         return;
       }
-      // Interactive dropdown of models from the provider
-      let models: string[] = [];
-      if (typeof (provider as any).listModels === "function") {
-        try {
-          models = await (provider as any).listModels();
-        } catch {
-          models = [];
+      const knownModels = modelsFor(provider.id);
+      if (knownModels.includes(rest)) {
+        switchToModel(provider.id, rest);
+        return;
+      }
+      const slash = rest.indexOf("/");
+      if (slash > 0) {
+        const profile = rest.slice(0, slash);
+        const model = rest.slice(slash + 1);
+        if (profileConfig(profile) || getPreset(profile)) {
+          switchToModel(profile, model);
+          return;
         }
       }
-      if (models.length === 0) models = [(provider as any).model ?? "default"];
-      const items = models.map((m: string) => ({ value: m, label: m.length > 40 ? m.slice(0, 37) + "..." : m, description: m.length > 40 ? m : "" }));
-      const { SelectList } = await import("@earendil-works/pi-tui");
-      const selectListTheme = {
-        selectedPrefix: (s: string) => s,
-        selectedText: (s: string) => `\x1b[7m${s}\x1b[0m`,
-        description: (s: string) => s,
-        scrollInfo: (s: string) => s,
-        noMatch: (s: string) => s,
-      };
-      const selectList = new SelectList(items as any, Math.min(15, items.length), selectListTheme as any);
-      dropdownContainer.addChild(selectList);
-      tui.requestRender();
-      const removeListener = tui.addInputListener((data: string) => {
-        // Skip kitty-protocol key-release events to avoid double moves.
-        if (/\x1b\[\d+;\d+:3[ABCD]/.test(data)) return { consume: true };
-        selectList.handleInput(data);
-        tui.requestRender();
-        return { consume: true };
-      });
-      selectList.onSelect = (item: any) => {
-        removeListener();
-        const newModel = item.value;
-        runtime.switchModel(provider, newModel);
-        modelOverride = newModel;
-        dropdownContainer.clear();
-        tui.setFocus(input);
-        appendLine(`switched to ${provider.id}/${newModel}`);
-        updateStatus();
-      };
-      selectList.onCancel = () => {
-        removeListener();
-        dropdownContainer.clear();
-        tui.setFocus(input);
-        appendLine("cancelled");
-      };
+      if (profileConfig(rest) || getPreset(rest)) {
+        ensureProfile(rest);
+        const pcfg = profileConfig(rest);
+        switchToModel(rest, String(pcfg?.model ?? modelOverride ?? "default"));
+        return;
+      }
+      switchToModel(provider.id, rest);
+      return;
+    }
+    if (trimmed === "/provider" || trimmed.startsWith("/provider ")) {
+      const rest = trimmed.slice("/provider".length).trim();
+      if (rest) startProviderSetup(rest);
+      else openProviderPicker();
       return;
     }
     if (trimmed === "/skills") {

@@ -1,18 +1,13 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { ConfigSchema, type Config } from "./schema.js";
 import { DEFAULT_CONFIG } from "./defaults.js";
+import { defaultUserConfigPath } from "./paths.js";
 
 export interface LoadConfigOptions {
   userConfigPath?: string;
   projectRoot?: string;
   overrides?: Partial<Config>;
-}
-
-function defaultUserConfigPath(): string {
-  const base = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
-  return join(base, "atom-lite", "config.json");
 }
 
 function readJsonFile(path: string): unknown | undefined {

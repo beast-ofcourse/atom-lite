@@ -44,6 +44,7 @@ export class AgentRuntime {
   switchModel(provider: AgentRuntimeOptions["provider"], model?: string): void {
     this.provider = provider;
     if (model) this.model = model;
+    this.contextManager.setProvider(provider, this.model);
     this.onEvent?.({ type: "model_switched", provider: provider.id, model: this.model });
   }
 

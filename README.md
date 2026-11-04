@@ -46,7 +46,8 @@ Most coding agents accumulate tools, sub-agents, planning frameworks, retrieval 
 - **Context management** — token estimation, compaction (summarization of older history) before the context budget is exceeded, while retaining the full transcript.
 - **Approval modes** — `ask` / `trusted` / `deny` for shell commands, with session-level trust.
 - **Hash guards** — `expected_hash` rejects stale `write`/`edit` operations when the file changed since it was read.
-- **Provider-agnostic** — Ollama, Gemini, and any OpenAI-compatible endpoint (LM Studio, llama.cpp, Kilo AI Gateway, …).
+- **Provider-agnostic** — Ollama, Gemini, and any OpenAI-compatible endpoint (LM Studio, llama.cpp, Kilo AI Gateway, OpenAI, Anthropic, OpenRouter, Groq, Mistral, xAI, …).
+- **Interactive provider/model pickers** — `/provider` adds a provider and stores its key securely; `/model` fuzzy-searches every configured provider's models.
 - **Local-first** — runs fully against local providers with no cloud account, telemetry, or hosted database.
 - **Safe path handling** — file tools resolve against the workspace and reject escapes; shell is an explicit, sandbox-aware boundary.
 
@@ -91,7 +92,7 @@ Project config: `.atom-lite/config.json` (non-secrets only)
 
 Precedence (low → high): defaults → user config → project config (non-secret) → environment → CLI overrides. Security-critical user settings (e.g. `approvalMode`) are **not** overridable by project config.
 
-Secrets must be supplied via environment variables (e.g. `ATOM_LITE_*`, or the env var named by a provider's `apiKeyEnv`), never in project config or session files.
+Secrets are stored in `~/.config/atom-lite/credentials.json` with owner-only permissions (`0600`). Environment variables named by a provider's `apiKeyEnv` take precedence over the stored key. Secrets are never written to project config or session files.
 
 Environment overrides:
 
@@ -182,13 +183,21 @@ File discovery, search, tests, Git, builds, formatters, and package managers are
 
 Provider profiles are named combinations of endpoint, model, auth source, and options. Switching profiles mid-tool-exchange is disallowed.
 
+### Interactive setup
+
+- `/provider` opens a searchable list of built-in providers (Kilo, OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, Mistral, xAI, Ollama, LM Studio, llama.cpp). Selecting a hosted provider prompts for an API key with hidden input, validates it against the provider, and saves it to `~/.config/atom-lite/credentials.json` (`0600`).
+- `/model` opens a fuzzy-searchable picker containing models from **every configured provider** (plus providers whose key is present in the environment). Live model lists are fetched in the background while the picker stays responsive.
+- `/model <provider>/<model>` and `/provider <name>` are the non-interactive forms.
+
+The selected provider/model is persisted to the user config, so the next session starts where you left off.
+
 ## Safety & security
 
 - **Workspace boundary** — `read`/`write`/`edit` resolve paths against the workspace and reject escapes. Shell commands are not constrained by this boundary (their effects are unknown), so `bash` runs as a global exclusive barrier.
 - **Approval modes** — `ask` prompts before each shell command; `trusted` auto-approves; `deny` blocks. Session trust can be granted interactively (`t`).
 - **Hash guards** — prevent stale overwrites when a file changed since it was read.
 - **Sandboxing flags** — reported per command; see `src/security/`.
-- **No secrets in config** — API keys come from environment variables or an OS secret store.
+- **No secrets in config** — interactive provider setup stores API keys in `~/.config/atom-lite/credentials.json` with `0600` permissions; environment variables still take precedence.
 - **Local-first** — no cloud account, telemetry, or remote control plane required (see [ADR 0004](./docs/adr/0004-local-first-no-cloud-dependency.md)).
 
 ## Sessions

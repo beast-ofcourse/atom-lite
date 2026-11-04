@@ -26,6 +26,12 @@ export class ContextManager {
     this.opts = opts;
   }
 
+  /** Update the provider/model used for compaction after a switch. */
+  setProvider(provider: ProviderAdapter, model?: string): void {
+    this.opts.provider = provider;
+    if (model) this.opts.model = model;
+  }
+
   private budget(): number {
     const max = this.opts.maxInputTokens ?? DEFAULT_MAX_INPUT;
     return Math.max(1000, max - this.opts.reserveOutputTokens);

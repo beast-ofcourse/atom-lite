@@ -6,6 +6,7 @@ export const ProviderConfigSchema = z
     baseUrl: z.string().url().optional(),
     model: z.string(),
     apiKeyEnv: z.string().nullable().optional(),
+    apiKey: z.string().nullable().optional(),
     keepAlive: z.string().optional(),
     think: z.union([z.boolean(), z.string()]).optional(),
     headers: z.record(z.string()).optional(),

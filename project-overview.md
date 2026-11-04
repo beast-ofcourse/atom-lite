@@ -29,6 +29,7 @@ ThinAgent is provider-agnostic at the runtime level. It should support:
 
 - **Ollama** through its native chat API.
 - **Google Gemini** through the official Gemini API.
+- **OpenAI**, **Anthropic**, **OpenRouter**, **Groq**, **Mistral**, and **xAI** through OpenAI-compatible endpoints.
 - **LM Studio** through its OpenAI-compatible endpoint.
 - **llama.cpp / llama-server** through its OpenAI-compatible endpoint.
 - **Kilo AI Gateway** through its OpenAI-compatible endpoint.
@@ -82,7 +83,7 @@ These are not unnecessary features. They are the reliability layer that makes a 
 
 Local inference should be a first-class path, not an afterthought. The application must not require a cloud account, telemetry service, hosted database, or remote control plane to run with a local provider.
 
-Online providers are optional configuration choices. API keys must be read from environment variables or an OS-backed secret mechanism, never placed in project configuration files.
+Online providers are optional configuration choices. API keys must be read from environment variables or a user-only secret store (for example `~/.config/atom-lite/credentials.json` with `0600` permissions), never placed in project configuration files.
 
 ### 2.5 No framework-shaped features in the core
 

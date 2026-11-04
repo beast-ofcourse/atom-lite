@@ -1,4 +1,5 @@
 import type { Config } from "../config/schema.js";
+import { resolveApiKey } from "../config/credentials.js";
 import { OpenAICompatibleAdapter } from "./openai-compatible.js";
 import { OllamaAdapter } from "./ollama.js";
 import { GeminiAdapter } from "./gemini.js";
@@ -14,9 +15,10 @@ export function createProvider(
   if (!pcfg)
     return new FakeProvider([{ text: "No provider configured; using fake." }]);
   if (pcfg.type === "openai-compatible") {
-    const apiKey = pcfg.apiKeyEnv
-      ? (process.env[pcfg.apiKeyEnv] ?? null)
-      : null;
+    const apiKey = resolveApiKey(name, {
+      apiKeyEnv: pcfg.apiKeyEnv,
+      inline: pcfg.apiKey,
+    });
     return new OpenAICompatibleAdapter({
       id: name,
       baseUrl: pcfg.baseUrl ?? "http://127.0.0.1:1234/v1",
@@ -36,9 +38,10 @@ export function createProvider(
     });
   }
   if (pcfg.type === "gemini") {
-    const apiKey = pcfg.apiKeyEnv
-      ? (process.env[pcfg.apiKeyEnv] ?? null)
-      : null;
+    const apiKey = resolveApiKey(name, {
+      apiKeyEnv: pcfg.apiKeyEnv,
+      inline: pcfg.apiKey,
+    });
     return new GeminiAdapter({
       id: name,
       baseUrl: pcfg.baseUrl,
