@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+## [0.4.1] - 2026-11-04
+
+### Fixed
+
+- npm publish retry after staged 0.4.0 conflict.
+
 ## [0.4.0] - 2026-11-04
 
 ### Added
