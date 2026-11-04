@@ -6,6 +6,7 @@ import { execSync } from "node:child_process";
 import { openSearchablePicker, type PickerItem } from "./picker.js";
 import { SecretInput } from "./secret-input.js";
 import { StatusLine } from "./status-line.js";
+import { Banner } from "./banner.js";
 import {
   formatContextUsage,
   knownContextWindow,
@@ -189,6 +190,8 @@ export async function run(args: string[]): Promise<void> {
   runtime.setEffort(effortLevel);
 
   const transcript = new Transcript();
+  transcript.add(new Banner());
+  transcript.add(new Spacer(1));
   const content = transcript.container;
   const output = new ScrollView(content, { follow: "end" });
   const streamText = new StreamText(transcript);
