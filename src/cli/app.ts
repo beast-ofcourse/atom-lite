@@ -15,6 +15,7 @@ import {
   themeLabel,
   themeNames,
   type Theme,
+  markdownThemeFor,
 } from "./theme.js";
 import { SecretInput } from "./secret-input.js";
 import { StatusLine } from "./status-line.js";
@@ -281,7 +282,7 @@ export async function run(args: string[]): Promise<void> {
   transcript.add(new Spacer(1));
   const content = transcript.container;
   const output = new ScrollView(content, { follow: "end" });
-  const streamText = new StreamText(transcript);
+  const streamText = new StreamText(transcript, 200, 200, markdownThemeFor(theme));
 
   function headerLabel(): string {
     const cwd = process.cwd();
@@ -419,10 +420,13 @@ export async function run(args: string[]): Promise<void> {
     streamText.finalize();
   }
 
+  let activeTurnController: AbortController | null = null;
+
   /** Run one interactive turn while keeping the status bar's activity fresh. */
   async function runTurn(prompt: string): Promise<void> {
     activity.start("formulating");
     const controller = new AbortController();
+    activeTurnController = controller;
     try {
       if (useTools) {
         await mcpManager.syncTools();
@@ -430,8 +434,13 @@ export async function run(args: string[]): Promise<void> {
       }
       await runtime.runAgentTurn(prompt, session, controller.signal);
     } catch (err) {
-      appendLine(`atom-lite: ${err instanceof Error ? err.message : String(err)}`);
+      if (err instanceof Error && err.message === "USER_CANCELLED") {
+        appendLine("cancelled");
+      } else {
+        appendLine(`atom-lite: ${err instanceof Error ? err.message : String(err)}`);
+      }
     } finally {
+      activeTurnController = null;
       activity.stop();
     }
   }
@@ -1303,6 +1312,11 @@ export async function run(args: string[]): Promise<void> {
       toggleTools();
       return { consume: true };
     }
+    // Escape cancels the active turn.
+    if (matchesKey(data, Key.escape) && !uiModalOpen && activeTurnController) {
+      activeTurnController.abort();
+      return { consume: true };
+    }
     return undefined;
   });
 
@@ -1478,10 +1492,6 @@ export async function run(args: string[]): Promise<void> {
       process.exit(0);
     });
   });
-
-  if (mouseEnabled) {
-    mouseCapture.enable();
-  }
 
   tui.start();
   if (mouseEnabled) {
