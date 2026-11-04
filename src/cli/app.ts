@@ -210,7 +210,8 @@ export async function run(args: string[]): Promise<void> {
     return branch ? `${displayPath}:${branch}` : displayPath;
   }
   const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
-  const header = new Text(dim(headerLabel()));
+  // paddingY = 0 keeps the workspace path directly under the status line.
+  const header = new Text(dim(headerLabel()), 1, 0);
 
   const statusBar = new StatusLine();
   statusBar.setParts({
