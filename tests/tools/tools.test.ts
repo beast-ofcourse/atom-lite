@@ -193,3 +193,15 @@ test("write and edit attach pre-computed diffs to the result", async () => {
   assert.ok(edited.diff?.includes("- one"));
   assert.ok(edited.diff?.includes("+ ONE"));
 });
+
+
+test("edit inserts replacement text literally", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  writeFileSync(join(dir, "a.txt"), "x $& $1 $$ $' `y`");
+  const res = await editTool.execute(
+    { id: "1", name: "edit", arguments: { path: "a.txt", old_string: "x $& $1 $$ $' `y`", new_string: "replaced $& $1 $$ $' `y`" } },
+    ctx(dir),
+  );
+  assert.ok(!res.isError);
+  assert.equal(readFileSync(join(dir, "a.txt"), "utf8"), "replaced $& $1 $$ $' `y`");
+});
