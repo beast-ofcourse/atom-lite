@@ -35,6 +35,7 @@ function fakeContext() {
     updateStatus: () => calls.push("status"),
     runDoctor: async () => "ok",
     runMcp: async () => {},
+    runExport: async () => {},
     openModelPicker: () => calls.push("model-picker"),
     openProviderPicker: () => calls.push("provider-picker"),
     openEffortPicker: () => calls.push("effort-picker"),

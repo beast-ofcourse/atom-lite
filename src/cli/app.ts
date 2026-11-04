@@ -6,6 +6,7 @@ import {
 } from "../config/write.js";
 import { resolveApiKey, saveApiKey } from "../config/credentials.js";
 import { join } from "node:path";
+import { writeFileSync, existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { openSearchablePicker, type PickerItem } from "./picker.js";
 import { openCommandPalette, type PaletteItem } from "./palette.js";
@@ -1013,6 +1014,7 @@ export async function run(args: string[]): Promise<void> {
     updateStatus,
     runDoctor,
     runMcp,
+    runExport,
     openModelPicker,
     openProviderPicker,
     openEffortPicker,
@@ -1445,6 +1447,148 @@ export async function run(args: string[]): Promise<void> {
       return;
     }
     appendLine(formatMcpStatus(mcpManager.status()));
+  }
+
+  async function runExport(args: string): Promise<void> {
+    const tokens = (args ?? "").trim().split(/\s+/).filter(Boolean);
+    let format = "md";
+    let force = false;
+    let redact = true;
+    const positional: string[] = [];
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      if (t === "--format") {
+        format = tokens[++i] ?? format;
+      } else if (t.startsWith("--format=")) {
+        format = t.slice("--format=".length);
+      } else if (t === "--force") {
+        force = true;
+      } else if (t === "--no-redact") {
+        redact = false;
+      } else {
+        positional.push(t);
+      }
+    }
+    const isJson = format === "json";
+    const ext = isJson ? "json" : "md";
+    const outPath = positional[0] || `${session.id}.${ext}`;
+
+    if (existsSync(outPath) && !force) {
+      appendLine(`export refused: ${outPath} already exists (use --force)`);
+      return;
+    }
+
+    if (!redact) {
+      appendLine("warning: redaction disabled; secrets may be written to disk");
+    }
+
+    const secretPatterns = [
+      /sk-[A-Za-z0-9_-]{8,}/g,
+      /ghp_[A-Za-z0-9]{20,}/g,
+      /gho_[A-Za-z0-9]{20,}/g,
+      /github_pat_[A-Za-z0-9_]{20,}/g,
+      /AKIA[0-9A-Z]{16}/g,
+      /xox[baprs]-[A-Za-z0-9-]{10,}/g,
+      /Bearer\s+[A-Za-z0-9._-]+/g,
+    ];
+    const redactText = (value: string): string => {
+      if (!redact) return value;
+      let out = value;
+      for (const pattern of secretPatterns) {
+        out = out.replace(pattern, "[REDACTED]");
+      }
+      return out;
+    };
+
+    const messageText = (message: any): string => {
+      const content = message?.content;
+      if (Array.isArray(content)) {
+        return content
+          .map((p: any) => (p?.type === "text" ? p.text : ""))
+          .join("");
+      }
+      return typeof content === "string" ? content : "";
+    };
+
+    if (isJson) {
+      const events =
+        typeof (session as any).events !== "undefined"
+          ? (session as any).events
+          : [];
+      const payload = {
+        version: 1,
+        session: {
+          id: session.id,
+          workspace: session.workspace,
+          provider: session.provider,
+          messageCount: session.messages.length,
+        },
+        messages: session.messages,
+        events,
+      };
+      let json = JSON.stringify(payload, null, 2);
+      if (redact) json = redactText(json);
+      writeFileSync(outPath, json + "\n", "utf8");
+      appendLine(`exported session to ${outPath}`);
+      return;
+    }
+
+    const lines: string[] = [];
+    lines.push(`# Session ${session.id}`);
+    lines.push("");
+    lines.push(`- Workspace: ${session.workspace}`);
+    lines.push(`- Provider: ${session.provider}`);
+    lines.push(`- Messages: ${session.messages.length}`);
+    lines.push(`- Exported: ${new Date().toISOString()}`);
+    lines.push("");
+    lines.push("## Table of contents");
+    lines.push("");
+    let turn = 0;
+    for (const message of session.messages) {
+      if (message.role === "user") {
+        turn++;
+        const snippet = redactText(messageText(message)).split("\\n")[0].slice(0, 80);
+        lines.push(`${turn}. ${snippet || "(empty)"}`);
+      }
+    }
+    lines.push("");
+    lines.push("## Transcript");
+    lines.push("");
+    for (const message of session.messages) {
+      if (message.role === "user") {
+        lines.push("### User");
+        lines.push("");
+        lines.push(redactText(messageText(message)));
+        lines.push("");
+      } else if (message.role === "assistant") {
+        lines.push("### Assistant");
+        lines.push("");
+        const text = redactText(messageText(message));
+        if (text.trim()) lines.push(text);
+        if (Array.isArray(message.toolCalls) && message.toolCalls.length) {
+          lines.push("");
+          lines.push("Tool calls:");
+          for (const call of message.toolCalls) {
+            lines.push(`- \`${call.name}\` ${JSON.stringify(call.arguments ?? {})}`);
+          }
+        }
+        lines.push("");
+      } else if (message.role === "tool") {
+        lines.push(`### Tool result: ${message.name}`);
+        lines.push("");
+        const content = redactText(String(message.content ?? ""));
+        const truncated =
+          content.length > 4000
+            ? content.slice(0, 4000) + "\\n… (truncated)"
+            : content;
+        lines.push("```");
+        lines.push(truncated);
+        lines.push("```");
+        lines.push("");
+      }
+    }
+    writeFileSync(outPath, lines.join("\\n"), "utf8");
+    appendLine(`exported session to ${outPath}`);
   }
 
   input.onSubmit = async (value: string) => {

@@ -35,6 +35,7 @@ export interface CommandContext {
   updateStatus(): void;
   runDoctor(): Promise<string>;
   runMcp(args: string): Promise<void> | void;
+  runExport(args: string): Promise<void> | void;
   openModelPicker(): void;
   openProviderPicker(): void;
   openEffortPicker(): void;
@@ -332,6 +333,15 @@ export function createCommandRegistry(
     },
   });
 
+  registry.register({
+    name: "export",
+    description: "export session transcript",
+    category: "Session",
+    argumentHint: "[path] [--format md|json] [--force] [--no-redact]",
+    async run(ctx, args) {
+      await ctx.runExport(args);
+    },
+  });
   registry.register({
     name: "thinking",
     description: "toggle thinking display",
