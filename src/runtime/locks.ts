@@ -22,7 +22,7 @@ function canonical(key: string): string {
 }
 
 interface Waiter {
-  mode: "read" | "write";
+  mode: "read" | "write" | "barrier";
   resolve: (release: Release) => void;
   reject: (err: Error) => void;
   signal?: AbortSignal;
@@ -31,16 +31,17 @@ interface Waiter {
 class RWLock {
   private readers = 0;
   private writer = false;
+  private barriers = 0;
   private queue: Waiter[] = [];
 
-  acquire(mode: "read" | "write", signal?: AbortSignal): Promise<Release> {
+  acquire(mode: "read" | "write" | "barrier", signal?: AbortSignal): Promise<Release> {
     const key = ""; // unused; lock instance is per-resource
     return new Promise<Release>((resolve, reject) => {
       const waiter: Waiter = { mode, resolve, reject, signal };
       const tryAcquire = (): boolean => {
         if (signal?.aborted) return false;
         if (mode === "read") {
-          if (!this.writer && this.queue.filter((w) => w !== waiter).length === 0) {
+          if (!this.writer && this.barriers === 0 && this.queue.length === 0) {
             this.readers++;
             waiter.resolve(() => {
               this.readers--;
@@ -48,11 +49,22 @@ class RWLock {
             });
             return true;
           }
-        } else {
-          if (this.readers === 0 && !this.writer) {
+        } else if (mode === "write") {
+          if (this.readers === 0 && !this.writer && this.barriers === 0) {
             this.writer = true;
             waiter.resolve(() => {
               this.writer = false;
+              this.drain();
+            });
+            return true;
+          }
+        } else {
+          // Barriers are shared with other barriers but exclusive with all
+          // file reads and writes.
+          if (this.readers === 0 && !this.writer && this.queue.length === 0) {
+            this.barriers++;
+            waiter.resolve(() => {
+              this.barriers--;
               this.drain();
             });
             return true;
@@ -84,7 +96,10 @@ class RWLock {
       const idx = this.queue.findIndex((w) => {
         if (w.signal?.aborted) return true;
         if (w.mode === "read") {
-          return !this.writer;
+          return !this.writer && this.barriers === 0;
+        }
+        if (w.mode === "write") {
+          return this.readers === 0 && !this.writer && this.barriers === 0;
         }
         return this.readers === 0 && !this.writer;
       });
@@ -101,10 +116,16 @@ class RWLock {
           this.readers--;
           this.drain();
         });
-      } else {
+      } else if (w.mode === "write") {
         this.writer = true;
         w.resolve(() => {
           this.writer = false;
+          this.drain();
+        });
+      } else {
+        this.barriers++;
+        w.resolve(() => {
+          this.barriers--;
           this.drain();
         });
       }
@@ -118,9 +139,18 @@ class RWLock {
 export class LockManager {
   private locks = new Map<string, RWLock>();
   private global = new RWLock();
+  private canonicalCache = new Map<string, string>();
+
+  private canonicalKey(key: string): string {
+    const cached = this.canonicalCache.get(key);
+    if (cached !== undefined) return cached;
+    const k = canonical(key);
+    this.canonicalCache.set(key, k);
+    return k;
+  }
 
   private getLock(key: string): RWLock {
-    const k = canonical(key);
+    const k = this.canonicalKey(key);
     let l = this.locks.get(k);
     if (!l) {
       l = new RWLock();
@@ -149,5 +179,10 @@ export class LockManager {
 
   async acquireGlobal(signal?: AbortSignal): Promise<Release> {
     return this.global.acquire("write", signal);
+  }
+
+  /** Shared barrier used by parallel bash calls: exclusive with file ops. */
+  async acquireGlobalBarrier(signal?: AbortSignal): Promise<Release> {
+    return this.global.acquire("barrier", signal);
   }
 }

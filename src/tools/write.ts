@@ -9,6 +9,7 @@ import {
 import { resolve, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import { isWithinWorkspace } from "../security/paths.js";
+import { renderAddedLines, renderDiff } from "./diff.js";
 import type { Tool, ToolContext, ToolResult } from "./types.js";
 import type { ToolCall } from "../types.js";
 import { z } from "zod";
@@ -61,8 +62,10 @@ export const writeTool: Tool = {
     }
     const full = resolve(ctx.workspace, path);
     const existed = existsSync(full);
+    let oldText: string | undefined;
     if (existed) {
       const buf = readFileSync(full);
+      oldText = buf.toString("utf8");
       const currentHash = sha256(buf);
       if (expected_hash && expected_hash !== currentHash) {
         return {
@@ -94,6 +97,7 @@ export const writeTool: Tool = {
       toolCallId: call.id,
       name: "write",
       content: `Wrote ${buf.length} bytes to ${path} (sha256:${newHash}).`,
+      diff: oldText === undefined ? renderAddedLines(content) : renderDiff(oldText, content),
     };
   },
 };

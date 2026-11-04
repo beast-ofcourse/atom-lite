@@ -1,13 +1,15 @@
 import type { ToolCall } from "../types.js";
 import type { Tool, ToolContext } from "../tools/types.js";
 import type { ToolResult } from "../tools/types.js";
+import { resolve } from "node:path";
 import { LockManager, type Release } from "./locks.js";
 
-function resourceKey(call: ToolCall): string {
+function resourceKey(call: ToolCall, workspace: string): string {
   const args = call.arguments ?? {};
   if (call.name === "bash") return "__bash__";
   const p = (args as any).path ?? (args as any).cwd ?? "";
-  return String(p);
+  const key = String(p);
+  return key === "" ? "" : resolve(workspace, key);
 }
 
 function isMutation(call: ToolCall): boolean {
@@ -25,18 +27,23 @@ export async function executeToolBatch(
   maxParallel: number,
   signal: AbortSignal,
   lockManager?: LockManager,
+  bashConcurrency: "serial" | "parallel" = "serial",
 ): Promise<ToolResult[]> {
   const lm = lockManager ?? new LockManager();
   const n = calls.length;
   const results: ToolResult[] = new Array(n);
 
   const acquire = async (call: ToolCall): Promise<Release> => {
-    if (isBash(call)) return lm.acquireGlobal(signal);
+    if (isBash(call)) {
+      return bashConcurrency === "parallel"
+        ? lm.acquireGlobalBarrier(signal)
+        : lm.acquireGlobal(signal);
+    }
     if (call.name === "webfetch" || call.name === "websearch") {
       // No file lock; network-only. Return a no-op release.
       return () => {};
     }
-    const key = resourceKey(call);
+    const key = resourceKey(call, ctx.workspace);
     if (key === "") return () => {};
     if (isMutation(call)) return lm.acquireWrite(key, signal);
     return lm.acquireRead(key, signal);

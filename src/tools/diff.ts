@@ -1,11 +1,18 @@
+/**
+ * Line diff used by write/edit so the CLI can render a diff without re-reading
+ * files or diffing during a TUI frame.
+ */
 export function renderDiff(oldText: string, newText: string): string[] {
   const oldLines = oldText.split(/\r?\n/);
   const newLines = newText.split(/\r?\n/);
-  // Simple LCS-based unified diff (no context lines beyond changes).
   const out: string[] = [];
-  // Use a simple line-by-line diff (Myers-lite): find common prefix/suffix.
+  // Myers-lite: strip the common prefix and suffix, then show the middle.
   let prefix = 0;
-  while (prefix < oldLines.length && prefix < newLines.length && oldLines[prefix] === newLines[prefix]) {
+  while (
+    prefix < oldLines.length &&
+    prefix < newLines.length &&
+    oldLines[prefix] === newLines[prefix]
+  ) {
     prefix++;
   }
   let suffix = 0;
@@ -24,4 +31,11 @@ export function renderDiff(oldText: string, newText: string): string[] {
   for (const l of oldMid) out.push(`- ${l}`);
   for (const l of newMid) out.push(`+ ${l}`);
   return out;
+}
+
+/** Diff for a newly created file: every line is an addition. */
+export function renderAddedLines(newText: string): string[] {
+  const lines = newText.split(/\r?\n/);
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  return lines.map((l) => `+ ${l}`);
 }

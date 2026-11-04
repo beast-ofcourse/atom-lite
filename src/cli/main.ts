@@ -4,8 +4,6 @@ import { saveProviderModel, saveProviderSelection } from "../config/write.js";
 import { resolveApiKey, saveApiKey } from "../config/credentials.js";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
-import { renderDiff } from "./diff.js";
 import { openSearchablePicker, type PickerItem } from "./picker.js";
 import { SecretInput } from "./secret-input.js";
 import { StatusLine } from "./status-line.js";
@@ -151,6 +149,7 @@ async function main(): Promise<void> {
     tools,
     approvals,
     contextManager,
+    bashConcurrency: config.runtime.bashConcurrency,
   });
 
   if (oneShot || !interactive) {
@@ -226,8 +225,17 @@ async function main(): Promise<void> {
   const editorTheme = { borderColor: (s: string) => s, selectList: selectListTheme };
   const input = new Editor(tui, editorTheme, {});
   const { CombinedAutocompleteProvider } = await import("@earendil-works/pi-tui");
-  const { DefaultSkillRegistry } = await import("../skills/registry.js");
-  const skillReg = new DefaultSkillRegistry(process.cwd());
+  const { DefaultSkillRegistry, skillCacheSignature } = await import("../skills/registry.js");
+  let skillSignature = skillCacheSignature(process.cwd());
+  let skillReg = new DefaultSkillRegistry(process.cwd());
+  function cachedSkillRegistry(): InstanceType<typeof DefaultSkillRegistry> {
+    const sig = skillCacheSignature(process.cwd());
+    if (sig !== skillSignature) {
+      skillReg = new DefaultSkillRegistry(process.cwd());
+      skillSignature = sig;
+    }
+    return skillReg;
+  }
   const slashCommands: { name: string; description?: string }[] = [
     { name: "help", description: "show commands" },
     { name: "model", description: "search/switch model" },
@@ -264,7 +272,17 @@ async function main(): Promise<void> {
   let loader: any = null;
   let expandTools = false;
   let uiModalOpen = false;
-  const toolBoxes: { header: any; output: any; container: any; lines: string[]; toolName?: string; args?: any; oldContent?: string | null }[] = [];
+  const toolBoxes: {
+    id: string;
+    header: any;
+    output: any;
+    container: any;
+    lines: string[];
+    toolName?: string;
+    args?: any;
+    live?: any;
+    liveBuffer?: string;
+  }[] = [];
 
   approvals.handler = interactive
     ? async (req: any) => {
@@ -651,6 +669,7 @@ async function main(): Promise<void> {
   function toggleTools(): void {
     expandTools = !expandTools;
     for (const box of toolBoxes) {
+      if (box.live) continue; // a running command keeps its live view
       box.output.clear();
       if (expandTools) {
         for (const l of box.lines) box.output.addChild(new Text(l));
@@ -726,28 +745,42 @@ async function main(): Promise<void> {
       const output = new Container();
       box.addChild(output);
       content.addChild(box);
-      const boxRec: any = { header, output, container: box, lines: [], oldContent: null, toolName: e.name, args: e.args };
-      // Capture old content for diff rendering
-      if ((e.name === "write" || e.name === "edit") && e.args?.path) {
-        try {
-          const p = (e.args.path.startsWith("/") ? e.args.path : join(process.cwd(), e.args.path));
-          if (existsSync(p)) boxRec.oldContent = readFileSync(p, "utf8");
-        } catch { /* ignore */ }
-      }
-      toolBoxes.push(boxRec);
+      toolBoxes.push({
+        id: e.id,
+        header,
+        output,
+        container: box,
+        lines: [],
+        toolName: e.name,
+        args: e.args,
+      });
       tui.requestRender();
+    } else if (e.type === "tool_output") {
+      const box = toolBoxes.find((b) => b.id === e.toolCallId);
+      if (box) {
+        if (!box.live) {
+          box.live = new Text("");
+          box.output.addChild(box.live);
+        }
+        box.liveBuffer = (box.liveBuffer ?? "") + e.text;
+        // Keep the live view bounded; the completed result carries the full
+        // capped output, and the JSONL transcript keeps everything.
+        if (box.liveBuffer.length > 60_000) {
+          box.liveBuffer = box.liveBuffer.slice(-60_000);
+        }
+        box.live.setText(box.liveBuffer);
+        tui.requestRender();
+      }
     } else if (e.type === "tool_result") {
-      const last = toolBoxes[toolBoxes.length - 1];
+      const last =
+        toolBoxes.find((b) => b.id === e.toolCallId) ??
+        toolBoxes[toolBoxes.length - 1];
       if (last) {
-        const isDiffTool = last.toolName === "write" || last.toolName === "edit";
-        if (isDiffTool && last.oldContent !== null) {
-          let newContent = "";
-          try {
-            const argPath = String(last.args?.path ?? "");
-            const p = (argPath.startsWith("/") ? argPath : join(process.cwd(), argPath)) as string;
-            newContent = readFileSync(p as string, "utf8");
-          } catch { /* ignore */ }
-          const diffLines = renderDiff(last.oldContent ?? "", newContent);
+        last.live = null;
+        last.liveBuffer = "";
+        last.output.clear();
+        if (e.diff) {
+          const diffLines: string[] = e.diff;
           last.lines = diffLines;
           if (expandTools) {
             for (const l of diffLines) {
@@ -760,11 +793,12 @@ async function main(): Promise<void> {
             last.output.addChild(new Text(`  +${added} -${removed} (ctrl+o to expand)`));
           }
         } else {
-          last.lines.push(...e.content.split("\n"));
+          const lines = e.content.split("\n");
+          last.lines = lines;
           if (expandTools) {
-            for (const l of e.content.split("\n")) last.output.addChild(new Text(l));
+            for (const l of lines) last.output.addChild(new Text(l));
           } else {
-            last.output.addChild(new Text(`  (${e.content.split("\n").length} lines, ctrl+o to expand)`));
+            last.output.addChild(new Text(`  (${lines.length} lines, ctrl+o to expand)`));
           }
         }
         tui.requestRender();
@@ -797,8 +831,7 @@ async function main(): Promise<void> {
     }
     if (!trimmed) { tui.requestRender(); return; }
     const firstToken = trimmed.split(/\s+/)[0].replace(/^\//, "");
-    const { DefaultSkillRegistry: _DSR } = await import("../skills/registry.js");
-    const _skillReg = new _DSR(process.cwd());
+    const _skillReg = cachedSkillRegistry();
     const isSkill = _skillReg.list().some((s: any) => s.name === firstToken) || trimmed.startsWith("/skill ");
     if (isSkill) {
       const skillName = trimmed.startsWith("/skill ") ? trimmed.split(/\s+/)[1] : firstToken;

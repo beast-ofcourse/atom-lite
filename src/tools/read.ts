@@ -18,6 +18,40 @@ function sha256(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex");
 }
 
+/** Drop the CR from CRLF without scanning the whole file up front. */
+function stripCr(line: string): string {
+  return line.endsWith("\r") ? line.slice(0, -1) : line;
+}
+
+/**
+ * Return the requested line range without splitting the entire file. Partial
+ * reads (offset/limit) are common for large files, where slicing first keeps
+ * the cost proportional to the requested window instead of the file size.
+ */
+function sliceLines(text: string, offset?: number, limit?: number): string[] {
+  let start = 0;
+  const startLine = (offset ?? 1) - 1;
+  for (let i = 0; i < startLine; i++) {
+    const nl = text.indexOf("\n", start);
+    if (nl === -1) return [];
+    start = nl + 1;
+  }
+  if (limit === undefined) {
+    return text.slice(start).split("\n").map(stripCr);
+  }
+  let cursor = start;
+  for (let i = 0; i < limit; i++) {
+    const nl = text.indexOf("\n", cursor);
+    if (nl === -1) {
+      // Fewer lines remain than requested: take the rest, including the
+      // trailing newline so the split matches a full-file slice.
+      return text.slice(start).split("\n").map(stripCr);
+    }
+    cursor = nl + 1;
+  }
+  return text.slice(start, cursor - 1).split("\n").map(stripCr);
+}
+
 export const readTool: Tool = {
   definition: {
     name: "read",
@@ -88,10 +122,8 @@ export const readTool: Tool = {
       };
     }
     const text = buf.toString("utf8");
-    const lines = text.split(/\r?\n/);
     const start = (offset ?? 1) - 1;
-    const end = limit ? start + limit : lines.length;
-    const slice = lines.slice(start, end);
+    const slice = sliceLines(text, offset, limit);
     const numbered = slice.map((l, i) => `${start + i + 1}: ${l}`).join("\n");
     const hash = sha256(buf);
     const header = `File: ${path} (${buf.length} bytes, sha256:${hash})`;

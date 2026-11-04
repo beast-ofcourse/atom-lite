@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, renameSync } from "node:fs";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { isWithinWorkspace } from "../security/paths.js";
+import { renderDiff } from "./diff.js";
 import type { Tool, ToolContext, ToolResult } from "./types.js";
 import type { ToolCall } from "../types.js";
 import { z } from "zod";
@@ -115,6 +116,7 @@ export const editTool: Tool = {
       toolCallId: call.id,
       name: "edit",
       content: `Edited ${path} (sha256:${newHash}).`,
+      diff: renderDiff(text, newText),
     };
   },
 };

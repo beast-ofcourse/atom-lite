@@ -2,8 +2,8 @@ import type { Message, AgentLimits } from "../types.js";
 import type { ProviderAdapter } from "../providers/types.js";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { loadProjectInstructions } from "./instructions.js";
-import { DefaultSkillRegistry } from "../skills/registry.js";
+import { loadProjectInstructions, statSignature } from "./instructions.js";
+import { DefaultSkillRegistry, skillCacheSignature } from "../skills/registry.js";
 import { estimateMessageTokens } from "./budget.js";
 
 export interface ContextManagerOptions {
@@ -21,6 +21,8 @@ const DEFAULT_MAX_INPUT = 128000;
 
 export class ContextManager {
   private opts: ContextManagerOptions;
+  private instructionCache?: { signature: string; text: string[] };
+  private skillCache?: { workspace: string; signature: string; index: string };
 
   constructor(opts: ContextManagerOptions) {
     this.opts = opts;
@@ -43,13 +45,33 @@ export class ContextManager {
 
   async build(workspace: string, history: Message[]): Promise<Message[]> {
     const userPath = this.opts.userInstructionsPath ?? join(homedir(), ".config", "atom-lite", "AGENTS.md");
-    const instructions = loadProjectInstructions(
-      workspace,
-      this.opts.maxProjectInstructionBytes,
-      userPath,
-    );
-    const registry = new DefaultSkillRegistry(workspace);
-    const skillIndex = registry.indexText();
+    const instructionSignature =
+      `${this.opts.maxProjectInstructionBytes}|` +
+      statSignature([userPath, join(workspace, "AGENTS.md")]);
+    let instructions: string[];
+    if (this.instructionCache?.signature === instructionSignature) {
+      instructions = this.instructionCache.text;
+    } else {
+      instructions = loadProjectInstructions(
+        workspace,
+        this.opts.maxProjectInstructionBytes,
+        userPath,
+      );
+      this.instructionCache = { signature: instructionSignature, text: instructions };
+    }
+
+    const skillSignature = skillCacheSignature(workspace);
+    let skillIndex: string;
+    if (
+      this.skillCache?.workspace === workspace &&
+      this.skillCache.signature === skillSignature
+    ) {
+      skillIndex = this.skillCache.index;
+    } else {
+      const registry = new DefaultSkillRegistry(workspace);
+      skillIndex = registry.indexText();
+      this.skillCache = { workspace, signature: skillSignature, index: skillIndex };
+    }
     const systemPrompt = skillIndex
       ? `${this.opts.systemPrompt}\n\n${skillIndex}`
       : this.opts.systemPrompt;

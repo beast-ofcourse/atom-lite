@@ -121,3 +121,75 @@ test("symlink escape rejected", async () => {
   assert.equal(r.isError, true);
   assert.match(r.content, /PATH_OUTSIDE_WORKSPACE/);
 });
+
+test("read offset/limit slices lines without changing numbering", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  writeFileSync(join(dir, "range.txt"), "a\nbb\nccc\n");
+  const cases: Array<[number | undefined, number | undefined, string]> = [
+    [1, 2, "1: a\n2: bb"],
+    [2, 2, "2: bb\n3: ccc"],
+    [3, 5, "3: ccc\n4: "],
+    [2, 1, "2: bb"],
+    [9, 1, "(empty)"],
+  ];
+  for (const [offset, limit, expected] of cases) {
+    const r = await readTool.execute(
+      { id: "1", name: "read", arguments: { path: "range.txt", offset, limit } },
+      ctx(dir),
+    );
+    assert.ok(r.content.endsWith(expected), `${offset}/${limit}: ${r.content}`);
+  }
+});
+
+test("read handles CRLF ranges", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  writeFileSync(join(dir, "crlf.txt"), "a\r\nb\r\nc\r\n");
+  const r = await readTool.execute(
+    { id: "1", name: "read", arguments: { path: "crlf.txt", offset: 2, limit: 1 } },
+    ctx(dir),
+  );
+  assert.match(r.content, /2: b$/);
+  assert.ok(!r.content.includes("\r"), "CR should be stripped");
+});
+
+test("bash streams stdout and stderr while running", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  const chunks: Array<{ stream: string; text: string }> = [];
+  const c = {
+    ...ctx(dir),
+    onToolOutput: (_call: unknown, stream: "stdout" | "stderr", text: string) => {
+      chunks.push({ stream, text });
+    },
+  };
+  const r = await bashTool.execute(
+    {
+      id: "1",
+      name: "bash",
+      arguments: { command: "echo out; echo err >&2" },
+    },
+    c,
+  );
+  assert.match(r.content, /out/);
+  assert.ok(chunks.some((c) => c.stream === "stdout" && c.text.includes("out")));
+  assert.ok(chunks.some((c) => c.stream === "stderr" && c.text.includes("err")));
+});
+
+test("write and edit attach pre-computed diffs to the result", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  const created = await writeTool.execute(
+    { id: "1", name: "write", arguments: { path: "new.txt", content: "one\ntwo\n" } },
+    ctx(dir),
+  );
+  assert.deepEqual(created.diff, ["+ one", "+ two"]);
+
+  const edited = await editTool.execute(
+    {
+      id: "2",
+      name: "edit",
+      arguments: { path: "new.txt", old_string: "one", new_string: "ONE" },
+    },
+    ctx(dir),
+  );
+  assert.ok(edited.diff?.includes("- one"));
+  assert.ok(edited.diff?.includes("+ ONE"));
+});

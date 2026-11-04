@@ -6,6 +6,8 @@ export interface ToolResult {
   name: string;
   content: string;
   isError?: boolean;
+  /** Pre-computed line diff for write/edit, so the UI never re-reads files. */
+  diff?: string[];
 }
 
 export interface Tool {
@@ -19,6 +21,12 @@ export interface ToolContext {
   maxBashTimeMs?: number;
   maxToolOutputBytes?: number;
   approvals?: import("../runtime/approvals.js").ApprovalContext;
+  /** Live output from a running command, forwarded to the UI. */
+  onToolOutput?: (
+    call: ToolCall,
+    stream: "stdout" | "stderr",
+    text: string,
+  ) => void;
 }
 
 export interface ToolRegistry {

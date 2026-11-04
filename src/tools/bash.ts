@@ -82,20 +82,30 @@ export const bashTool: Tool = {
       const cap = ctx.maxToolOutputBytes ?? 30000;
       const append = (target: "out" | "err", chunk: Buffer) => {
         const s = chunk.toString("utf8");
+        let accepted = s;
         if (target === "out") {
           if (stdout.length + s.length > cap) {
             truncated = true;
-            stdout += s.slice(0, Math.max(0, cap - stdout.length));
+            accepted = s.slice(0, Math.max(0, cap - stdout.length));
+            stdout += accepted;
           } else {
             stdout += s;
           }
         } else {
           if (stderr.length + s.length > cap) {
             truncated = true;
-            stderr += s.slice(0, Math.max(0, cap - stderr.length));
+            accepted = s.slice(0, Math.max(0, cap - stderr.length));
+            stderr += accepted;
           } else {
             stderr += s;
           }
+        }
+        if (accepted) {
+          ctx.onToolOutput?.(
+            call,
+            target === "out" ? "stdout" : "stderr",
+            accepted,
+          );
         }
       };
       child.stdout?.on("data", (c: Buffer) => append("out", c));

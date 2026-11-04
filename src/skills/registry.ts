@@ -14,6 +14,38 @@ export interface SkillRegistry {
   load(name: string): string | undefined;
 }
 
+/**
+ * Signature of every skill file (path, mtime, size). ContextManager caches the
+ * parsed registry and only rescans when this changes, so a modified SKILL.md
+ * invalidates the cache while normal turns stay allocation-light.
+ */
+export function skillCacheSignature(workspace: string): string {
+  const dirs = [
+    join(homedir(), ".agents", "skills"),
+    join(workspace, ".agents", "skills"),
+  ];
+  const parts: string[] = [];
+  for (const dir of dirs) {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    entries.sort();
+    for (const e of entries) {
+      const file = join(dir, e, "SKILL.md");
+      try {
+        const st = statSync(file);
+        parts.push(`${file}:${st.mtimeMs}:${st.size}`);
+      } catch {
+        // Not a skill directory.
+      }
+    }
+  }
+  return parts.join("|");
+}
+
 function parseFrontmatter(text: string): { name?: string; description?: string } {
   const m = text.match(/^---\n([\s\S]*?)\n---/);
   if (!m) return {};

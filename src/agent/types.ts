@@ -11,8 +11,22 @@ export type AgentEvent =
   | { type: "assistant_delta"; text: string }
   | { type: "thinking_delta"; text: string }
   | { type: "assistant_text"; text: string }
-  | { type: "tool_call"; name: string; args: Record<string, unknown> }
-  | { type: "tool_result"; name: string; content: string; isError?: boolean }
+  | { type: "tool_call"; id: string; name: string; args: Record<string, unknown> }
+  | {
+      type: "tool_output";
+      toolCallId: string;
+      name: string;
+      stream: "stdout" | "stderr";
+      text: string;
+    }
+  | {
+      type: "tool_result";
+      toolCallId: string;
+      name: string;
+      content: string;
+      isError?: boolean;
+      diff?: string[];
+    }
   | { type: "final"; text: string }
   | { type: "usage"; input?: number; output?: number }
   | { type: "model_switched"; provider: string; model: string }
@@ -30,6 +44,7 @@ export interface AgentRuntimeOptions {
   contextManager?: ContextManager;
   onEvent?: (event: AgentEvent) => void;
   effort?: string;
+  bashConcurrency?: "serial" | "parallel";
 }
 
 export interface RunTurnParams {

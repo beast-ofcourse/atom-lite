@@ -13,6 +13,7 @@ export class AgentRuntime {
   private onEvent: AgentRuntimeOptions["onEvent"];
   private tools: AgentRuntimeOptions["tools"];
   private effort: string;
+  private bashConcurrency: "serial" | "parallel";
   private toolMap: Map<string, AgentRuntimeOptions["tools"][number]>;
   private limits: AgentLimits;
   private systemPrompt: string;
@@ -25,6 +26,7 @@ export class AgentRuntime {
     this.onEvent = options.onEvent;
     this.tools = options.tools;
     this.effort = options.effort ?? "medium";
+    this.bashConcurrency = options.bashConcurrency ?? "serial";
     this.contextManager =
       options.contextManager ??
       new ContextManager({
@@ -133,7 +135,7 @@ export class AgentRuntime {
         return text;
       }
       for (const c of toolCalls)
-        this.onEvent?.({ type: "tool_call", name: c.name, args: c.arguments });
+        this.onEvent?.({ type: "tool_call", id: c.id, name: c.name, args: c.arguments });
 
       totalToolCalls += toolCalls.length;
       if (totalToolCalls > this.limits.maxToolCalls) {
@@ -146,6 +148,19 @@ export class AgentRuntime {
         maxBashTimeMs: this.limits.maxBashTimeMs,
         maxToolOutputBytes: this.limits.maxToolOutputBytes,
         approvals: this.approvals,
+        onToolOutput: (
+          call: { id: string; name: string },
+          stream: "stdout" | "stderr",
+          text: string,
+        ) => {
+          this.onEvent?.({
+            type: "tool_output",
+            toolCallId: call.id,
+            name: call.name,
+            stream,
+            text,
+          });
+        },
       };
       const results = await executeToolBatch(
         toolCalls,
@@ -153,6 +168,8 @@ export class AgentRuntime {
         ctx,
         this.limits.maxParallelToolCalls,
         signal,
+        undefined,
+        this.bashConcurrency,
       );
       for (const r of results) {
         session.appendMessage({
@@ -161,7 +178,14 @@ export class AgentRuntime {
           name: r.name,
           content: r.content,
         });
-        this.onEvent?.({ type: "tool_result", name: r.name, content: r.content, isError: r.isError });
+        this.onEvent?.({
+          type: "tool_result",
+          toolCallId: r.toolCallId,
+          name: r.name,
+          content: r.content,
+          isError: r.isError,
+          diff: r.diff,
+        });
       }
     }
 
