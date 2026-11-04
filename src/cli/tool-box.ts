@@ -181,11 +181,11 @@ export class ToolBox implements Component {
     }
 
     if (this.outputIsDiff) {
-      const added = this.outputLines.filter((line) =>
-        line.startsWith("+"),
+      const added = this.outputLines.filter(
+        (line) => line.startsWith("+") && !line.startsWith("+++"),
       ).length;
-      const removed = this.outputLines.filter((line) =>
-        line.startsWith("-"),
+      const removed = this.outputLines.filter(
+        (line) => line.startsWith("-") && !line.startsWith("---"),
       ).length;
       if (!this.expanded) {
         return [dim(`+${added} -${removed} · ctrl+o to expand`)];

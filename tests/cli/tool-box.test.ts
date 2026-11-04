@@ -53,7 +53,7 @@ test("diff results summarise or expand with coloured lines", () => {
   box.setResult("", {
     diff: ["--- a/a.ts", "+++ b/a.ts", "+added", "-removed"],
   });
-  assert.match(box.render(60).join("\n"), /\+2 -2 · ctrl\+o to expand/);
+  assert.match(box.render(60).join("\n"), /\+1 -1 · ctrl\+o to expand/);
 
   box.setExpanded(true);
   const rendered = box.render(60).join("\n");
