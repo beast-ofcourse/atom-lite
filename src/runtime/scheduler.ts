@@ -20,6 +20,10 @@ function isBash(call: ToolCall): boolean {
   return call.name === "bash";
 }
 
+function isRemote(call: ToolCall): boolean {
+  return call.name.startsWith("mcp__");
+}
+
 export async function executeToolBatch(
   calls: ToolCall[],
   toolMap: Map<string, Tool>,
@@ -41,6 +45,10 @@ export async function executeToolBatch(
     }
     if (call.name === "webfetch" || call.name === "websearch") {
       // No file lock; network-only. Return a no-op release.
+      return () => {};
+    }
+    if (isRemote(call)) {
+      // MCP tools own their side effects; Atom-lite cannot infer file paths.
       return () => {};
     }
     const key = resourceKey(call, ctx.workspace);

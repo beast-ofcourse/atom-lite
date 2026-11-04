@@ -85,6 +85,12 @@ export class AgentRuntime {
     this.effort = effort;
   }
 
+  /** Replace the toolset, e.g. after MCP discovery or a list_changed refresh. */
+  setTools(tools: AgentRuntimeOptions["tools"]): void {
+    this.tools = tools;
+    this.toolMap = new Map(tools.map((t) => [t.definition.name, t]));
+  }
+
   getEffort(): string {
     return this.effort;
   }

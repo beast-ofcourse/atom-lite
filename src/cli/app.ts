@@ -1472,6 +1472,13 @@ export async function run(args: string[]): Promise<void> {
         })
     : undefined;
 
+  process.on("SIGTERM", () => {
+    void mcpManager.close().finally(() => {
+      tui.stop();
+      process.exit(0);
+    });
+  });
+
   tui.start();
   if (mouseEnabled) {
     mouseCapture.enable();

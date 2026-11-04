@@ -109,6 +109,26 @@ live provider metadata, then a built-in table of known model families.
 environment variable force the `ansi` theme. The transcript, status line,
 banner, and pickers read semantic tokens rather than hardcoded escapes.
 
+## `mcpServers`
+
+User-owned only. Project config entries are ignored with a warning. Each entry
+declares a stdio MCP server.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `command` | string | required | Executable to launch. |
+| `args` | string[] | `[]` | Arguments passed to the command. |
+| `env` | object | `{}` | Environment variables added to the minimal inherited set. |
+| `cwd` | string | process cwd | Working directory for the server. |
+| `enabled` | boolean | `true` | Whether the server may be connected. |
+| `requiresApproval` | boolean | `false` | Route every tool call through approval. |
+| `startupTimeoutMs` | number | `10000` | Handshake timeout. |
+| `callTimeoutMs` | number | `60000` | Per-call timeout. |
+
+Server processes inherit a minimal environment (`PATH`, `HOME`, `USER`, `LANG`,
+`LC_*`, `TMPDIR`, and platform equivalents) plus declared `env`. Provider API
+keys are not inherited unless declared. Tools appear as `mcp__<server>__<tool>`.
+
 ## Environment variables
 
 | Variable | Effect |

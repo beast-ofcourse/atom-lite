@@ -28,4 +28,5 @@ export const DEFAULT_CONFIG = {
     vimMode: false,
     showThinking: true,
   },
+  mcpServers: {} as Record<string, unknown>,
 };

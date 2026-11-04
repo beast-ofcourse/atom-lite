@@ -20,7 +20,8 @@ export type Message =
 
 export interface ToolCall {
   id: string;
-  name: "read" | "write" | "edit" | "bash" | "webfetch" | "websearch" | "grep" | "glob";
+  /** Built-in tool names are validated by each tool; MCP names are dynamic. */
+  name: string;
   arguments: Record<string, unknown>;
 }
 

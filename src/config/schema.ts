@@ -54,6 +54,23 @@ export const UiConfigSchema = z
   })
   .strict();
 
+export const McpServerConfigSchema = z
+  .object({
+    command: z.string().min(1),
+    args: z.array(z.string()).default([]),
+    env: z.record(z.string(), z.string()).default({}),
+    cwd: z.string().optional(),
+    enabled: z.boolean().default(true),
+    requiresApproval: z.boolean().default(false),
+    startupTimeoutMs: z.number().int().positive().default(10_000),
+    callTimeoutMs: z.number().int().positive().default(60_000),
+  })
+  .strict();
+
+export const McpServersConfigSchema = z
+  .record(z.string(), McpServerConfigSchema)
+  .default({});
+
 export const ConfigSchema = z
   .object({
     defaultProvider: z.string().default("openai-compatible"),
@@ -62,7 +79,9 @@ export const ConfigSchema = z
     context: ContextConfigSchema.prefault({}),
     sessions: SessionsConfigSchema.prefault({}),
     ui: UiConfigSchema.prefault({}),
+    mcpServers: McpServersConfigSchema,
   })
   .strict();
 
 export type Config = z.infer<typeof ConfigSchema>;
+export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;

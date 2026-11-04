@@ -8,6 +8,16 @@ export interface LoadConfigOptions {
   userConfigPath?: string;
   projectRoot?: string;
   overrides?: Partial<Config>;
+  /** Receives non-fatal configuration warnings (for example dropped keys). */
+  onWarning?: (message: string) => void;
+}
+
+function defaultWarning(message: string): void {
+  try {
+    process.stderr.write(`atom-lite: ${message}\n`);
+  } catch {
+    // Diagnostics must never break startup.
+  }
 }
 
 function readJsonFile(path: string): unknown | undefined {
@@ -59,6 +69,17 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     unknown
   >;
 
+  const warn = options.onWarning ?? defaultWarning;
+  if (
+    projectRaw.mcpServers &&
+    typeof projectRaw.mcpServers === "object" &&
+    Object.keys(projectRaw.mcpServers as object).length > 0
+  ) {
+    warn(
+      "ignoring mcpServers from project config; MCP servers are user-config only",
+    );
+  }
+
   // Precedence (low -> high): defaults, user, project (allowed non-secret),
   // env, overrides. Security-critical user settings (approvalMode) are not
   // overridden by project config.
@@ -95,6 +116,11 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     ui: {
       ...DEFAULT_CONFIG.ui,
       ...((userRaw.ui as object) ?? {}),
+    },
+    // MCP servers are user-owned: opening a repository must never launch a
+    // process. Project entries are dropped above with a warning.
+    mcpServers: {
+      ...((userRaw.mcpServers as object) ?? {}),
     },
   };
 
