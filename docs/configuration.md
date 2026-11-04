@@ -129,7 +129,16 @@ Server processes inherit a minimal environment (`PATH`, `HOME`, `USER`, `LANG`,
 `LC_*`, `TMPDIR`, and platform equivalents) plus declared `env`. Provider API
 keys are not inherited unless declared. Tools appear as `mcp__<server>__<tool>`.
 
-## Environment variables
+## `extensions`
+
+User-owned trust settings for extensions.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `trustedProjects` | string[] | `[]` | Absolute project paths whose local extensions may load. |
+
+Project-local extensions are discovered but disabled until their project is
+listed here. User, global, and CLI extensions load without this setting.
 
 | Variable | Effect |
 | --- | --- |

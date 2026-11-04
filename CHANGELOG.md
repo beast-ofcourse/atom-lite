@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+## [0.4.0] - 2026-11-04
+
+### Added
+
+- Extension discovery and manifest parsing (`src/extensions/discovery.ts`).
+- Project trust gating and extension loader lifecycle with `/extensions`.
+- `/export` for sessions.
+- Markdown rendering for assistant responses and unified diff summaries in tool boxes.
+- Literal edit replacement handling.
+- Escape to cancel an active turn.
+- TUI mouse capture fixes.
+
+### Fixed
+
+- Mouse capture sequence and startup ordering for TUI mouse support.
+
+[0.4.0]: https://github.com/beast-ofcourse/atom-lite/releases/tag/v0.4.0
+
 ## [0.3.1] - 2026-11-04
 
 ### Added

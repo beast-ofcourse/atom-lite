@@ -219,6 +219,31 @@ The selected provider/model is persisted to the user config, so the next session
 - **No secrets in config** — interactive provider setup stores API keys in `~/.config/atom-lite/credentials.json` with `0600` permissions; environment variables still take precedence.
 - **Local-first** — no cloud account, telemetry, or remote control plane required (see [ADR 0004](./docs/adr/0004-local-first-no-cloud-dependency.md)).
 
+## Commands
+
+Type `/help` for the grouped list, or press `ctrl+p` for the fuzzy command
+palette. Common commands:
+
+| Command | Description |
+| --- | --- |
+| `/model [model]` | Show or switch the active model |
+| `/provider [profile]` | Show or switch the active provider |
+| `/effort [low\|medium\|high]` | Set reasoning effort |
+| `/session [rename <title>]` | Show or rename the current session |
+| `/sessions [all]` | Search and resume a session |
+| `/search <query>` | Search sessions by title or content |
+| `/export [path]` | Export the session transcript |
+| `/mcp [reconnect [server]]` | Inspect or reconnect MCP servers |
+| `/extensions` | List loaded extensions |
+| `/compact` | Compact older context |
+| `/clear` | Clear the transcript view |
+| `/approval` | Change approval mode |
+| `/doctor` | Run diagnostics |
+| `/thinking` | Toggle thinking display |
+| `/theme [auto\|dark\|light\|ansi]` | Switch theme |
+| `/skills`, `/skill <name>` | List or load a skill |
+| `/exit` | Exit the TUI |
+
 ## Sessions
 
 Sessions are append-only JSONL event logs recording everything that happened in one conversation. They are resumable across CLI restarts and grouped by workspace. Stored under the session store (see `src/sessions/`). Compaction summarizes older history to stay within the context budget while retaining the full transcript.
