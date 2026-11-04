@@ -1,0 +1,74 @@
+name: Bug report
+description: Report a reproducible defect in Atom-lite
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please do not include API keys, tokens, or other secrets.
+        Security vulnerabilities belong in the private advisory flow described in SECURITY.md.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include the smallest command or session sequence that shows the problem.
+      placeholder: |
+        1. Run `atom-lite ...`
+        2. Send `...`
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: Redact secrets. Paste errors, stack traces, or `--debug` output.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Atom-lite version
+      description: Output of `atom-lite --version`.
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version
+      description: Output of `node -v`.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and terminal
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: Provider and model
+      description: Which provider profile and model were selected?
+  - type: dropdown
+    id: approval-mode
+    attributes:
+      label: Approval mode
+      options:
+        - ask
+        - trusted
+        - deny
+        - not sure

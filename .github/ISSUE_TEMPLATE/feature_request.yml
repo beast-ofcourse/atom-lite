@@ -1,0 +1,50 @@
+name: Feature request
+description: Propose a capability or improvement
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Atom-lite favors a small core. Explain why the capability cannot be composed
+        from the existing tools, especially `bash`.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what blocks you today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior or interface you want.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Existing tools, provider settings, or external utilities you tried.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - CLI / TUI
+        - Agent loop
+        - Providers
+        - Tools
+        - Sessions
+        - Context management
+        - Configuration
+        - Documentation
+        - Packaging / release
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: I have read ADR 0001 and explained why this cannot be done through `bash`.
+          required: true

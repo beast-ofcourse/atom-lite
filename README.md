@@ -6,9 +6,9 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-**Atom-lite** is a local-first, model-agnostic coding agent with an intentionally small harness: one agent loop, exactly four built-in tools (`read`, `write`, `edit`, `bash`), a deterministic conflict-aware scheduler, durable JSONL sessions, and explicit safety boundaries. It runs against local or hosted model providers through interchangeable adapters — no cloud account, telemetry service, or hosted control plane required.
+**Atom-lite** is a local-first, model-agnostic coding agent with an intentionally small harness: one agent loop, four core built-in tools (`read`, `write`, `edit`, `bash`) plus network tools (`webfetch`, `websearch`), a deterministic conflict-aware scheduler, durable JSONL sessions, and explicit safety boundaries. It runs against local or hosted model providers through interchangeable adapters — no cloud account, telemetry service, or hosted control plane required.
 
-> Working title: *ThinAgent*. See [`project-overview.md`](./project-overview.md) for the full architecture blueprint, [`GLOSSARY.md`](./GLOSSARY.md) for domain vocabulary, and [`docs/adr/`](./docs/adr/) for architectural decisions.
+> See [`project-overview.md`](./project-overview.md) for the full architecture blueprint, [`GLOSSARY.md`](./GLOSSARY.md) for domain vocabulary, and [`docs/adr/`](./docs/adr/) for architectural decisions.
 
 ---
 
@@ -35,13 +35,13 @@
 
 Most coding agents accumulate tools, sub-agents, planning frameworks, retrieval pipelines, and orchestration layers until the harness itself becomes the product. Atom-lite takes the opposite stance:
 
-- **Small core, strong primitives.** The core contains only a provider interface, a session model, a single agent loop, four tools, a scheduler/executor, context-window management, configuration, and a CLI.
+- **Small core, strong primitives.** The core contains only a provider interface, a session model, a single agent loop, four core tools plus two network tools, a scheduler/executor, context-window management, configuration, and a CLI.
 - **The model decides; the runtime enforces.** The model chooses which tool to call and what to do next. The runtime validates arguments, enforces workspace boundaries, applies approval rules, schedules calls safely, and returns accurate results. There is no hard-coded "plan → inspect → edit → test" workflow.
 - **Thin harness, not weak engineering.** Provider-specific formats, streaming failures, concurrent file access, shell timeouts, large outputs, context exhaustion, and session recovery are all handled — they are the reliability layer that makes a small harness useful.
 
 ## Features
 
-- **Four general-purpose tools** — `read`, `write`, `edit`, `bash`. Everything else (search, tests, git, builds) goes through `bash`.
+- **Six built-in tools** — four core tools (`read`, `write`, `edit`, `bash`) plus `webfetch` and `websearch`. Everything else (search, tests, git, builds) goes through `bash`.
 - **Single agent loop** — one agent, one conversation, one tool registry, one control loop. Parallelism lives inside a tool-call batch.
 - **Conflict-aware scheduler** — per-file read/write locks and a global bash barrier. Parallelism is governed by resource conflicts, not applied blindly.
 - **Durable sessions** — append-only JSONL event logs, resumable across CLI restarts, grouped by workspace.
@@ -232,7 +232,10 @@ Tests live in `tests/` (agent, config, runtime, tools). The project is TypeScrip
 1. Update `version` in `package.json` and add a `CHANGELOG.md` entry.
 2. Run `npm run typecheck && npm test && npm run bench`.
 3. Commit, then tag and push: `git tag vX.Y.Z && git push origin master --tags`.
-4. The `Release` GitHub workflow publishes to npm with provenance and creates the GitHub release. It requires an `NPM_TOKEN` repository secret with publish access.
+4. The `Release` workflow stages the package on npm with provenance and opens a draft GitHub release. It requires an `NPM_TOKEN` repository secret with publish access.
+5. Approve the staged version on npm (Staged Packages tab, or `npm stage approve <stage-id>` with 2FA), then publish the draft release on GitHub.
+
+npm requires a maintainer with 2FA to approve staged releases; CI cannot complete that step.
 
 ## Architecture
 
@@ -246,7 +249,7 @@ src/
   runtime/      # scheduler, approvals
   security/     # paths, process, redaction
   sessions/     # store, events, recovery
-  tools/        # read, write, edit, bash, registry
+  tools/        # read, write, edit, bash, webfetch, websearch, registry
 ```
 
 Key design decisions are recorded as ADRs in [`docs/adr/`](./docs/adr/):
@@ -255,11 +258,15 @@ Key design decisions are recorded as ADRs in [`docs/adr/`](./docs/adr/):
 - [0002 — Single agent loop, no sub-agents in v1](./docs/adr/0002-single-agent-loop.md)
 - [0003 — `bash` is a global exclusive barrier](./docs/adr/0003-bash-as-global-exclusive-barrier.md)
 - [0004 — Local-first, no cloud dependency](./docs/adr/0004-local-first-no-cloud-dependency.md)
-- [0005 — OpenTUI for the terminal UI](./docs/adr/0005-opentui-for-terminal-ui.md)
+- [0005 — OpenTUI for the terminal UI](./docs/adr/0005-opentui-for-terminal-ui.md) (superseded by 0007)
+- [0006 — Expanded built-in toolset (webfetch, websearch)](./docs/adr/0006-expanded-toolset.md)
+- [0007 — pi-tui replaces OpenTUI](./docs/adr/0007-pi-tui-replaces-opentui.md)
 
 ## Contributing
 
-Issues and specs live as markdown under `.scratch/` (see [`docs/agents/issue-tracker.md`](./docs/agents/issue-tracker.md)). Domain vocabulary is in [`GLOSSARY.md`](./GLOSSARY.md). Please keep changes consistent with the "small core" principle: new tools require strong justification against ADR 0001.
+Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) before opening a pull request. Issues and specs live as markdown under `.scratch/` (see [`docs/agents/issue-tracker.md`](./docs/agents/issue-tracker.md)); domain vocabulary is in [`GLOSSARY.md`](./GLOSSARY.md). Please keep changes consistent with the "small core" principle: new tools require strong justification against ADR 0001.
+
+Report vulnerabilities privately as described in [`SECURITY.md`](./SECURITY.md).
 
 ## License
 

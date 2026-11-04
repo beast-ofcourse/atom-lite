@@ -9,19 +9,27 @@ permissions:
   contents: write
   id-token: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22.x
           cache: npm
           registry-url: https://registry.npmjs.org
+
+      - name: Upgrade npm for staged publishing
+        run: npm install -g npm@^11.15.0
 
       - name: Install dependencies
         run: npm ci
@@ -29,12 +37,27 @@ jobs:
       - name: Verify
         run: npm run typecheck && npm test
 
-      - name: Publish to npm
-        run: npm publish --provenance --access public
+      - name: Stage npm release
+        run: npm stage publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Create GitHub release
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes --title "$GITHUB_REF_NAME"
+      - name: Create draft GitHub release
+        run: gh release create "$GITHUB_REF_NAME" --draft --generate-notes --title "$GITHUB_REF_NAME"
         env:
           GH_TOKEN: ${{ github.token }}
+
+      - name: Summarize approval steps
+        run: |
+          {
+            echo "### npm release staged"
+            echo
+            echo "The package was staged with provenance. A maintainer must approve it with 2FA:"
+            echo
+            echo '```sh'
+            echo "npm stage list atom-lite"
+            echo "npm stage approve <stage-id>"
+            echo '```'
+            echo
+            echo "Then publish the draft GitHub release for \`$GITHUB_REF_NAME\`."
+          } >> "$GITHUB_STEP_SUMMARY"
