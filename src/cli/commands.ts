@@ -34,10 +34,14 @@ export interface CommandContext {
   clearContent(): void;
   updateStatus(): void;
   runDoctor(): Promise<string>;
+  runMcp(args: string): Promise<void> | void;
   openModelPicker(): void;
   openProviderPicker(): void;
   openEffortPicker(): void;
   openThemePicker(): void;
+  openSessionsPicker(scope: "workspace" | "all"): void;
+  searchSessions(query: string): void;
+  renameSession(title: string): void;
   switchModel(target: string): void;
   startProviderSetup(profile: string): void;
   setEffort(level: "low" | "medium" | "high"): void;
@@ -231,13 +235,48 @@ export function createCommandRegistry(
 
   registry.register({
     name: "session",
-    description: "session info",
+    description: "session info or rename",
     category: "Session",
-    run(ctx) {
+    argumentHint: "[rename <title>]",
+    run(ctx, args) {
+      if (args === "rename" || args.startsWith("rename ")) {
+        const title = args.slice("rename".length).trim();
+        if (!title) {
+          ctx.appendLine("usage: /session rename <title>");
+          return;
+        }
+        ctx.renameSession(title);
+        return;
+      }
       const session = ctx.session;
       ctx.appendLine(
         `session: ${session.id}\nworkspace: ${session.workspace}\nprovider: ${session.provider}\nmessages: ${session.messages.length}`,
       );
+    },
+  });
+
+  registry.register({
+    name: "sessions",
+    description: "search or resume a session",
+    category: "Session",
+    argumentHint: "[all]",
+    run(ctx, args) {
+      ctx.openSessionsPicker(args.trim() === "all" ? "all" : "workspace");
+    },
+  });
+
+  registry.register({
+    name: "search",
+    description: "search sessions by title or content",
+    category: "Session",
+    argumentHint: "<query>",
+    run(ctx, args) {
+      const query = args.trim();
+      if (!query) {
+        ctx.appendLine("usage: /search <query>");
+        return;
+      }
+      ctx.searchSessions(query);
     },
   });
 
@@ -279,6 +318,16 @@ export function createCommandRegistry(
     category: "System",
     async run(ctx) {
       ctx.appendLine(await ctx.runDoctor());
+    },
+  });
+
+  registry.register({
+    name: "mcp",
+    description: "list or reconnect MCP servers",
+    category: "System",
+    argumentHint: "[reconnect [server]]",
+    async run(ctx, args) {
+      await ctx.runMcp(args);
     },
   });
 

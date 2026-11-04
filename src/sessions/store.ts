@@ -14,6 +14,11 @@ import type { Message } from "../types.js";
 import type { SessionEvent, SessionSummary } from "./events.js";
 import { isMessage, messageToEvent, eventToMessage, nowIso } from "./events.js";
 import { parseJsonlEvents } from "./recovery.js";
+import {
+  sessionMessageCount,
+  sessionSearchText,
+  sessionTitleFromEvents,
+} from "./search.js";
 
 export interface Session {
   readonly id: string;
@@ -395,6 +400,9 @@ export class JsonlSessionStore {
           events[events.length - 1]?.timestamp ?? stat.mtime.toISOString(),
         eventCount: events.length,
         filePath,
+        title: sessionTitleFromEvents(events),
+        messageCount: sessionMessageCount(events),
+        searchText: sessionSearchText(events),
       });
     }
     // Sort by updatedAt desc.
@@ -438,4 +446,4 @@ export const DurableSession = JsonlSession;
 export const FileSession = JsonlSession;
 export const PersistentSession = JsonlSession;
 
-// Back-compat: a "store" default export not needed.<|end|><|start|>write to=assistant<|channel|>analysis<|message|>Wait, `export const JsonlSessionStore = JsonlSessionStore;` self-reference in same scope? That's invalid (const redefinition). Need remove self alias. Let's fix: only alias other names. Remove self line.<|end|><|start|>artist to=edit<|channel|>analysis <|constrain|>xml<|message|><rfl:parameter name="path">
+// Back-compat: a "store" default export not needed.

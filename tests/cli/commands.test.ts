@@ -34,10 +34,14 @@ function fakeContext() {
     clearContent: () => calls.push("clear"),
     updateStatus: () => calls.push("status"),
     runDoctor: async () => "ok",
+    runMcp: async () => {},
     openModelPicker: () => calls.push("model-picker"),
     openProviderPicker: () => calls.push("provider-picker"),
     openEffortPicker: () => calls.push("effort-picker"),
     openThemePicker: () => calls.push("theme-picker"),
+    openSessionsPicker: (scope) => calls.push(`sessions:${scope}`),
+    searchSessions: (query) => calls.push(`search:${query}`),
+    renameSession: (title) => calls.push(`rename:${title}`),
     switchModel: (target) => calls.push(`model:${target}`),
     startProviderSetup: (profile) => calls.push(`provider:${profile}`),
     setEffort: (level) => calls.push(`effort:${level}`),
@@ -73,6 +77,8 @@ test("registry lists every built-in command plus skills", () => {
     "provider",
     "effort",
     "session",
+    "sessions",
+    "search",
     "compact",
     "clear",
     "approval",
@@ -171,4 +177,38 @@ test("exit aliases request shutdown", async () => {
   const result = await registry.dispatch("/quit", ctx);
   assert.equal(result.exit, true);
   assert.deepEqual(calls, ["exit"]);
+});
+
+test("session commands open pickers, search, and rename", async () => {
+  const registry = createCommandRegistry();
+  const { ctx, calls, lines } = fakeContext();
+
+  await registry.dispatch("/sessions", ctx);
+  await registry.dispatch("/sessions all", ctx);
+  await registry.dispatch("/search login bug", ctx);
+  await registry.dispatch("/session rename Release checklist", ctx);
+  await registry.dispatch("/session", ctx);
+
+  assert.deepEqual(calls, [
+    "sessions:workspace",
+    "sessions:all",
+    "search:login bug",
+    "rename:Release checklist",
+  ]);
+  assert.match(lines.at(-1) ?? "", /session: s1/);
+  assert.match(lines.at(-1) ?? "", /messages: 0/);
+});
+
+test("empty session searches and renames explain their usage", async () => {
+  const registry = createCommandRegistry();
+  const { ctx, calls, lines } = fakeContext();
+
+  await registry.dispatch("/search", ctx);
+  await registry.dispatch("/session rename", ctx);
+
+  assert.deepEqual(calls, []);
+  assert.deepEqual(lines, [
+    "usage: /search <query>",
+    "usage: /session rename <title>",
+  ]);
 });

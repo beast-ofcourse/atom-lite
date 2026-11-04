@@ -37,16 +37,20 @@ function harness() {
     requestRender() {},
   };
   const added: any[] = [];
+  const removed: any[] = [];
   const container = {
     addChild(child: unknown) {
       added.push(child);
     },
-    removeChild() {},
+    removeChild(child: unknown) {
+      removed.push(child);
+    },
   };
   return {
     tui,
     container,
     added,
+    removed,
     send(data: string) {
       for (const fn of [...listeners]) fn(data);
     },
@@ -93,6 +97,27 @@ test("picker still supports legacy arrow sequences", () => {
   h.send("\x1b[B");
   h.send("\r");
   assert.equal(picked?.label, "gemini-2.5-flash");
+});
+
+test("picker can keep the overlay open after a selection", () => {
+  const h = harness();
+  const picked: PickerItem[] = [];
+  const picker = openSearchablePicker({
+    tui: h.tui,
+    container: h.container,
+    title: "sessions",
+    items: ITEMS,
+    closeOnSelect: false,
+    onSelect: (item) => picked.push(item),
+    onCancel: () => assert.fail("unexpected cancel"),
+  });
+
+  h.send("\r");
+  assert.equal(picked.length, 1);
+  assert.equal(h.removed.length, 0);
+
+  picker.close();
+  assert.equal(h.removed.length, 1);
 });
 
 test("picker closes on Kitty and legacy Escape", () => {

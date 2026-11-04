@@ -98,6 +98,15 @@ export class ToolBox implements Component {
     this.expanded = expanded;
   }
 
+  toggleExpanded(): boolean {
+    this.expanded = !this.expanded;
+    return this.expanded;
+  }
+
+  get isExpanded(): boolean {
+    return this.expanded;
+  }
+
   setResult(content: string, options: ToolResultOptions = {}): void {
     this.status = options.isError ? "error" : "done";
     this.finishedAt = Date.now();

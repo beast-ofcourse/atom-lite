@@ -148,8 +148,8 @@ See [`docs/configuration.md`](./docs/configuration.md) for every field, default,
 
 ```
 atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
-          [--no-tools] [--json] [--debug] [--theme NAME] [--no-color]
-          [--version] [--help]
+          [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json]
+          [--debug] [--theme NAME] [--no-color] [--version] [--help]
 ```
 
 | Flag | Description |
@@ -159,6 +159,8 @@ atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
 | `--model MODEL` | Override the model for this run |
 | `--continue` | Resume the most recent session in this workspace |
 | `--session ID` | Resume a specific session |
+| `--list-sessions` | Print the session index and exit |
+| `--search-sessions QUERY` | Print matching sessions with snippets and exit |
 | `--no-tools` | Disable all tools (model-only chat) |
 | `--json` | Non-interactive JSON output |
 | `--debug` | Debug logging |
@@ -170,6 +172,10 @@ atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
 In the TUI, type `/help` to see every command grouped by category, or press
 `ctrl+p` for the fuzzy command palette. `/theme` opens a live-preview picker and
 persists your choice to user config; `NO_COLOR` and `--no-color` always win.
+`/sessions` opens a searchable session picker scoped to the current workspace,
+with a toggle for all workspaces, and `/search <query>` prints matching sessions
+with content snippets. Mouse wheel scrolling and click-to-focus are enabled for
+interactive terminals and can be disabled with `ui.mouse: false`.
 
 ## Tools
 
@@ -216,6 +222,8 @@ The selected provider/model is persisted to the user config, so the next session
 ## Sessions
 
 Sessions are append-only JSONL event logs recording everything that happened in one conversation. They are resumable across CLI restarts and grouped by workspace. Stored under the session store (see `src/sessions/`). Compaction summarizes older history to stay within the context budget while retaining the full transcript.
+
+The session index derives a title from the first user message unless `/session rename <title>` overrides it, and records the provider, update time, and message count. `/sessions` resumes a session in place: retained messages are replayed into the transcript and a `session_resumed` event is appended. `/search <query>` matches titles, message content, and workspace paths, ranking title hits first. `--list-sessions` and `--search-sessions` print the same index as stable tab-separated rows for scripts.
 
 ## Context management
 

@@ -28,6 +28,8 @@ export interface SearchablePickerOptions {
   initialValue?: string;
   onSelect: (item: PickerItem) => void;
   onCancel: () => void;
+  /** Close before onSelect (default true). Set false for toggle items. */
+  closeOnSelect?: boolean;
   /** Called as the highlighted item changes, for live previews. */
   onPreview?: (item: PickerItem) => void;
   restoreFocus?: () => void;
@@ -72,6 +74,7 @@ export function openSearchablePicker(
     onPreview,
     restoreFocus,
   } = options;
+  const closeOnSelect = options.closeOnSelect ?? true;
   const theme = options.theme ?? darkTheme;
   const selectListTheme = {
     selectedPrefix: (s: string) => theme.tokens.accent(s),
@@ -131,7 +134,7 @@ export function openSearchablePicker(
     if (idx > 0) list.setSelectedIndex(idx);
     list.onSelect = (item: any) => {
       selectedValue = item.value;
-      close();
+      if (closeOnSelect) close();
       onSelect(item);
     };
     list.onCancel = () => {
@@ -161,7 +164,7 @@ export function openSearchablePicker(
       const item = list?.getSelectedItem?.();
       if (item) {
         selectedValue = item.value;
-        close();
+        if (closeOnSelect) close();
         onSelect(item);
       }
       return { consume: true };

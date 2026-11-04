@@ -62,6 +62,14 @@ test("diff results summarise or expand with coloured lines", () => {
   assert.match(rendered, /\+added/);
 });
 
+test("toggleExpanded flips the expanded state", () => {
+  const box = new ToolBox({ id: "1", name: "read", args: { path: "a.ts" } });
+  assert.equal(box.isExpanded, false);
+  assert.equal(box.toggleExpanded(), true);
+  assert.equal(box.isExpanded, true);
+  assert.equal(box.toggleExpanded(), false);
+});
+
 test("formatToolArgs picks the useful argument for common tools", () => {
   assert.equal(formatToolArgs("bash", { command: "ls\n-la" }), "$ ls -la");
   assert.equal(formatToolArgs("read", { path: "src/a.ts" }), "path: src/a.ts");

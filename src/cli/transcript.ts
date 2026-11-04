@@ -27,6 +27,13 @@ export class Transcript {
     }
   }
 
+  /** Clear all history and pruning state, e.g. when resuming a session. */
+  reset(): void {
+    this.container.clear();
+    this.hidden = 0;
+    this.marker = null;
+  }
+
   get hiddenCount(): number {
     return this.hidden;
   }

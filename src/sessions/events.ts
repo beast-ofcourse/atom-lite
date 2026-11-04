@@ -16,6 +16,22 @@ export interface SessionSummary {
   updatedAt?: string;
   eventCount?: number;
   filePath?: string;
+  /** Derived title: first user message or the latest session_renamed title. */
+  title?: string;
+  /** Number of retained user, assistant, and tool messages. */
+  messageCount?: number;
+  /** Combined title/content/workspace haystack used by session search. */
+  searchText?: string;
+  /** Matching excerpt, populated by searchSessions. */
+  snippet?: string;
+}
+
+export function contentPartsText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part: any) => (part?.type === "text" ? String(part.text ?? "") : ""))
+    .join("");
 }
 
 export function nowIso(): string {
@@ -29,10 +45,7 @@ export function messageToEvent(
 ): SessionEvent {
   const timestamp = nowIso();
   if (message.role === "user") {
-    const text =
-      message.content
-        ?.map((p: any) => (p?.type === "text" ? p.text : ""))
-        .join("") ?? "";
+    const text = contentPartsText(message.content);
     return {
       type: "user_message",
       timestamp,
@@ -43,10 +56,7 @@ export function messageToEvent(
     };
   }
   if (message.role === "assistant") {
-    const text =
-      message.content
-        ?.map((p: any) => (p?.type === "text" ? p.text : ""))
-        .join("") ?? "";
+    const text = contentPartsText(message.content ?? []);
     return {
       type: "assistant_message",
       timestamp,

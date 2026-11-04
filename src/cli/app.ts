@@ -30,7 +30,26 @@ import { StreamText } from "./stream-text.js";
 import { Transcript } from "./transcript.js";
 import { AgentRuntime } from "../agent/loop.js";
 import { JsonlSessionStore } from "../sessions/store.js";
+import {
+  formatSessionList,
+  formatSessionSearch,
+  searchSessions,
+  sessionTitleFromEvents,
+} from "../sessions/search.js";
+import {
+  providerSwitchNotice,
+  sessionHistoryLines,
+  sessionSelectionFromEvents,
+} from "../sessions/history.js";
+import {
+  blockAtLine,
+  createMouseCapture,
+  handleMouseEvent,
+  parseSgrMouse,
+  shouldEnableMouse,
+} from "./mouse.js";
 import { readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool } from "../tools/index.js";
+import { McpManager, formatMcpStatus, formatMcpDoctor, createMcpTools } from "../mcp/index.js";
 import { createProvider } from "../providers/factory.js";
 import {
   availableProviderNames,
@@ -65,6 +84,8 @@ export async function run(args: string[]): Promise<void> {
   let sessionOverride: string | undefined;
   let themeOverride: string | undefined;
   let noColor = false;
+  let listSessions = false;
+  let searchSessionsQuery: string | undefined;
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -75,12 +96,14 @@ export async function run(args: string[]): Promise<void> {
     else if (a === "--version") showVersion = true;
     else if (a === "--continue") positional.push("__continue__");
     else if (a === "--session") sessionOverride = args[++i];
+    else if (a === "--list-sessions") listSessions = true;
+    else if (a === "--search-sessions") searchSessionsQuery = args[++i] ?? "";
     else if (a === "--theme") themeOverride = args[++i];
     else if (a === "--no-color") noColor = true;
     else if (a === "--no-tools") positional.push("__notools__");
     else if (a === "--help") {
       process.stdout.write(
-        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--no-tools] [--json] [--debug] [--theme NAME] [--no-color] [--version] [--help]\n",
+        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json] [--debug] [--theme NAME] [--no-color] [--version] [--help]\n",
       );
       return;
     } else if (a.startsWith("--")) {
@@ -92,6 +115,24 @@ export async function run(args: string[]): Promise<void> {
 
   if (showVersion) {
     process.stdout.write("0.1.0\n");
+    return;
+  }
+
+  if (listSessions || searchSessionsQuery !== undefined) {
+    const store = new JsonlSessionStore();
+    if (listSessions) {
+      process.stdout.write(`${formatSessionList(store.list())}\n`);
+    }
+    if (searchSessionsQuery !== undefined) {
+      const query = searchSessionsQuery.trim();
+      if (!query) {
+        process.stderr.write("atom-lite: --search-sessions requires a query\n");
+        process.exitCode = 1;
+        return;
+      }
+      const matches = searchSessions(store.list(), query);
+      process.stdout.write(`${formatSessionSearch(matches)}\n`);
+    }
     return;
   }
 
@@ -108,7 +149,9 @@ export async function run(args: string[]): Promise<void> {
   const modelByProvider = new Map<string, string>();
   if (modelOverride) modelByProvider.set(provider.id, modelOverride);
   const useTools = !positional.includes("__notools__");
-  const tools = useTools ? [readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool] : [];
+  const builtInTools = useTools
+    ? [readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool]
+    : [];
 
   const interactive = process.stdin.isTTY === true && !jsonMode;
 
@@ -129,6 +172,18 @@ export async function run(args: string[]): Promise<void> {
       : positional.includes("__continue__")
         ? store.resumeLatest(process.cwd()) ?? store.create(process.cwd(), provider.id)
         : store.create(process.cwd(), provider.id);
+
+  const mcpServers = (config.mcpServers ?? {}) as Record<string, any>;
+  const mcpManager = new McpManager({
+    servers: mcpServers as any,
+    onEvent: (event) => {
+      try {
+        (session as any)?.appendEvent?.(event);
+      } catch {
+        // Observability must not break the session.
+      }
+    },
+  });
 
   const contextManager = new ContextManager({
     systemPrompt: "You are a coding assistant.",
@@ -158,11 +213,15 @@ export async function run(args: string[]): Promise<void> {
     provider,
     model: modelOverride,
     workspace: process.cwd(),
-    tools,
+    tools: builtInTools,
     approvals,
     contextManager,
     bashConcurrency: config.runtime.bashConcurrency,
   });
+
+  mcpManager.onToolsChanged = () => {
+    runtime.setTools([...builtInTools, ...createMcpTools(mcpManager)]);
+  };
 
   if (oneShot || !interactive) {
     // non-interactive / one-shot path
@@ -170,6 +229,10 @@ export async function run(args: string[]): Promise<void> {
     const onSigint = () => controller.abort();
     process.on("SIGINT", onSigint);
     try {
+      if (useTools) {
+        await mcpManager.syncTools();
+        runtime.setTools([...builtInTools, ...createMcpTools(mcpManager)]);
+      }
       const result = await runtime.runAgentTurn(oneShot || " ", session, controller.signal);
       if (jsonMode) {
         process.stdout.write(JSON.stringify({ result, sessionId: session.id }) + "\n");
@@ -181,6 +244,7 @@ export async function run(args: string[]): Promise<void> {
       else process.stderr.write(`atom-lite: ${err instanceof Error ? err.message : String(err)}\n`);
       process.exit(1);
     } finally {
+      await mcpManager.close().catch(() => {});
       process.off("SIGINT", onSigint);
     }
     return;
@@ -192,6 +256,12 @@ export async function run(args: string[]): Promise<void> {
 
   const terminal = new ProcessTerminal();
   const tui = new TuiMainScreen(terminal);
+  const mouseEnabled = shouldEnableMouse({
+    interactive,
+    configured: config.ui.mouse,
+    stdoutIsTTY: process.stdout.isTTY === true,
+  });
+  const mouseCapture = createMouseCapture((data) => terminal.write(data));
 
   let effortLevel = "medium";
   runtime.setEffort(effortLevel);
@@ -354,6 +424,10 @@ export async function run(args: string[]): Promise<void> {
     activity.start("formulating");
     const controller = new AbortController();
     try {
+      if (useTools) {
+        await mcpManager.syncTools();
+        runtime.setTools([...builtInTools, ...createMcpTools(mcpManager)]);
+      }
       await runtime.runAgentTurn(prompt, session, controller.signal);
     } catch (err) {
       appendLine(`atom-lite: ${err instanceof Error ? err.message : String(err)}`);
@@ -919,10 +993,14 @@ export async function run(args: string[]): Promise<void> {
     },
     updateStatus,
     runDoctor,
+    runMcp,
     openModelPicker,
     openProviderPicker,
     openEffortPicker,
     openThemePicker,
+    openSessionsPicker,
+    searchSessions: searchSessionsInStore,
+    renameSession,
     switchModel: switchModelTarget,
     startProviderSetup,
     setEffort: setEffortTarget,
@@ -939,10 +1017,24 @@ export async function run(args: string[]): Promise<void> {
     loadSkill,
     runTurn,
     requestExit: () => {
-      tui.stop();
-      process.exit(0);
+      void mcpManager.close().finally(() => {
+        tui.stop();
+        process.exit(0);
+      });
     },
   };
+
+  function restoreTranscript(next: any): void {
+    streamText.finalize();
+    transcript.reset();
+    banner.setTheme(theme);
+    transcript.add(banner);
+    transcript.add(new Spacer(1));
+    for (const line of sessionHistoryLines(next.messages)) {
+      transcript.addLine(line);
+    }
+    tui.requestRender();
+  }
 
   function resumeSession(id: string): void {
     const next = store.resume(id);
@@ -950,12 +1042,97 @@ export async function run(args: string[]): Promise<void> {
       appendLine(`could not resume session: ${id}`);
       return;
     }
+    const previous = session.id;
     session = next;
-    if (typeof (session as any).appendEvent === "function") {
-      session.appendEvent({ type: "session_resumed" });
-    }
+    session.appendEvent({ type: "session_resumed", from: previous });
+    restoreTranscript(next);
+    const title = sessionTitleFromEvents(next.events);
     appendLine(
-      `resumed session ${session.id} (${session.messages.length} messages)`,
+      `resumed session ${session.id}: ${title} (${session.messages.length} messages)`,
+    );
+    const notice = providerSwitchNotice(
+      { provider: provider.id, model: currentModelLabel() },
+      sessionSelectionFromEvents(next.events),
+    );
+    if (notice) appendLine(notice);
+    updateStatus();
+    tui.requestRender();
+  }
+
+  function renameSession(title: string): void {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      appendLine("usage: /session rename <title>");
+      return;
+    }
+    session.appendEvent({ type: "session_renamed", title: trimmed });
+    appendLine(`session renamed: ${trimmed}`);
+    tui.requestRender();
+  }
+
+  function searchSessionsInStore(query: string): void {
+    const matches = searchSessions(store.list(), query);
+    if (matches.length === 0) {
+      appendLine(`no sessions match “${query}”`);
+      return;
+    }
+    appendLine(formatSessionSearch(matches));
+  }
+
+  function openSessionsPicker(initialScope: "workspace" | "all"): void {
+    uiModalOpen = true;
+    let scope = initialScope;
+    const buildItems = (): PickerItem[] => {
+      const summaries =
+        scope === "all" ? store.list() : store.list(process.cwd());
+      const toggle: PickerItem = {
+        value: "__scope__",
+        label:
+          scope === "all"
+            ? "Show this workspace only"
+            : "Show all workspaces",
+        description: `scope: ${scope === "all" ? "all workspaces" : process.cwd()}`,
+      };
+      return [
+        toggle,
+        ...summaries.map((summary) => ({
+          value: `session:${summary.id}`,
+          label: summary.title ?? summary.id,
+          description: `${summary.updatedAt ?? "unknown"} · ${summary.provider} · ${summary.messageCount ?? 0} messages · ${summary.workspace}`,
+        })),
+      ];
+    };
+
+    let picker: ReturnType<typeof openSearchablePicker>;
+    picker = openSearchablePicker({
+      tui,
+      container: dropdownContainer,
+      title: "Resume session",
+      theme,
+      items: buildItems(),
+      closeOnSelect: false,
+      onSelect: (item) => {
+        if (item.value === "__scope__") {
+          scope = scope === "all" ? "workspace" : "all";
+          picker.updateItems(buildItems());
+          picker.setStatus(
+            scope === "all" ? "showing all workspaces" : "showing this workspace",
+          );
+          return;
+        }
+        picker.close();
+        uiModalOpen = false;
+        resumeSession(item.value.slice("session:".length));
+      },
+      onCancel: () => {
+        uiModalOpen = false;
+        appendLine("cancelled");
+      },
+      restoreFocus: () => tui.setFocus(input),
+    });
+    closeActiveOverlay = picker.close;
+    picker.setStatus(
+      scope === "all" ? "showing all workspaces" : "showing this workspace",
     );
   }
 
@@ -1023,10 +1200,10 @@ export async function run(args: string[]): Promise<void> {
     for (const summary of store.list(process.cwd()).slice(0, 8)) {
       items.push({
         id: `session:${summary.id}`,
-        label: summary.id,
-        description: `${summary.updatedAt ?? "unknown"} · ${summary.eventCount ?? 0} events`,
+        label: summary.title ?? summary.id,
+        description: `${summary.updatedAt ?? "unknown"} · ${summary.provider} · ${summary.messageCount ?? 0} messages`,
         category: "Sessions",
-        keywords: [summary.provider],
+        keywords: [summary.provider, summary.workspace],
         action: () => resumeSession(summary.id),
       });
     }
@@ -1078,6 +1255,40 @@ export async function run(args: string[]): Promise<void> {
     }
     tui.requestRender();
   }
+
+  function toggleToolBoxAtScreenRow(screenY: number): boolean {
+    const width = terminal.columns;
+    const outputHeight = Math.max(1, output.viewportHeight || output.render(width).length);
+    if (screenY < 0 || screenY >= outputHeight) return false;
+
+    const children = content.children as any[];
+    const contentBlocks = children.map((child, index) => ({
+      id: `content:${index}`,
+      height: child.render(width).length,
+    }));
+    const total = contentBlocks.reduce((sum, block) => sum + block.height, 0);
+    const viewportTop = Math.max(0, total - outputHeight);
+    const inner = blockAtLine(contentBlocks, viewportTop + screenY);
+    if (!inner) return false;
+    const child = children[Number(inner.id.slice("content:".length))];
+    if (!(child instanceof ToolBox)) return false;
+    child.toggleExpanded();
+    return true;
+  }
+
+  tui.addInputListener((data: string) => {
+    const event = parseSgrMouse(data);
+    if (!event) return undefined;
+    if (!mouseEnabled) return { consume: true };
+    handleMouseEvent(event, {
+      isModalOpen: () => uiModalOpen,
+      scrollBy: (lines) => output.scrollBy(lines),
+      focusInput: () => tui.setFocus(input),
+      toggleToolBox: (screenY) => toggleToolBoxAtScreenRow(screenY),
+      requestRender: () => tui.requestRender(),
+    });
+    return { consume: true };
+  });
 
   tui.addInputListener((data: string) => {
     // Releases and repeats must not toggle modal shortcuts twice.
@@ -1176,7 +1387,35 @@ export async function run(args: string[]): Promise<void> {
       const r = await provider.generate({ model: modelOverride ?? "default", messages: [{ role: "user", content: [{ type: "text", text: "ping" }] }], tools: [] });
       lines.push(`  provider generate: ok (${r.finishReason})`);
     } catch (e) { lines.push(`  provider generate: FAIL ${e instanceof Error ? e.message : String(e)}`); }
+    lines.push(...formatMcpDoctor(mcpManager.status()));
     return lines.join("\n");
+  }
+
+  async function runMcp(args: string): Promise<void> {
+    const trimmed = (args ?? "").trim();
+    if (trimmed === "reconnect" || trimmed.startsWith("reconnect ")) {
+      const server = trimmed.slice("reconnect".length).trim();
+      try {
+        if (server) await mcpManager.reconnect(server);
+        else await mcpManager.reconnect();
+      } catch (e) {
+        appendLine(
+          `mcp reconnect failed: ${e instanceof Error ? e.message : String(e)}`,
+        );
+        return;
+      }
+      if (useTools) {
+        await mcpManager.syncTools();
+        runtime.setTools([...builtInTools, ...createMcpTools(mcpManager)]);
+      }
+      appendLine(formatMcpStatus(mcpManager.status()));
+      return;
+    }
+    if (trimmed) {
+      appendLine("usage: /mcp [reconnect [server]]");
+      return;
+    }
+    appendLine(formatMcpStatus(mcpManager.status()));
   }
 
   input.onSubmit = async (value: string) => {
@@ -1234,6 +1473,20 @@ export async function run(args: string[]): Promise<void> {
     : undefined;
 
   tui.start();
+  if (mouseEnabled) {
+    mouseCapture.enable();
+    process.once("exit", () => mouseCapture.disable());
+    if (process.platform !== "win32") {
+      process.on("SIGTSTP", () => {
+        mouseCapture.disable();
+        process.kill(process.pid, "SIGSTOP");
+      });
+      process.on("SIGCONT", () => {
+        mouseCapture.enable();
+        tui.requestRender();
+      });
+    }
+  }
 
   // Some terminals answer OSC 11 but not the colour-scheme report. Query the
   // background once and derive light/dark from its luminance.

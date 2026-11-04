@@ -100,7 +100,7 @@ live provider metadata, then a built-in table of known model families.
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `theme` | string | `"auto"` | `auto`, `dark`, `light`, or `ansi` (no colour). Persisted by `/theme`. |
-| `mouse` | boolean | `true` | Reserved for TUI mouse capture. |
+| `mouse` | boolean | `true` | Capture mouse events for wheel scrolling and click-to-focus in interactive TTY sessions. |
 | `vimMode` | boolean | `false` | Reserved for the optional modal editor. |
 | `showThinking` | boolean | `true` | Initial thinking display; `/thinking` toggles it for the session. |
 
