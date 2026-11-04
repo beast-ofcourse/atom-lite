@@ -8,26 +8,23 @@ export interface StatusLineParts {
 }
 
 /**
- * Lay out the status line: provider on the left, tokens at roughly one third of
- * the remaining space, and effort hard against the right edge.
+ * Lay out the top status row: provider/model on the left and effort hard
+ * against the right edge. Context tokens get their own row underneath.
  */
 export function formatStatusLine(
   left: string,
-  tokens: string,
   right: string,
   width: number,
 ): string {
   const w = Math.max(1, Math.floor(width));
-  const free = w - visibleWidth(left) - visibleWidth(tokens) - visibleWidth(right);
+  const free = w - visibleWidth(left) - visibleWidth(right);
   if (free < 4) {
-    return truncateToWidth(`${left} ${tokens} ${right}`, w, "…");
+    return truncateToWidth(`${left} ${right}`, w, "…");
   }
-  const leftGap = Math.max(1, Math.floor(free * 0.3));
-  const rightGap = Math.max(1, free - leftGap);
-  return `${left}${" ".repeat(leftGap)}${tokens}${" ".repeat(rightGap)}${right}`;
+  return `${left}${" ".repeat(free)}${right}`;
 }
 
-/** Single-component status bar that always right-aligns the effort label. */
+/** Two-row status bar: provider/model + effort, then context tokens. */
 export class StatusLine implements Component {
   private parts: StatusLineParts = { left: "", tokens: "", effort: "" };
 
@@ -41,13 +38,17 @@ export class StatusLine implements Component {
 
   render(width: number): string[] {
     const contentWidth = Math.max(1, width - 2);
-    const line = formatStatusLine(
+    const top = formatStatusLine(
       this.parts.left,
-      this.parts.tokens,
       this.parts.effort,
       contentWidth,
     );
-    const padding = Math.max(0, width - visibleWidth(line) - 1);
-    return [" " + line + " ".repeat(padding)];
+    const bottom = truncateToWidth(this.parts.tokens, contentWidth);
+    const topPadding = Math.max(0, width - visibleWidth(top) - 1);
+    const bottomPadding = Math.max(0, width - visibleWidth(bottom) - 1);
+    return [
+      " " + top + " ".repeat(topPadding),
+      " " + bottom + " ".repeat(bottomPadding),
+    ];
   }
 }
