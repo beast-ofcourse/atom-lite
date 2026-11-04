@@ -24,6 +24,12 @@ export type ModelTurnEvent =
       streamedText: string;
     };
 
+export class ModelTurn {
+  static run(request: ModelTurnRequest) {
+    return runModelTurn(request);
+  }
+}
+
 export async function* runModelTurn(
   request: ModelTurnRequest,
 ): AsyncGenerator<ModelTurnEvent> {
