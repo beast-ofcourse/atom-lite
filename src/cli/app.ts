@@ -1479,9 +1479,12 @@ export async function run(args: string[]): Promise<void> {
     });
   });
 
-  tui.start();
   if (mouseEnabled) {
     mouseCapture.enable();
+  }
+
+  tui.start();
+  if (mouseEnabled) {
     process.once("exit", () => mouseCapture.disable());
     if (process.platform !== "win32") {
       process.on("SIGTSTP", () => {
