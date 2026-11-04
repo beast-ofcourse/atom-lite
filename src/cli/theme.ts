@@ -105,6 +105,32 @@ export const lightTheme: Theme = {
 };
 
 /** Terminal-palette/no-colour theme: every token is the identity function. */
+import type { MarkdownTheme } from "@earendil-works/pi-tui";
+
+export function markdownThemeFor(theme: Theme): MarkdownTheme {
+  const bold = (text: string) => `\x1b[1m${text}\x1b[0m`;
+  const italic = (text: string) => `\x1b[3m${text}\x1b[0m`;
+  const underline = (text: string) => `\x1b[4m${text}\x1b[0m`;
+  const strikethrough = (text: string) => `\x1b[9m${text}\x1b[0m`;
+  return {
+    heading: theme.tokens.heading,
+    link: theme.tokens.link,
+    linkUrl: theme.tokens.dim,
+    code: theme.tokens.code,
+    codeBlock: theme.tokens.code,
+    codeBlockBorder: theme.tokens.border,
+    quote: theme.tokens.quote,
+    quoteBorder: theme.tokens.border,
+    hr: theme.tokens.dim,
+    listBullet: theme.tokens.accent,
+    bold,
+    italic,
+    strikethrough,
+    underline,
+    codeBlockIndent: "  ",
+  };
+}
+
 export const ansiTheme: Theme = {
   name: "ansi",
   mode: "ansi",
