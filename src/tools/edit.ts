@@ -106,7 +106,8 @@ export const editTool: Tool = {
         isError: true,
       };
     }
-    const newText = text.replace(old_string, new_string);
+    const matchIndex = text.indexOf(old_string);
+    const newText = text.slice(0, matchIndex) + new_string + text.slice(matchIndex + old_string.length);
     const newBuf = Buffer.from(newText, "utf8");
     const tmp = full + ".tmp-" + process.pid;
     writeFileSync(tmp, newBuf);
