@@ -1,9 +1,10 @@
-import type { ModelRequest, ModelResponse, ToolCall } from "../types.js";
+import type { ModelRequest, ModelResponse, TokenUsage, ToolCall } from "../types.js";
 import type { ProviderAdapter } from "./types.js";
 
 export interface FakeResponse {
   text?: string;
   toolCalls?: ToolCall[];
+  usage?: TokenUsage;
 }
 
 export class FakeProvider implements ProviderAdapter {
@@ -26,6 +27,7 @@ export class FakeProvider implements ProviderAdapter {
       },
       toolCalls,
       finishReason: toolCalls.length ? "tool_calls" : "stop",
+      usage: r.usage,
     };
   }
 }

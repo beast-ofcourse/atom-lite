@@ -25,6 +25,7 @@ export function createProvider(
       model: modelOverride ?? pcfg.model,
       apiKey,
       headers: pcfg.headers,
+      contextWindow: pcfg.contextWindow,
     });
   }
   if (pcfg.type === "ollama") {
@@ -35,6 +36,7 @@ export function createProvider(
       headers: pcfg.headers,
       keepAlive: pcfg.keepAlive,
       options: pcfg.options,
+      contextWindow: pcfg.contextWindow,
     });
   }
   if (pcfg.type === "gemini") {
@@ -48,6 +50,7 @@ export function createProvider(
       model: modelOverride ?? pcfg.model,
       apiKey,
       headers: pcfg.headers,
+      contextWindow: pcfg.contextWindow,
     });
   }
   return new FakeProvider([

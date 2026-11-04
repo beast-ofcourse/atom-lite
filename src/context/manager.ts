@@ -23,6 +23,8 @@ export class ContextManager {
   private opts: ContextManagerOptions;
   private instructionCache?: { signature: string; text: string[] };
   private skillCache?: { workspace: string; signature: string; index: string };
+  private modelContextWindow: number | undefined;
+  private compactedThisBuild = false;
 
   constructor(opts: ContextManagerOptions) {
     this.opts = opts;
@@ -34,8 +36,21 @@ export class ContextManager {
     if (model) this.opts.model = model;
   }
 
+  /** Use the selected model's real window unless the user pinned a budget. */
+  setModelContextWindow(window: number | undefined): void {
+    this.modelContextWindow = window;
+  }
+
+  /** True once if the most recent build compacted history. */
+  consumeCompaction(): boolean {
+    const compacted = this.compactedThisBuild;
+    this.compactedThisBuild = false;
+    return compacted;
+  }
+
   private budget(): number {
-    const max = this.opts.maxInputTokens ?? DEFAULT_MAX_INPUT;
+    const max =
+      this.opts.maxInputTokens ?? this.modelContextWindow ?? DEFAULT_MAX_INPUT;
     return Math.max(1000, max - this.opts.reserveOutputTokens);
   }
 
@@ -44,6 +59,7 @@ export class ContextManager {
   }
 
   async build(workspace: string, history: Message[]): Promise<Message[]> {
+    this.compactedThisBuild = false;
     const userPath = this.opts.userInstructionsPath ?? join(homedir(), ".config", "atom-lite", "AGENTS.md");
     const instructionSignature =
       `${this.opts.maxProjectInstructionBytes}|` +
@@ -121,6 +137,7 @@ export class ContextManager {
       summaryText = "[Earlier conversation truncated to fit context budget.]";
     }
 
+    this.compactedThisBuild = true;
     const compacted: Message[] = [
       { role: "system", content: this.opts.systemPrompt },
       ...instructions.map((i) => ({ role: "system" as const, content: i })),

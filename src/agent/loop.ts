@@ -1,4 +1,4 @@
-import type { AgentRuntimeOptions } from "./types.js";
+import type { AgentRuntimeOptions, ContextUsage } from "./types.js";
 import { DEFAULT_LIMITS } from "../types.js";
 import type { Message, ModelRequest, AgentLimits } from "../types.js";
 import { executeToolBatch } from "../runtime/scheduler.js";
@@ -17,6 +17,8 @@ export class AgentRuntime {
   private toolMap: Map<string, AgentRuntimeOptions["tools"][number]>;
   private limits: AgentLimits;
   private systemPrompt: string;
+  private contextWindow: number | undefined;
+  private contextUsed: number | undefined;
 
   constructor(options: AgentRuntimeOptions) {
     this.provider = options.provider;
@@ -41,13 +43,42 @@ export class AgentRuntime {
     this.toolMap = new Map(options.tools.map((t) => [t.definition.name, t]));
     this.limits = { ...DEFAULT_LIMITS, ...(options.limits ?? {}) };
     this.systemPrompt = options.systemPrompt ?? "You are a coding assistant with tools: read, write, edit, bash, webfetch, websearch.";
+    this.contextWindow = options.contextWindow;
+    this.contextManager.setModelContextWindow(options.contextWindow);
   }
 
   switchModel(provider: AgentRuntimeOptions["provider"], model?: string): void {
     this.provider = provider;
     if (model) this.model = model;
     this.contextManager.setProvider(provider, this.model);
+    // The new model has a fresh window; usage from the old one is meaningless.
+    this.contextUsed = undefined;
     this.onEvent?.({ type: "model_switched", provider: provider.id, model: this.model });
+    this.emitContextUsage();
+  }
+
+  /** Update the context window for the selected model (metadata may arrive late). */
+  setContextWindow(window: number | undefined): void {
+    const next =
+      typeof window === "number" && Number.isFinite(window) && window > 0
+        ? Math.floor(window)
+        : undefined;
+    if (next === this.contextWindow) return;
+    this.contextWindow = next;
+    this.contextManager.setModelContextWindow(next);
+    this.emitContextUsage();
+  }
+
+  getContextUsage(): ContextUsage {
+    return { used: this.contextUsed, window: this.contextWindow };
+  }
+
+  private emitContextUsage(): void {
+    this.onEvent?.({
+      type: "context_usage",
+      used: this.contextUsed,
+      window: this.contextWindow,
+    });
   }
 
   setEffort(effort: string): void {
@@ -84,6 +115,12 @@ export class AgentRuntime {
         this.workspace,
         session.messages,
       );
+      if (this.contextManager.consumeCompaction()) {
+        // Peers treat usage as unknown after compaction until the next
+        // assistant response reports fresh numbers.
+        this.contextUsed = undefined;
+        this.emitContextUsage();
+      }
 
       const request: ModelRequest = {
         model: this.model,
@@ -126,6 +163,14 @@ export class AgentRuntime {
 
       if (response.usage) {
         this.onEvent?.({ type: "usage", input: response.usage.input, output: response.usage.output });
+        const used =
+          (response.usage.input ?? 0) + (response.usage.output ?? 0);
+        if (used > 0) {
+          // The latest assistant step's prompt + generated tokens is the
+          // current context occupancy (not a cumulative session total).
+          this.contextUsed = used;
+          this.emitContextUsage();
+        }
       }
 
       const text = streamedText || (response.message.content?.map((p: any) => (p.type === "text" ? p.text : "")).join("") ?? "");

@@ -1,5 +1,6 @@
-import type { ModelRequest, ModelResponse, ModelStreamEvent, ToolCall, TokenUsage } from "../types.js";
+import type { ModelInfo, ModelRequest, ModelResponse, ModelStreamEvent, ToolCall, TokenUsage } from "../types.js";
 import type { ProviderAdapter } from "./types.js";
+import { contextWindowFromModelEntry } from "./context-window.js";
 import { parseArgs, assembleToolCalls, toToolCalls, type RawToolCallChunk } from "./tool-calls.js";
 
 export interface OpenAICompatibleConfig {
@@ -8,6 +9,7 @@ export interface OpenAICompatibleConfig {
   model: string;
   apiKey?: string | null;
   headers?: Record<string, string>;
+  contextWindow?: number;
 }
 
 export class OpenAICompatibleAdapter implements ProviderAdapter {
@@ -16,6 +18,8 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
   private baseUrl: string;
   private apiKey: string | null;
   private headers: Record<string, string>;
+  private contextWindowOverride: number | undefined;
+  private modelList?: Promise<any[]>;
 
   constructor(config: OpenAICompatibleConfig) {
     this.id = config.id;
@@ -23,24 +27,38 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     this.model = config.model;
     this.apiKey = config.apiKey ?? null;
     this.headers = config.headers ?? {};
+    this.contextWindowOverride = config.contextWindow;
   }
 
-  async getModelInfo(): Promise<import("../types.js").ModelInfo | undefined> {
-    return { id: this.model, supportsTools: true, supportsStreaming: true };
+  private fetchModelList(): Promise<any[]> {
+    if (!this.modelList) {
+      this.modelList = (async () => {
+        const res = await fetch(`${this.baseUrl}/models`, { headers: this.buildHeaders() });
+        if (!res.ok) return [];
+        const json = (await res.json()) as any;
+        return json.data ?? json.models ?? [];
+      })().catch(() => []);
+    }
+    return this.modelList;
+  }
+
+  async getModelInfo(): Promise<ModelInfo | undefined> {
+    const data = await this.fetchModelList();
+    if (!data.length) this.modelList = undefined;
+    const entry = data.find((m: any) => String(m?.id ?? m?.name ?? "") === this.model);
+    return {
+      id: this.model,
+      contextWindow: contextWindowFromModelEntry(entry) ?? this.contextWindowOverride,
+      supportsTools: true,
+      supportsStreaming: true,
+    };
   }
 
   async listModels(): Promise<string[]> {
-    const url = `${this.baseUrl}/models`;
-    try {
-      const res = await fetch(url, { headers: this.buildHeaders() });
-      if (!res.ok) return [this.model];
-      const json = (await res.json()) as any;
-      const data = json.data ?? json.models ?? [];
-      const ids = data.map((m: any) => m.id ?? m.name).filter(Boolean);
-      return ids.length ? ids : [this.model];
-    } catch {
-      return [this.model];
-    }
+    const data = await this.fetchModelList();
+    if (!data.length) this.modelList = undefined;
+    const ids = data.map((m: any) => m.id ?? m.name).filter(Boolean);
+    return ids.length ? ids : [this.model];
   }
 
   private buildHeaders(): Record<string, string> {
@@ -138,6 +156,9 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       model,
       messages: request.messages.map(toOpenAIMessage),
       stream: true,
+      // Ask compatible gateways to send the final usage chunk so the status
+      // line can show real context usage instead of cumulative guesses.
+      stream_options: { include_usage: true },
     };
     if (request.tools && request.tools.length) {
       body.tools = request.tools.map((t) => ({
@@ -152,10 +173,29 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       if (effort) opts.reasoning_effort = effort;
       Object.assign(body, opts);
     }
+    const post = () =>
+      fetch(url, {
+        method: "POST",
+        headers: this.buildHeaders(),
+        body: JSON.stringify(body),
+        signal: request.signal,
+      });
     let res: Response;
     try {
-      res = await fetch(url, { method: "POST", headers: this.buildHeaders(), body: JSON.stringify(body), signal: request.signal });
+      res = await post();
+      // Not every OpenAI-compatible gateway accepts stream_options. Retry
+      // once without it so chat keeps working (usage will simply be absent).
+      if (!res.ok && (res.status === 400 || res.status === 422) && "stream_options" in body) {
+        const text = await res.text().catch(() => "");
+        if (/stream_options|include_usage|unknown|unsupported|extra/i.test(text)) {
+          delete body.stream_options;
+          res = await post();
+        } else {
+          throw new Error(`PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`);
+        }
+      }
     } catch (err) {
+      if (err instanceof Error && err.message.startsWith("PROVIDER_")) throw err;
       throw new Error(`PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`);
     }
     if (!res.ok || !res.body) {

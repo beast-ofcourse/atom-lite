@@ -6,6 +6,10 @@ import { execSync } from "node:child_process";
 import { openSearchablePicker, type PickerItem } from "./picker.js";
 import { SecretInput } from "./secret-input.js";
 import { StatusLine } from "./status-line.js";
+import {
+  formatContextUsage,
+  knownContextWindow,
+} from "../providers/context-window.js";
 import { StreamText } from "./stream-text.js";
 import { Transcript } from "./transcript.js";
 import { AgentRuntime } from "../agent/loop.js";
@@ -181,8 +185,6 @@ export async function run(args: string[]): Promise<void> {
   const terminal = new ProcessTerminal();
   const tui = new TuiMainScreen(terminal);
 
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
   let effortLevel = "medium";
   runtime.setEffort(effortLevel);
 
@@ -213,7 +215,7 @@ export async function run(args: string[]): Promise<void> {
   const statusBar = new StatusLine();
   statusBar.setParts({
     left: dim(`${provider.id}/${(provider as any).model ?? "default"}`),
-    tokens: dim("tokens: 0/0"),
+    tokens: dim("tokens: ?"),
     effort: dim("effort: medium"),
   });
 
@@ -318,9 +320,10 @@ export async function run(args: string[]): Promise<void> {
   }
 
   function updateStatus(): void {
+    const usage = runtime.getContextUsage();
     statusBar.setParts({
       left: dim(`${provider.id}/${currentModelLabel()}`),
-      tokens: dim(`tokens: ${totalInputTokens}/${totalOutputTokens}`),
+      tokens: dim(`tokens: ${formatContextUsage(usage.used, usage.window)}`),
       effort: dim(`effort: ${effortLevel}`),
     });
     tui.requestRender();
@@ -329,6 +332,41 @@ export async function run(args: string[]): Promise<void> {
   function currentModelLabel(): string {
     return modelOverride ?? (provider as any).model ?? "default";
   }
+
+  /**
+   * Show the best-known window immediately, then refine it from live provider
+   * metadata without blocking the TUI.
+   */
+  function refreshContextWindow(): void {
+    const profile = provider.id;
+    const model = currentModelLabel();
+    const configured = profileConfig(profile)?.contextWindow;
+    const window =
+      typeof configured === "number" && configured > 0
+        ? configured
+        : knownContextWindow(model);
+    runtime.setContextWindow(window);
+    updateStatus();
+
+    const getModelInfo = (provider as any).getModelInfo;
+    if (typeof getModelInfo !== "function") return;
+    void Promise.resolve()
+      .then(() => getModelInfo.call(provider))
+      .then((info: any) => {
+        if (provider.id !== profile || currentModelLabel() !== model) return;
+        const resolved = info?.contextWindow;
+        if (typeof resolved === "number" && resolved > 0) {
+          runtime.setContextWindow(resolved);
+          updateStatus();
+        }
+      })
+      .catch(() => {
+        // Keep the static/config fallback.
+      });
+  }
+
+  // Resolve the initial model's window before the first response.
+  refreshContextWindow();
 
   const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
   const modelCache = new Map<string, { models: string[]; at: number }>();
@@ -444,7 +482,7 @@ export async function run(args: string[]): Promise<void> {
     modelOverride = model;
     provider = createProvider(config, profile, model);
     runtime.switchModel(provider, model);
-    updateStatus();
+    refreshContextWindow();
     appendLine(`switched to ${profile}/${model}`);
   }
 
@@ -525,7 +563,7 @@ export async function run(args: string[]): Promise<void> {
     if (typeof (session as any).appendEvent === "function") {
       session.appendEvent({ type: "provider_selected", provider: preset.id, model: chosen });
     }
-    updateStatus();
+    refreshContextWindow();
     appendLine(`provider: ${preset.label} (${preset.id}) · model: ${chosen}`);
     appendLine("tip: /model searches every configured provider");
   }
@@ -717,9 +755,7 @@ export async function run(args: string[]): Promise<void> {
       }
       appendDelta(e.text);
       finalizeText();
-    } else if (e.type === "usage") {
-      totalInputTokens += e.input ?? 0;
-      totalOutputTokens += e.output ?? 0;
+    } else if (e.type === "context_usage") {
       updateStatus();
     } else if (e.type === "model_switched") {
       appendLine(`switched model to ${e.provider}/${e.model}`);

@@ -11,6 +11,8 @@ export const ProviderConfigSchema = z
     think: z.union([z.boolean(), z.string()]).optional(),
     headers: z.record(z.string()).optional(),
     options: z.record(z.unknown()).optional(),
+    /** Explicit context window for custom/local models without metadata. */
+    contextWindow: z.number().int().positive().optional(),
   })
   .strict();
 

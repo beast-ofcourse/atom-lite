@@ -44,6 +44,7 @@ Most coding agents accumulate tools, sub-agents, planning frameworks, retrieval 
 - **Conflict-aware scheduler** — per-file read/write locks and a global bash barrier. Parallelism is governed by resource conflicts, not applied blindly.
 - **Durable sessions** — append-only JSONL event logs, resumable across CLI restarts, grouped by workspace.
 - **Context management** — token estimation, compaction (summarization of older history) before the context budget is exceeded, while retaining the full transcript.
+- **Live context meter** — the status line shows context tokens used against the selected model's real window (e.g. `tokens: 4.5k/256k`), resolved from provider metadata with known-model fallbacks.
 - **Approval modes** — `ask` / `trusted` / `deny` for shell commands, with session-level trust.
 - **Hash guards** — `expected_hash` rejects stale `write`/`edit` operations when the file changed since it was read.
 - **Provider-agnostic** — Ollama, Gemini, and any OpenAI-compatible endpoint (LM Studio, llama.cpp, Kilo AI Gateway, OpenAI, Anthropic, OpenRouter, Groq, Mistral, xAI, …).

@@ -10,6 +10,8 @@ export type { ModelInfo };
 
 export interface ProviderAdapter {
   readonly id: string;
+  /** Concrete model currently selected by this adapter, when known. */
+  readonly model?: string;
   generate(request: ModelRequest): Promise<ModelResponse>;
   stream?(request: ModelRequest): AsyncIterable<ModelStreamEvent>;
   getModelInfo?(): Promise<ModelInfo | undefined>;

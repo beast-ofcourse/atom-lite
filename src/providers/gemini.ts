@@ -15,6 +15,7 @@ export interface GeminiConfig {
   apiKey?: string | null;
   baseUrl?: string;
   headers?: Record<string, string>;
+  contextWindow?: number;
 }
 
 function toGeminiContents(messages: Message[]): {
@@ -86,6 +87,8 @@ export class GeminiAdapter implements ProviderAdapter {
   public model: string;
   private apiKey: string | null;
   private baseUrl: string;
+  private contextWindowOverride: number | undefined;
+  private modelList?: Promise<any[]>;
 
   constructor(config: GeminiConfig) {
     this.id = config.id;
@@ -94,20 +97,49 @@ export class GeminiAdapter implements ProviderAdapter {
     this.baseUrl = (
       config.baseUrl ?? "https://generativelanguage.googleapis.com"
     ).replace(/\/$/, "");
+    this.contextWindowOverride = config.contextWindow;
+  }
+
+  private fetchModelList(): Promise<any[]> {
+    if (!this.apiKey) return Promise.resolve([]);
+    if (!this.modelList) {
+      this.modelList = (async () => {
+        const res = await fetch(
+          `${this.baseUrl}/v1beta/models?key=${encodeURIComponent(this.apiKey!)}`,
+        );
+        if (!res.ok) return [];
+        const json = (await res.json()) as any;
+        return json.models ?? [];
+      })().catch(() => []);
+    }
+    return this.modelList;
   }
 
   async listModels(): Promise<string[]> {
-    if (!this.apiKey) return [this.model];
-    try {
-      const res = await fetch(`${this.baseUrl}/v1beta/models?key=${encodeURIComponent(this.apiKey)}`);
-      if (!res.ok) return [this.model];
-      const json = (await res.json()) as any;
-      const models = json.models ?? [];
-      const ids = models.map((m: any) => (m.name ?? "").replace(/^models\//, "")).filter(Boolean);
-      return ids.length ? ids : [this.model];
-    } catch {
-      return [this.model];
-    }
+    const models = await this.fetchModelList();
+    if (!models.length) this.modelList = undefined;
+    const ids = models
+      .map((m: any) => (m.name ?? "").replace(/^models\//, ""))
+      .filter(Boolean);
+    return ids.length ? ids : [this.model];
+  }
+
+  async getModelInfo(): Promise<import("../types.js").ModelInfo | undefined> {
+    const models = await this.fetchModelList();
+    if (!models.length) this.modelList = undefined;
+    const entry = models.find(
+      (m: any) => (m.name ?? "").replace(/^models\//, "") === this.model,
+    );
+    const limit = entry?.inputTokenLimit;
+    return {
+      id: this.model,
+      contextWindow:
+        typeof limit === "number" && limit > 0
+          ? Math.floor(limit)
+          : this.contextWindowOverride,
+      supportsTools: true,
+      supportsStreaming: true,
+    };
   }
 
   async generate(request: ModelRequest): Promise<ModelResponse> {
@@ -189,7 +221,11 @@ export class GeminiAdapter implements ProviderAdapter {
     const usage: TokenUsage | undefined = json.usageMetadata
       ? {
           input: json.usageMetadata.promptTokenCount,
-          output: json.usageMetadata.candidatesTokenCount,
+          // Thinking tokens count toward the next request's context, so fold
+          // them into generated output.
+          output:
+            (json.usageMetadata.candidatesTokenCount ?? 0) +
+            (json.usageMetadata.thoughtsTokenCount ?? 0),
           total: json.usageMetadata.totalTokenCount,
         }
       : undefined;

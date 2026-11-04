@@ -29,6 +29,7 @@ export type AgentEvent =
     }
   | { type: "final"; text: string }
   | { type: "usage"; input?: number; output?: number }
+  | { type: "context_usage"; used?: number; window?: number }
   | { type: "model_switched"; provider: string; model: string }
   | { type: "skill_loaded"; name: string }
   | { type: "error"; message: string };
@@ -45,6 +46,15 @@ export interface AgentRuntimeOptions {
   onEvent?: (event: AgentEvent) => void;
   effort?: string;
   bashConcurrency?: "serial" | "parallel";
+  /** Selected model's context window, when known. */
+  contextWindow?: number;
+}
+
+export interface ContextUsage {
+  /** Tokens occupied after the latest assistant response, when known. */
+  used?: number;
+  /** Selected model's context window, when known. */
+  window?: number;
 }
 
 export interface RunTurnParams {
