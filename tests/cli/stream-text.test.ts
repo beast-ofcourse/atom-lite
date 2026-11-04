@@ -32,3 +32,15 @@ test("stream text finalizes without dropping rendered output", () => {
   assert.match(rendered, /first message/);
   assert.match(rendered, /second message/);
 });
+
+test("stream text renders markdown headings", () => {
+  const transcript = new Transcript();
+  const stream = new StreamText(transcript, 200, 200);
+  stream.append("# Title\n\nbody");
+  stream.finalize();
+  const rendered = transcript.container.children
+    .map((c) => c.render(80).join("\n"))
+    .join("\n");
+  assert.match(rendered, /Title/);
+  assert.match(rendered, /body/);
+});
