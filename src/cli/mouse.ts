@@ -14,7 +14,8 @@ export type MouseEvent =
 
 /** SGR mouse reporting (1006): ESC [ < button ; x ; y M|m. */
 export function parseSgrMouse(data: string): MouseEvent | undefined {
-  const match = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(data);
+  const trimmed = data.trim();
+  const match = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(trimmed);
   if (!match) return undefined;
   const code = Number(match[1]);
   const x = Math.max(0, Number(match[2]) - 1);
@@ -110,8 +111,8 @@ export function handleMouseEvent(
 /** Mouse capture on/off sequences for SGR-capable terminals. */
 export function mouseCaptureSequence(enabled: boolean): string {
   return enabled
-    ? "\x1b[?1000h\x1b[?1002h\x1b[?1006h"
-    : "\x1b[?1006l\x1b[?1002l\x1b[?1000l";
+    ? "\x1b[?1000h\x1b[?1002h\x1b[?1004h\x1b[?1006h"
+    : "\x1b[?1006l\x1b[?1004l\x1b[?1002l\x1b[?1000l";
 }
 
 export function shouldEnableMouse(options: {
