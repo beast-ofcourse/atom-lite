@@ -1,4 +1,13 @@
-import { Container, fuzzyFilter, SelectList, Text } from "@earendil-works/pi-tui";
+import {
+  Container,
+  decodeKittyPrintable,
+  fuzzyFilter,
+  isKeyRelease,
+  Key,
+  matchesKey,
+  SelectList,
+  Text,
+} from "@earendil-works/pi-tui";
 
 export interface PickerItem {
   value: string;
@@ -48,10 +57,6 @@ export function filterPickerItems(
   return fuzzyFilter(items, q, (item) =>
     `${item.label} ${item.description ?? ""} ${item.value}`,
   );
-}
-
-function isKeyRelease(data: string): boolean {
-  return /\x1b\[\d+;\d+:3[ABCD]/.test(data);
 }
 
 /** Extract bracketed-paste payloads; returns null for non-paste input. */
@@ -137,19 +142,16 @@ export function openSearchablePicker(
 
   function onKey(data: string): any {
     if (closed) return { consume: true };
+    // Kitty reports key releases (and, with some terminals, repeats). Releases
+    // must never trigger an action, or every keystroke fires twice.
     if (isKeyRelease(data)) return { consume: true };
 
-    if (data === "\x03") {
+    if (matchesKey(data, Key.ctrl("c")) || matchesKey(data, Key.escape)) {
       close();
       onCancel();
       return { consume: true };
     }
-    if (data === "\x1b") {
-      close();
-      onCancel();
-      return { consume: true };
-    }
-    if (data === "\r" || data === "\n") {
+    if (matchesKey(data, Key.enter)) {
       const item = list?.getSelectedItem?.();
       if (item) {
         selectedValue = item.value;
@@ -158,19 +160,25 @@ export function openSearchablePicker(
       }
       return { consume: true };
     }
-    if (data === "\x7f" || data === "\b") {
+    if (matchesKey(data, Key.backspace)) {
       query = query.slice(0, -1);
       rebuild();
       return { consume: true };
     }
-    if (data === "\x15") {
+    if (matchesKey(data, Key.ctrl("u"))) {
       query = "";
       rebuild();
       return { consume: true };
     }
 
-    // Navigation keys are delegated to SelectList.
-    if (/^\x1b\[[0-9;]*[ABCDHF~]$/.test(data) || /^\x1bO[A-H]$/.test(data)) {
+    // Navigation keys are delegated to SelectList, which understands both
+    // legacy sequences and Kitty CSI-u / event-type encodings.
+    if (
+      matchesKey(data, Key.up) ||
+      matchesKey(data, Key.down) ||
+      matchesKey(data, Key.pageUp) ||
+      matchesKey(data, Key.pageDown)
+    ) {
       const before = list?.getSelectedItem?.()?.value;
       list?.handleInput?.(data);
       const after = list?.getSelectedItem?.()?.value;
@@ -186,7 +194,14 @@ export function openSearchablePicker(
       return { consume: true };
     }
 
-    // Printable text (including multi-character paste) appends to the query.
+    // Kitty flag 1 sends printable keys as CSI-u sequences; decode those
+    // before falling back to plain printable text and pastes.
+    const kittyChar = decodeKittyPrintable(data);
+    if (kittyChar !== undefined) {
+      query += kittyChar;
+      rebuild();
+      return { consume: true };
+    }
     if (/^[\x20-\x7e]+$/.test(data)) {
       query += data;
       rebuild();

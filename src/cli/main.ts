@@ -8,6 +8,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { renderDiff } from "./diff.js";
 import { openSearchablePicker, type PickerItem } from "./picker.js";
 import { SecretInput } from "./secret-input.js";
+import { StatusLine } from "./status-line.js";
 import { AgentRuntime } from "../agent/loop.js";
 import { JsonlSessionStore } from "../sessions/store.js";
 import { readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool } from "../tools/index.js";
@@ -23,7 +24,17 @@ import {
   type ProviderPreset,
 } from "../providers/catalog.js";
 import { ContextManager } from "../context/manager.js";
-import { ProcessTerminal, TuiMainScreen, Text, Input, Container, Spacer } from "@earendil-works/pi-tui";
+import {
+  ProcessTerminal,
+  TuiMainScreen,
+  Text,
+  Input,
+  Container,
+  Spacer,
+  isKeyRelease,
+  Key,
+  matchesKey,
+} from "@earendil-works/pi-tui";
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -165,7 +176,7 @@ async function main(): Promise<void> {
   }
 
   // ---- Interactive TUI (first-class) ----
-  const { TuiMainScreen, Text, Input, Editor, Container, Spacer, ScrollView, HStack, VStack, Loader, Markdown, Box } =
+  const { TuiMainScreen, Text, Input, Editor, Container, Spacer, ScrollView, Loader, Markdown, Box } =
     await import("@earendil-works/pi-tui");
 
   const terminal = new ProcessTerminal();
@@ -198,10 +209,12 @@ async function main(): Promise<void> {
   const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
   const header = new Text(dim(headerLabel()));
 
-  const statusProvider = new Text(dim(`${provider.id}/${(provider as any).model ?? "default"}`));
-  const statusTokens = new Text(dim("tokens: 0/0"));
-  const statusEffort = new Text(dim("effort: medium"));
-  const statusBar = new HStack([statusProvider, new Spacer(), statusTokens, new Spacer(), statusEffort]);
+  const statusBar = new StatusLine();
+  statusBar.setParts({
+    left: dim(`${provider.id}/${(provider as any).model ?? "default"}`),
+    tokens: dim("tokens: 0/0"),
+    effort: dim("effort: medium"),
+  });
 
   const selectListTheme = {
     selectedPrefix: (s: string) => s,
@@ -299,9 +312,11 @@ async function main(): Promise<void> {
   }
 
   function updateStatus(): void {
-    statusTokens.setText(dim(`tokens: ${totalInputTokens}/${totalOutputTokens}`));
-    statusEffort.setText(dim(`effort: ${effortLevel}`));
-    statusProvider.setText(dim(`${provider.id}/${currentModelLabel()}`));
+    statusBar.setParts({
+      left: dim(`${provider.id}/${currentModelLabel()}`),
+      tokens: dim(`tokens: ${totalInputTokens}/${totalOutputTokens}`),
+      effort: dim(`effort: ${effortLevel}`),
+    });
     tui.requestRender();
   }
 
@@ -648,7 +663,7 @@ async function main(): Promise<void> {
 
   tui.addInputListener((data: string) => {
     // Ctrl+O toggles tool expansion (unless a modal is capturing input).
-    if (data === "\x0f" && !uiModalOpen) {
+    if (matchesKey(data, Key.ctrl("o")) && !uiModalOpen) {
       toggleTools();
       return { consume: true };
     }
@@ -949,7 +964,7 @@ async function main(): Promise<void> {
       tui.requestRender();
       const removeListener = tui.addInputListener((data: string) => {
         // Skip kitty-protocol key-release events to avoid double moves.
-        if (/\x1b\[\d+;\d+:3[ABCD]/.test(data)) return { consume: true };
+        if (isKeyRelease(data)) return { consume: true };
         selectList.handleInput(data);
         tui.requestRender();
         return { consume: true };

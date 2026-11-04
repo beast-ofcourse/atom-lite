@@ -1,4 +1,12 @@
-import { CURSOR_MARKER, type Component, type Focusable } from "@earendil-works/pi-tui";
+import {
+  CURSOR_MARKER,
+  decodeKittyPrintable,
+  isKeyRelease,
+  Key,
+  matchesKey,
+  type Component,
+  type Focusable,
+} from "@earendil-works/pi-tui";
 
 const RESET = "\x1b[0m";
 const DIM = "\x1b[2m";
@@ -61,30 +69,39 @@ export class SecretInput implements Component, Focusable {
       return;
     }
 
-    if (data === "\r" || data === "\n") {
+    if (isKeyRelease(data)) return;
+
+    if (matchesKey(data, Key.enter)) {
       this.onSubmit?.(this.value.trim());
       return;
     }
-    if (data === "\x1b" || data === "\x03") {
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) {
       this.onCancel?.();
       return;
     }
-    if (data === "\x15") {
+    if (matchesKey(data, Key.ctrl("u"))) {
       this.value = "";
       return;
     }
-    if (data === "\x17") {
+    if (matchesKey(data, Key.ctrl("w"))) {
       this.value = this.value.replace(/\s*\S+\s*$/, "");
       return;
     }
-    if (data === "\x7f" || data === "\b") {
+    if (matchesKey(data, Key.backspace)) {
       this.value = this.value.slice(0, -1);
+      return;
+    }
+
+    // Kitty flag 1 sends printable keys as CSI-u sequences.
+    const kittyChar = decodeKittyPrintable(data);
+    if (kittyChar !== undefined) {
+      this.value += kittyChar;
       return;
     }
 
     // Drop escape sequences (arrow keys, kitty key events) and control chars.
     const cleaned = data
-      .replace(/\x1b\[[0-9;?]*[A-Za-z~]/g, "")
+      .replace(/\x1b\[[0-9;:?]*[A-Za-z~]/g, "")
       .replace(/\x1bO[A-Za-z]/g, "")
       .replace(/[\x00-\x1f\x7f]/g, "");
     if (cleaned) this.value += cleaned;
