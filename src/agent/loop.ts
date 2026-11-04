@@ -4,6 +4,7 @@ import type { Message, ModelRequest, AgentLimits } from "../types.js";
 import { executeToolBatch } from "../runtime/scheduler.js";
 import { ContextManager } from "../context/manager.js";
 import { runModelTurn } from "./model-turn.js";
+import { TurnRecorder } from "./turn-recorder.js";
 
 export class AgentRuntime {
   private provider: AgentRuntimeOptions["provider"];
@@ -153,10 +154,13 @@ export class AgentRuntime {
         }
       }
 
-      session.appendMessage(response.message);
+      const recorder = new TurnRecorder({
+        session,
+        onEvent: this.onEvent as ((event: unknown) => void) | undefined,
+      });
+      const text = recorder.recordAssistant(response, streamedText);
 
       if (response.usage) {
-        this.onEvent?.({ type: "usage", input: response.usage.input, output: response.usage.output });
         const used =
           (response.usage.input ?? 0) + (response.usage.output ?? 0);
         if (used > 0) {
@@ -167,14 +171,10 @@ export class AgentRuntime {
         }
       }
 
-      const text = streamedText || (response.message.content?.map((p: any) => (p.type === "text" ? p.text : "")).join("") ?? "");
       const toolCalls = response.toolCalls ?? [];
       if (toolCalls.length === 0) {
-        this.onEvent?.({ type: "final", text });
         return text;
       }
-      for (const c of toolCalls)
-        this.onEvent?.({ type: "tool_call", id: c.id, name: c.name, args: c.arguments });
 
       totalToolCalls += toolCalls.length;
       if (totalToolCalls > this.limits.maxToolCalls) {
@@ -211,20 +211,7 @@ export class AgentRuntime {
         this.bashConcurrency,
       );
       for (const r of results) {
-        session.appendMessage({
-          role: "tool",
-          toolCallId: r.toolCallId,
-          name: r.name,
-          content: r.content,
-        });
-        this.onEvent?.({
-          type: "tool_result",
-          toolCallId: r.toolCallId,
-          name: r.name,
-          content: r.content,
-          isError: r.isError,
-          diff: r.diff,
-        });
+        recorder.recordToolResult(r);
       }
     }
 
