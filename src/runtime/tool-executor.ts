@@ -27,6 +27,7 @@ function isRemote(call: ToolCall): boolean {
 export interface ToolExecutorOptions {
   maxParallelToolCalls?: number;
   bashConcurrency?: "serial" | "parallel";
+  limits?: unknown;
 }
 
 export class ToolExecutor {
@@ -40,11 +41,12 @@ export class ToolExecutor {
 
   async run(
     calls: ToolCall[],
-    toolMap: Map<string, Tool>,
-    ctx: ToolContext,
+    context: ToolContext & { toolMap: Map<string, Tool>; lockManager?: LockManager },
     signal: AbortSignal,
-    lockManager?: LockManager,
   ): Promise<ToolResult[]> {
+    const toolMap = context.toolMap;
+    const lockManager = context.lockManager;
+    const ctx = context;
     const lm = lockManager ?? new LockManager();
     const n = calls.length;
     const results: ToolResult[] = new Array(n);

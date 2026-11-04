@@ -21,5 +21,5 @@ export async function executeToolBatch(
     maxParallelToolCalls: maxParallel,
     bashConcurrency,
   });
-  return executor.run(calls, toolMap, ctx, signal, lockManager);
+  return executor.run(calls, { ...ctx, toolMap }, signal);
 }

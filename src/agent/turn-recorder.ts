@@ -30,10 +30,11 @@ export class TurnRecorder {
           ? response.message.content
           : "");
     if (response.usage) {
-      const used = (response.usage.input ?? 0) + (response.usage.output ?? 0);
-      if (used > 0) {
-        this.onEvent?.({ type: "usage", input: response.usage.input, output: response.usage.output });
-      }
+      this.onEvent?.({
+        type: "usage",
+        input: response.usage.input,
+        output: response.usage.output,
+      });
     }
     const toolCalls = response.toolCalls ?? [];
     if (toolCalls.length === 0) {
