@@ -3,6 +3,7 @@ import { DEFAULT_LIMITS } from "../types.js";
 import type { Message, ModelRequest, AgentLimits } from "../types.js";
 import { executeToolBatch } from "../runtime/scheduler.js";
 import { ContextManager } from "../context/manager.js";
+import { runModelTurn } from "./model-turn.js";
 
 export class AgentRuntime {
   private provider: AgentRuntimeOptions["provider"];
@@ -128,41 +129,28 @@ export class AgentRuntime {
         this.emitContextUsage();
       }
 
-      const request: ModelRequest = {
+      let response: any;
+      let streamedText = "";
+      for await (const ev of runModelTurn({
+        provider: this.provider,
         model: this.model,
         messages,
         tools: this.tools.map((t) => t.definition),
+        effort: this.effort,
         signal,
-        options: { effort: this.effort },
-      };
-
-      let response: any;
-      let streamedText = "";
-      if (typeof this.provider.stream === "function") {
-        // Stream tokens as they arrive.
-        for await (const ev of this.provider.stream(request)) {
-          if (ev.type === "thinking") {
-            this.onEvent?.({ type: "thinking_delta", text: ev.text });
-          } else if (ev.type === "text") {
-            streamedText += ev.text;
-            this.onEvent?.({ type: "assistant_delta", text: ev.text });
-          } else if (ev.type === "done") {
-            response = ev.response;
-          }
+      })) {
+        if (ev.type === "thinking_delta") {
+          this.onEvent?.({ type: "thinking_delta", text: ev.text });
+        } else if (ev.type === "assistant_delta") {
+          streamedText += ev.text;
+          this.onEvent?.({ type: "assistant_delta", text: ev.text });
+        } else if (ev.type === "assistant_text") {
+          streamedText = ev.text;
+          this.onEvent?.({ type: "assistant_text", text: ev.text });
+        } else if (ev.type === "final") {
+          response = ev.response;
+          streamedText = ev.streamedText;
         }
-        if (!response) {
-          // Fallback if stream ended without done
-          response = {
-            message: { role: "assistant", content: streamedText ? [{ type: "text", text: streamedText }] : undefined, toolCalls: undefined },
-            toolCalls: [],
-            finishReason: "stop",
-          };
-        }
-      } else {
-        response = await this.provider.generate(request);
-        const t = response.message.content?.map((p: any) => (p.type === "text" ? p.text : "")).join("") ?? "";
-        if (t) this.onEvent?.({ type: "assistant_text", text: t });
-        streamedText = t;
       }
 
       session.appendMessage(response.message);
