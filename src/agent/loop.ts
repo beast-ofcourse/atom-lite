@@ -3,6 +3,8 @@ import { DEFAULT_LIMITS } from "../types.js";
 import type { Message, ModelRequest, AgentLimits } from "../types.js";
 import { executeToolBatch } from "../runtime/scheduler.js";
 import { ContextManager } from "../context/manager.js";
+import { runModelTurn } from "./model-turn.js";
+import { TurnRecorder } from "./turn-recorder.js";
 
 export class AgentRuntime {
   private provider: AgentRuntimeOptions["provider"];
@@ -128,47 +130,37 @@ export class AgentRuntime {
         this.emitContextUsage();
       }
 
-      const request: ModelRequest = {
+      let response: any;
+      let streamedText = "";
+      for await (const ev of runModelTurn({
+        provider: this.provider,
         model: this.model,
         messages,
         tools: this.tools.map((t) => t.definition),
+        effort: this.effort,
         signal,
-        options: { effort: this.effort },
-      };
-
-      let response: any;
-      let streamedText = "";
-      if (typeof this.provider.stream === "function") {
-        // Stream tokens as they arrive.
-        for await (const ev of this.provider.stream(request)) {
-          if (ev.type === "thinking") {
-            this.onEvent?.({ type: "thinking_delta", text: ev.text });
-          } else if (ev.type === "text") {
-            streamedText += ev.text;
-            this.onEvent?.({ type: "assistant_delta", text: ev.text });
-          } else if (ev.type === "done") {
-            response = ev.response;
-          }
+      })) {
+        if (ev.type === "thinking_delta") {
+          this.onEvent?.({ type: "thinking_delta", text: ev.text });
+        } else if (ev.type === "assistant_delta") {
+          streamedText += ev.text;
+          this.onEvent?.({ type: "assistant_delta", text: ev.text });
+        } else if (ev.type === "assistant_text") {
+          streamedText = ev.text;
+          this.onEvent?.({ type: "assistant_text", text: ev.text });
+        } else if (ev.type === "final") {
+          response = ev.response;
+          streamedText = ev.streamedText;
         }
-        if (!response) {
-          // Fallback if stream ended without done
-          response = {
-            message: { role: "assistant", content: streamedText ? [{ type: "text", text: streamedText }] : undefined, toolCalls: undefined },
-            toolCalls: [],
-            finishReason: "stop",
-          };
-        }
-      } else {
-        response = await this.provider.generate(request);
-        const t = response.message.content?.map((p: any) => (p.type === "text" ? p.text : "")).join("") ?? "";
-        if (t) this.onEvent?.({ type: "assistant_text", text: t });
-        streamedText = t;
       }
 
-      session.appendMessage(response.message);
+      const recorder = new TurnRecorder({
+        session,
+        onEvent: this.onEvent as ((event: unknown) => void) | undefined,
+      });
+      const text = recorder.recordAssistant(response, streamedText);
 
       if (response.usage) {
-        this.onEvent?.({ type: "usage", input: response.usage.input, output: response.usage.output });
         const used =
           (response.usage.input ?? 0) + (response.usage.output ?? 0);
         if (used > 0) {
@@ -179,14 +171,10 @@ export class AgentRuntime {
         }
       }
 
-      const text = streamedText || (response.message.content?.map((p: any) => (p.type === "text" ? p.text : "")).join("") ?? "");
       const toolCalls = response.toolCalls ?? [];
       if (toolCalls.length === 0) {
-        this.onEvent?.({ type: "final", text });
         return text;
       }
-      for (const c of toolCalls)
-        this.onEvent?.({ type: "tool_call", id: c.id, name: c.name, args: c.arguments });
 
       totalToolCalls += toolCalls.length;
       if (totalToolCalls > this.limits.maxToolCalls) {
@@ -223,20 +211,7 @@ export class AgentRuntime {
         this.bashConcurrency,
       );
       for (const r of results) {
-        session.appendMessage({
-          role: "tool",
-          toolCallId: r.toolCallId,
-          name: r.name,
-          content: r.content,
-        });
-        this.onEvent?.({
-          type: "tool_result",
-          toolCallId: r.toolCallId,
-          name: r.name,
-          content: r.content,
-          isError: r.isError,
-          diff: r.diff,
-        });
+        recorder.recordToolResult(r);
       }
     }
 
