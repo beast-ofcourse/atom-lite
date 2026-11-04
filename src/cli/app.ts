@@ -114,7 +114,7 @@ export async function run(args: string[]): Promise<void> {
   }
 
   if (showVersion) {
-    process.stdout.write("0.1.0\n");
+    process.stdout.write("0.3.1\n");
     return;
   }
 

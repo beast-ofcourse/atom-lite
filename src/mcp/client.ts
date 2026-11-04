@@ -121,7 +121,7 @@ export class McpClient {
   constructor(transport: McpTransport, options: McpClientOptions = {}) {
     this.transport = transport;
     this.clientName = options.clientName ?? "atom-lite";
-    this.clientVersion = options.clientVersion ?? "0.1.0";
+    this.clientVersion = options.clientVersion ?? "0.3.1";
     this.onClose = options.onClose;
     transport.setHandlers({
       onMessage: (message) => this.handleMessage(message),

@@ -9,18 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Configuration reference (`docs/configuration.md`) and a documentation index.
-- Single command registry driving dispatch, grouped `/help`, autocomplete, and
-  the new `ctrl+p` command palette (commands, skills, providers, models, themes,
-  and recent sessions).
-- Semantic theme registry with `auto`, `dark`, `light`, and `ansi` (no-colour)
-  themes, live-preview `/theme`, persisted `ui.theme`, and `--no-color` /
-  `NO_COLOR` support.
-- User-owned `ui` config section; project config cannot override it.
+## [0.3.1] - 2026-11-04
+
+### Added
+
+- MCP client over stdio: user-config-only `mcpServers`, lazy connections, tool
+  discovery and execution as `mcp__<server>__<tool>`, refresh on
+  `tools/list_changed`, `/mcp` and `/mcp reconnect`, and `/doctor` health.
+- Session picker and search (`/sessions`, `/search`), resume in place, and
+  `/session rename`.
+- Command palette (`ctrl+p`), semantic theme registry, and TUI mouse support.
+- Configuration reference and documentation index.
 
 ### Fixed
 
 - Ollama provider profiles now forward the `think` option to the adapter.
+
+[0.3.1]: https://github.com/beast-ofcourse/atom-lite/releases/tag/v0.3.1
 
 ## [0.1.0] - 2026-11-04
 
