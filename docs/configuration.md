@@ -26,9 +26,10 @@ Low to high:
 
 Objects (`providers`, `runtime`, `context`, `sessions`) merge key by key; a
 project config does not replace the whole section. Two deliberate exceptions:
-**`runtime.approvalMode` and the whole `ui` section are read only from user config
-or the environment**, so a repository cannot silently switch a trusted setup into
-auto-approval or change your colours and editor behaviour.
+**`runtime.mode`, `runtime.maxTokensPerSession`, `runtime.maxTokensPerTurn`, and the
+whole `ui` section are read only from user config or the environment**, so a
+repository cannot silently relax safety settings or change your colours and
+editor behaviour.
 
 ## Top level
 
@@ -65,14 +66,13 @@ stored credential, then inline `apiKey`.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `maxIterations` | positive integer | `40` | Agent-loop turns per run. |
-| `maxToolCalls` | positive integer | `100` | Tool calls allowed per run. |
-| `maxExecutionMs` | positive integer | `1800000` | Wall-clock limit per run (30 minutes). |
-| `maxParallelToolCalls` | positive integer | `4` | Concurrency cap for a tool-call batch. |
+| `maxParallelToolCalls` | positive integer | `10` | Concurrency cap for a tool-call batch. |
 | `maxToolOutputBytes` | positive integer | `30000` | Output cap per tool result. |
 | `maxBashTimeMs` | positive integer | `120000` | Timeout for a single `bash` call (2 minutes). |
 | `bashConcurrency` | `"serial"` \| `"parallel"` | `"serial"` | `serial` keeps `bash` as a global exclusive barrier. |
-| `approvalMode` | `"ask"` \| `"trusted"` \| `"deny"` | `"ask"` | Shell-command approval policy. User config and environment only. |
+| `mode` | `"plan"` \| `"yolo"` | `"plan"` | `plan` allows read/web only; `yolo` allows all tools without approval. User config and environment only. |
+| `maxTokensPerSession` | positive integer \| null | `null` | Optional session token budget (hard stop). `null` means no limit. User config only. |
+| `maxTokensPerTurn` | positive integer \| null | `null` | Optional per-turn token soft warning. `null` means no warning. User config only. |
 
 ## `context`
 
@@ -144,7 +144,7 @@ listed here. User, global, and CLI extensions load without this setting.
 | Variable | Effect |
 | --- | --- |
 | `ATOM_LITE_PROVIDER` | Selects the default provider profile. |
-| `ATOM_LITE_APPROVAL_MODE` | Sets `runtime.approvalMode`. |
+| `ATOM_LITE_MODE` | Sets `runtime.mode`. |
 | `NO_COLOR` | Forces the no-colour (`ansi`) theme when non-empty. |
 | `COLORFGBG` | Falls back to this value to detect a light or dark background. |
 | Any name in `apiKeyEnv` | Supplies that provider's API key. |
@@ -175,9 +175,9 @@ listed here. User, global, and CLI extensions load without this setting.
     }
   },
   "runtime": {
-    "approvalMode": "ask",
+    "mode": "plan",
     "bashConcurrency": "serial",
-    "maxToolCalls": 100
+    "maxParallelToolCalls": 10
   },
   "context": {
     "compactAtPercent": 85,
