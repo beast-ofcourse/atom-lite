@@ -19,15 +19,15 @@ export const GRAY = "\x1b[90m";
 
 export type Color = (text: string) => string;
 
-export const dim: Color = (text) => `${DIM}${text}${RESET}`;
+export const dim: Color = (text) => `${DIM}${text}\x1b[22m`;
 export const bold: Color = (text) => `${BOLD}${text}${RESET}`;
-export const red: Color = (text) => `${RED}${text}${RESET}`;
-export const green: Color = (text) => `${GREEN}${text}${RESET}`;
-export const yellow: Color = (text) => `${YELLOW}${text}${RESET}`;
-export const blue: Color = (text) => `${BLUE}${text}${RESET}`;
-export const magenta: Color = (text) => `${MAGENTA}${text}${RESET}`;
-export const cyan: Color = (text) => `${CYAN}${text}${RESET}`;
-export const gray: Color = (text) => `${GRAY}${text}${RESET}`;
+export const red: Color = (text) => `${RED}${text}\x1b[39m`;
+export const green: Color = (text) => `${GREEN}${text}\x1b[39m`;
+export const yellow: Color = (text) => `${YELLOW}${text}\x1b[39m`;
+export const blue: Color = (text) => `${BLUE}${text}\x1b[39m`;
+export const magenta: Color = (text) => `${MAGENTA}${text}\x1b[39m`;
+export const cyan: Color = (text) => `${CYAN}${text}\x1b[39m`;
+export const gray: Color = (text) => `${GRAY}${text}\x1b[39m`;
 
 /** Draw the top edge of a panel, embedding a title in the border. */
 export function panelTop(label: string, width: number, color: Color): string {

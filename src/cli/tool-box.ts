@@ -3,14 +3,12 @@ import {
   cyan,
   dim,
   green,
-  panelBottom,
-  panelRow,
-  panelTop,
   red,
   yellow,
   type Color,
-  wrapPanelText,
 } from "./panel.js";
+import { wrapTextWithAnsi, visibleWidth } from "@earendil-works/pi-tui";
+import { DiffView } from "./diff-view.js";
 
 export type ToolStatus = "running" | "done" | "error";
 
@@ -59,14 +57,6 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 }
 
-function colorizeDiff(line: string): string {
-  if (line.startsWith("+++") || line.startsWith("---")) return dim(line);
-  if (line.startsWith("+")) return green(line);
-  if (line.startsWith("-")) return red(line);
-  if (line.startsWith("@@")) return cyan(line);
-  return line;
-}
-
 function tail<T>(items: T[], count: number): T[] {
   return items.length <= count ? items : items.slice(items.length - count);
 }
@@ -83,7 +73,7 @@ export class ToolBox implements Component {
   status: ToolStatus = "running";
   private expanded = false;
   private outputLines: string[] = [];
-  private outputIsDiff = false;
+  private diffLines: string[] | undefined;
   private liveBuffer = "";
   private startedAt = Date.now();
   private finishedAt: number | undefined;
@@ -111,8 +101,8 @@ export class ToolBox implements Component {
     this.status = options.isError ? "error" : "done";
     this.finishedAt = Date.now();
     this.liveBuffer = "";
-    this.outputIsDiff = Array.isArray(options.diff);
-    this.outputLines = options.diff ?? content.split("\n");
+    this.diffLines = Array.isArray(options.diff) ? options.diff : undefined;
+    this.outputLines = this.diffLines ? [] : content.split("\n");
   }
 
   appendLive(text: string): void {
@@ -129,30 +119,52 @@ export class ToolBox implements Component {
   }
 
   render(width: number): string[] {
-    const panelWidth = Math.max(8, Math.floor(width));
+    const w = Math.max(8, Math.floor(width));
+    const TOOL_BG = "\x1b[48;5;236m";
+    const TOOL_BG_RESET = "\x1b[49m";
+    const fill = (line: string): string => {
+      const pad = Math.max(0, w - visibleWidth(line));
+      return `${TOOL_BG}${line}${" ".repeat(pad)}${TOOL_BG_RESET}`;
+    };
+
     const lines: string[] = [];
     const callColor = this.status === "error" ? red : cyan;
     const title = this.title();
-    lines.push(panelTop(title, panelWidth, callColor));
+    lines.push(fill(` ${callColor(title)}`));
+    lines.push(fill(""));
 
     const preview = formatToolArgs(this.name, this.args);
     if (preview) {
-      for (const line of wrapPanelText(preview, panelWidth)) {
-        lines.push(panelRow(` ${dim(line)}`, panelWidth, callColor));
+      for (const line of wrapTextWithAnsi(preview, w - 2)) {
+        lines.push(fill(` ${dim(line)}`));
       }
+      lines.push(fill(""));
     }
 
     if (this.status === "running" && !this.liveBuffer) {
-      lines.push(
-        panelRow(` ${dim("waiting for output…")}`, panelWidth, callColor),
-      );
+      lines.push(fill(` ${dim("waiting for output…")}`));
+      lines.push(fill(""));
     }
-    lines.push(panelBottom(panelWidth, callColor));
 
-    const output = this.renderedOutput();
-    if (output.length > 0) {
-      lines.push(...this.renderOutput(output, width));
+    if (this.diffLines) {
+      const view = new DiffView({ lines: this.diffLines, path:
+        typeof this.args?.path === "string"
+          ? this.args.path
+          : typeof this.args?.file === "string"
+            ? this.args.file
+            : typeof this.args?.file_path === "string"
+              ? this.args.file_path
+              : undefined,
+      });
+      // Render diff lines with bg fill by re-wrapping view output? view already fills.
+      lines.push(...view.render(width));
+    } else {
+      const output = this.renderedOutput();
+      if (output.length > 0) {
+        lines.push(...this.renderOutput(output, width, fill));
+      }
     }
+    lines.push(fill(""));
     return lines;
   }
 
@@ -180,19 +192,6 @@ export class ToolBox implements Component {
       return visible;
     }
 
-    if (this.outputIsDiff) {
-      const added = this.outputLines.filter(
-        (line) => line.startsWith("+") && !line.startsWith("+++"),
-      ).length;
-      const removed = this.outputLines.filter(
-        (line) => line.startsWith("-") && !line.startsWith("---"),
-      ).length;
-      if (!this.expanded) {
-        return [dim(`+${added} -${removed} · ctrl+o to expand`)];
-      }
-      return this.outputLines.map(colorizeDiff);
-    }
-
     if (!this.expanded) {
       return [dim(`(${this.outputLines.length} lines · ctrl+o to expand)`)];
     }
@@ -208,9 +207,8 @@ export class ToolBox implements Component {
     return this.outputLines;
   }
 
-  private renderOutput(output: string[], width: number): string[] {
-    const indent = width > 10 ? "  " : "";
-    const outputWidth = Math.max(6, Math.floor(width) - indent.length);
+  private renderOutput(output: string[], width: number, fill: (line: string) => string): string[] {
+    const w = Math.max(8, Math.floor(width));
     const color: Color =
       this.status === "error"
         ? red
@@ -218,14 +216,14 @@ export class ToolBox implements Component {
           ? yellow
           : green;
     const label = this.status === "running" ? "output · live" : "output";
-    const lines = [indent + panelTop(label, outputWidth, color)];
+    const lines: string[] = [];
+    lines.push(fill(` ${color(label)}`));
     for (const raw of output) {
       const content = raw.length === 0 ? "" : raw;
-      for (const line of wrapPanelText(content, outputWidth)) {
-        lines.push(indent + panelRow(` ${line}`, outputWidth, color));
+      for (const line of wrapTextWithAnsi(content, w - 2)) {
+        lines.push(fill(` ${line}`));
       }
     }
-    lines.push(indent + panelBottom(outputWidth, color));
     return lines;
   }
 }
