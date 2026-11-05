@@ -1,7 +1,7 @@
 # Atom-lite
 
 <p align="center">
-  <img src="./assets/atom-lite.png" alt="Atom-lite" width="400" />
+  <img src="./assets/atom-lite.png" alt="Atom-lite" width="900" />
 </p>
 
 [![npm](https://img.shields.io/npm/v/atom-lite?logo=npm)](https://www.npmjs.com/package/atom-lite)
