@@ -134,7 +134,7 @@ export class ContextManager {
           {
             role: "system" as const,
             content:
-              "Summarize the following conversation history compactly, preserving changed files, decisions, failing tests, and unfinished work. Output only the summary." +
+              "Summarize the following conversation history compactly. Retain: (1) the current task/goal; (2) files touched and their last known state (paths with a brief change summary); (3) decisions and constraints. Drop: full tool outputs and intermediate reasoning. Output only the summary." +
               focusLine,
           },
           {
