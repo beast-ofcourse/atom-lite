@@ -234,7 +234,7 @@ palette. Common commands:
 | `/search <query>` | Search sessions by title or content |
 | `/export [path]` | Export the session transcript |
 | `/mcp [reconnect [server]]` | Inspect or reconnect MCP servers |
-| `/extensions` | List loaded extensions |
+| `/extensions` | List discovered extensions and load status |
 | `/compact` | Compact older context |
 | `/clear` | Clear the transcript view |
 | `/approval` | Change approval mode |

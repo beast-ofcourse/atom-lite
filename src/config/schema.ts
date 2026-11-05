@@ -75,6 +75,7 @@ export const McpServersConfigSchema = z
 export const ExtensionsConfigSchema = z
   .object({
     trustedProjects: z.array(z.string()).default([]),
+    deniedProjects: z.array(z.string()).default([]),
   })
   .strict();
 

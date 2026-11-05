@@ -32,5 +32,6 @@ export const DEFAULT_CONFIG = {
   mcpServers: {} as Record<string, unknown>,
   extensions: {
     trustedProjects: [] as string[],
+    deniedProjects: [] as string[],
   },
 };

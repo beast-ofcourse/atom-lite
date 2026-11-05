@@ -136,6 +136,7 @@ User-owned trust settings for extensions.
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `trustedProjects` | string[] | `[]` | Absolute project paths whose local extensions may load. |
+| `deniedProjects` | string[] | `[]` | Absolute project paths whose local extensions must never load. |
 
 Project-local extensions are discovered but disabled until their project is
 listed here. User, global, and CLI extensions load without this setting.

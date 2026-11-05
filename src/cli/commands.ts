@@ -400,7 +400,7 @@ export function createCommandRegistry(
 
   registry.register({
     name: "extensions",
-    description: "list loaded extensions",
+    description: "list discovered extensions and load status",
     category: "Extensions",
     run(ctx) {
       ctx.appendLine(ctx.listExtensions());

@@ -1,4 +1,5 @@
 import { loadConfig } from "../config/load.js";
+import { defaultAgentDir, userConfigDir } from "../config/paths.js";
 import {
   saveProviderModel,
   saveProviderSelection,
@@ -33,6 +34,8 @@ import { Transcript } from "./transcript.js";
 import { AgentRuntime } from "../agent/loop.js";
 import { JsonlSessionStore } from "../sessions/store.js";
 import { ExtensionLoader } from "../extensions/loader.js";
+import { denyProject, trustProject } from "../extensions/trust.js";
+import { ProjectTrustPrompt } from "./trust-prompt.js";
 import {
   formatSessionList,
   formatSessionSearch,
@@ -92,9 +95,13 @@ export async function run(args: string[]): Promise<void> {
   let listSessions = false;
   let searchSessionsQuery: string | undefined;
   const positional: string[] = [];
+  const extensionPaths: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a === "--provider") providerOverride = args[++i];
+    if (a === "-e" || a === "--extension") {
+      const path = args[++i];
+      if (path) extensionPaths.push(path);
+    } else if (a === "--provider") providerOverride = args[++i];
     else if (a === "--model") modelOverride = args[++i];
     else if (a === "--json") jsonMode = true;
     else if (a === "--debug") debug = true;
@@ -108,7 +115,7 @@ export async function run(args: string[]): Promise<void> {
     else if (a === "--no-tools") positional.push("__notools__");
     else if (a === "--help") {
       process.stdout.write(
-        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json] [--debug] [--theme NAME] [--no-color] [--version] [--help]\n",
+        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json] [--debug] [--theme NAME] [--no-color] [-e PATH] [--version] [--help]\n",
       );
       return;
     } else if (a.startsWith("--")) {
@@ -191,10 +198,25 @@ export async function run(args: string[]): Promise<void> {
   });
 
   const extensionLoader = new ExtensionLoader({
-    userDir: join(process.env.HOME ?? "", ".config", "atom-lite", "extensions"),
+    cliPaths: extensionPaths,
+    cwd: process.cwd(),
+    agentDir: defaultAgentDir(),
+    userDir: join(userConfigDir(), "extensions"),
     projectDir: process.cwd(),
-    trustedProjects: (config.extensions as { trustedProjects?: string[] })?.trustedProjects,
   });
+  const pendingTrust = extensionLoader
+    .discover()
+    .filter(
+      (entry) =>
+        entry.source === "project" &&
+        !entry.trusted &&
+        entry.skipReason === "project is not trusted",
+    );
+  if (!interactive && pendingTrust.length > 0) {
+    process.stderr.write(
+      `atom-lite: skipping ${pendingTrust.length} untrusted project extension(s); run interactively to review\n`,
+    );
+  }
   void extensionLoader.loadAll().catch(() => {
     // Extension failures are reported per extension.
   });
@@ -422,6 +444,61 @@ export async function run(args: string[]): Promise<void> {
 
   function appendDelta(delta: string): void {
     streamText.append(delta);
+    tui.requestRender();
+  }
+
+  /** Review project-local extensions once per project decision. */
+  function maybeReviewProjectTrust(): void {
+    if (uiModalOpen) return;
+    const pending = extensionLoader
+      .discover()
+      .filter(
+        (entry) =>
+          entry.source === "project" &&
+          !entry.trusted &&
+          entry.skipReason === "project is not trusted",
+      );
+    if (pending.length === 0) return;
+
+    uiModalOpen = true;
+    closeOverlay();
+    dropdownContainer.clear();
+    const prompt = new ProjectTrustPrompt(
+      pending.map((entry) => ({
+        id: entry.id,
+        entryPath: entry.entryPath,
+        version: entry.manifest?.version,
+        capabilities: entry.manifest?.capabilities ?? [],
+      })),
+      process.cwd(),
+      (decision) => {
+        uiModalOpen = false;
+        dropdownContainer.clear();
+        tui.setFocus(input);
+        if (decision === "approve") {
+          trustProject(process.cwd());
+          appendLine("approved project extensions");
+        } else {
+          denyProject(process.cwd());
+          appendLine("denied project extensions");
+        }
+        void extensionLoader
+          .loadAll()
+          .then(() => {
+            appendLine(
+              `extensions: ${extensionLoader.list().length} processed (see /extensions)`,
+            );
+            tui.requestRender();
+          })
+          .catch((error) => {
+            appendLine(
+              `extensions: reload failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          });
+      },
+    );
+    dropdownContainer.addChild(prompt);
+    tui.setFocus(prompt);
     tui.requestRender();
   }
 
@@ -1028,11 +1105,19 @@ export async function run(args: string[]): Promise<void> {
     openSessionsPicker,
     searchSessions: searchSessionsInStore,
     renameSession,
-    listExtensions: () =>
-      extensionLoader
-        .list()
-        .map((ext) => `${ext.id}\t${ext.source}\t${ext.status}${ext.error ? `\t${ext.error}` : ""}`)
-        .join("\n") || "No extensions loaded.",
+    listExtensions: () => {
+      const report = extensionLoader.report();
+      if (report.length === 0) return "No extensions discovered.";
+      return report
+        .map((ext) => {
+          const origin = ext.origin ? `${ext.source}:${ext.origin}` : ext.source;
+          const version = ext.version ? `v${ext.version}` : "-";
+          const counts = `${ext.toolCount} tools / ${ext.commandCount} commands`;
+          const error = ext.error ? `\t${ext.error}` : "";
+          return `${ext.id}\t${origin}\t${version}\t${ext.status}\t${counts}\t${ext.entryPath}${error}`;
+        })
+        .join("\n");
+    },
     switchModel: switchModelTarget,
     startProviderSetup,
     setEffort: setEffortTarget,
@@ -1678,6 +1763,7 @@ export async function run(args: string[]): Promise<void> {
   });
 
   tui.start();
+  maybeReviewProjectTrust();
   if (mouseEnabled) {
     process.once("exit", () => mouseCapture.disable());
     if (process.platform !== "win32") {

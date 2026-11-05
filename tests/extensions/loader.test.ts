@@ -16,7 +16,7 @@ test("loads trusted user extensions", async () => {
       join(dir, "ok.js"),
       "export default (atom) => { atom.appendEntry('note', { value: 1 }); };\n",
     );
-    const loader = new ExtensionLoader({ userDir: dir });
+    const loader = new ExtensionLoader({ userDir: dir, agentDir: join(dir, "agent") });
     const loaded = await loader.loadAll();
     assert.equal(loaded.length, 1);
     assert.equal(loaded[0].status, "loaded");
@@ -33,7 +33,7 @@ test("loads async factories", async () => {
       join(dir, "async.js"),
       "export default async (atom) => { await Promise.resolve(); atom.log('ready'); };\n",
     );
-    const loader = new ExtensionLoader({ userDir: dir });
+    const loader = new ExtensionLoader({ userDir: dir, agentDir: join(dir, "agent") });
     const loaded = await loader.loadAll();
     assert.equal(loaded[0].status, "loaded");
   } finally {
@@ -46,7 +46,7 @@ test("isolates factory errors", async () => {
   try {
     writeFileSync(join(dir, "bad.js"), "export default () => { throw new Error('boom'); };\n");
     writeFileSync(join(dir, "good.js"), "export default () => {};\n");
-    const loader = new ExtensionLoader({ userDir: dir });
+    const loader = new ExtensionLoader({ userDir: dir, agentDir: join(dir, "agent") });
     const loaded = await loader.loadAll();
     assert.equal(loaded.find((entry) => entry.id === "bad")?.status, "error");
     assert.match(loaded.find((entry) => entry.id === "bad")?.error ?? "", /boom/);
@@ -63,13 +63,18 @@ test("skips project extensions unless the project is trusted", async () => {
     mkdirSync(extensionDir, { recursive: true });
     writeFileSync(join(extensionDir, "project.js"), "export default () => {};\n");
 
-    const untrustedLoader = new ExtensionLoader({ projectDir });
+    const isolate = {
+      projectDir,
+      agentDir: join(projectDir, "agent"),
+      userDir: join(projectDir, "user-extensions"),
+    };
+    const untrustedLoader = new ExtensionLoader(isolate);
     const untrusted = await untrustedLoader.loadAll();
     assert.equal(untrusted[0].status, "skipped");
     assert.match(untrusted[0].error ?? "", /not trusted/);
 
     const trustedLoader = new ExtensionLoader({
-      projectDir,
+      ...isolate,
       trustedProjects: [projectDir],
     });
     const trusted = await trustedLoader.loadAll();
@@ -83,11 +88,55 @@ test("reports missing factories", async () => {
   const dir = tempDir();
   try {
     writeFileSync(join(dir, "nofactory.js"), "export const value = 1;\n");
-    const loader = new ExtensionLoader({ userDir: dir });
+    const loader = new ExtensionLoader({ userDir: dir, agentDir: join(dir, "agent") });
     const loaded = await loader.loadAll();
     assert.equal(loaded[0].status, "error");
     assert.match(loaded[0].error ?? "", /default or activate/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("skips denied project extensions with a denial message", async () => {
+  const projectDir = tempDir();
+  try {
+    const extensionDir = join(projectDir, ".pi", "extensions");
+    mkdirSync(extensionDir, { recursive: true });
+    writeFileSync(join(extensionDir, "project.js"), "export default () => {};\n");
+
+    const loader = new ExtensionLoader({
+      projectDir,
+      agentDir: join(projectDir, "agent"),
+      userDir: join(projectDir, "user-extensions"),
+      deniedProjects: [projectDir],
+    });
+    const loaded = await loader.loadAll();
+    assert.equal(loaded[0].status, "skipped");
+    assert.match(loaded[0].error ?? "", /denied/);
+  } finally {
+    rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("reports discovered entries that were never loaded", () => {
+  const projectDir = tempDir();
+  try {
+    const extensionDir = join(projectDir, ".pi", "extensions");
+    mkdirSync(extensionDir, { recursive: true });
+    writeFileSync(join(extensionDir, "project.js"), "export default () => {};\n");
+
+    const loader = new ExtensionLoader({
+      projectDir,
+      agentDir: join(projectDir, "agent"),
+      userDir: join(projectDir, "user-extensions"),
+    });
+    const report = loader.report();
+    assert.equal(report.length, 1);
+    assert.equal(report[0].source, "project");
+    assert.equal(report[0].trusted, false);
+    assert.equal(report[0].status, "skipped");
+    assert.match(report[0].error ?? "", /not trusted/);
+  } finally {
+    rmSync(projectDir, { recursive: true, force: true });
   }
 });

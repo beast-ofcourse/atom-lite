@@ -19,6 +19,13 @@ export function defaultUserConfigPath(): string {
   return join(userConfigDir(), "config.json");
 }
 
+/** Pi's agent directory, which owns Pi's global settings and extensions. */
+export function defaultAgentDir(): string {
+  return (
+    process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent")
+  );
+}
+
 export function defaultCredentialsPath(): string {
   return join(userConfigDir(), "credentials.json");
 }

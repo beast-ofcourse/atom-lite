@@ -123,6 +123,10 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
         ...((userRaw.extensions as { trustedProjects?: string[] })?.trustedProjects ??
           []),
       ],
+      deniedProjects: [
+        ...((userRaw.extensions as { deniedProjects?: string[] })?.deniedProjects ??
+          []),
+      ],
     },
     // MCP servers are user-owned: opening a repository must never launch a
     // process. Project entries are dropped above with a warning.
