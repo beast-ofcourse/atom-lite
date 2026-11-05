@@ -505,7 +505,7 @@ export async function run(args: string[]): Promise<void> {
   function thinkingBody(): string {
     return thinkingBuffer
       .split("\n")
-      .map((line) => theme.tokens.dim(`| ${line}`))
+      .map((line) => theme.tokens.dim(`│ ${line}`))
       .join("\n");
   }
 
@@ -1118,6 +1118,7 @@ export async function run(args: string[]): Promise<void> {
         })
         .join("\n");
     },
+    extensionDoctor: () => extensionLoader.doctor(),
     switchModel: switchModelTarget,
     startProviderSetup,
     setEffort: setEffortTarget,
@@ -1435,21 +1436,23 @@ export async function run(args: string[]): Promise<void> {
       activity.setPhase("thinking");
       if (!showThinking) return;
       if (!thinkingText) {
-        thinkingText = new Text(theme.tokens.dim("Thinking..."));
+        thinkingText = new Text(theme.tokens.dim("💭 thinking"));
         transcript.add(thinkingText);
         thinkingBuffer = "";
       }
       thinkingBuffer += e.text;
       thinkingText.setText(
-        `${theme.tokens.dim("Thinking...")}\n${thinkingBody()}`,
+        `${theme.tokens.dim("💭 thinking")}\n${thinkingBody()}`,
       );
+      transcript.invalidate();
       tui.requestRender();
     } else if (e.type === "assistant_delta") {
       activity.setPhase("working");
       if (thinkingText) {
         thinkingText.setText(
-          `${theme.tokens.dim("Thinking...")}\n${thinkingBody()}\n${theme.tokens.dim("| end")}`,
+          `${theme.tokens.dim("💭 thinking")}\n${thinkingBody()}`,
         );
+        transcript.invalidate();
         thinkingText = null;
         thinkingBuffer = "";
       }
@@ -1458,8 +1461,9 @@ export async function run(args: string[]): Promise<void> {
       activity.setPhase("working");
       if (thinkingText) {
         thinkingText.setText(
-          `${theme.tokens.dim("Thinking...")}\n${thinkingBody()}\n${theme.tokens.dim("| end")}`,
+          `${theme.tokens.dim("💭 thinking")}\n${thinkingBody()}`,
         );
+        transcript.invalidate();
         thinkingText = null;
         thinkingBuffer = "";
       }

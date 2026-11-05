@@ -45,6 +45,7 @@ export interface CommandContext {
   searchSessions(query: string): void;
   renameSession(title: string): void;
   listExtensions(): string;
+  extensionDoctor(): string;
   switchModel(target: string): void;
   startProviderSetup(profile: string): void;
   setEffort(level: "low" | "medium" | "high"): void;
@@ -400,10 +401,15 @@ export function createCommandRegistry(
 
   registry.register({
     name: "extensions",
-    description: "list discovered extensions and load status",
+    description: "list discovered extensions and load status; use /extensions doctor for diagnostics",
     category: "Extensions",
-    run(ctx) {
-      ctx.appendLine(ctx.listExtensions());
+    argumentHint: "[doctor]",
+    run(ctx, args) {
+      if (args.trim() === "doctor") {
+        ctx.appendLine(ctx.extensionDoctor());
+      } else {
+        ctx.appendLine(ctx.listExtensions());
+      }
     },
   });
 

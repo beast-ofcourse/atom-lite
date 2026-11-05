@@ -119,9 +119,15 @@ export function createExtensionAPI(
     unregisterWidget: (widgetId) => {
       registries.widgets.delete(widgetId);
     },
-    select: async () => undefined,
-    confirm: async () => false,
-    input: async () => undefined,
+    select: () => {
+      throw new Error("extension runtime not initialized");
+    },
+    confirm: () => {
+      throw new Error("extension runtime not initialized");
+    },
+    input: () => {
+      throw new Error("extension runtime not initialized");
+    },
     getWorkspace: () => ctx.workspace,
     getSession: () => ({ id: sessionId }),
     isProjectTrusted: () => ctx.trusted,
