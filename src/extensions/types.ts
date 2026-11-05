@@ -43,6 +43,7 @@ export interface ExtensionContext {
   workspace: string;
   trusted: boolean;
   log: (message: string) => void;
+  sessionManager?: any;
 }
 
 export interface ExtensionProvider {

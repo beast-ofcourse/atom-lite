@@ -33,6 +33,7 @@ export interface ExtensionAPI {
   input(title: string, placeholder?: string): Promise<string | undefined>;
   getWorkspace(): string;
   getSession(): { id: string };
+  getSessionManager(): any;
   isProjectTrusted(): boolean;
   registerProvider(provider: ExtensionProvider): void;
   unregisterProvider(name: string): void;
@@ -119,13 +120,26 @@ export function createExtensionAPI(
       registries.handlers.get(event)?.delete(handler);
     },
     appendEntry: (type, data) => {
+      if (ctx.sessionManager?.appendEntry) {
+        return ctx.sessionManager.appendEntry(type, data);
+      }
       registries.entries.push({ type, data });
     },
     getSessionEntries: (filter) => {
+      if (ctx.sessionManager?.getEntries) {
+        return ctx.sessionManager
+          .getEntries()
+          .filter((entry: any) =>
+            filter?.type
+              ? entry?.customType === filter.type || entry?.type === filter.type
+              : true,
+          );
+      }
       return registries.entries.filter((entry) =>
         filter?.type ? entry.type === filter.type : true,
       );
     },
+    getSessionManager: () => ctx.sessionManager,
     setStatus: (part, value) => {
       registries.status.set(part, value);
     },
