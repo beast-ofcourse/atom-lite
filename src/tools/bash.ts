@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { isWithinWorkspace } from "../security/paths.js";
-import { defaultShell } from "../security/process.js";
+import { defaultShell, terminateProcessTree } from "../security/process.js";
 import type { Tool, ToolContext, ToolResult } from "./types.js";
 import type { ToolCall } from "../types.js";
 import { z } from "zod";
@@ -75,6 +75,7 @@ export const bashTool: Tool = {
       const child = spawn(shell, [flag, command], {
         cwd: workdir,
         env: process.env,
+        detached: process.platform !== "win32",
       });
       let stdout = "";
       let stderr = "";
@@ -114,11 +115,13 @@ export const bashTool: Tool = {
       let killedByAbort = false;
       const timer = setTimeout(() => {
         timedOut = true;
-        child.kill("SIGTERM");
+        terminateProcessTree(child, "SIGTERM");
+        setTimeout(() => terminateProcessTree(child, "SIGKILL"), 1000).unref();
       }, timeout);
       const onAbort = () => {
         killedByAbort = true;
-        child.kill("SIGTERM");
+        terminateProcessTree(child, "SIGTERM");
+        setTimeout(() => terminateProcessTree(child, "SIGKILL"), 1000).unref();
       };
       ctx.signal.addEventListener("abort", onAbort, { once: true });
       child.on("error", (err) => {

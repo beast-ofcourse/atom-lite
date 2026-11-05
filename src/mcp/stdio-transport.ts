@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
+import { terminateProcessTree } from "../security/process.js";
 import type { McpServerConfig, McpTransport, McpTransportHandlers } from "./types.js";
 
 const ENV_ALLOWLIST = new Set([
@@ -169,26 +170,10 @@ export class StdioTransport implements McpTransport {
       // Ignore.
     }
     if (child.exitCode !== null || child.signalCode !== null) return;
-    const pid = child.pid;
-    const killGroup = (signal: NodeJS.Signals) => {
-      if (process.platform !== "win32" && pid) {
-        try {
-          process.kill(-pid, signal);
-          return;
-        } catch {
-          // Fall through to direct child kill.
-        }
-      }
-      try {
-        child.kill(signal);
-      } catch {
-        // Ignore.
-      }
-    };
-    killGroup("SIGTERM");
+    terminateProcessTree(child, "SIGTERM");
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
-        killGroup("SIGKILL");
+        terminateProcessTree(child, "SIGKILL");
         resolve();
       }, 750);
       child.once("close", () => {

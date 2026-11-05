@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import type { Message } from "../types.js";
 import type { SessionEvent, SessionSummary } from "./events.js";
 import { isMessage, messageToEvent, eventToMessage, nowIso } from "./events.js";
+import { userConfigDir } from "../config/paths.js";
 import { parseJsonlEvents } from "./recovery.js";
 import {
   sessionMessageCount,
@@ -66,8 +67,7 @@ export interface JsonlSessionStoreLike {
 }
 
 function defaultDataDir(): string {
-  const base = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
-  return join(base, "atom-lite", "sessions");
+  return join(userConfigDir(), "sessions");
 }
 
 function sanitizeWorkspace(workspace: string): string {

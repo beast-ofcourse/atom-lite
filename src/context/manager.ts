@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { loadProjectInstructions, statSignature } from "./instructions.js";
 import { DefaultSkillRegistry, skillCacheSignature } from "../skills/registry.js";
 import { estimateMessageTokens } from "./budget.js";
+import { userConfigDir } from "../config/paths.js";
 
 export interface ContextManagerOptions {
   systemPrompt: string;
@@ -160,7 +161,7 @@ export class ContextManager {
   async build(workspace: string, history: Message[]): Promise<Message[]> {
     this.compactedThisBuild = false;
     this.lastCompactionSummary = null;
-    const userPath = this.opts.userInstructionsPath ?? join(homedir(), ".config", "atom-lite", "AGENTS.md");
+    const userPath = this.opts.userInstructionsPath ?? join(userConfigDir(), "AGENTS.md");
     const instructionSignature =
       `${this.opts.maxProjectInstructionBytes}|` +
       statSignature([userPath, join(workspace, "AGENTS.md")]);
