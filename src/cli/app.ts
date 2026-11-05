@@ -663,7 +663,11 @@ export async function run(args: string[]): Promise<void> {
         await mcpManager.syncTools();
         runtime.setTools([...builtInTools, ...extensionTools, ...createMcpTools(mcpManager)]);
       }
-      await runtime.runAgentTurn(prompt, session, controller.signal);
+      const turnResult = await runtime.runAgentTurn(prompt, session, controller.signal);
+      if (turnResult === "TOKEN_BUDGET_REACHED") {
+        appendLine("token budget reached; stopping", theme.tokens.warning);
+        tui.requestRender();
+      }
     } catch (err) {
       if (err instanceof Error && err.message === "USER_CANCELLED") {
         appendLine("cancelled");
@@ -1739,6 +1743,9 @@ export async function run(args: string[]): Promise<void> {
       finalizeText();
     } else if (e.type === "context_usage") {
       updateStatus();
+    } else if (e.type === "budget_warning") {
+      appendLine(`budget warning (${e.scope}): ${e.used}/${e.limit} tokens`, theme.tokens.warning);
+      tui.requestRender();
     } else if (e.type === "model_switched") {
       appendLine(`switched model to ${e.provider}/${e.model}`);
       if (typeof (session as any).appendEvent === "function") {

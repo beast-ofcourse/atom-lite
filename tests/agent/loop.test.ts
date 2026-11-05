@@ -59,6 +59,7 @@ test("agent loop forwards streamed bash output and tool diffs", async () => {
     provider,
     workspace: dir,
     tools: [bashTool, writeTool],
+    mode: "yolo",
     onEvent: (e) => events.push(e),
     bashConcurrency: "parallel",
   });
@@ -97,7 +98,7 @@ test("agent loop does not stop at the old 40-iteration cap", async () => {
 test("agent loop stops when session token budget is exceeded", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   const provider = new FakeProvider([
-    { text: "hi", usage: { input: 10, output: 5, total: 100 } },
+    { text: "hi", usage: { input: 60, output: 5 } },
   ]);
   const runtime = new AgentRuntime({
     provider,

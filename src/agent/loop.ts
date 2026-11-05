@@ -33,7 +33,7 @@ export class AgentRuntime {
     this.model = options.model ?? "default";
     this.workspace = options.workspace ?? process.cwd();
     this.approvals = options.approvals;
-    this.mode = options.mode ?? "yolo";
+    this.mode = options.mode ?? "plan";
     this.maxTokensPerSession = options.maxTokensPerSession ?? null;
     this.maxTokensPerTurn = options.maxTokensPerTurn ?? null;
     this.totalTokensUsed = 0;
@@ -251,26 +251,25 @@ export class AgentRuntime {
           // current context occupancy (not a cumulative session total).
           this.contextUsed = used;
           this.emitContextUsage();
-          if (
-            this.maxTokensPerTurn !== null &&
-            used > this.maxTokensPerTurn
-          ) {
-            this.onEvent?.({
-              type: "budget_warning",
-              scope: "turn",
-              used,
-              limit: this.maxTokensPerTurn,
-            });
-          }
         }
-        const turnTokens =
-          response.usage.total ?? used;
+        const turnTokens = used > 0 ? used : 0;
+        if (
+          this.maxTokensPerTurn !== null &&
+          turnTokens > this.maxTokensPerTurn
+        ) {
+          this.onEvent?.({
+            type: "budget_warning",
+            scope: "turn",
+            used: turnTokens,
+            limit: this.maxTokensPerTurn,
+          });
+        }
         if (turnTokens > 0) {
           this.totalTokensUsed += turnTokens;
         }
         if (
           this.maxTokensPerSession !== null &&
-          this.totalTokensUsed >= this.maxTokensPerSession
+          this.totalTokensUsed > this.maxTokensPerSession
         ) {
           this.onEvent?.({
             type: "budget_warning",

@@ -3,6 +3,7 @@ import type { Tool, ToolContext } from "../tools/types.js";
 import type { ToolResult } from "../tools/types.js";
 import { resolve } from "node:path";
 import { LockManager, type Release } from "./locks.js";
+import { isToolAllowed } from "./modes.js";
 
 function resourceKey(call: ToolCall, workspace: string): string {
   const args = call.arguments ?? {};
@@ -101,7 +102,7 @@ export class ToolExecutor {
 
     const tasks = calls.map((call, i) => {
       return (async () => {
-        if (ctx.mode === "plan" && (call.name === "write" || call.name === "edit" || call.name === "bash")) {
+        if (!isToolAllowed((ctx.mode as "plan" | "yolo") ?? "yolo", call.name)) {
           results[i] = {
             toolCallId: call.id,
             name: call.name,
