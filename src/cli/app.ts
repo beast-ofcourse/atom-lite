@@ -432,13 +432,16 @@ export async function run(args: string[]): Promise<void> {
     close?.();
   }
 
-  function appendLine(text: string): void {
+  function appendLine(
+    text: string,
+    style: (value: string) => string = theme.tokens.text,
+  ): void {
     if (thinkingText) {
       thinkingText = null;
       thinkingBuffer = "";
     }
     streamText.finalize();
-    transcript.addLine(text);
+    transcript.add(new Text(style(text)));
     tui.requestRender();
   }
 
@@ -1732,7 +1735,7 @@ export async function run(args: string[]): Promise<void> {
       return;
     }
 
-    appendLine(`> ${trimmed}`);
+    appendLine(`> ${trimmed}`, theme.tokens.user);
     await runTurn(trimmed);
   };
 

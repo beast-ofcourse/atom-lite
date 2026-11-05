@@ -67,7 +67,14 @@ export class ToolExecutor {
       }
       const key = resourceKey(call, ctx.workspace);
       if (key === "") return () => {};
+      const tool = toolMap.get(call.name);
+      const readOnly = tool?.annotations?.readOnlyHint === true;
       if (isMutation(call)) return lm.acquireWrite(key, signal);
+      // Extension tools: read-only hint => read lock; otherwise (including
+      // unclassified path-bearing tools) => write lock.
+      if (tool?.annotations !== undefined && !readOnly) {
+        return lm.acquireWrite(key, signal);
+      }
       return lm.acquireRead(key, signal);
     };
 

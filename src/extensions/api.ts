@@ -16,6 +16,8 @@ export interface ExtensionAPI {
   registerTool(tool: ExtensionTool): void;
   unregisterTool(name: string): void;
   setActiveTools(names: string[]): void;
+  getActiveTools(): string[];
+  getAllTools(): Array<Record<string, unknown>>;
   registerCommand(command: ExtensionCommand): void;
   unregisterCommand(name: string): void;
   on(event: AtomEvent, handler: ExtensionEventHandler): () => void;
@@ -82,8 +84,26 @@ export function createExtensionAPI(
     setActiveTools: (names) => {
       registries.activeTools = new Set(names);
     },
+    getActiveTools: () => {
+      if (registries.activeTools) return [...registries.activeTools];
+      return [...registries.tools.keys()];
+    },
+    getAllTools: () => {
+      return [...registries.tools.values()].map((tool) => ({
+        name: tool.name,
+        label: tool.label,
+        description: tool.description,
+        parameters: tool.parameters ?? {},
+        exposure: tool.exposure ?? "direct",
+        annotations: tool.annotations,
+      }));
+    },
     registerCommand: (command) => {
-      registries.commands.set(command.name, command);
+      const normalized = { ...command };
+      if (!normalized.run && typeof normalized.handler === "function") {
+        normalized.run = normalized.handler;
+      }
+      registries.commands.set(normalized.name, normalized);
     },
     unregisterCommand: (name) => {
       registries.commands.delete(name);

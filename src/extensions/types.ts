@@ -18,8 +18,9 @@ export interface ExtensionTool {
   label: string;
   description: string;
   parameters?: Record<string, unknown>;
-  exposure?: "direct" | "model-only" | "hidden";
-  execute: (args: Record<string, unknown>, ctx: ExtensionContext) => Promise<unknown>;
+  exposure?: "direct" | "model-only" | "hidden" | "codemode" | "deferred";
+  annotations?: Record<string, unknown>;
+  execute: (...args: any[]) => Promise<unknown>;
 }
 
 export interface ExtensionCommand {
@@ -27,7 +28,9 @@ export interface ExtensionCommand {
   description: string;
   argumentHint?: string;
   category?: string;
-  run: (args: string, ctx: ExtensionContext) => void | Promise<void>;
+  getArgumentCompletions?: (prefix: string) => unknown;
+  run?: (args: string, ctx: ExtensionContext) => void | Promise<void>;
+  handler?: (args: string, ctx: any) => void | Promise<void>;
 }
 
 export interface ExtensionWidget {
