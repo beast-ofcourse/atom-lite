@@ -18,6 +18,7 @@ export class AgentRuntime {
   private bashConcurrency: "serial" | "parallel";
   private toolMap: Map<string, AgentRuntimeOptions["tools"][number]>;
   private limits: AgentLimits;
+  private extensionDispatch: AgentRuntimeOptions["extensionDispatch"];
   private systemPrompt: string;
   private contextWindow: number | undefined;
   private contextUsed: number | undefined;
@@ -44,6 +45,7 @@ export class AgentRuntime {
       });
     this.toolMap = new Map(options.tools.map((t) => [t.definition.name, t]));
     this.limits = { ...DEFAULT_LIMITS, ...(options.limits ?? {}) };
+    this.extensionDispatch = options.extensionDispatch;
     this.systemPrompt = options.systemPrompt ?? "You are a coding assistant with tools: read, write, edit, bash, webfetch, websearch.";
     this.contextWindow = options.contextWindow;
     this.contextManager.setModelContextWindow(options.contextWindow);
@@ -139,7 +141,9 @@ export class AgentRuntime {
 
     session.appendMessage({ role: "user", content: [{ type: "text", text: input }] });
 
+    await this.extensionDispatch?.("turn_start", { type: "turn_start" });
     let totalToolCalls = 0;
+    let forceContinue = false;
     const start = Date.now();
 
     for (
@@ -147,6 +151,7 @@ export class AgentRuntime {
       iteration < this.limits.maxIterations;
       iteration++
     ) {
+      forceContinue = false;
       if (signal.aborted) {
         throw new Error("USER_CANCELLED");
       }
@@ -176,6 +181,11 @@ export class AgentRuntime {
 
       let response: any;
       let streamedText = "";
+      await this.extensionDispatch?.("before_provider_request", {
+        type: "before_provider_request",
+        messages,
+        tools: this.tools.map((t) => t.definition),
+      });
       for await (const ev of runModelTurn({
         provider: this.provider,
         model: this.model,
@@ -198,11 +208,16 @@ export class AgentRuntime {
         }
       }
 
+      await this.extensionDispatch?.("after_provider_response", {
+        type: "after_provider_response",
+        response,
+      });
       const recorder = new TurnRecorder({
         session,
         onEvent: this.onEvent as ((event: unknown) => void) | undefined,
+        extensionDispatch: this.extensionDispatch,
       });
-      const text = recorder.recordAssistant(response, streamedText);
+      const text = await recorder.recordAssistant(response, streamedText);
 
       if (response.usage) {
         const used =
@@ -217,7 +232,57 @@ export class AgentRuntime {
 
       const toolCalls = response.toolCalls ?? [];
       if (toolCalls.length === 0) {
+        // turn_end / agent_before_settle continuation handling.
+        let continued = false;
+        const turnResults = await this.extensionDispatch?.("turn_end", {
+          type: "turn_end",
+        });
+        for (const r of turnResults ?? []) {
+          if (r && r.continue) continued = true;
+        }
+        if (continued) {
+          forceContinue = true;
+          continue;
+        }
+        const settleResults = await this.extensionDispatch?.(
+          "agent_before_settle",
+          { type: "agent_before_settle" },
+        );
+        for (const r of settleResults ?? []) {
+          if (r && r.continue) continued = true;
+        }
+        if (continued) {
+          forceContinue = true;
+          continue;
+        }
+        await this.extensionDispatch?.("agent_settled", {
+          type: "agent_settled",
+        });
         return text;
+      }
+
+      // Emit tool_call events; allow mutation and block decisions.
+      const blocked = new Set<string>();
+      let terminate = false;
+      for (const call of toolCalls) {
+        const payload: any = {
+          type: "tool_call",
+          toolCallId: call.id,
+          name: call.name,
+          input: call.arguments,
+        };
+        const results = await this.extensionDispatch?.("tool_call", payload);
+        // Apply in-place mutation.
+        if (payload.input && payload.input !== call.arguments) {
+          call.arguments = payload.input;
+        }
+        for (const r of results ?? []) {
+          if (r && typeof r === "object") {
+            if (r.block) blocked.add(call.id);
+            if (r.terminate) terminate = true;
+            if (r.input) call.arguments = r.input;
+          }
+        }
       }
 
       totalToolCalls += toolCalls.length;
@@ -243,19 +308,123 @@ export class AgentRuntime {
             stream,
             text,
           });
+          void this.extensionDispatch?.("tool_execution_update", {
+            type: "tool_execution_update",
+            toolCallId: call.id,
+            name: call.name,
+            stream,
+            text,
+          });
         },
       };
-      const results = await executeToolBatch(
-        toolCalls,
-        this.toolMap,
+
+      // Wrapped tool map emits tool_execution_start/end.
+      const wrappedToolMap = new Map(this.toolMap);
+      for (const [name, tool] of this.toolMap) {
+        wrappedToolMap.set(name, {
+          ...tool,
+          execute: async (call: any, ctx2: any) => {
+            await this.extensionDispatch?.("tool_execution_start", {
+              type: "tool_execution_start",
+              toolCallId: call.id,
+              name: call.name,
+              args: call.arguments,
+            });
+            let result: any;
+            try {
+              result = await tool.execute(call, ctx2);
+            } catch (err) {
+              result = {
+                toolCallId: call.id,
+                name: call.name,
+                content: `COMMAND_FAILED: ${err instanceof Error ? err.message : String(err)}`,
+                isError: true,
+              };
+            }
+            await this.extensionDispatch?.("tool_execution_end", {
+              type: "tool_execution_end",
+              toolCallId: call.id,
+              name: call.name,
+              result,
+              isError: result?.isError,
+            });
+            return result;
+          },
+        });
+      }
+
+      const blockedResults = new Map<string, any>();
+      for (const call of toolCalls) {
+        if (!blocked.has(call.id)) continue;
+        const reason = "blocked by extension";
+        const r = {
+          toolCallId: call.id,
+          name: call.name,
+          content: reason,
+          isError: true,
+        };
+        blockedResults.set(call.id, r);
+        await this.extensionDispatch?.("tool_execution_start", {
+          type: "tool_execution_start",
+          toolCallId: call.id,
+          name: call.name,
+          args: call.arguments,
+        });
+        await this.extensionDispatch?.("tool_execution_end", {
+          type: "tool_execution_end",
+          toolCallId: call.id,
+          name: call.name,
+          result: r,
+          isError: true,
+        });
+      }
+
+      const execCalls = toolCalls.filter((c: any) => !blocked.has(c.id));
+      const execResults = await executeToolBatch(
+        execCalls,
+        wrappedToolMap,
         ctx,
         this.limits.maxParallelToolCalls,
         signal,
         undefined,
         this.bashConcurrency,
       );
-      for (const r of results) {
+
+      const resultMap = new Map<string, any>();
+      for (const r of blockedResults.values()) resultMap.set(r.toolCallId, r);
+      for (const r of execResults) {
+        // Emit tool_result event and allow patches.
+        const payload: any = {
+          type: "tool_result",
+          toolCallId: r.toolCallId,
+          name: r.name,
+          content: r.content,
+          details: r.details,
+          structuredContent: r.structuredContent,
+          isError: r.isError,
+          usage: r.usage,
+        };
+        await this.extensionDispatch?.("tool_result", payload);
+        r.content = payload.content ?? r.content;
+        r.details = payload.details ?? r.details;
+        r.structuredContent = payload.structuredContent ?? r.structuredContent;
+        r.isError = payload.isError ?? r.isError;
+        r.usage = payload.usage ?? r.usage;
+        resultMap.set(r.toolCallId, r);
+      }
+
+      const orderedResults = toolCalls
+        .map((c: any) => resultMap.get(c.id))
+        .filter(Boolean);
+      for (const r of orderedResults) {
         recorder.recordToolResult(r);
+      }
+
+      if (terminate) {
+        await this.extensionDispatch?.("agent_settled", {
+          type: "agent_settled",
+        });
+        return text;
       }
     }
 

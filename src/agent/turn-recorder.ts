@@ -3,31 +3,50 @@ import type { Message } from "../types.js";
 export interface TurnRecorderOptions {
   session: { appendMessage(message: Message): void };
   onEvent?: (event: unknown) => void;
+  extensionDispatch?: (event: string, payload: any) => Promise<any[]> | any[];
 }
 
 export class TurnRecorder {
   private session: TurnRecorderOptions["session"];
   private onEvent: TurnRecorderOptions["onEvent"];
+  private extensionDispatch: TurnRecorderOptions["extensionDispatch"];
 
   constructor(options: TurnRecorderOptions) {
     this.session = options.session;
     this.onEvent = options.onEvent;
+    this.extensionDispatch = options.extensionDispatch;
   }
 
-  recordAssistant(response: {
+  async recordAssistant(response: {
     message: Message;
     toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
     usage?: { input?: number; output?: number };
-  }, streamedText: string): string {
-    this.session.appendMessage(response.message);
+  }, streamedText: string): Promise<string> {
+    let message: Message = response.message;
+    void this.extensionDispatch?.("message_start", { type: "message_start", message });
+    const results = await this.extensionDispatch?.("message_end", {
+      type: "message_end",
+      message,
+    });
+    const replacement = Array.isArray(results)
+      ? results.find((x: any) => x && x.message)?.message
+      : (results as any)?.message;
+    if (
+      replacement &&
+      typeof replacement === "object" &&
+      (replacement as any).role === message.role
+    ) {
+      message = replacement as Message;
+    }
+    this.session.appendMessage(message);
     const text =
       streamedText ||
-      (Array.isArray(response.message.content)
-        ? response.message.content
+      (Array.isArray(message.content)
+        ? message.content
             .map((p: any) => (p?.type === "text" ? p.text : ""))
             .join("")
-        : typeof response.message.content === "string"
-          ? response.message.content
+        : typeof message.content === "string"
+          ? message.content
           : "");
     if (response.usage) {
       this.onEvent?.({
