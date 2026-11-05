@@ -48,6 +48,10 @@ export interface AgentRuntimeOptions {
   bashConcurrency?: "serial" | "parallel";
   /** Selected model's context window, when known. */
   contextWindow?: number;
+  /** Optional steering queue drained into the turn between iterations. */
+  steeringQueue?: string[];
+  /** Optional dispatcher for Pi extension events. */
+  extensionDispatch?: (event: string, payload: any) => Promise<any[]> | any[];
 }
 
 export interface ContextUsage {

@@ -8,11 +8,17 @@ export interface ToolResult {
   isError?: boolean;
   /** Pre-computed line diff for write/edit, so the UI never re-reads files. */
   diff?: string[];
+  /** Preserved extension result details for renderers and session state. */
+  details?: unknown;
+  structuredContent?: unknown;
+  usage?: unknown;
 }
 
 export interface Tool {
   definition: ToolDefinition;
   execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult>;
+  annotations?: Record<string, unknown>;
+  exposure?: string;
 }
 
 export interface ToolContext {

@@ -46,6 +46,7 @@ export interface CommandContext {
   renameSession(title: string): void;
   listExtensions(): string;
   extensionDoctor(): string;
+  reloadExtensions(): Promise<void>;
   switchModel(target: string): void;
   startProviderSetup(profile: string): void;
   setEffort(level: "low" | "medium" | "high"): void;
@@ -410,6 +411,14 @@ export function createCommandRegistry(
       } else {
         ctx.appendLine(ctx.listExtensions());
       }
+    },
+  });
+  registry.register({
+    name: "reload",
+    description: "reload all extensions from disk",
+    category: "Extensions",
+    run: async (ctx) => {
+      await ctx.reloadExtensions();
     },
   });
 

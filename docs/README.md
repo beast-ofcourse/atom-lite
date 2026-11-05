@@ -11,6 +11,10 @@ with the code and is readable offline.
   and precedence rule.
 - [CHANGELOG](../CHANGELOG.md) — release history.
 
+## Extensions
+
+- [Extensions](./extensions.md) — Pi extension compatibility, discovery, trust, tiers, and diagnostics.
+
 ## Architecture
 
 - [Architecture decisions](./adr/) — ADRs. Start with

@@ -10,6 +10,7 @@ export type ThemeMode = "dark" | "light" | "ansi";
 
 export type ThemeToken =
   | "text"
+  | "user"
   | "dim"
   | "accent"
   | "success"
@@ -59,6 +60,7 @@ function tokens(
 ): Record<ThemeToken, ThemeStyle> {
   const base: Record<ThemeToken, ThemeStyle> = {
     text: identity,
+    user: sgr("34"),
     dim: sgr("2"),
     accent: sgr("36"),
     success: sgr("32"),
@@ -136,6 +138,7 @@ export const ansiTheme: Theme = {
   mode: "ansi",
   tokens: tokens({
     text: identity,
+    user: identity,
     dim: identity,
     accent: identity,
     success: identity,

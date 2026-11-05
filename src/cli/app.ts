@@ -34,6 +34,9 @@ import { Transcript } from "./transcript.js";
 import { AgentRuntime } from "../agent/loop.js";
 import { JsonlSessionStore } from "../sessions/store.js";
 import { ExtensionLoader } from "../extensions/loader.js";
+import { createDefaultExtensionUI } from "../extensions/ui.js";
+import type { ExtensionUICallbacks } from "../extensions/ui.js";
+import { collectExtensionTools } from "../extensions/tool-adapter.js";
 import { denyProject, trustProject } from "../extensions/trust.js";
 import { ProjectTrustPrompt } from "./trust-prompt.js";
 import {
@@ -81,6 +84,7 @@ import {
   isKeyRepeat,
   Key,
   matchesKey,
+  wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 
 export async function run(args: string[]): Promise<void> {
@@ -197,6 +201,24 @@ export async function run(args: string[]): Promise<void> {
     },
   });
 
+  const extensionUICallbacks: ExtensionUICallbacks = {};
+  const extensionProviderNames = new Set<string>();
+  function resolveExtensionApiKey(value: unknown): string | undefined {
+    if (typeof value !== "string" || !value) return undefined;
+    if (value.startsWith("!")) {
+      try {
+        const { execFileSync } = require("node:child_process");
+        const parts = value.slice(1).trim().split(/\s+/);
+        return execFileSync(parts[0], parts.slice(1), { encoding: "utf8" }).trim();
+      } catch {
+        return undefined;
+      }
+    }
+    if (value.startsWith("$")) return process.env[value.slice(1)] ?? value;
+    if (value.startsWith("${") && value.endsWith("}"))
+      return process.env[value.slice(2, -1)] ?? value;
+    return value;
+  }
   const extensionLoader = new ExtensionLoader({
     cliPaths: extensionPaths,
     cwd: process.cwd(),
@@ -217,9 +239,61 @@ export async function run(args: string[]): Promise<void> {
       `atom-lite: skipping ${pendingTrust.length} untrusted project extension(s); run interactively to review\n`,
     );
   }
-  void extensionLoader.loadAll().catch(() => {
+  await extensionLoader.loadAll().catch(() => {
     // Extension failures are reported per extension.
   });
+  // Remove any previously bridged extension providers before re-bridging.
+  for (const name of extensionProviderNames) {
+    delete (config.providers as Record<string, any>)[name];
+  }
+  extensionProviderNames.clear();
+
+  // Bridge Pi-style extension providers into Atom-lite's config so they
+  // appear in /provider, /model, and the command palette.
+  for (const loaded of extensionLoader.list()) {
+    for (const [name, provider] of (loaded.registries?.providers ?? new Map())) {
+      const cfg = (provider as any)?.config ?? {};
+      const firstModel = Array.isArray(cfg.models) && cfg.models.length > 0
+        ? (cfg.models[0].id ?? cfg.models[0].name ?? "default")
+        : "default";
+      const apiKey = resolveExtensionApiKey(cfg.apiKey);
+      const headers = { ...(cfg.headers ?? {}) };
+      if (cfg.authHeader && apiKey) headers.Authorization = `Bearer ${apiKey}`;
+      (config.providers as Record<string, any>)[name] = {
+        type: "openai-compatible",
+        baseUrl: cfg.baseUrl,
+        model: firstModel,
+        apiKey: apiKey ?? null,
+        apiKeyEnv: null,
+        headers,
+        contextWindow: cfg.models?.[0]?.contextWindow,
+      };
+      extensionProviderNames.add(name);
+    }
+  }
+
+  const extensionTools = collectExtensionTools(extensionLoader);
+  const allTools = [...builtInTools, ...extensionTools];
+  const extensionDispatch = async (event: string, payload: any) => {
+    const results: any[] = [];
+    for (const loaded of extensionLoader.list()) {
+      const handlers = loaded.registries.handlers.get(event as any);
+      if (!handlers) continue;
+      for (const handler of handlers) {
+        try {
+          results.push(
+            await handler(payload, loaded.context ?? ({} as any)),
+          );
+        } catch (error) {
+          // eslint-disable-next-line no-console
+          console.error(
+            `[extension:${loaded.id}] handler error: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+    }
+    return results;
+  };
 
   const contextManager = new ContextManager({
     systemPrompt: "You are a coding assistant.",
@@ -250,14 +324,15 @@ export async function run(args: string[]): Promise<void> {
     provider,
     model: modelOverride,
     workspace: process.cwd(),
-    tools: builtInTools,
+    tools: allTools,
     approvals,
     contextManager,
+    extensionDispatch,
     bashConcurrency: config.runtime.bashConcurrency,
   });
 
   mcpManager.onToolsChanged = () => {
-    runtime.setTools([...builtInTools, ...createMcpTools(mcpManager)]);
+    runtime.setTools([...builtInTools, ...extensionTools, ...createMcpTools(mcpManager)]);
   };
 
   if (oneShot || !interactive) {
@@ -268,7 +343,7 @@ export async function run(args: string[]): Promise<void> {
     try {
       if (useTools) {
         await mcpManager.syncTools();
-        runtime.setTools([...builtInTools, ...createMcpTools(mcpManager)]);
+        runtime.setTools([...builtInTools, ...extensionTools, ...createMcpTools(mcpManager)]);
       }
       const result = await runtime.runAgentTurn(oneShot || " ", session, controller.signal);
       if (jsonMode) {
@@ -413,7 +488,27 @@ export async function run(args: string[]): Promise<void> {
     }
   }
 
-  let thinkingText: any = null;
+  class ThinkingBlock {
+    buffer = "";
+    render(width: number): string[] {
+      const lines: string[] = [theme.tokens.dim("💭 thinking")];
+      const sep = theme.tokens.dim("│ ");
+      const contentWidth = Math.max(1, width - 2);
+      const logicalLines = this.buffer.length > 0 ? this.buffer.split("\\n") : [""];
+      for (const logical of logicalLines) {
+        const wrapped = wrapTextWithAnsi(logical, contentWidth);
+        if (wrapped.length === 0) {
+          lines.push(sep);
+        } else {
+          for (const part of wrapped) lines.push(sep + theme.tokens.dim(part));
+        }
+      }
+      return lines;
+    }
+    invalidate(): void {}
+  }
+
+  let thinkingText: ThinkingBlock | null = null;
   let thinkingBuffer = "";
   let showThinking = config.ui.showThinking;
   let expandTools = false;
@@ -432,13 +527,16 @@ export async function run(args: string[]): Promise<void> {
     close?.();
   }
 
-  function appendLine(text: string): void {
+  function appendLine(
+    text: string,
+    style: (value: string) => string = theme.tokens.text,
+  ): void {
     if (thinkingText) {
       thinkingText = null;
       thinkingBuffer = "";
     }
     streamText.finalize();
-    transcript.addLine(text);
+    transcript.add(new Text(style(text)));
     tui.requestRender();
   }
 
@@ -485,6 +583,11 @@ export async function run(args: string[]): Promise<void> {
         void extensionLoader
           .loadAll()
           .then(() => {
+            runtime.setTools([
+              ...builtInTools,
+              ...collectExtensionTools(extensionLoader),
+              ...createMcpTools(mcpManager),
+            ]);
             appendLine(
               `extensions: ${extensionLoader.list().length} processed (see /extensions)`,
             );
@@ -514,6 +617,9 @@ export async function run(args: string[]): Promise<void> {
   }
 
   let activeTurnController: AbortController | null = null;
+  const messageQueue: string[] = [];
+  const steeringQueue: string[] = [];
+  runtime.setSteeringQueue(steeringQueue);
 
   /** Run one interactive turn while keeping the status bar's activity fresh. */
   async function runTurn(prompt: string): Promise<void> {
@@ -523,7 +629,7 @@ export async function run(args: string[]): Promise<void> {
     try {
       if (useTools) {
         await mcpManager.syncTools();
-        runtime.setTools([...builtInTools, ...createMcpTools(mcpManager)]);
+        runtime.setTools([...builtInTools, ...extensionTools, ...createMcpTools(mcpManager)]);
       }
       await runtime.runAgentTurn(prompt, session, controller.signal);
     } catch (err) {
@@ -535,6 +641,11 @@ export async function run(args: string[]): Promise<void> {
     } finally {
       activeTurnController = null;
       activity.stop();
+      if (messageQueue.length > 0) {
+        const next = messageQueue.shift()!;
+        appendLine(`> ${next}`, theme.tokens.user);
+        void runTurn(next);
+      }
     }
   }
 
@@ -615,6 +726,17 @@ export async function run(args: string[]): Promise<void> {
 
   const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
   const modelCache = new Map<string, { models: string[]; at: number }>();
+  for (const loaded of extensionLoader.list()) {
+    for (const [name, provider] of (loaded.registries?.providers ?? new Map())) {
+      const cfg = (provider as any)?.config ?? {};
+      const models = Array.isArray(cfg.models)
+        ? cfg.models.map((m: any) => m.id ?? m.name).filter(Boolean)
+        : [];
+      if (models.length > 0) {
+        modelCache.set(name, { models, at: Date.now() });
+      }
+    }
+  }
 
   function profileConfig(profile: string): Record<string, any> | undefined {
     return (config.providers as Record<string, any>)[profile];
@@ -1119,6 +1241,7 @@ export async function run(args: string[]): Promise<void> {
         .join("\n");
     },
     extensionDoctor: () => extensionLoader.doctor(),
+    reloadExtensions,
     switchModel: switchModelTarget,
     startProviderSetup,
     setEffort: setEffortTarget,
@@ -1374,6 +1497,113 @@ export async function run(args: string[]): Promise<void> {
     tui.requestRender();
   }
 
+  async function reloadExtensions(): Promise<void> {
+    const previous = extensionLoader.list();
+    // Emit session_shutdown and extension_unload before unloading.
+    for (const loaded of previous) {
+      const handlers = loaded.registries?.handlers?.get?.("session_shutdown" as any);
+      if (handlers) {
+        for (const handler of handlers) {
+          try {
+            await handler({ type: "session_shutdown", reason: "reload" }, (loaded.context ?? {}) as any);
+          } catch (error) {
+            appendLine(
+              `extension shutdown error: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
+      }
+    }
+    await extensionLoader.unloadAll();
+    try {
+      await extensionLoader.loadAll();
+    } catch (error) {
+      appendLine(
+        `extensions: reload failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      tui.requestRender();
+      return;
+    }
+    // Remove previously bridged providers, then re-bridge.
+    for (const name of extensionProviderNames) {
+      delete (config.providers as Record<string, any>)[name];
+      modelCache.delete(name);
+    }
+    extensionProviderNames.clear();
+    for (const loaded of extensionLoader.list()) {
+      for (const [name, provider] of (loaded.registries?.providers ?? new Map())) {
+        const cfg = (provider as any)?.config ?? {};
+        const firstModel = Array.isArray(cfg.models) && cfg.models.length > 0
+          ? (cfg.models[0].id ?? cfg.models[0].name ?? "default")
+          : "default";
+        const apiKey = resolveExtensionApiKey(cfg.apiKey);
+        const headers = { ...(cfg.headers ?? {}) };
+        if (cfg.authHeader && apiKey) headers.Authorization = `Bearer ${apiKey}`;
+        (config.providers as Record<string, any>)[name] = {
+          type: "openai-compatible",
+          baseUrl: cfg.baseUrl,
+          model: firstModel,
+          apiKey: apiKey ?? null,
+          apiKeyEnv: null,
+          headers,
+          contextWindow: cfg.models?.[0]?.contextWindow,
+        };
+        extensionProviderNames.add(name);
+        const models = Array.isArray(cfg.models)
+          ? cfg.models.map((m: any) => m.id ?? m.name).filter(Boolean)
+          : [];
+        if (models.length > 0) modelCache.set(name, { models, at: Date.now() });
+      }
+    }
+
+    // Re-apply extension tools.
+    try {
+      await mcpManager.syncTools();
+    } catch {
+      // ignore
+    }
+    runtime.setTools([
+      ...builtInTools,
+      ...collectExtensionTools(extensionLoader),
+      ...createMcpTools(mcpManager),
+    ]);
+    // Emit session_start with reason reload.
+    for (const loaded of extensionLoader.list()) {
+      const handlers = loaded.registries?.handlers?.get?.("session_start" as any);
+      if (handlers) {
+        for (const handler of handlers) {
+          try {
+            await handler({ type: "session_start", reason: "reload" }, (loaded.context ?? {}) as any);
+          } catch (error) {
+            appendLine(
+              `extension start error: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
+      }
+    }
+    appendLine(
+      `extensions: ${extensionLoader.list().length} reloaded (see /extensions)`,
+    );
+    tui.requestRender();
+  }
+
+  // Wire interactive extension UI callbacks now that the TUI exists.
+  extensionUICallbacks.notify = (message: string, type?: "info" | "warning" | "error") => {
+    const style =
+      type === "error"
+        ? theme.tokens.error
+        : type === "warning"
+          ? theme.tokens.warning
+          : theme.tokens.accent;
+    appendLine(`${style(`[ext]`)} ${message}`);
+  };
+  extensionUICallbacks.requestRender = () => tui.requestRender();
+  extensionUICallbacks.getToolsExpanded = () => expandTools;
+  extensionUICallbacks.setToolsExpanded = (expanded: boolean) => {
+    if (expandTools !== expanded) toggleTools();
+  };
+
   function toggleToolBoxAtScreenRow(screenY: number): boolean {
     const width = terminal.columns;
     const outputHeight = Math.max(1, output.viewportHeight || output.render(width).length);
@@ -1436,22 +1666,17 @@ export async function run(args: string[]): Promise<void> {
       activity.setPhase("thinking");
       if (!showThinking) return;
       if (!thinkingText) {
-        thinkingText = new Text(theme.tokens.dim("💭 thinking"));
+        thinkingText = new ThinkingBlock();
         transcript.add(thinkingText);
         thinkingBuffer = "";
       }
       thinkingBuffer += e.text;
-      thinkingText.setText(
-        `${theme.tokens.dim("💭 thinking")}\n${thinkingBody()}`,
-      );
+      thinkingText.buffer = thinkingBuffer;
       transcript.invalidate();
       tui.requestRender();
     } else if (e.type === "assistant_delta") {
       activity.setPhase("working");
       if (thinkingText) {
-        thinkingText.setText(
-          `${theme.tokens.dim("💭 thinking")}\n${thinkingBody()}`,
-        );
         transcript.invalidate();
         thinkingText = null;
         thinkingBuffer = "";
@@ -1460,9 +1685,6 @@ export async function run(args: string[]): Promise<void> {
     } else if (e.type === "assistant_text") {
       activity.setPhase("working");
       if (thinkingText) {
-        thinkingText.setText(
-          `${theme.tokens.dim("💭 thinking")}\n${thinkingBody()}`,
-        );
         transcript.invalidate();
         thinkingText = null;
         thinkingBuffer = "";
@@ -1534,7 +1756,7 @@ export async function run(args: string[]): Promise<void> {
       }
       if (useTools) {
         await mcpManager.syncTools();
-        runtime.setTools([...builtInTools, ...createMcpTools(mcpManager)]);
+        runtime.setTools([...builtInTools, ...extensionTools, ...createMcpTools(mcpManager)]);
       }
       appendLine(formatMcpStatus(mcpManager.status()));
       return;
@@ -1714,6 +1936,23 @@ export async function run(args: string[]): Promise<void> {
     }
 
     refreshCommandRegistry();
+    if (trimmed === "/steer" || trimmed.startsWith("/steer ")) {
+      const text = trimmed.slice("/steer".length).trim();
+      if (!text) {
+        appendLine("usage: /steer <message>");
+        tui.requestRender();
+        return;
+      }
+      if (activeTurnController) {
+        steeringQueue.push(text);
+        appendLine(`steering: ${text}`, theme.tokens.dim);
+      } else {
+        appendLine(`> ${text}`, theme.tokens.user);
+        await runTurn(text);
+      }
+      tui.requestRender();
+      return;
+    }
     if (trimmed.startsWith("/")) {
       const result = await commandRegistry.dispatch(trimmed, commandContext);
       if (result.exit) return;
@@ -1732,7 +1971,13 @@ export async function run(args: string[]): Promise<void> {
       return;
     }
 
-    appendLine(`> ${trimmed}`);
+    if (activeTurnController) {
+      messageQueue.push(trimmed);
+      appendLine(`queued: ${trimmed}`, theme.tokens.dim);
+      tui.requestRender();
+      return;
+    }
+    appendLine(`> ${trimmed}`, theme.tokens.user);
     await runTurn(trimmed);
   };
 
