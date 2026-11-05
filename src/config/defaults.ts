@@ -1,5 +1,3 @@
-import { DEFAULT_LIMITS } from "../types.js";
-
 export const DEFAULT_CONFIG = {
   defaultProvider: "kilo",
   providers: {
@@ -11,9 +9,13 @@ export const DEFAULT_CONFIG = {
     },
   } as Record<string, unknown>,
   runtime: {
-    ...DEFAULT_LIMITS,
+    maxParallelToolCalls: 10,
+    maxToolOutputBytes: 30000,
+    maxBashTimeMs: 120000,
     bashConcurrency: "serial",
-    approvalMode: "ask",
+    mode: "plan",
+    maxTokensPerSession: null as number | null,
+    maxTokensPerTurn: null as number | null,
   },
   context: {
     maxInputTokens: null as number | null,

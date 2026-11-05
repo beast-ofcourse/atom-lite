@@ -310,7 +310,7 @@ export async function run(args: string[]): Promise<void> {
   let sessionTrusted = false;
 
   const approvals: import("../runtime/approvals.js").ApprovalContext = {
-    mode: (config.runtime.approvalMode as "ask" | "trusted" | "deny") ?? "ask",
+    mode: "ask",
     // Installed below once the interactive UI helpers exist.
     handler: undefined,
     isTrusted: () => sessionTrusted,
@@ -1523,6 +1523,7 @@ export async function run(args: string[]): Promise<void> {
     for (const box of toolBoxes) {
       box.setExpanded(expandTools);
     }
+    transcript.invalidate();
     tui.requestRender();
   }
 
@@ -1650,6 +1651,7 @@ export async function run(args: string[]): Promise<void> {
     const child = children[Number(inner.id.slice("content:".length))];
     if (!(child instanceof ToolBox)) return false;
     child.toggleExpanded();
+    transcript.invalidate();
     return true;
   }
 
@@ -1741,6 +1743,7 @@ export async function run(args: string[]): Promise<void> {
       if (box) {
         activity.setPhase("working", e.name);
         box.appendLive(e.text);
+        transcript.invalidate();
         tui.requestRender();
       }
     } else if (e.type === "tool_result") {

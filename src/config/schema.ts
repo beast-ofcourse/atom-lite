@@ -18,14 +18,13 @@ export const ProviderConfigSchema = z
 
 export const RuntimeConfigSchema = z
   .object({
-    maxIterations: z.number().int().positive().default(40),
-    maxToolCalls: z.number().int().positive().default(100),
-    maxExecutionMs: z.number().int().positive().default(1_800_000),
-    maxParallelToolCalls: z.number().int().positive().default(4),
+    maxParallelToolCalls: z.number().int().positive().default(10),
     maxToolOutputBytes: z.number().int().positive().default(30_000),
     maxBashTimeMs: z.number().int().positive().default(120_000),
     bashConcurrency: z.enum(["serial", "parallel"]).default("serial"),
-    approvalMode: z.enum(["ask", "trusted", "deny"]).default("ask"),
+    mode: z.enum(["plan", "yolo"]).default("plan"),
+    maxTokensPerSession: z.number().int().positive().nullable().default(null),
+    maxTokensPerTurn: z.number().int().positive().nullable().default(null),
   })
   .strict();
 

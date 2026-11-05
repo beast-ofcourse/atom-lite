@@ -21,7 +21,7 @@ test("saveProviderSelection preserves unrelated user config", () => {
   writeFileSync(
     path,
     JSON.stringify({
-      runtime: { approvalMode: "trusted" },
+      runtime: { mode: "yolo" },
       providers: {
         kilo: { type: "openai-compatible", model: "kilo-auto/free" },
       },
@@ -38,7 +38,7 @@ test("saveProviderSelection preserves unrelated user config", () => {
   );
   const raw = readUserConfig(path) as any;
   assert.equal(raw.defaultProvider, "openai");
-  assert.equal(raw.runtime.approvalMode, "trusted");
+  assert.equal(raw.runtime.mode, "yolo");
   assert.equal(raw.providers.kilo.model, "kilo-auto/free");
   assert.equal(raw.providers.openai.baseUrl, "https://api.openai.com/v1");
 });
@@ -85,12 +85,12 @@ test("saveTheme only changes ui.theme", () => {
     path,
     JSON.stringify({
       ui: { mouse: false },
-      runtime: { approvalMode: "trusted" },
+      runtime: { mode: "yolo" },
     }),
   );
   saveTheme("light", path);
   const raw = readUserConfig(path) as any;
   assert.equal(raw.ui.theme, "light");
   assert.equal(raw.ui.mouse, false);
-  assert.equal(raw.runtime.approvalMode, "trusted");
+  assert.equal(raw.runtime.mode, "yolo");
 });

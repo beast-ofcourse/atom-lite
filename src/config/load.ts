@@ -46,10 +46,27 @@ function envOverrides(): Partial<Config> {
   if (process.env.ATOM_LITE_MODEL) {
     // model override applies to all providers is not precise; store as override hint only
   }
-  if (process.env.ATOM_LITE_APPROVAL_MODE) {
-    out.runtime = { approvalMode: process.env.ATOM_LITE_APPROVAL_MODE };
+  if (process.env.ATOM_LITE_MODE) {
+    out.runtime = { mode: process.env.ATOM_LITE_MODE };
   }
   return out as Partial<Config>;
+}
+
+function normalizeRuntime(
+  raw: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...raw };
+  if ("approvalMode" in out && !("mode" in out)) {
+    const legacy = out.approvalMode;
+    out.mode =
+      legacy === "trusted" ? "yolo" : legacy === "deny" ? "plan" : "plan";
+  }
+  delete out.approvalMode;
+  // Removed caps: drop so strict schema does not reject older configs.
+  delete out.maxIterations;
+  delete out.maxToolCalls;
+  delete out.maxExecutionMs;
+  return out;
 }
 
 export function loadConfig(options: LoadConfigOptions = {}): Config {
@@ -68,6 +85,15 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     string,
     unknown
   >;
+
+  // Normalize legacy runtime keys (approvalMode, removed caps) so older
+  // configs keep loading.
+  if (userRaw.runtime && typeof userRaw.runtime === "object") {
+    userRaw.runtime = normalizeRuntime(userRaw.runtime as Record<string, unknown>);
+  }
+  if (projectRaw.runtime && typeof projectRaw.runtime === "object") {
+    projectRaw.runtime = normalizeRuntime(projectRaw.runtime as Record<string, unknown>);
+  }
 
   const warn = options.onWarning ?? defaultWarning;
   if (
@@ -139,7 +165,11 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
   const userRuntime =
     (userRaw.runtime as Record<string, unknown> | undefined) ?? {};
   const mergedRuntime = (merged.runtime as Record<string, unknown>) ?? {};
-  mergedRuntime.approvalMode = userRuntime.approvalMode ?? "ask";
+  mergedRuntime.mode = userRuntime.mode ?? "plan";
+  mergedRuntime.maxTokensPerSession =
+    userRuntime.maxTokensPerSession ?? null;
+  mergedRuntime.maxTokensPerTurn = userRuntime.maxTokensPerTurn ?? null;
+  delete mergedRuntime.approvalMode;
   merged.runtime = mergedRuntime;
 
   // no fallback; trust explicit configuration

@@ -12,7 +12,7 @@ test("loadConfig returns defaults when no files exist", () => {
     userConfigPath: join(dir, "nope.json"),
   });
   assert.equal(cfg.defaultProvider, "kilo");
-  assert.equal(cfg.runtime.approvalMode, "ask");
+  assert.equal(cfg.runtime.mode, "plan");
 });
 
 test("loadConfig reads project config", () => {
@@ -34,7 +34,7 @@ test("loadConfig throws on invalid config", () => {
   mkdirSync(join(dir, ".atom-lite"));
   writeFileSync(
     join(dir, ".atom-lite", "config.json"),
-    JSON.stringify({ runtime: { maxIterations: 0 } }),
+    JSON.stringify({ runtime: { maxParallelToolCalls: 0 } }),
   );
   assert.throws(() =>
     loadConfig({ projectRoot: dir, userConfigPath: join(dir, "nope.json") }),
