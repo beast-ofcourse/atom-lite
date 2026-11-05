@@ -1,4 +1,5 @@
 import { readdirSync, statSync, readFileSync, existsSync } from "node:fs";
+import * as fs from "node:fs";
 import { resolve, relative, join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { isWithinWorkspace } from "../security/paths.js";
@@ -30,7 +31,6 @@ function collectFiles(root: string, globPattern?: string): string[] {
   }
   if (globPattern) {
     try {
-      const fs = require("node:fs");
       const matches = (fs as any).globSync(globPattern, { cwd: root }) as string[];
       return matches.map((m: string) => resolve(root, m));
     } catch {
@@ -214,7 +214,7 @@ export const grepTool: Tool = {
     if (context > 0) rgArgs.push("-C", String(context));
     if (output_mode === "files_with_matches") rgArgs.push("-l");
     else if (output_mode === "count") rgArgs.push("-c");
-    rgArgs.push("--color=never", "-H", "-n");
+    rgArgs.push("--hidden", "--color=never", "-H", "-n");
     rgArgs.push(pattern);
     rgArgs.push(root);
 

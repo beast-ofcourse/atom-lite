@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import * as fs from "node:fs";
 import { resolve, relative } from "node:path";
 import { spawnSync } from "node:child_process";
 import { isWithinWorkspace } from "../security/paths.js";
@@ -62,7 +63,7 @@ export const globTool: Tool = {
     }
 
     // Try ripgrep --files for speed.
-    const res = spawnSync("rg", ["--files", "-g", pattern, root], {
+    const res = spawnSync("rg", ["--hidden", "--files", "-g", pattern, root], {
       encoding: "utf8",
       maxBuffer: 10 * 1024 * 1024,
       timeout: 30000,
@@ -72,7 +73,6 @@ export const globTool: Tool = {
     if (res.error) {
       // Fallback to Node fs.globSync.
       try {
-        const fs = require("node:fs");
         matches = (fs as any).globSync(pattern, { cwd: root }) as string[];
         matches = matches.map((m: string) => resolve(root, m));
       } catch (err) {

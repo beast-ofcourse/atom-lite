@@ -750,7 +750,7 @@ export async function run(args: string[]): Promise<void> {
             resolve({ code: null, signal: "SIGTERM" });
           }, 120000);
           timer.unref();
-          child.on("close", (code, signal) => {
+          child.on("exit", (code, signal) => {
             clearTimeout(timer);
             resolve({ code, signal });
           });
