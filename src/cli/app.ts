@@ -461,11 +461,25 @@ export async function run(args: string[]): Promise<void> {
     commandRegistry = createCommandRegistry({ skills: cachedSkillRegistry().list() });
     registrySkillSignature = sig;
     input.setAutocompleteProvider(
-      new CombinedAutocompleteProvider(commandRegistry.autocomplete() as any, process.cwd()),
+      new CombinedAutocompleteProvider(commandRegistry.autocomplete() as any, process.cwd(), fdPath),
     );
   }
+  const fdPath = (() => {
+    for (const bin of ["fd", "fdfind"]) {
+      try {
+        const found = execSync(`command -v ${bin}`, {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+        if (found) return found;
+      } catch {
+        // ignore
+      }
+    }
+    return null;
+  })();
   input.setAutocompleteProvider(
-    new CombinedAutocompleteProvider(commandRegistry.autocomplete() as any, process.cwd()),
+    new CombinedAutocompleteProvider(commandRegistry.autocomplete() as any, process.cwd(), fdPath),
   );
 
   // Skills should autocomplete (fill the input) rather than execute immediately
