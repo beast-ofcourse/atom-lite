@@ -1,12 +1,16 @@
 # Atom-lite
 
+<p align="center">
+  <img src="./assets/atom-lite.png" alt="Atom-lite" width="400" />
+</p>
+
 [![npm](https://img.shields.io/npm/v/atom-lite?logo=npm)](https://www.npmjs.com/package/atom-lite)
 [![CI](https://github.com/beast-ofcourse/atom-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/beast-ofcourse/atom-lite/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22.19-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-Atom-lite is a local-first, model-agnostic coding agent built on a deliberately small harness: one agent loop, six built-in tools, a conflict-aware scheduler, durable JSONL sessions, and explicit safety boundaries. It runs against local or hosted providers through interchangeable adapters — no cloud account, telemetry, or control plane required.
+Atom-lite is a local-first, model-agnostic coding agent built on a deliberately small harness: one agent loop, eight built-in tools, a conflict-aware scheduler, durable JSONL sessions, and explicit safety boundaries. It runs against local or hosted providers through interchangeable adapters — no cloud account, telemetry, or control plane required.
 
 > Documentation index: [`docs/README.md`](./docs/README.md). Architectural decisions: [`docs/adr/`](./docs/adr/).
 
@@ -20,7 +24,7 @@ Most coding agents accumulate tools, sub-agents, and orchestration until the har
 
 ## Features
 
-- **Six built-in tools** — `read`, `write`, `edit`, `bash`, `webfetch`, `websearch`. Everything else (search, tests, git, builds) runs through `bash`.
+- **Eight built-in tools** — `read`, `write`, `edit`, `bash`, `grep`, `glob`, `webfetch`, `websearch`. Everything else (tests, git, builds) runs through `bash`.
 - **Single agent loop** — one agent, one conversation, one registry, one control loop. Parallelism lives inside a tool-call batch.
 - **Conflict-aware scheduler** — per-file read/write locks and a global bash barrier.
 - **Durable sessions** — append-only JSONL event logs, resumable across restarts, grouped by workspace.
@@ -113,7 +117,7 @@ In the TUI, type `/help` for every command grouped by category, or press `ctrl+p
 
 ## Tools
 
-Four core tools (see [ADR 0001](./docs/adr/0001-four-built-in-tools-only.md)) plus the additive network tools from [ADR 0006](./docs/adr/0006-expanded-toolset.md):
+Eight built-in tools — the four core tools from [ADR 0001](./docs/adr/0001-four-built-in-tools-only.md), file search, plus the additive network tools from [ADR 0006](./docs/adr/0006-expanded-toolset.md):
 
 | Tool | Purpose |
 | --- | --- |
@@ -121,10 +125,12 @@ Four core tools (see [ADR 0001](./docs/adr/0001-four-built-in-tools-only.md)) pl
 | `write` | Create or replace files safely (hash-guarded) |
 | `edit` | Precise find-and-replace edits (hash-guarded) |
 | `bash` | Execute shell commands (global exclusive barrier by default) |
+| `grep` | Search file contents by regex (ripgrep-backed, falls back to JS) |
+| `glob` | Find files matching a glob pattern |
 | `webfetch` | Fetch a URL and convert HTML to markdown |
 | `websearch` | Search the web and return ranked results |
 
-File discovery, search, tests, Git, builds, formatters, and package managers are available through `bash`, not through additional built-in tools.
+Tests, Git, builds, formatters, and package managers are available through `bash`.
 
 ## Providers
 
@@ -221,7 +227,7 @@ src/
   runtime/      # scheduler, approvals
   security/     # paths, process, redaction
   sessions/     # store, events, recovery
-  tools/        # read, write, edit, bash, webfetch, websearch, registry
+  tools/        # read, write, edit, bash, grep, glob, webfetch, websearch, registry
 ```
 
 Key design decisions are recorded as ADRs in [`docs/adr/`](./docs/adr/):
