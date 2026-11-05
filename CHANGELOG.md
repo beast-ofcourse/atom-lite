@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+## [0.5.0] - 2026-11-05
+
+### Added
+
+- Unmodified Pi coding-agent extension support: discovery, project trust,
+  in-process loading via `jiti`, extension tools, commands, events, and
+  session entries, plus ADR-0011 and the extensions guide.
+- `/extensions doctor` diagnostics, `/steer` mid-turn injection, and
+  message queuing during active turns.
+- Continuous dimmed thinking blocks in the TUI.
+
 ## [0.4.1] - 2026-11-04
 
 ### Fixed
