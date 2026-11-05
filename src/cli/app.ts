@@ -202,6 +202,23 @@ export async function run(args: string[]): Promise<void> {
   });
 
   const extensionUICallbacks: ExtensionUICallbacks = {};
+  const extensionProviderNames = new Set<string>();
+  function resolveExtensionApiKey(value: unknown): string | undefined {
+    if (typeof value !== "string" || !value) return undefined;
+    if (value.startsWith("!")) {
+      try {
+        const { execFileSync } = require("node:child_process");
+        const parts = value.slice(1).trim().split(/\s+/);
+        return execFileSync(parts[0], parts.slice(1), { encoding: "utf8" }).trim();
+      } catch {
+        return undefined;
+      }
+    }
+    if (value.startsWith("$")) return process.env[value.slice(1)] ?? value;
+    if (value.startsWith("${") && value.endsWith("}"))
+      return process.env[value.slice(2, -1)] ?? value;
+    return value;
+  }
   const extensionLoader = new ExtensionLoader({
     cliPaths: extensionPaths,
     cwd: process.cwd(),
@@ -225,6 +242,36 @@ export async function run(args: string[]): Promise<void> {
   await extensionLoader.loadAll().catch(() => {
     // Extension failures are reported per extension.
   });
+  // Remove any previously bridged extension providers before re-bridging.
+  for (const name of extensionProviderNames) {
+    delete (config.providers as Record<string, any>)[name];
+  }
+  extensionProviderNames.clear();
+
+  // Bridge Pi-style extension providers into Atom-lite's config so they
+  // appear in /provider, /model, and the command palette.
+  for (const loaded of extensionLoader.list()) {
+    for (const [name, provider] of (loaded.registries?.providers ?? new Map())) {
+      const cfg = (provider as any)?.config ?? {};
+      const firstModel = Array.isArray(cfg.models) && cfg.models.length > 0
+        ? (cfg.models[0].id ?? cfg.models[0].name ?? "default")
+        : "default";
+      const apiKey = resolveExtensionApiKey(cfg.apiKey);
+      const headers = { ...(cfg.headers ?? {}) };
+      if (cfg.authHeader && apiKey) headers.Authorization = `Bearer ${apiKey}`;
+      (config.providers as Record<string, any>)[name] = {
+        type: "openai-compatible",
+        baseUrl: cfg.baseUrl,
+        model: firstModel,
+        apiKey: apiKey ?? null,
+        apiKeyEnv: null,
+        headers,
+        contextWindow: cfg.models?.[0]?.contextWindow,
+      };
+      extensionProviderNames.add(name);
+    }
+  }
+
   const extensionTools = collectExtensionTools(extensionLoader);
   const allTools = [...builtInTools, ...extensionTools];
   const extensionDispatch = async (event: string, payload: any) => {
@@ -671,6 +718,17 @@ export async function run(args: string[]): Promise<void> {
 
   const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
   const modelCache = new Map<string, { models: string[]; at: number }>();
+  for (const loaded of extensionLoader.list()) {
+    for (const [name, provider] of (loaded.registries?.providers ?? new Map())) {
+      const cfg = (provider as any)?.config ?? {};
+      const models = Array.isArray(cfg.models)
+        ? cfg.models.map((m: any) => m.id ?? m.name).filter(Boolean)
+        : [];
+      if (models.length > 0) {
+        modelCache.set(name, { models, at: Date.now() });
+      }
+    }
+  }
 
   function profileConfig(profile: string): Record<string, any> | undefined {
     return (config.providers as Record<string, any>)[profile];
@@ -1175,6 +1233,7 @@ export async function run(args: string[]): Promise<void> {
         .join("\n");
     },
     extensionDoctor: () => extensionLoader.doctor(),
+    reloadExtensions,
     switchModel: switchModelTarget,
     startProviderSetup,
     setEffort: setEffortTarget,
@@ -1427,6 +1486,97 @@ export async function run(args: string[]): Promise<void> {
     for (const box of toolBoxes) {
       box.setExpanded(expandTools);
     }
+    tui.requestRender();
+  }
+
+  async function reloadExtensions(): Promise<void> {
+    const previous = extensionLoader.list();
+    // Emit session_shutdown and extension_unload before unloading.
+    for (const loaded of previous) {
+      const handlers = loaded.registries?.handlers?.get?.("session_shutdown" as any);
+      if (handlers) {
+        for (const handler of handlers) {
+          try {
+            await handler({ type: "session_shutdown", reason: "reload" }, (loaded.context ?? {}) as any);
+          } catch (error) {
+            appendLine(
+              `extension shutdown error: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
+      }
+    }
+    await extensionLoader.unloadAll();
+    try {
+      await extensionLoader.loadAll();
+    } catch (error) {
+      appendLine(
+        `extensions: reload failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      tui.requestRender();
+      return;
+    }
+    // Remove previously bridged providers, then re-bridge.
+    for (const name of extensionProviderNames) {
+      delete (config.providers as Record<string, any>)[name];
+      modelCache.delete(name);
+    }
+    extensionProviderNames.clear();
+    for (const loaded of extensionLoader.list()) {
+      for (const [name, provider] of (loaded.registries?.providers ?? new Map())) {
+        const cfg = (provider as any)?.config ?? {};
+        const firstModel = Array.isArray(cfg.models) && cfg.models.length > 0
+          ? (cfg.models[0].id ?? cfg.models[0].name ?? "default")
+          : "default";
+        const apiKey = resolveExtensionApiKey(cfg.apiKey);
+        const headers = { ...(cfg.headers ?? {}) };
+        if (cfg.authHeader && apiKey) headers.Authorization = `Bearer ${apiKey}`;
+        (config.providers as Record<string, any>)[name] = {
+          type: "openai-compatible",
+          baseUrl: cfg.baseUrl,
+          model: firstModel,
+          apiKey: apiKey ?? null,
+          apiKeyEnv: null,
+          headers,
+          contextWindow: cfg.models?.[0]?.contextWindow,
+        };
+        extensionProviderNames.add(name);
+        const models = Array.isArray(cfg.models)
+          ? cfg.models.map((m: any) => m.id ?? m.name).filter(Boolean)
+          : [];
+        if (models.length > 0) modelCache.set(name, { models, at: Date.now() });
+      }
+    }
+
+    // Re-apply extension tools.
+    try {
+      await mcpManager.syncTools();
+    } catch {
+      // ignore
+    }
+    runtime.setTools([
+      ...builtInTools,
+      ...collectExtensionTools(extensionLoader),
+      ...createMcpTools(mcpManager),
+    ]);
+    // Emit session_start with reason reload.
+    for (const loaded of extensionLoader.list()) {
+      const handlers = loaded.registries?.handlers?.get?.("session_start" as any);
+      if (handlers) {
+        for (const handler of handlers) {
+          try {
+            await handler({ type: "session_start", reason: "reload" }, (loaded.context ?? {}) as any);
+          } catch (error) {
+            appendLine(
+              `extension start error: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
+      }
+    }
+    appendLine(
+      `extensions: ${extensionLoader.list().length} reloaded (see /extensions)`,
+    );
     tui.requestRender();
   }
 

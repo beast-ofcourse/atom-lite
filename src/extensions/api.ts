@@ -31,6 +31,14 @@ export interface ExtensionAPI {
   notify(message: string, level?: "info" | "warning" | "error"): void;
   registerWidget(location: ExtensionWidget["location"], widget: ExtensionWidget): void;
   unregisterWidget(id: string): void;
+  registerToolRenderer(resolver: any): void;
+  registerMessageRenderer(customType: string, renderer: any): void;
+  registerEntryRenderer(customType: string, renderer: any): void;
+  registerMarkdownTransformer(transformer: any): void;
+  registerShortcut(shortcut: string, options: { description?: string; handler: (ctx: any) => void | Promise<void> }): void;
+  registerFlag(name: string, options: any): void;
+  getFlag(name: string): boolean | string | undefined;
+  addAutocompleteProvider(factory: any): void;
   setWidget(
     key: string,
     content: string[] | ((tui: any, theme: any) => any) | undefined,
@@ -65,6 +73,14 @@ export interface ExtensionRegistries {
   handlers: Map<AtomEvent, Set<ExtensionEventHandler>>;
   widgets: Map<string, ExtensionWidget>;
   uiWidgets: Map<string, any>;
+  toolRenderers: any[];
+  messageRenderers: Map<string, any>;
+  entryRenderers: Map<string, any>;
+  markdownTransformers: any[];
+  shortcuts: Map<string, any>;
+  flags: Map<string, any>;
+  flagValues: Map<string, any>;
+  autocompleteProviders: any[];
   footerFactory?: any;
   headerFactory?: any;
   title?: string;
@@ -87,6 +103,14 @@ export function createExtensionRegistries(): ExtensionRegistries {
     handlers: new Map(),
     widgets: new Map(),
     uiWidgets: new Map(),
+    toolRenderers: [],
+    messageRenderers: new Map(),
+    entryRenderers: new Map(),
+    markdownTransformers: [],
+    shortcuts: new Map(),
+    flags: new Map(),
+    flagValues: new Map(),
+    autocompleteProviders: [],
     workingVisible: true,
     toolsExpanded: false,
     providers: new Map(),
@@ -184,6 +208,33 @@ export function createExtensionAPI(
     },
     unregisterWidget: (widgetId) => {
       registries.widgets.delete(widgetId);
+    },
+    registerToolRenderer: (resolver) => {
+      registries.toolRenderers.push(resolver);
+    },
+    registerMessageRenderer: (customType, renderer) => {
+      registries.messageRenderers.set(customType, renderer);
+    },
+    registerEntryRenderer: (customType, renderer) => {
+      registries.entryRenderers.set(customType, renderer);
+    },
+    registerMarkdownTransformer: (transformer) => {
+      if (registries.markdownTransformers.length > 0) {
+        registries.markdownTransformers[registries.markdownTransformers.length - 1] = transformer;
+      } else {
+        registries.markdownTransformers.push(transformer);
+      }
+    },
+    registerShortcut: (shortcut, options) => {
+      registries.shortcuts.set(shortcut, options);
+    },
+    registerFlag: (name, options) => {
+      registries.flags.set(name, options);
+      if (options?.default !== undefined) registries.flagValues.set(name, options.default);
+    },
+    getFlag: (name) => registries.flagValues.get(name),
+    addAutocompleteProvider: (factory) => {
+      registries.autocompleteProviders.push(factory);
     },
     setWidget: (key, content, options) => ctx.ui.setWidget(key, content, options),
     setFooter: (factory) => ctx.ui.setFooter(factory),

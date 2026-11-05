@@ -58,16 +58,12 @@ export class StatusLine implements Component {
     );
     const bottom = truncateToWidth(tokens.dim(this.parts.tokens), contentWidth);
     const rows = [
-      " " + top + " ".repeat(Math.max(0, width - visibleWidth(top) - 1)),
-      " " + bottom + " ".repeat(Math.max(0, width - visibleWidth(bottom) - 1)),
+      " " + top,
+      " " + bottom,
     ];
     if (this.parts.activity !== undefined) {
       const activity = truncateToWidth(this.parts.activity, contentWidth);
-      rows.push(
-        " " +
-          activity +
-          " ".repeat(Math.max(0, width - visibleWidth(activity) - 1)),
-      );
+      rows.push(" " + activity);
     }
     return rows;
   }
