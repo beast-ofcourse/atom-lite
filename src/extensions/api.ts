@@ -207,8 +207,33 @@ export function createExtensionAPI(
     getWorkspace: () => ctx.workspace,
     getSession: () => ({ id: sessionId }),
     isProjectTrusted: () => ctx.trusted,
-    registerProvider: (provider) => {
-      registries.providers.set(provider.name, provider);
+    registerProvider: (providerOrName: any, config?: any) => {
+      const name =
+        typeof providerOrName === "string"
+          ? providerOrName
+          : providerOrName?.name ?? providerOrName?.id;
+      const cfg =
+        typeof providerOrName === "string"
+          ? (config ?? {})
+          : providerOrName?.config ?? providerOrName ?? {};
+      if (!name) {
+        // eslint-disable-next-line no-console
+        console.error("[extension] registerProvider requires a provider name");
+        return;
+      }
+      const unsupported: string[] = [];
+      if (cfg?.oauth) unsupported.push("oauth");
+      if (cfg?.streamSimple) unsupported.push("streamSimple");
+      if (cfg?.classifiers) unsupported.push("classifiers");
+      if (cfg?.refreshModels) unsupported.push("refreshModels");
+      if (cfg?.images) unsupported.push("images");
+      if (unsupported.length > 0) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `[extension] provider "${name}" uses reduced-compatibility features: ${unsupported.join(", ")}`,
+        );
+      }
+      registries.providers.set(name, { name, config: { ...cfg } });
     },
     unregisterProvider: (name) => {
       registries.providers.delete(name);

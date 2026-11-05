@@ -6,6 +6,15 @@ export interface ExtensionUICallbacks {
   requestRender?: () => void;
   getToolsExpanded?: () => boolean;
   setToolsExpanded?: (expanded: boolean) => void;
+  select?: (title: string, options: string[], opts?: any) => Promise<string | undefined>;
+  confirm?: (title: string, message: string, opts?: any) => Promise<boolean>;
+  input?: (title: string, placeholder?: string, opts?: any) => Promise<string | undefined>;
+  editor?: (title: string, prefill?: string, opts?: any) => Promise<string | undefined>;
+  custom?: <T>(factory: any, options?: any) => Promise<T>;
+  pasteToEditor?: (text: string) => void;
+  setEditorText?: (text: string) => void;
+  getEditorText?: () => string;
+  onTerminalInput?: (handler: (data: string) => { consume?: boolean; data?: string } | undefined) => () => void;
 }
 
 export function createDefaultExtensionUI(
@@ -15,9 +24,6 @@ export function createDefaultExtensionUI(
 ): ExtensionUIContext {
   const noopUnsubscribe = () => {};
   return {
-    select: async () => undefined,
-    confirm: async () => false,
-    input: async () => undefined,
     notify: (message, type) => {
       if (callbacks.notify) callbacks.notify(message, type);
       else {
@@ -25,7 +31,6 @@ export function createDefaultExtensionUI(
         console.error(`[extension] ${type ?? "info"}: ${message}`);
       }
     },
-    onTerminalInput: () => noopUnsubscribe,
     setStatus: (key, text) => {
       if (text === undefined) registries.status.delete(key);
       else registries.status.set(key, text);
@@ -65,9 +70,21 @@ export function createDefaultExtensionUI(
       registries.title = title;
       callbacks.requestRender?.();
     },
-    custom: async <T>() => undefined as T,
-    pasteToEditor: () => {},
-    setEditorText: () => {},
+    select: (title, options, opts) =>
+      callbacks.select ? callbacks.select(title, options, opts) : Promise.resolve(undefined),
+    confirm: (title, message, opts) =>
+      callbacks.confirm ? callbacks.confirm(title, message, opts) : Promise.resolve(false),
+    input: (title, placeholder, opts) =>
+      callbacks.input ? callbacks.input(title, placeholder, opts) : Promise.resolve(undefined),
+    editor: (title, prefill, opts) =>
+      callbacks.editor ? callbacks.editor(title, prefill, opts) : Promise.resolve(undefined),
+    custom: <T>(factory: any, options?: any) =>
+      callbacks.custom ? callbacks.custom<T>(factory, options) : Promise.resolve(undefined as T),
+    pasteToEditor: (text) => callbacks.pasteToEditor?.(text),
+    setEditorText: (text) => callbacks.setEditorText?.(text),
+    getEditorText: () => (callbacks.getEditorText ? callbacks.getEditorText() : ""),
+    onTerminalInput: (handler) =>
+      callbacks.onTerminalInput ? callbacks.onTerminalInput(handler) : () => {},
     getToolsExpanded: () => (callbacks.getToolsExpanded ? callbacks.getToolsExpanded() : registries.toolsExpanded),
     setToolsExpanded: (expanded) => {
       registries.toolsExpanded = expanded;

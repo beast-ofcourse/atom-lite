@@ -84,6 +84,7 @@ import {
   isKeyRepeat,
   Key,
   matchesKey,
+  wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 
 export async function run(args: string[]): Promise<void> {
@@ -440,7 +441,27 @@ export async function run(args: string[]): Promise<void> {
     }
   }
 
-  let thinkingText: any = null;
+  class ThinkingBlock {
+    buffer = "";
+    render(width: number): string[] {
+      const lines: string[] = [theme.tokens.dim("💭 thinking")];
+      const sep = theme.tokens.dim("│ ");
+      const contentWidth = Math.max(1, width - 2);
+      const logicalLines = this.buffer.length > 0 ? this.buffer.split("\\n") : [""];
+      for (const logical of logicalLines) {
+        const wrapped = wrapTextWithAnsi(logical, contentWidth);
+        if (wrapped.length === 0) {
+          lines.push(sep);
+        } else {
+          for (const part of wrapped) lines.push(sep + part);
+        }
+      }
+      return lines;
+    }
+    invalidate(): void {}
+  }
+
+  let thinkingText: ThinkingBlock | null = null;
   let thinkingBuffer = "";
   let showThinking = config.ui.showThinking;
   let expandTools = false;
@@ -1487,22 +1508,17 @@ export async function run(args: string[]): Promise<void> {
       activity.setPhase("thinking");
       if (!showThinking) return;
       if (!thinkingText) {
-        thinkingText = new Text(theme.tokens.dim("💭 thinking"));
+        thinkingText = new ThinkingBlock();
         transcript.add(thinkingText);
         thinkingBuffer = "";
       }
       thinkingBuffer += e.text;
-      thinkingText.setText(
-        `${theme.tokens.dim("💭 thinking")}\n${thinkingBody()}`,
-      );
+      thinkingText.buffer = thinkingBuffer;
       transcript.invalidate();
       tui.requestRender();
     } else if (e.type === "assistant_delta") {
       activity.setPhase("working");
       if (thinkingText) {
-        thinkingText.setText(
-          `${theme.tokens.dim("💭 thinking")}\n${thinkingBody()}`,
-        );
         transcript.invalidate();
         thinkingText = null;
         thinkingBuffer = "";
@@ -1511,9 +1527,6 @@ export async function run(args: string[]): Promise<void> {
     } else if (e.type === "assistant_text") {
       activity.setPhase("working");
       if (thinkingText) {
-        thinkingText.setText(
-          `${theme.tokens.dim("💭 thinking")}\n${thinkingBody()}`,
-        );
         transcript.invalidate();
         thinkingText = null;
         thinkingBuffer = "";

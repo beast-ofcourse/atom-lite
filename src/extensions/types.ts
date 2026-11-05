@@ -43,6 +43,7 @@ export interface ExtensionUIContext {
   select(title: string, options: string[], opts?: any): Promise<string | undefined>;
   confirm(title: string, message: string, opts?: any): Promise<boolean>;
   input(title: string, placeholder?: string, opts?: any): Promise<string | undefined>;
+  editor(title: string, prefill?: string, opts?: any): Promise<string | undefined>;
   notify(message: string, type?: "info" | "warning" | "error"): void;
   onTerminalInput(handler: (data: string) => { consume?: boolean; data?: string } | undefined): () => void;
   setStatus(key: string, text: string | undefined): void;
@@ -61,6 +62,7 @@ export interface ExtensionUIContext {
   custom<T>(factory: any, options?: any): Promise<T>;
   pasteToEditor(text: string): void;
   setEditorText(text: string): void;
+  getEditorText(): string;
   getToolsExpanded(): boolean;
   setToolsExpanded(expanded: boolean): void;
   getTheme(name: string): any;
