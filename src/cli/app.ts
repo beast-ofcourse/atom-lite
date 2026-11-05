@@ -326,6 +326,9 @@ export async function run(args: string[]): Promise<void> {
     workspace: process.cwd(),
     tools: allTools,
     approvals,
+    mode: config.runtime.mode,
+    maxTokensPerSession: config.runtime.maxTokensPerSession,
+    maxTokensPerTurn: config.runtime.maxTokensPerTurn,
     contextManager,
     extensionDispatch,
     bashConcurrency: config.runtime.bashConcurrency,
@@ -416,10 +419,12 @@ export async function run(args: string[]): Promise<void> {
 
   const statusBar = new StatusLine(theme);
   const activity = new Activity({ theme, onChange: () => updateStatus() });
+  let currentMode: "plan" | "yolo" = config.runtime.mode;
   statusBar.setParts({
     left: `${provider.id}/${(provider as any).model ?? "default"}`,
     tokens: "tokens: ?",
     effort: "effort: medium",
+    mode: currentMode,
     activity: activity.text(),
   });
 
@@ -682,6 +687,7 @@ export async function run(args: string[]): Promise<void> {
       left: `${provider.id}/${currentModelLabel()}`,
       tokens: `tokens: ${formatContextUsage(usage.used, usage.window)}`,
       effort: `effort: ${effortLevel}`,
+      mode: currentMode,
       activity: activity.text(),
     });
     tui.requestRender();
@@ -1682,6 +1688,15 @@ export async function run(args: string[]): Promise<void> {
     // Ctrl+O toggles tool expansion (unless a modal is capturing input).
     if (matchesKey(data, Key.ctrl("o")) && !uiModalOpen) {
       toggleTools();
+      return { consume: true };
+    }
+    // Tab toggles plan/yolo mode.
+    if (matchesKey(data, Key.tab) && !uiModalOpen) {
+      currentMode = currentMode === "plan" ? "yolo" : "plan";
+      runtime.setMode(currentMode);
+      updateStatus();
+      appendLine(`mode: ${currentMode}`, theme.tokens.dim);
+      tui.requestRender();
       return { consume: true };
     }
     // Escape cancels the active turn.

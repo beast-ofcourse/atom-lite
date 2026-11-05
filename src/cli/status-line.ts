@@ -6,6 +6,8 @@ export interface StatusLineParts {
   left: string;
   tokens: string;
   effort: string;
+  /** Current agent mode, rendered as "mode:<value>" in the top row. */
+  mode?: string;
   /** Animated agent state, rendered as an optional third row. Already styled. */
   activity?: string;
 }
@@ -51,9 +53,17 @@ export class StatusLine implements Component {
   render(width: number): string[] {
     const tokens = this.theme.tokens;
     const contentWidth = Math.max(1, width - 2);
+    const modePart = this.parts.mode
+      ? (this.parts.mode === "yolo"
+          ? tokens.warning(`mode:${this.parts.mode}`)
+          : tokens.accent(`mode:${this.parts.mode}`))
+      : "";
+    const right = [modePart, tokens.dim(this.parts.effort)]
+      .filter(Boolean)
+      .join("  ");
     const top = formatStatusLine(
       tokens.status(this.parts.left),
-      tokens.dim(this.parts.effort),
+      right,
       contentWidth,
     );
     const bottom = truncateToWidth(tokens.dim(this.parts.tokens), contentWidth);
