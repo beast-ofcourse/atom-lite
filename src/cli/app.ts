@@ -1847,6 +1847,9 @@ export async function run(args: string[]): Promise<void> {
       finalizeText();
     } else if (e.type === "context_usage") {
       updateStatus();
+    } else if (e.type === "background_task_complete") {
+      appendLine(`background task ${e.id}: ${e.status} (exit ${e.exitCode ?? "null"})`, theme.tokens.dim);
+      tui.requestRender();
     } else if (e.type === "budget_warning") {
       appendLine(`budget warning (${e.scope}): ${e.used}/${e.limit} tokens`, theme.tokens.warning);
       tui.requestRender();

@@ -52,7 +52,7 @@ export const bashTool: Tool = {
       }
       try {
         const task = ctx.backgroundTasks.start(command, workdir, process.env);
-        return { toolCallId: call.id, name: "bash", content: JSON.stringify(task) };
+        return { toolCallId: call.id, name: "bash", content: JSON.stringify({ task_id: task.id, status: "started", command }) };
       } catch (err) {
         return { toolCallId: call.id, name: "bash", content: `COMMAND_FAILED: ${err instanceof Error ? err.message : String(err)}`, isError: true };
       }

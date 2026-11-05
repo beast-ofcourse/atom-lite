@@ -33,6 +33,7 @@ export type AgentEvent =
   | { type: "model_switched"; provider: string; model: string }
   | { type: "skill_loaded"; name: string }
   | { type: "budget_warning"; scope: "turn" | "session"; used: number; limit: number }
+  | { type: "background_task_complete"; id: string; status: string; exitCode: number | null }
   | { type: "error"; message: string };
 
 export interface AgentRuntimeOptions {

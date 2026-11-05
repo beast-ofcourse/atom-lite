@@ -205,3 +205,28 @@ test("edit inserts replacement text literally", async () => {
   assert.ok(!res.isError);
   assert.equal(readFileSync(join(dir, "a.txt"), "utf8"), "replaced $& $1 $$ $' `y`");
 });
+
+test("read returns image data for vision-capable models", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  writeFileSync(join(dir, "pic.png"), png);
+  const r = await readTool.execute(
+    { id: "i1", name: "read", arguments: { path: "pic.png" } },
+    { workspace: dir, signal: new AbortController().signal, supportsVision: true } as any,
+  );
+  assert.equal(r.isError, undefined);
+  assert.ok(r.images && r.images.length === 1);
+  assert.equal(r.images![0].mime, "image/png");
+});
+
+test("read rejects images for non-vision models", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  writeFileSync(join(dir, "pic.png"), png);
+  const r = await readTool.execute(
+    { id: "i2", name: "read", arguments: { path: "pic.png" } },
+    { workspace: dir, signal: new AbortController().signal, supportsVision: false } as any,
+  );
+  assert.equal(r.isError, true);
+  assert.match(r.content, /vision not supported/);
+});

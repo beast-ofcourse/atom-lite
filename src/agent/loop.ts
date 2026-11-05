@@ -93,6 +93,16 @@ export class AgentRuntime {
     this.supportsVision = value;
   }
 
+  private injectCompletedBackgroundTasks(session: { appendMessage(m: any): void }): void {
+    for (const t of this.backgroundTasks.drainCompleted()) {
+      session.appendMessage({
+        role: "system",
+        content: `[background task ${t.id} ${t.status}] ${t.output}`,
+      });
+      this.onEvent?.({ type: "background_task_complete", id: t.id, status: t.status, exitCode: t.exitCode });
+    }
+  }
+
   getContextUsage(): ContextUsage {
     return { used: this.contextUsed, window: this.contextWindow };
   }
@@ -171,12 +181,7 @@ export class AgentRuntime {
       );
     }
 
-    for (const t of this.backgroundTasks.drainCompleted()) {
-      session.appendMessage({
-        role: "system",
-        content: `[background task ${t.id} completed] ${t.output}`,
-      });
-    }
+    this.injectCompletedBackgroundTasks(session);
 
     session.appendMessage({ role: "user", content: [{ type: "text", text: input }] });
 

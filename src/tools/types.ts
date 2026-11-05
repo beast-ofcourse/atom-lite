@@ -1,4 +1,5 @@
-import type { ToolDefinition, ToolCall } from "../types.js";
+import type { ToolDefinition, ToolCall, ImagePart } from "../types.js";
+export type { ImagePart };
 export type { ToolDefinition, ToolCall };
 
 export interface ToolResult {
@@ -6,7 +7,7 @@ export interface ToolResult {
   name: string;
   content: string;
   /** Optional image parts returned by tools (e.g. read on image files). */
-  images?: Array<{ data: string; mime: string }>;
+  images?: ImagePart[];
   isError?: boolean;
   /** Pre-computed line diff for write/edit, so the UI never re-reads files. */
   diff?: string[];

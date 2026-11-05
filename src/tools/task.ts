@@ -36,7 +36,7 @@ export const taskTool: Tool = {
     }
     const { action, id, timeoutMs } = parsed.data;
     if (action === "status" || action === "output") {
-      const t = mgr.get(id) ?? mgr.output(id);
+      const t = mgr.get(id);
       if (!t) return { toolCallId: call.id, name: "task", content: "TASK_NOT_FOUND", isError: true };
       return { toolCallId: call.id, name: "task", content: JSON.stringify(t) };
     }
