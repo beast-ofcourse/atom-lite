@@ -296,7 +296,7 @@ export async function run(args: string[]): Promise<void> {
   };
 
   const contextManager = new ContextManager({
-    systemPrompt: "You are a coding assistant.",
+    systemPrompt: "You are an autonomous AI coding agent built by beast-ofcourse[bhavin bogam]",
     maxInputTokens: config.context.maxInputTokens ?? null,
     reserveOutputTokens: config.context.reserveOutputTokens,
     compactAtPercent: config.context.compactAtPercent,
