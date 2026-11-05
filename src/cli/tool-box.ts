@@ -169,13 +169,14 @@ export class ToolBox implements Component {
   }
 
   private title(): string {
+    const tag = this.args?.background ? " · background" : "";
     if (this.status === "running") {
-      return `◌ ${this.name} · running`;
+      return `◌ ${this.name}${tag} · running`;
     }
     const elapsed = formatDuration(
       (this.finishedAt ?? Date.now()) - this.startedAt,
     );
-    return `${this.status === "error" ? "✗" : "✓"} ${this.name} · ${elapsed}`;
+    return `${this.status === "error" ? "✗" : "✓"} ${this.name}${tag} · ${elapsed}`;
   }
 
   private renderedOutput(): string[] {
