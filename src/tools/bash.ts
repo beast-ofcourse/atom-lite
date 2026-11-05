@@ -11,19 +11,21 @@ const ArgsSchema = z
     command: z.string(),
     cwd: z.string().optional(),
     timeout_ms: z.number().int().positive().optional(),
+    background: z.boolean().optional(),
   })
   .strict();
 
 export const bashTool: Tool = {
   definition: {
     name: "bash",
-    description: "Execute a shell command and return its output.",
+    description: "Execute a shell command and return its output. Set background:true to run asynchronously.",
     parameters: {
       type: "object",
       properties: {
         command: { type: "string" },
         cwd: { type: "string" },
         timeout_ms: { type: "integer", minimum: 1 },
+        background: { type: "boolean" },
       },
       required: ["command"],
       additionalProperties: false,
@@ -39,7 +41,22 @@ export const bashTool: Tool = {
         isError: true,
       };
     }
-    const { command, cwd, timeout_ms } = parsed.data;
+    const { command, cwd, timeout_ms, background } = parsed.data;
+    if (background) {
+      if (!ctx.backgroundTasks) {
+        return { toolCallId: call.id, name: "bash", content: "BACKGROUND_TASKS_UNAVAILABLE", isError: true };
+      }
+      const workdir = cwd ? resolve(ctx.workspace, cwd) : ctx.workspace;
+      if (cwd && !isWithinWorkspace(ctx.workspace, cwd)) {
+        return { toolCallId: call.id, name: "bash", content: "PATH_OUTSIDE_WORKSPACE", isError: true };
+      }
+      try {
+        const task = ctx.backgroundTasks.start(command, workdir, process.env);
+        return { toolCallId: call.id, name: "bash", content: JSON.stringify(task) };
+      } catch (err) {
+        return { toolCallId: call.id, name: "bash", content: `COMMAND_FAILED: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+      }
+    }
     const capMs = ctx.maxBashTimeMs ?? 120000;
     const timeout = Math.min(timeout_ms ?? capMs, capMs);
     const workdir = cwd ? resolve(ctx.workspace, cwd) : ctx.workspace;

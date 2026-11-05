@@ -77,12 +77,14 @@ export class TurnRecorder {
     content: string;
     isError?: boolean;
     diff?: string[];
+    images?: Array<{ data: string; mime: string }>;
   }): void {
     this.session.appendMessage({
       role: "tool",
       toolCallId: result.toolCallId,
       name: result.name,
       content: result.content,
+      images: result.images,
     });
     this.onEvent?.({
       type: "tool_result",

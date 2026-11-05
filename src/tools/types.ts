@@ -5,6 +5,8 @@ export interface ToolResult {
   toolCallId: string;
   name: string;
   content: string;
+  /** Optional image parts returned by tools (e.g. read on image files). */
+  images?: Array<{ data: string; mime: string }>;
   isError?: boolean;
   /** Pre-computed line diff for write/edit, so the UI never re-reads files. */
   diff?: string[];
@@ -29,6 +31,10 @@ export interface ToolContext {
   approvals?: import("../runtime/approvals.js").ApprovalContext;
   /** Current agent mode; plan blocks write/edit/bash. */
   mode?: "plan" | "yolo";
+  /** Whether the selected model supports vision input. */
+  supportsVision?: boolean;
+  /** Background task manager, if available. */
+  backgroundTasks?: import("../runtime/background-tasks.js").BackgroundTaskManager;
   /** Live output from a running command, forwarded to the UI. */
   onToolOutput?: (
     call: ToolCall,

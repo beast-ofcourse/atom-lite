@@ -1,6 +1,8 @@
 // Canonical types shared across the runtime. Provider- and transport-agnostic.
 
-export type ContentPart = { type: "text"; text: string };
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mime: string };
 
 export type Message =
   | { role: "system"; content: string }
@@ -16,6 +18,7 @@ export type Message =
       toolCallId: string;
       name: string;
       content: string;
+      images?: Array<{ data: string; mime: string }>;
     };
 
 export interface ToolCall {

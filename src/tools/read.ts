@@ -1,10 +1,30 @@
 import { readFileSync, statSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, extname } from "node:path";
 import { createHash } from "node:crypto";
 import { isWithinWorkspace } from "../security/paths.js";
 import type { Tool, ToolContext, ToolResult } from "./types.js";
 import type { ToolCall } from "../types.js";
 import { z } from "zod";
+
+function detectImageMime(path: string, buf: Buffer): string | null {
+  const ext = extname(path).toLowerCase();
+  const byExt: Record<string, string> = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+  };
+  let magic: string | null = null;
+  if (buf.length >= 4) {
+    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) magic = "image/png";
+    else if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) magic = "image/jpeg";
+    else if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) magic = "image/gif";
+    else if (buf.length >= 12 && buf.slice(0, 4).toString() === "RIFF" && buf.slice(8, 12).toString() === "WEBP") magic = "image/webp";
+  }
+  if (byExt[ext]) return magic ?? byExt[ext];
+  return magic;
+}
 
 const ArgsSchema = z
   .object({
@@ -119,6 +139,23 @@ export const readTool: Tool = {
       };
     }
     const buf = readFileSync(full);
+    const mime = detectImageMime(full, buf);
+    if (mime) {
+      if (!ctx.supportsVision) {
+        return {
+          toolCallId: call.id,
+          name: "read",
+          content: "vision not supported by current model",
+          isError: true,
+        };
+      }
+      return {
+        toolCallId: call.id,
+        name: "read",
+        content: `Image file: ${path} (${buf.length} bytes, ${mime})`,
+        images: [{ data: buf.toString("base64"), mime }],
+      };
+    }
     if (buf.includes(0)) {
       return {
         toolCallId: call.id,

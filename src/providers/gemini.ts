@@ -33,7 +33,9 @@ function toGeminiContents(messages: Message[]): {
       contents.push({
         role: "user",
         parts: m.content.map((p: any) =>
-          p.type === "text" ? { text: p.text } : p,
+          p.type === "text"
+            ? { text: p.text }
+            : { inlineData: { mimeType: p.mime, data: p.data } },
         ),
       });
       continue;
@@ -62,17 +64,18 @@ function toGeminiContents(messages: Message[]): {
       continue;
     }
     if (m.role === "tool") {
-      contents.push({
-        role: "function",
-        parts: [
-          {
-            functionResponse: {
-              name: m.name,
-              response: { result: m.content },
-            },
+      const parts: any[] = [
+        {
+          functionResponse: {
+            name: m.name,
+            response: { result: m.content },
           },
-        ],
-      });
+        },
+      ];
+      for (const img of m.images ?? []) {
+        parts.push({ inlineData: { mimeType: img.mime, data: img.data } });
+      }
+      contents.push({ role: "function", parts });
       continue;
     }
   }

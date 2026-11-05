@@ -59,7 +59,7 @@ import {
   parseSgrMouse,
   shouldEnableMouse,
 } from "./mouse.js";
-import { readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool, grepTool, globTool } from "../tools/index.js";
+import { readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool, grepTool, globTool, taskTool } from "../tools/index.js";
 import { McpManager, formatMcpStatus, formatMcpDoctor, createMcpTools } from "../mcp/index.js";
 import { createProvider } from "../providers/factory.js";
 import {
@@ -168,7 +168,7 @@ export async function run(args: string[]): Promise<void> {
   if (modelOverride) modelByProvider.set(provider.id, modelOverride);
   const useTools = !positional.includes("__notools__");
   const builtInTools = useTools
-    ? [readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool, grepTool, globTool]
+    ? [readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool, grepTool, globTool, taskTool]
     : [];
 
   const interactive = process.stdin.isTTY === true && !jsonMode;
@@ -844,6 +844,9 @@ export async function run(args: string[]): Promise<void> {
         if (typeof resolved === "number" && resolved > 0) {
           runtime.setContextWindow(resolved);
           updateStatus();
+        }
+        if (typeof info?.supportsVision === "boolean") {
+          runtime.setSupportsVision(info.supportsVision);
         }
       })
       .catch(() => {

@@ -4,6 +4,7 @@ import type { Message, ModelRequest, AgentLimits } from "../types.js";
 import { executeToolBatch } from "../runtime/scheduler.js";
 import { ContextManager } from "../context/manager.js";
 import { DEFAULT_SYSTEM_PROMPT } from "./system-prompt.js";
+import { BackgroundTaskManager } from "../runtime/background-tasks.js";
 import { runModelTurn } from "./model-turn.js";
 import { TurnRecorder } from "./turn-recorder.js";
 
@@ -28,6 +29,8 @@ export class AgentRuntime {
   private systemPrompt: string;
   private contextWindow: number | undefined;
   private contextUsed: number | undefined;
+  private supportsVision: boolean | undefined;
+  private backgroundTasks: BackgroundTaskManager;
 
   constructor(options: AgentRuntimeOptions) {
     this.provider = options.provider;
@@ -59,6 +62,8 @@ export class AgentRuntime {
     this.steeringQueue = options.steeringQueue;
     this.systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     this.contextWindow = options.contextWindow;
+    this.supportsVision = options.supportsVision;
+    this.backgroundTasks = options.backgroundTasks ?? new BackgroundTaskManager();
     this.contextManager.setModelContextWindow(options.contextWindow);
   }
 
@@ -82,6 +87,10 @@ export class AgentRuntime {
     this.contextWindow = next;
     this.contextManager.setModelContextWindow(next);
     this.emitContextUsage();
+  }
+
+  setSupportsVision(value: boolean | undefined): void {
+    this.supportsVision = value;
   }
 
   getContextUsage(): ContextUsage {
@@ -160,6 +169,13 @@ export class AgentRuntime {
         typeof latest?.summary === "string" ? latest.summary : null,
         typeof latest?.coveredCount === "number" ? latest.coveredCount : undefined,
       );
+    }
+
+    for (const t of this.backgroundTasks.drainCompleted()) {
+      session.appendMessage({
+        role: "system",
+        content: `[background task ${t.id} completed] ${t.output}`,
+      });
     }
 
     session.appendMessage({ role: "user", content: [{ type: "text", text: input }] });
@@ -343,6 +359,8 @@ export class AgentRuntime {
       const ctx = {
         workspace: this.workspace,
         mode: this.mode,
+        supportsVision: this.supportsVision,
+        backgroundTasks: this.backgroundTasks,
         signal,
         maxBashTimeMs: this.limits.maxBashTimeMs,
         maxToolOutputBytes: this.limits.maxToolOutputBytes,
@@ -469,6 +487,15 @@ export class AgentRuntime {
         .filter(Boolean);
       for (const r of orderedResults) {
         recorder.recordToolResult(r);
+      }
+
+      // Inject completed background task results as system messages.
+      const completed = this.backgroundTasks.drainCompleted();
+      for (const t of completed) {
+        session.appendMessage({
+          role: "system",
+          content: `[background task ${t.id} completed] ${t.output}`,
+        });
       }
 
       if (terminate) {

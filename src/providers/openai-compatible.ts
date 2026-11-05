@@ -265,7 +265,18 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
 
 function toOpenAIMessage(m: any): any {
   if (m.role === "system") return { role: "system", content: m.content };
-  if (m.role === "user") return { role: "user", content: m.content.map((p: any) => (p.type === "text" ? p.text : "")).join("") };
+  if (m.role === "user") {
+    const parts = m.content.map((p: any) =>
+      p.type === "text"
+        ? { type: "text", text: p.text }
+        : { type: "image_url", image_url: { url: `data:${p.mime};base64,${p.data}` } },
+    );
+    const hasImage = parts.some((p: any) => p.type === "image_url");
+    if (!hasImage) {
+      return { role: "user", content: parts.map((p: any) => p.text ?? "").join("") };
+    }
+    return { role: "user", content: parts };
+  }
   if (m.role === "assistant") {
     const out: any = { role: "assistant", content: m.content?.map((p: any) => (p.type === "text" ? p.text : "")).join("") ?? null };
     if (m.toolCalls?.length) {
@@ -278,6 +289,13 @@ function toOpenAIMessage(m: any): any {
     return out;
   }
   if (m.role === "tool") {
+    if (m.images?.length) {
+      const content: any[] = [{ type: "text", text: m.content ?? "" }];
+      for (const img of m.images) {
+        content.push({ type: "image_url", image_url: { url: `data:${img.mime};base64,${img.data}` } });
+      }
+      return { role: "tool", tool_call_id: m.toolCallId, content };
+    }
     return { role: "tool", tool_call_id: m.toolCallId, content: m.content };
   }
   return m;

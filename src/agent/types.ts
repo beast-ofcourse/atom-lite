@@ -55,6 +55,10 @@ export interface AgentRuntimeOptions {
   bashConcurrency?: "serial" | "parallel";
   /** Selected model's context window, when known. */
   contextWindow?: number;
+  /** Whether the selected model supports vision input. */
+  supportsVision?: boolean;
+  /** Background task manager override (defaults to a new manager). */
+  backgroundTasks?: import("../runtime/background-tasks.js").BackgroundTaskManager;
   /** Optional steering queue drained into the turn between iterations. */
   steeringQueue?: string[];
   /** Optional dispatcher for Pi extension events. */
