@@ -617,6 +617,7 @@ export async function run(args: string[]): Promise<void> {
   }
 
   let activeTurnController: AbortController | null = null;
+  const messageQueue: string[] = [];
 
   /** Run one interactive turn while keeping the status bar's activity fresh. */
   async function runTurn(prompt: string): Promise<void> {
@@ -638,6 +639,11 @@ export async function run(args: string[]): Promise<void> {
     } finally {
       activeTurnController = null;
       activity.stop();
+      if (messageQueue.length > 0) {
+        const next = messageQueue.shift()!;
+        appendLine(`> ${next}`, theme.tokens.user);
+        void runTurn(next);
+      }
     }
   }
 
@@ -1946,6 +1952,12 @@ export async function run(args: string[]): Promise<void> {
       return;
     }
 
+    if (activeTurnController) {
+      messageQueue.push(trimmed);
+      appendLine(`queued: ${trimmed}`, theme.tokens.dim);
+      tui.requestRender();
+      return;
+    }
     appendLine(`> ${trimmed}`, theme.tokens.user);
     await runTurn(trimmed);
   };
