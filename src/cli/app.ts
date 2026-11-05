@@ -464,14 +464,16 @@ export async function run(args: string[]): Promise<void> {
   );
 
   const root = new VStack([]);
-  root.addChild(output, { grow: 1 });
-  root.addChild(new Spacer(1));
-  root.addChild(input);
-  root.addChild(statusBar);
+  // Keep fixed chrome (spacer, input, status, header, dropdown) from being
+  // collapsed when the transcript grows; only the output region may shrink.
+  root.addChild(output, { grow: 1, shrink: 1, minSize: 0 });
+  root.addChild(new Spacer(1), { grow: 0, shrink: 0, minSize: 1 });
+  root.addChild(input, { grow: 0, shrink: 0 });
+  root.addChild(statusBar, { grow: 0, shrink: 0 });
   // folder:branch info below the status line, dimmed
-  root.addChild(header);
+  root.addChild(header, { grow: 0, shrink: 0 });
   const dropdownContainer = new Container();
-  root.addChild(dropdownContainer);
+  root.addChild(dropdownContainer, { grow: 0, shrink: 0 });
   tui.setLayoutRoot(root);
   tui.setFocus(input);
 
