@@ -35,6 +35,7 @@ export const ContextConfigSchema = z
     reserveOutputTokens: z.number().int().positive().default(4096),
     compactAtPercent: z.number().int().min(1).max(100).default(85),
     maxProjectInstructionBytes: z.number().int().positive().default(30000),
+    compactEveryNTurns: z.number().int().min(0).default(0),
   })
   .strict();
 

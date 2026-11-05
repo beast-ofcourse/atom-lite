@@ -87,6 +87,24 @@ export class AgentRuntime {
     this.effort = effort;
   }
 
+  async compactSession(
+    session: { messages: Message[]; appendMessage(m: Message): void; appendEvent?(partial: any): any },
+    focus?: string,
+  ): Promise<string | null> {
+    const summary = await this.contextManager.compactHistory(
+      this.workspace,
+      session.messages,
+      focus,
+    );
+    if (summary) {
+      this.contextManager.setSessionMemory(summary);
+      if (typeof session.appendEvent === "function") {
+        session.appendEvent({ type: "context_compacted", summary });
+      }
+    }
+    return summary;
+  }
+
   /** Replace the toolset, e.g. after MCP discovery or a list_changed refresh. */
   setTools(tools: AgentRuntimeOptions["tools"]): void {
     this.tools = tools;
@@ -99,9 +117,18 @@ export class AgentRuntime {
 
   async runAgentTurn(
     input: string,
-    session: { messages: Message[]; appendMessage(m: Message): void },
+    session: { messages: Message[]; appendMessage(m: Message): void; appendEvent?(partial: any): any },
     signal: AbortSignal,
   ): Promise<string> {
+    // Restore any persisted session memory for resumed sessions.
+    const events = (session as any).events;
+    const latest = Array.isArray(events)
+      ? [...events].reverse().find((e: any) => e?.type === "context_compacted")
+      : undefined;
+    this.contextManager.setSessionMemory(
+      typeof latest?.summary === "string" ? latest.summary : null,
+    );
+
     session.appendMessage({ role: "user", content: [{ type: "text", text: input }] });
 
     let totalToolCalls = 0;
@@ -128,6 +155,13 @@ export class AgentRuntime {
         // assistant response reports fresh numbers.
         this.contextUsed = undefined;
         this.emitContextUsage();
+        const summary = this.contextManager.consumeCompactionSummary();
+        if (summary && typeof (session as any).appendEvent === "function") {
+          (session as any).appendEvent({
+            type: "context_compacted",
+            summary,
+          });
+        }
       }
 
       let response: any;

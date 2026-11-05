@@ -35,6 +35,7 @@ export interface CommandContext {
   updateStatus(): void;
   runDoctor(): Promise<string>;
   runMcp(args: string): Promise<void> | void;
+  runCompact(args: string): Promise<void> | void;
   runExport(args: string): Promise<void> | void;
   openModelPicker(): void;
   openProviderPicker(): void;
@@ -286,8 +287,9 @@ export function createCommandRegistry(
     name: "compact",
     description: "compact history",
     category: "Session",
-    run(ctx) {
-      ctx.appendLine("compaction is automatic");
+    argumentHint: "[focus]",
+    async run(ctx, args) {
+      await ctx.runCompact(args);
     },
   });
 

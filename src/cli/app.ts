@@ -67,11 +67,13 @@ import {
 import { ContextManager } from "../context/manager.js";
 import {
   ProcessTerminal,
-  TuiMainScreen,
+  TuiAltScreen,
   Text,
   Input,
   Container,
   Spacer,
+  VStack,
+  ScrollView,
   isKeyRelease,
   isKeyRepeat,
   Key,
@@ -203,6 +205,7 @@ export async function run(args: string[]): Promise<void> {
     reserveOutputTokens: config.context.reserveOutputTokens,
     compactAtPercent: config.context.compactAtPercent,
     maxProjectInstructionBytes: config.context.maxProjectInstructionBytes,
+    compactEveryNTurns: config.context.compactEveryNTurns ?? 0,
     provider,
     model: modelOverride ?? "default",
     userInstructionsPath: undefined,
@@ -263,16 +266,16 @@ export async function run(args: string[]): Promise<void> {
   }
 
   // ---- Interactive TUI (first-class) ----
-  const { TuiMainScreen, Text, Input, Editor, Container, Spacer, ScrollView, Loader, Markdown, Box } =
+  const { TuiAltScreen, Text, Input, Editor, Container, Spacer, ScrollView, VStack, Loader, Markdown, Box } =
     await import("@earendil-works/pi-tui");
 
-  const terminal = new ProcessTerminal();
-  const tui = new TuiMainScreen(terminal);
   const mouseEnabled = shouldEnableMouse({
     interactive,
     configured: config.ui.mouse,
     stdoutIsTTY: process.stdout.isTTY === true,
   });
+  const terminal = new ProcessTerminal();
+  const tui = new TuiAltScreen(terminal, false, undefined, { mouse: mouseEnabled });
   const mouseCapture = createMouseCapture((data) => terminal.write(data));
 
   let effortLevel = "medium";
@@ -363,14 +366,16 @@ export async function run(args: string[]): Promise<void> {
     new CombinedAutocompleteProvider(commandRegistry.autocomplete() as any, process.cwd()),
   );
 
-  tui.addChild(output);
-  tui.addChild(new Spacer());
-  tui.addChild(input);
-  tui.addChild(statusBar);
+  const root = new VStack([]);
+  root.addChild(output, { grow: 1 });
+  root.addChild(new Spacer(1));
+  root.addChild(input);
+  root.addChild(statusBar);
   // folder:branch info below the status line, dimmed
-  tui.addChild(header);
+  root.addChild(header);
   const dropdownContainer = new Container();
-  tui.addChild(dropdownContainer);
+  root.addChild(dropdownContainer);
+  tui.setLayoutRoot(root);
   tui.setFocus(input);
 
   if (!noColor) {
@@ -1014,6 +1019,7 @@ export async function run(args: string[]): Promise<void> {
     updateStatus,
     runDoctor,
     runMcp,
+    runCompact,
     runExport,
     openModelPicker,
     openProviderPicker,
@@ -1589,6 +1595,23 @@ export async function run(args: string[]): Promise<void> {
     }
     writeFileSync(outPath, lines.join("\\n"), "utf8");
     appendLine(`exported session to ${outPath}`);
+  }
+
+  async function runCompact(args: string): Promise<void> {
+    const focus = (args ?? "").trim();
+    if (session.messages.length <= 6) {
+      appendLine("nothing to compact");
+      return;
+    }
+    const summary = await runtime.compactSession(
+      session,
+      focus || undefined,
+    );
+    if (!summary) {
+      appendLine("nothing to compact");
+      return;
+    }
+    appendLine(`compacted: ${summary.slice(0, 200)}`);
   }
 
   input.onSubmit = async (value: string) => {

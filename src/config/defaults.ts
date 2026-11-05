@@ -20,6 +20,7 @@ export const DEFAULT_CONFIG = {
     reserveOutputTokens: 4096,
     compactAtPercent: 85,
     maxProjectInstructionBytes: 30000,
+    compactEveryNTurns: 0,
   },
   sessions: { enabled: true, retentionDays: null as number | null },
   ui: {
