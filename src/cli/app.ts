@@ -500,7 +500,7 @@ export async function run(args: string[]): Promise<void> {
         if (wrapped.length === 0) {
           lines.push(sep);
         } else {
-          for (const part of wrapped) lines.push(sep + part);
+          for (const part of wrapped) lines.push(sep + theme.tokens.dim(part));
         }
       }
       return lines;
