@@ -115,7 +115,7 @@ pi.registerCommand({
   name: "mycmd",
   description: "Do something",
   argumentHint: "[arg]",
-  async run(ctx, args, raw) {
+  async run(args, ctx) {
     pi.appendEntry("mycmd_ran", { args });
     const ok = await pi.confirm("Title", "Proceed?");
     const name = await pi.input("Name", "placeholder");
@@ -144,7 +144,7 @@ Common events: `tool_call`, `tool_result`, `assistant_delta`, `assistant_text`,
 ```ts
 pi.ui.notify("hello", "info");          // info | warning | error
 pi.setStatus("myext", "status text");   // undefined clears
-pi.registerWidget("above", { location: "aboveEditor", render: () => ["line1"] });
+pi.registerWidget("aboveInput", { id: "my-widget", location: "aboveInput", render: (width) => ["line1"] });
 pi.setWidget("key", ["line"], { placement: "aboveEditor" });
 pi.setFooter((tui, theme, data) => /* component */);
 pi.setHeader((tui, theme) => /* component */);
@@ -238,5 +238,3 @@ Inside atom-lite:
 - Types: `src/extensions/types.ts`
 - Runtime: `src/extensions/`
 - Pi extension API reference (installed): `~/.pi/agent/install/releases/1.4.0/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts`
-EOF
-echo "written"
