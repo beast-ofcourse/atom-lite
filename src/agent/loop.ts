@@ -19,6 +19,7 @@ export class AgentRuntime {
   private toolMap: Map<string, AgentRuntimeOptions["tools"][number]>;
   private limits: AgentLimits;
   private extensionDispatch: AgentRuntimeOptions["extensionDispatch"];
+  private steeringQueue: string[] | undefined;
   private systemPrompt: string;
   private contextWindow: number | undefined;
   private contextUsed: number | undefined;
@@ -46,6 +47,7 @@ export class AgentRuntime {
     this.toolMap = new Map(options.tools.map((t) => [t.definition.name, t]));
     this.limits = { ...DEFAULT_LIMITS, ...(options.limits ?? {}) };
     this.extensionDispatch = options.extensionDispatch;
+    this.steeringQueue = options.steeringQueue;
     this.systemPrompt = options.systemPrompt ?? "You are a coding assistant with tools: read, write, edit, bash, webfetch, websearch.";
     this.contextWindow = options.contextWindow;
     this.contextManager.setModelContextWindow(options.contextWindow);
@@ -87,6 +89,10 @@ export class AgentRuntime {
 
   setEffort(effort: string): void {
     this.effort = effort;
+  }
+
+  setSteeringQueue(queue: string[]): void {
+    this.steeringQueue = queue;
   }
 
   async compactSession(
@@ -152,6 +158,16 @@ export class AgentRuntime {
       iteration++
     ) {
       forceContinue = false;
+      // Drain any steering messages into the session before the next model turn.
+      if (this.steeringQueue && this.steeringQueue.length > 0) {
+        while (this.steeringQueue.length > 0) {
+          const msg = this.steeringQueue.shift()!;
+          session.appendMessage({
+            role: "user",
+            content: [{ type: "text", text: msg }],
+          });
+        }
+      }
       if (signal.aborted) {
         throw new Error("USER_CANCELLED");
       }

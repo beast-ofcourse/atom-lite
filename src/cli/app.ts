@@ -618,6 +618,8 @@ export async function run(args: string[]): Promise<void> {
 
   let activeTurnController: AbortController | null = null;
   const messageQueue: string[] = [];
+  const steeringQueue: string[] = [];
+  runtime.setSteeringQueue(steeringQueue);
 
   /** Run one interactive turn while keeping the status bar's activity fresh. */
   async function runTurn(prompt: string): Promise<void> {
@@ -1934,6 +1936,23 @@ export async function run(args: string[]): Promise<void> {
     }
 
     refreshCommandRegistry();
+    if (trimmed === "/steer" || trimmed.startsWith("/steer ")) {
+      const text = trimmed.slice("/steer".length).trim();
+      if (!text) {
+        appendLine("usage: /steer <message>");
+        tui.requestRender();
+        return;
+      }
+      if (activeTurnController) {
+        steeringQueue.push(text);
+        appendLine(`steering: ${text}`, theme.tokens.dim);
+      } else {
+        appendLine(`> ${text}`, theme.tokens.user);
+        await runTurn(text);
+      }
+      tui.requestRender();
+      return;
+    }
     if (trimmed.startsWith("/")) {
       const result = await commandRegistry.dispatch(trimmed, commandContext);
       if (result.exit) return;
