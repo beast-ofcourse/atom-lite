@@ -10,8 +10,46 @@ export const TRANSCRIPT_PRUNE_COUNT = 500;
  * Append-only transcript with bounded rendering work. The session store keeps
  * the full history; this only limits what the TUI keeps as live components.
  */
+class TranscriptContainer extends Container {
+  version = 0;
+  private cachedVersion = -1;
+  private cachedWidth = -1;
+  private cachedLines: string[] = [];
+
+  bump(): void {
+    this.version++;
+    this.cachedVersion = -1;
+  }
+
+  override addChild(component: Component): void {
+    super.addChild(component);
+    this.bump();
+  }
+
+  override removeChild(component: Component): void {
+    super.removeChild(component);
+    this.bump();
+  }
+
+  override clear(): void {
+    super.clear();
+    this.bump();
+  }
+
+  override render(width: number): string[] {
+    if (this.cachedVersion === this.version && this.cachedWidth === width) {
+      return this.cachedLines;
+    }
+    const lines = super.render(width);
+    this.cachedLines = lines;
+    this.cachedWidth = width;
+    this.cachedVersion = this.version;
+    return lines;
+  }
+}
+
 export class Transcript {
-  readonly container = new Container();
+  readonly container = new TranscriptContainer();
   private hidden = 0;
   private marker: Text | null = null;
   private theme: Theme;
@@ -25,6 +63,12 @@ export class Transcript {
     if (this.marker) {
       this.marker.setText(this.markerLabel());
     }
+    (this.container as TranscriptContainer).bump();
+  }
+
+  /** Invalidate the rendered-line cache after a child mutates in place. */
+  invalidate(): void {
+    (this.container as TranscriptContainer).bump();
   }
 
   /** Clear all history and pruning state, e.g. when resuming a session. */
@@ -41,6 +85,7 @@ export class Transcript {
   add(child: Component): void {
     this.container.addChild(child);
     this.pruneIfNeeded();
+    (this.container as TranscriptContainer).bump();
   }
 
   /** Add a plain transcript line using the theme's text token. */
@@ -73,5 +118,6 @@ export class Transcript {
       this.marker = new Text(label);
       this.container.children.unshift(this.marker);
     }
+    (this.container as TranscriptContainer).bump();
   }
 }

@@ -24,7 +24,9 @@ export function parseSgrMouse(data: string): MouseEvent | undefined {
 
   if ((code & 64) !== 0) {
     if (release) return undefined;
-    const direction = (code & 1) === 0 ? "up" : "down";
+    const wheelBits = code & 3;
+    if (wheelBits !== 0 && wheelBits !== 1) return undefined;
+    const direction = wheelBits === 0 ? "up" : "down";
     return { type: "wheel", direction, x, y };
   }
 

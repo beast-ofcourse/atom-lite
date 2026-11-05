@@ -29,7 +29,9 @@ export class ContextManager {
   private forceCompact = false;
   private buildCount = 0;
   private sessionMemory: string | null = null;
+  private sessionMemoryCount = 0;
   private lastCompactionSummary: string | null = null;
+  private lastCompactionCoveredCount = 0;
   private compactEveryNTurns = 0;
 
   constructor(opts: ContextManagerOptions) {
@@ -58,8 +60,23 @@ export class ContextManager {
     return summary;
   }
 
-  setSessionMemory(summary: string | null): void {
+  consumeCompactionCoveredCount(): number {
+    const count = this.lastCompactionCoveredCount;
+    this.lastCompactionCoveredCount = 0;
+    return count;
+  }
+
+  getLastCompactionCoveredCount(): number {
+    return this.lastCompactionCoveredCount;
+  }
+
+  setSessionMemory(summary: string | null, coveredCount?: number): void {
     this.sessionMemory = summary;
+    if (summary === null) {
+      this.sessionMemoryCount = 0;
+    } else if (typeof coveredCount === "number" && coveredCount >= 0) {
+      this.sessionMemoryCount = coveredCount;
+    }
   }
 
   getSessionMemory(): string | null {
@@ -83,8 +100,11 @@ export class ContextManager {
     const older = history.slice(0, history.length - keep);
     if (older.length === 0) return null;
     const summary = await this.summarize(older, focus);
+    const coveredCount = history.length - keep;
     this.sessionMemory = summary;
+    this.sessionMemoryCount = coveredCount;
     this.lastCompactionSummary = summary;
+    this.lastCompactionCoveredCount = coveredCount;
     return summary;
   }
 
@@ -180,8 +200,12 @@ export class ContextManager {
     // Restore persisted session memory by injecting it and trimming the
     // replayed tail, so resumed long sessions stay compact.
     let workingHistory = history;
-    if (this.sessionMemory && history.length > 6) {
-      workingHistory = history.slice(-6);
+    if (this.sessionMemory) {
+      const start = Math.min(this.sessionMemoryCount, history.length);
+      workingHistory = history.slice(start);
+      if (workingHistory.length === 0) {
+        workingHistory = history.slice(-Math.min(6, history.length));
+      }
     }
 
     const messages: Message[] = [{ role: "system", content: systemPrompt }];
@@ -216,8 +240,11 @@ export class ContextManager {
     if (older.length === 0) return messages;
 
     const summary = await this.summarize(older);
+    const coveredCount = this.sessionMemoryCount + older.length;
     this.lastCompactionSummary = summary;
     this.sessionMemory = summary;
+    this.sessionMemoryCount = coveredCount;
+    this.lastCompactionCoveredCount = coveredCount;
     this.compactedThisBuild = true;
 
     const compacted: Message[] = [

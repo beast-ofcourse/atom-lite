@@ -54,6 +54,7 @@ export class StreamText {
         this.transcript.add(this.live);
       }
       this.live.setText(this.buffer);
+      this.transcript.invalidate();
     }
   }
 

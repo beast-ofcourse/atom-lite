@@ -1311,6 +1311,8 @@ export async function run(args: string[]): Promise<void> {
   tui.addInputListener((data: string) => {
     const event = parseSgrMouse(data);
     if (!event) return undefined;
+    // Let the alt-screen TUI own wheel scrolling; only intercept clicks.
+    if (event.type === "wheel") return undefined;
     if (!mouseEnabled) return { consume: true };
     handleMouseEvent(event, {
       isModalOpen: () => uiModalOpen,
@@ -1677,7 +1679,6 @@ export async function run(args: string[]): Promise<void> {
 
   tui.start();
   if (mouseEnabled) {
-    mouseCapture.enable();
     process.once("exit", () => mouseCapture.disable());
     if (process.platform !== "win32") {
       process.on("SIGTSTP", () => {

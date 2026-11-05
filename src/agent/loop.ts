@@ -97,9 +97,16 @@ export class AgentRuntime {
       focus,
     );
     if (summary) {
-      this.contextManager.setSessionMemory(summary);
+      this.contextManager.setSessionMemory(
+        summary,
+        this.contextManager.getLastCompactionCoveredCount(),
+      );
       if (typeof session.appendEvent === "function") {
-        session.appendEvent({ type: "context_compacted", summary });
+        session.appendEvent({
+          type: "context_compacted",
+          summary,
+          coveredCount: this.contextManager.getLastCompactionCoveredCount(),
+        });
       }
     }
     return summary;
@@ -122,12 +129,13 @@ export class AgentRuntime {
   ): Promise<string> {
     // Restore any persisted session memory for resumed sessions.
     const events = (session as any).events;
-    const latest = Array.isArray(events)
-      ? [...events].reverse().find((e: any) => e?.type === "context_compacted")
-      : undefined;
-    this.contextManager.setSessionMemory(
-      typeof latest?.summary === "string" ? latest.summary : null,
-    );
+    if (Array.isArray(events)) {
+      const latest = [...events].reverse().find((e: any) => e?.type === "context_compacted");
+      this.contextManager.setSessionMemory(
+        typeof latest?.summary === "string" ? latest.summary : null,
+        typeof latest?.coveredCount === "number" ? latest.coveredCount : undefined,
+      );
+    }
 
     session.appendMessage({ role: "user", content: [{ type: "text", text: input }] });
 
@@ -156,10 +164,12 @@ export class AgentRuntime {
         this.contextUsed = undefined;
         this.emitContextUsage();
         const summary = this.contextManager.consumeCompactionSummary();
+        const coveredCount = this.contextManager.consumeCompactionCoveredCount();
         if (summary && typeof (session as any).appendEvent === "function") {
           (session as any).appendEvent({
             type: "context_compacted",
             summary,
+            coveredCount,
           });
         }
       }
