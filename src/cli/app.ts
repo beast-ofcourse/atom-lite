@@ -34,6 +34,9 @@ import { Transcript } from "./transcript.js";
 import { AgentRuntime } from "../agent/loop.js";
 import { JsonlSessionStore } from "../sessions/store.js";
 import { ExtensionLoader } from "../extensions/loader.js";
+import { createDefaultExtensionUI } from "../extensions/ui.js";
+import type { ExtensionUICallbacks } from "../extensions/ui.js";
+import { collectExtensionTools } from "../extensions/tool-adapter.js";
 import { denyProject, trustProject } from "../extensions/trust.js";
 import { ProjectTrustPrompt } from "./trust-prompt.js";
 import {
@@ -197,6 +200,7 @@ export async function run(args: string[]): Promise<void> {
     },
   });
 
+  const extensionUICallbacks: ExtensionUICallbacks = {};
   const extensionLoader = new ExtensionLoader({
     cliPaths: extensionPaths,
     cwd: process.cwd(),
@@ -217,9 +221,31 @@ export async function run(args: string[]): Promise<void> {
       `atom-lite: skipping ${pendingTrust.length} untrusted project extension(s); run interactively to review\n`,
     );
   }
-  void extensionLoader.loadAll().catch(() => {
+  await extensionLoader.loadAll().catch(() => {
     // Extension failures are reported per extension.
   });
+  const extensionTools = collectExtensionTools(extensionLoader);
+  const allTools = [...builtInTools, ...extensionTools];
+  const extensionDispatch = async (event: string, payload: any) => {
+    const results: any[] = [];
+    for (const loaded of extensionLoader.list()) {
+      const handlers = loaded.registries.handlers.get(event as any);
+      if (!handlers) continue;
+      for (const handler of handlers) {
+        try {
+          results.push(
+            await handler(payload, loaded.context ?? ({} as any)),
+          );
+        } catch (error) {
+          // eslint-disable-next-line no-console
+          console.error(
+            `[extension:${loaded.id}] handler error: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+    }
+    return results;
+  };
 
   const contextManager = new ContextManager({
     systemPrompt: "You are a coding assistant.",
@@ -250,14 +276,15 @@ export async function run(args: string[]): Promise<void> {
     provider,
     model: modelOverride,
     workspace: process.cwd(),
-    tools: builtInTools,
+    tools: allTools,
     approvals,
     contextManager,
+    extensionDispatch,
     bashConcurrency: config.runtime.bashConcurrency,
   });
 
   mcpManager.onToolsChanged = () => {
-    runtime.setTools([...builtInTools, ...createMcpTools(mcpManager)]);
+    runtime.setTools([...builtInTools, ...extensionTools, ...createMcpTools(mcpManager)]);
   };
 
   if (oneShot || !interactive) {
@@ -268,7 +295,7 @@ export async function run(args: string[]): Promise<void> {
     try {
       if (useTools) {
         await mcpManager.syncTools();
-        runtime.setTools([...builtInTools, ...createMcpTools(mcpManager)]);
+        runtime.setTools([...builtInTools, ...extensionTools, ...createMcpTools(mcpManager)]);
       }
       const result = await runtime.runAgentTurn(oneShot || " ", session, controller.signal);
       if (jsonMode) {
@@ -488,6 +515,11 @@ export async function run(args: string[]): Promise<void> {
         void extensionLoader
           .loadAll()
           .then(() => {
+            runtime.setTools([
+              ...builtInTools,
+              ...collectExtensionTools(extensionLoader),
+              ...createMcpTools(mcpManager),
+            ]);
             appendLine(
               `extensions: ${extensionLoader.list().length} processed (see /extensions)`,
             );
@@ -526,7 +558,7 @@ export async function run(args: string[]): Promise<void> {
     try {
       if (useTools) {
         await mcpManager.syncTools();
-        runtime.setTools([...builtInTools, ...createMcpTools(mcpManager)]);
+        runtime.setTools([...builtInTools, ...extensionTools, ...createMcpTools(mcpManager)]);
       }
       await runtime.runAgentTurn(prompt, session, controller.signal);
     } catch (err) {
@@ -1377,6 +1409,22 @@ export async function run(args: string[]): Promise<void> {
     tui.requestRender();
   }
 
+  // Wire interactive extension UI callbacks now that the TUI exists.
+  extensionUICallbacks.notify = (message: string, type?: "info" | "warning" | "error") => {
+    const style =
+      type === "error"
+        ? theme.tokens.error
+        : type === "warning"
+          ? theme.tokens.warning
+          : theme.tokens.accent;
+    appendLine(`${style(`[ext]`)} ${message}`);
+  };
+  extensionUICallbacks.requestRender = () => tui.requestRender();
+  extensionUICallbacks.getToolsExpanded = () => expandTools;
+  extensionUICallbacks.setToolsExpanded = (expanded: boolean) => {
+    if (expandTools !== expanded) toggleTools();
+  };
+
   function toggleToolBoxAtScreenRow(screenY: number): boolean {
     const width = terminal.columns;
     const outputHeight = Math.max(1, output.viewportHeight || output.render(width).length);
@@ -1537,7 +1585,7 @@ export async function run(args: string[]): Promise<void> {
       }
       if (useTools) {
         await mcpManager.syncTools();
-        runtime.setTools([...builtInTools, ...createMcpTools(mcpManager)]);
+        runtime.setTools([...builtInTools, ...extensionTools, ...createMcpTools(mcpManager)]);
       }
       appendLine(formatMcpStatus(mcpManager.status()));
       return;

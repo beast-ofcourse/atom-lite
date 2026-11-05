@@ -8,11 +8,14 @@ import { discoverExtensions, type DiscoveredExtension } from "./discovery.js";
 import { loadConfig } from "../config/load.js";
 import { defaultAgentDir, userConfigDir } from "../config/paths.js";
 import { createExtensionAPI, createExtensionRegistries } from "./api.js";
+import { createDefaultExtensionUI } from "./ui.js";
 import type { ExtensionContext } from "./types.js";
 import type { AtomEvent } from "./types.js";
 
 export interface ExtensionLoaderOptions {
   cliPaths?: string[];
+  hasUI?: boolean;
+  uiFactory?: (registries: ReturnType<typeof createExtensionRegistries>, ctx: ExtensionContext) => ExtensionContext["ui"];
   userDir?: string;
   cwd?: string;
   agentDir?: string;
@@ -128,14 +131,19 @@ export class ExtensionLoader {
       const ctx: ExtensionContext = {
         workspace: this.workspace(),
         trusted: entry.trusted,
+        hasUI: this.options.hasUI ?? false,
+        ui: null as any,
         log: (message) => {
           console.error(`[extension:${entry.id}] ${message}`);
         },
       };
+      ctx.ui =
+        this.options.uiFactory?.(registries, ctx) ??
+        createDefaultExtensionUI(registries, ctx);
 
       if (entry.errors.length > 0) {
         const error = entry.errors.join("; ");
-        this.recordLifecycle("extension_error", entry.id, error);
+        this.recordLifecycle("extension_error", entry.id, error, registries, ctx);
         loaded.push({
           id: entry.id,
           source: entry.source,
@@ -199,11 +207,12 @@ export class ExtensionLoader {
           registries,
           "current",
         );
+        api.ui = ctx.ui;
         await factory(api);
         this.emitToRegistries(registries, ctx, "extension_load", entry.id);
-        this.recordLifecycle("extension_load", entry.id);
+        this.recordLifecycle("extension_load", entry.id, undefined, registries, ctx);
         this.emitToRegistries(registries, ctx, "extension_activate", entry.id);
-        this.recordLifecycle("extension_activate", entry.id);
+        this.recordLifecycle("extension_activate", entry.id, undefined, registries, ctx);
         loaded.push({
           id: entry.id,
           source: entry.source,
@@ -217,7 +226,7 @@ export class ExtensionLoader {
         const message =
           error instanceof Error ? error.message : String(error);
         this.emitToRegistries(registries, ctx, "extension_error", entry.id, message);
-        this.recordLifecycle("extension_error", entry.id, message);
+        this.recordLifecycle("extension_error", entry.id, message, registries, ctx);
         loaded.push({
           id: entry.id,
           source: entry.source,
@@ -239,17 +248,24 @@ export class ExtensionLoader {
     type: AtomEvent,
     extensionId: string,
     error?: string,
+    registries?: ReturnType<typeof createExtensionRegistries>,
+    ctx?: ExtensionContext,
   ): void {
     const event: ExtensionLifecycleEvent = { type, extensionId, error };
     this.lifecycle.push(event);
     this.options.onLifecycleEvent?.({ type, extensionId, error });
-    // Invoke handlers registered by already-loaded extensions.
-    for (const loaded of this.extensions) {
-      const handlers = loaded.registries.handlers.get(type);
+    const targets = registries
+      ? [{ registries, context: ctx }]
+      : this.extensions.map((loaded) => ({
+          registries: loaded.registries,
+          context: loaded.context,
+        }));
+    for (const target of targets) {
+      const handlers = target.registries.handlers.get(type);
       if (!handlers) continue;
       for (const handler of handlers) {
         try {
-          void handler({ type, extensionId, error }, loaded.context!);
+          void handler({ type, extensionId, error }, target.context!);
         } catch {
           // Handler failures must not break loading.
         }
@@ -331,7 +347,13 @@ export class ExtensionLoader {
 
   async unloadAll(): Promise<void> {
     for (const loaded of this.extensions) {
-      this.recordLifecycle("extension_unload", loaded.id);
+      this.recordLifecycle(
+        "extension_unload",
+        loaded.id,
+        undefined,
+        loaded.registries,
+        loaded.context,
+      );
     }
     this.extensions = [];
     this.jiti = null;

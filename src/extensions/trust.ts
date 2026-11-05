@@ -79,21 +79,5 @@ export function denyProject(projectDir: string, configPath?: string): void {
 }
 
 export function untrustProject(projectDir: string, configPath?: string): void {
-  const normalized = normalizeProjectPath(projectDir);
-  updateUserConfig(
-    (config) => {
-      const extensions =
-        config.extensions && typeof config.extensions === "object"
-          ? (config.extensions as Record<string, unknown>)
-          : {};
-      const trusted = Array.isArray(extensions.trustedProjects)
-        ? (extensions.trustedProjects as string[]).filter(
-            (path) => path !== normalized,
-          )
-        : [];
-      extensions.trustedProjects = trusted;
-      config.extensions = extensions;
-    },
-    configPath,
-  );
+  writeDecision(projectDir, "none", configPath);
 }

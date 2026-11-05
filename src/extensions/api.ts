@@ -8,11 +8,14 @@ import type {
   ExtensionProvider,
   ExtensionTool,
   ExtensionWidget,
+  ExtensionUIContext,
   ExtensionEventHandler,
 } from "./types.js";
+import { createDefaultExtensionUI } from "./ui.js";
 
 export interface ExtensionAPI {
   id: string;
+  ui: ExtensionUIContext;
   registerTool(tool: ExtensionTool): void;
   unregisterTool(name: string): void;
   setActiveTools(names: string[]): void;
@@ -28,6 +31,20 @@ export interface ExtensionAPI {
   notify(message: string, level?: "info" | "warning" | "error"): void;
   registerWidget(location: ExtensionWidget["location"], widget: ExtensionWidget): void;
   unregisterWidget(id: string): void;
+  setWidget(
+    key: string,
+    content: string[] | ((tui: any, theme: any) => any) | undefined,
+    options?: { placement?: "aboveEditor" | "belowEditor" },
+  ): void;
+  setFooter(factory: ((tui: any, theme: any, footerData: any) => any) | undefined): void;
+  setHeader(factory: ((tui: any, theme: any) => any) | undefined): void;
+  setTitle(title: string): void;
+  setWorkingMessage(message?: string): void;
+  setWorkingVisible(visible: boolean): void;
+  setWorkingIndicator(options?: { frames?: string[]; intervalMs?: number }): void;
+  setHiddenThinkingLabel(label?: string): void;
+  getToolsExpanded(): boolean;
+  setToolsExpanded(expanded: boolean): void;
   select(title: string, options: string[]): Promise<string | undefined>;
   confirm(title: string, message: string): Promise<boolean>;
   input(title: string, placeholder?: string): Promise<string | undefined>;
@@ -47,6 +64,15 @@ export interface ExtensionRegistries {
   commands: Map<string, ExtensionCommand>;
   handlers: Map<AtomEvent, Set<ExtensionEventHandler>>;
   widgets: Map<string, ExtensionWidget>;
+  uiWidgets: Map<string, any>;
+  footerFactory?: any;
+  headerFactory?: any;
+  title?: string;
+  workingMessage?: string;
+  workingVisible: boolean;
+  workingIndicator?: { frames?: string[]; intervalMs?: number };
+  hiddenThinkingLabel?: string;
+  toolsExpanded: boolean;
   providers: Map<string, ExtensionProvider>;
   models: ExtensionModel[];
   entries: Array<{ type: string; data: unknown }>;
@@ -60,6 +86,9 @@ export function createExtensionRegistries(): ExtensionRegistries {
     commands: new Map(),
     handlers: new Map(),
     widgets: new Map(),
+    uiWidgets: new Map(),
+    workingVisible: true,
+    toolsExpanded: false,
     providers: new Map(),
     models: [],
     entries: [],
@@ -74,8 +103,11 @@ export function createExtensionAPI(
   registries: ExtensionRegistries,
   sessionId: string,
 ): ExtensionAPI {
+  if (typeof ctx.hasUI !== "boolean") ctx.hasUI = false;
+  if (!ctx.ui) ctx.ui = createDefaultExtensionUI(registries, ctx);
   return {
     id,
+    ui: ctx.ui,
     registerTool: (tool) => {
       registries.tools.set(tool.name, tool);
     },
@@ -153,6 +185,16 @@ export function createExtensionAPI(
     unregisterWidget: (widgetId) => {
       registries.widgets.delete(widgetId);
     },
+    setWidget: (key, content, options) => ctx.ui.setWidget(key, content, options),
+    setFooter: (factory) => ctx.ui.setFooter(factory),
+    setHeader: (factory) => ctx.ui.setHeader(factory),
+    setTitle: (title) => ctx.ui.setTitle(title),
+    setWorkingMessage: (message) => ctx.ui.setWorkingMessage(message),
+    setWorkingVisible: (visible) => ctx.ui.setWorkingVisible(visible),
+    setWorkingIndicator: (options) => ctx.ui.setWorkingIndicator(options),
+    setHiddenThinkingLabel: (label) => ctx.ui.setHiddenThinkingLabel(label),
+    getToolsExpanded: () => ctx.ui.getToolsExpanded(),
+    setToolsExpanded: (expanded) => ctx.ui.setToolsExpanded(expanded),
     select: () => {
       throw new Error("extension runtime not initialized");
     },
