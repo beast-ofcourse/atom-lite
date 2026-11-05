@@ -72,19 +72,13 @@ export type ModelStreamEvent =
   | { type: "done"; response: ModelResponse };
 
 export interface AgentLimits {
-  maxIterations: number;
-  maxToolCalls: number;
-  maxExecutionMs: number;
   maxParallelToolCalls: number;
   maxToolOutputBytes: number;
   maxBashTimeMs: number;
 }
 
 export const DEFAULT_LIMITS: AgentLimits = {
-  maxIterations: 40,
-  maxToolCalls: 100,
-  maxExecutionMs: 1_800_000,
-  maxParallelToolCalls: 4,
+  maxParallelToolCalls: 10,
   maxToolOutputBytes: 30_000,
   maxBashTimeMs: 120_000,
 };
