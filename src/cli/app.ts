@@ -1,4 +1,5 @@
 import { loadConfig } from "../config/load.js";
+import { DEFAULT_SYSTEM_PROMPT } from "../agent/system-prompt.js";
 import { defaultAgentDir, userConfigDir } from "../config/paths.js";
 import {
   saveProviderModel,
@@ -297,7 +298,7 @@ export async function run(args: string[]): Promise<void> {
   };
 
   const contextManager = new ContextManager({
-    systemPrompt: "You are an autonomous AI coding agent built by beast-ofcourse[bhavin bogam]",
+    systemPrompt: DEFAULT_SYSTEM_PROMPT,
     maxInputTokens: config.context.maxInputTokens ?? null,
     reserveOutputTokens: config.context.reserveOutputTokens,
     compactAtPercent: config.context.compactAtPercent,

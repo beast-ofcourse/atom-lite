@@ -3,6 +3,7 @@ import { DEFAULT_LIMITS } from "../types.js";
 import type { Message, ModelRequest, AgentLimits } from "../types.js";
 import { executeToolBatch } from "../runtime/scheduler.js";
 import { ContextManager } from "../context/manager.js";
+import { DEFAULT_SYSTEM_PROMPT } from "./system-prompt.js";
 import { runModelTurn } from "./model-turn.js";
 import { TurnRecorder } from "./turn-recorder.js";
 
@@ -44,7 +45,7 @@ export class AgentRuntime {
     this.contextManager =
       options.contextManager ??
       new ContextManager({
-        systemPrompt: options.systemPrompt ?? "You are a coding assistant.",
+        systemPrompt: options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
         maxInputTokens: null,
         reserveOutputTokens: 4096,
         compactAtPercent: 85,
@@ -56,7 +57,7 @@ export class AgentRuntime {
     this.limits = { ...DEFAULT_LIMITS, ...(options.limits ?? {}) };
     this.extensionDispatch = options.extensionDispatch;
     this.steeringQueue = options.steeringQueue;
-    this.systemPrompt = options.systemPrompt ?? "You are a coding assistant with tools: read, write, edit, bash, webfetch, websearch.";
+    this.systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     this.contextWindow = options.contextWindow;
     this.contextManager.setModelContextWindow(options.contextWindow);
   }
