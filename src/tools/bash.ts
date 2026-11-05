@@ -51,7 +51,7 @@ export const bashTool: Tool = {
         isError: true,
       };
     }
-    if (ctx.approvals) {
+    if (ctx.mode !== "yolo" && ctx.approvals) {
       const { checkApproval } = await import("../runtime/approvals.js");
       const decision = await checkApproval(ctx.approvals, {
         command,

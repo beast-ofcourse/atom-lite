@@ -79,3 +79,33 @@ test("agent loop forwards streamed bash output and tool diffs", async () => {
   );
   assert.deepEqual(writeResult.diff, ["+ hi"]);
 });
+
+test("agent loop does not stop at the old 40-iteration cap", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  writeFileSync(join(dir, "a.txt"), "hello\n");
+  const responses = Array.from({ length: 41 }, () => ({
+    toolCalls: [{ id: "c", name: "read", arguments: { path: "a.txt" } }],
+  }));
+  responses.push({ text: "done" } as any);
+  const provider = new FakeProvider(responses as any);
+  const runtime = new AgentRuntime({ provider, workspace: dir, tools: [readTool] });
+  const session = new InMemorySession("s1", dir);
+  const result = await runtime.runAgentTurn("go", session, new AbortController().signal);
+  assert.equal(result, "done");
+});
+
+test("agent loop stops when session token budget is exceeded", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  const provider = new FakeProvider([
+    { text: "hi", usage: { input: 10, output: 5, total: 100 } },
+  ]);
+  const runtime = new AgentRuntime({
+    provider,
+    workspace: dir,
+    tools: [],
+    maxTokensPerSession: 50,
+  });
+  const session = new InMemorySession("s1", dir);
+  const result = await runtime.runAgentTurn("go", session, new AbortController().signal);
+  assert.equal(result, "TOKEN_BUDGET_REACHED");
+});

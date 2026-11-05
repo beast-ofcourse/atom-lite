@@ -166,3 +166,36 @@ test("parallel bash barrier still excludes file operations", async () => {
   assert.equal(fileAcquired, true);
   releaseFile();
 });
+
+test("plan mode blocks write/edit/bash with a tool-disabled result", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  writeFileSync(join(dir, "x.txt"), "hello");
+  const calls = [
+    { id: "w", name: "write", arguments: { path: "y.txt", content: "hi" } },
+    { id: "e", name: "edit", arguments: { path: "x.txt", old_string: "hello", new_string: "world" } },
+    { id: "b", name: "bash", arguments: { command: "echo hi" } },
+    { id: "r", name: "read", arguments: { path: "x.txt" } },
+  ];
+  const toolMap = new Map([
+    ["read", readTool],
+    ["write", writeTool],
+    ["edit", editTool],
+    ["bash", bashTool],
+  ]);
+  const base = ctx(dir);
+  const res = await executeToolBatch(
+    calls as any,
+    toolMap,
+    { ...base, mode: "plan" } as any,
+    4,
+    new AbortController().signal,
+  );
+  const byId = Object.fromEntries(res.map((r: any) => [r.toolCallId, r]));
+  assert.equal(byId.w.isError, true);
+  assert.match(byId.w.content, /plan mode: tool disabled/);
+  assert.equal(byId.e.isError, true);
+  assert.match(byId.e.content, /plan mode: tool disabled/);
+  assert.equal(byId.b.isError, true);
+  assert.match(byId.b.content, /plan mode: tool disabled/);
+  assert.notEqual(byId.r.isError, true);
+});

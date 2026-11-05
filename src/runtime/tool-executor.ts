@@ -101,6 +101,15 @@ export class ToolExecutor {
 
     const tasks = calls.map((call, i) => {
       return (async () => {
+        if (ctx.mode === "plan" && (call.name === "write" || call.name === "edit" || call.name === "bash")) {
+          results[i] = {
+            toolCallId: call.id,
+            name: call.name,
+            content: "plan mode: tool disabled",
+            isError: true,
+          };
+          return;
+        }
         if (signal.aborted) {
           results[i] = { toolCallId: call.id, name: call.name, content: "USER_CANCELLED", isError: true };
           return;

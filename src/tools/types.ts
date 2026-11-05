@@ -27,6 +27,8 @@ export interface ToolContext {
   maxBashTimeMs?: number;
   maxToolOutputBytes?: number;
   approvals?: import("../runtime/approvals.js").ApprovalContext;
+  /** Current agent mode; plan blocks write/edit/bash. */
+  mode?: "plan" | "yolo";
   /** Live output from a running command, forwarded to the UI. */
   onToolOutput?: (
     call: ToolCall,

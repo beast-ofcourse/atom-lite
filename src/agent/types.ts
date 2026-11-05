@@ -32,6 +32,7 @@ export type AgentEvent =
   | { type: "context_usage"; used?: number; window?: number }
   | { type: "model_switched"; provider: string; model: string }
   | { type: "skill_loaded"; name: string }
+  | { type: "budget_warning"; scope: "turn" | "session"; used: number; limit: number }
   | { type: "error"; message: string };
 
 export interface AgentRuntimeOptions {
@@ -42,6 +43,12 @@ export interface AgentRuntimeOptions {
   limits?: Partial<AgentLimits>;
   systemPrompt?: string;
   approvals?: ApprovalContext;
+  /** Initial agent mode. Defaults to yolo for programmatic use. */
+  mode?: "plan" | "yolo";
+  /** Optional session token budget (hard stop when exceeded). */
+  maxTokensPerSession?: number | null;
+  /** Optional per-turn token soft warning threshold. */
+  maxTokensPerTurn?: number | null;
   contextManager?: ContextManager;
   onEvent?: (event: AgentEvent) => void;
   effort?: string;

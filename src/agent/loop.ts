@@ -11,6 +11,10 @@ export class AgentRuntime {
   private model: string;
   private workspace: string;
   private approvals: AgentRuntimeOptions["approvals"];
+  private mode: "plan" | "yolo";
+  private maxTokensPerSession: number | null;
+  private maxTokensPerTurn: number | null;
+  private totalTokensUsed: number;
   private contextManager: ContextManager;
   private onEvent: AgentRuntimeOptions["onEvent"];
   private tools: AgentRuntimeOptions["tools"];
@@ -29,6 +33,10 @@ export class AgentRuntime {
     this.model = options.model ?? "default";
     this.workspace = options.workspace ?? process.cwd();
     this.approvals = options.approvals;
+    this.mode = options.mode ?? "yolo";
+    this.maxTokensPerSession = options.maxTokensPerSession ?? null;
+    this.maxTokensPerTurn = options.maxTokensPerTurn ?? null;
+    this.totalTokensUsed = 0;
     this.onEvent = options.onEvent;
     this.tools = options.tools;
     this.effort = options.effort ?? "medium";
@@ -91,6 +99,14 @@ export class AgentRuntime {
     this.effort = effort;
   }
 
+  setMode(mode: "plan" | "yolo"): void {
+    this.mode = mode;
+  }
+
+  getMode(): "plan" | "yolo" {
+    return this.mode;
+  }
+
   setSteeringQueue(queue: string[]): void {
     this.steeringQueue = queue;
   }
@@ -148,15 +164,10 @@ export class AgentRuntime {
     session.appendMessage({ role: "user", content: [{ type: "text", text: input }] });
 
     await this.extensionDispatch?.("turn_start", { type: "turn_start" });
-    let totalToolCalls = 0;
     let forceContinue = false;
     const start = Date.now();
 
-    for (
-      let iteration = 0;
-      iteration < this.limits.maxIterations;
-      iteration++
-    ) {
+    while (true) {
       forceContinue = false;
       // Drain any steering messages into the session before the next model turn.
       if (this.steeringQueue && this.steeringQueue.length > 0) {
@@ -170,9 +181,6 @@ export class AgentRuntime {
       }
       if (signal.aborted) {
         throw new Error("USER_CANCELLED");
-      }
-      if (Date.now() - start > this.limits.maxExecutionMs) {
-        return "TASK_BUDGET_REACHED";
       }
 
       const messages = await this.contextManager.build(
@@ -243,6 +251,37 @@ export class AgentRuntime {
           // current context occupancy (not a cumulative session total).
           this.contextUsed = used;
           this.emitContextUsage();
+          if (
+            this.maxTokensPerTurn !== null &&
+            used > this.maxTokensPerTurn
+          ) {
+            this.onEvent?.({
+              type: "budget_warning",
+              scope: "turn",
+              used,
+              limit: this.maxTokensPerTurn,
+            });
+          }
+        }
+        const turnTokens =
+          response.usage.total ?? used;
+        if (turnTokens > 0) {
+          this.totalTokensUsed += turnTokens;
+        }
+        if (
+          this.maxTokensPerSession !== null &&
+          this.totalTokensUsed >= this.maxTokensPerSession
+        ) {
+          this.onEvent?.({
+            type: "budget_warning",
+            scope: "session",
+            used: this.totalTokensUsed,
+            limit: this.maxTokensPerSession,
+          });
+          await this.extensionDispatch?.("agent_settled", {
+            type: "agent_settled",
+          });
+          return "TOKEN_BUDGET_REACHED";
         }
       }
 
@@ -301,13 +340,9 @@ export class AgentRuntime {
         }
       }
 
-      totalToolCalls += toolCalls.length;
-      if (totalToolCalls > this.limits.maxToolCalls) {
-        return "TASK_BUDGET_REACHED";
-      }
-
       const ctx = {
         workspace: this.workspace,
+        mode: this.mode,
         signal,
         maxBashTimeMs: this.limits.maxBashTimeMs,
         maxToolOutputBytes: this.limits.maxToolOutputBytes,
