@@ -8,7 +8,8 @@ import {
 import { resolveApiKey, saveApiKey } from "../config/credentials.js";
 import { join } from "node:path";
 import { writeFileSync, existsSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
+import { defaultShell, terminateProcessTree } from "../security/process.js";
 import { openSearchablePicker, type PickerItem } from "./picker.js";
 import { openCommandPalette, type PaletteItem } from "./palette.js";
 import { bareCommandName, createCommandRegistry, type CommandContext } from "./commands.js";
@@ -57,7 +58,7 @@ import {
   parseSgrMouse,
   shouldEnableMouse,
 } from "./mouse.js";
-import { readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool } from "../tools/index.js";
+import { readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool, grepTool, globTool } from "../tools/index.js";
 import { McpManager, formatMcpStatus, formatMcpDoctor, createMcpTools } from "../mcp/index.js";
 import { createProvider } from "../providers/factory.js";
 import {
@@ -166,7 +167,7 @@ export async function run(args: string[]): Promise<void> {
   if (modelOverride) modelByProvider.set(provider.id, modelOverride);
   const useTools = !positional.includes("__notools__");
   const builtInTools = useTools
-    ? [readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool]
+    ? [readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool, grepTool, globTool]
     : [];
 
   const interactive = process.stdin.isTTY === true && !jsonMode;
@@ -663,6 +664,7 @@ export async function run(args: string[]): Promise<void> {
   }
 
   let activeTurnController: AbortController | null = null;
+  let shellMode = false;
   const messageQueue: string[] = [];
   const steeringQueue: string[] = [];
   runtime.setSteeringQueue(steeringQueue);
@@ -696,6 +698,82 @@ export async function run(args: string[]): Promise<void> {
         appendLine(`> ${next}`, theme.tokens.user);
         void runTurn(next);
       }
+    }
+  }
+
+  /** Run a shell command directly (shell mode / `!` prefix). */
+  async function runShellCommand(command: string): Promise<void> {
+    const shell = defaultShell();
+    const flag = process.platform === "win32" ? "/c" : "-c";
+    const start = Date.now();
+    const cap = 30000;
+    let stdout = "";
+    let stderr = "";
+    let truncated = false;
+    const append = (target: "out" | "err", chunk: Buffer) => {
+      const s = chunk.toString("utf8");
+      let accepted = s;
+      if (target === "out") {
+        if (stdout.length + s.length > cap) {
+          truncated = true;
+          accepted = s.slice(0, Math.max(0, cap - stdout.length));
+          stdout += accepted;
+        } else {
+          stdout += s;
+        }
+      } else {
+        if (stderr.length + s.length > cap) {
+          truncated = true;
+          accepted = s.slice(0, Math.max(0, cap - stderr.length));
+          stderr += accepted;
+        } else {
+          stderr += s;
+        }
+      }
+      if (accepted) {
+        tui.requestRender();
+      }
+    };
+    try {
+      const child = spawn(shell, [flag, command], {
+        cwd: process.cwd(),
+        env: process.env,
+        detached: process.platform !== "win32",
+      });
+      child.stdout?.on("data", (c: Buffer) => append("out", c));
+      child.stderr?.on("data", (c: Buffer) => append("err", c));
+      const exit = await new Promise<{ code: number | null; signal: string | null }>(
+        (resolve) => {
+          const timer = setTimeout(() => {
+            terminateProcessTree(child, "SIGTERM");
+            setTimeout(() => terminateProcessTree(child, "SIGKILL"), 1000).unref();
+            resolve({ code: null, signal: "SIGTERM" });
+          }, 120000);
+          timer.unref();
+          child.on("close", (code, signal) => {
+            clearTimeout(timer);
+            resolve({ code, signal });
+          });
+          child.on("error", (err) => {
+            clearTimeout(timer);
+            resolve({ code: null, signal: null });
+            stderr = `COMMAND_FAILED: ${err instanceof Error ? err.message : String(err)}`;
+          });
+        },
+      );
+      const parts: string[] = [];
+      parts.push(`exit_code: ${exit.code ?? "null"}`);
+      if (exit.signal) parts.push(`signal: ${exit.signal}`);
+      if (truncated) parts.push("OUTPUT_TRUNCATED");
+      parts.push(`duration_ms: ${Date.now() - start}`);
+      if (stdout) parts.push(`stdout:\n${stdout}`);
+      if (stderr) parts.push(`stderr:\n${stderr}`);
+      const content = parts.join("\n");
+      appendLine(content, exit.code === 0 && !exit.signal && !stderr
+        ? theme.tokens.success
+        : theme.tokens.error);
+    } catch (err) {
+      appendLine(`shell error: ${err instanceof Error ? err.message : String(err)}`, theme.tokens.error);
     }
   }
 
@@ -1717,10 +1795,18 @@ export async function run(args: string[]): Promise<void> {
       tui.requestRender();
       return { consume: true };
     }
-    // Escape cancels the active turn.
-    if (matchesKey(data, Key.escape) && !uiModalOpen && activeTurnController) {
-      activeTurnController.abort();
-      return { consume: true };
+    // Escape cancels the active turn, or exits shell mode.
+    if (matchesKey(data, Key.escape) && !uiModalOpen) {
+      if (activeTurnController) {
+        activeTurnController.abort();
+        return { consume: true };
+      }
+      if (shellMode) {
+        shellMode = false;
+        appendLine("shell mode: off", theme.tokens.dim);
+        tui.requestRender();
+        return { consume: true };
+      }
     }
     return undefined;
   });
@@ -1999,6 +2085,29 @@ export async function run(args: string[]): Promise<void> {
     const trimmed = value.trim();
     input.setText("");
     if (!trimmed) {
+      tui.requestRender();
+      return;
+    }
+
+    // Shell mode: every line is a shell command. `!` alone (or as first char)
+    // enters shell mode; Escape exits it.
+    if (shellMode) {
+      const cmd = trimmed.startsWith("!") ? trimmed.slice(1).trim() : trimmed;
+      appendLine(`$ ${cmd}`, theme.tokens.user);
+      await runShellCommand(cmd);
+      tui.requestRender();
+      return;
+    }
+
+    // `!` as first character enters shell mode.
+    if (trimmed === "!" || trimmed.startsWith("! ")) {
+      shellMode = true;
+      const rest = trimmed.slice(1).trim();
+      appendLine("shell mode: on (Escape to exit)", theme.tokens.dim);
+      if (rest) {
+        appendLine(`$ ${rest}`, theme.tokens.user);
+        await runShellCommand(rest);
+      }
       tui.requestRender();
       return;
     }

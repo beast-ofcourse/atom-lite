@@ -48,18 +48,16 @@ test("successful and failed results colour the output panel differently", () => 
   assert.match(badRendered, /✗ bash/);
 });
 
-test("diff results summarise or expand with coloured lines", () => {
+test("diff results render expanded coloured lines", () => {
   const box = new ToolBox({ id: "1", name: "edit", args: { path: "a.ts" } });
   box.setResult("", {
     diff: ["--- a/a.ts", "+++ b/a.ts", "+added", "-removed"],
   });
-  assert.match(box.render(60).join("\n"), /\+1 -1 · ctrl\+o to expand/);
-
-  box.setExpanded(true);
   const rendered = box.render(60).join("\n");
   assert.ok(rendered.includes(GREEN));
   assert.ok(rendered.includes(RED));
   assert.match(rendered, /\+added/);
+  assert.match(rendered, /-removed/);
 });
 
 test("toggleExpanded flips the expanded state", () => {

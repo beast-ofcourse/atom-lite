@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
 export interface Skill {
@@ -20,7 +21,9 @@ export interface SkillRegistry {
  * invalidates the cache while normal turns stay allocation-light.
  */
 export function skillCacheSignature(workspace: string): string {
+  const bundledDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "skills");
   const dirs = [
+    bundledDir,
     join(homedir(), ".agents", "skills"),
     join(workspace, ".agents", "skills"),
   ];
@@ -99,12 +102,15 @@ export class DefaultSkillRegistry implements SkillRegistry {
   private skills: Skill[] = [];
 
   constructor(workspace: string) {
+    const bundledDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "skills");
     const globalDir = join(homedir(), ".agents", "skills");
     const projectDir = join(workspace, ".agents", "skills");
+    const bundledSkills = scanDir(bundledDir, "global");
     const globalSkills = scanDir(globalDir, "global");
     const projectSkills = scanDir(projectDir, "project");
     // project overrides global on name collision
     const map = new Map<string, Skill>();
+    for (const s of bundledSkills) map.set(s.name, s);
     for (const s of globalSkills) map.set(s.name, s);
     for (const s of projectSkills) map.set(s.name, s);
     this.skills = [...map.values()];

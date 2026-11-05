@@ -4,5 +4,7 @@ export { editTool } from "./edit.js";
 export { bashTool } from "./bash.js";
 export { webfetchTool } from "./webfetch.js";
 export { websearchTool } from "./websearch.js";
+export { grepTool } from "./grep.js";
+export { globTool } from "./glob.js";
 export { InMemoryToolRegistry } from "./registry.js";
 export type { Tool, ToolRegistry, ToolContext, ToolResult } from "./types.js";
