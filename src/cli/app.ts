@@ -463,6 +463,31 @@ export async function run(args: string[]): Promise<void> {
     new CombinedAutocompleteProvider(commandRegistry.autocomplete() as any, process.cwd()),
   );
 
+  // Skills should autocomplete (fill the input) rather than execute immediately
+  // when selected from the autocomplete list; Enter on a typed command still
+  // runs them. Convert a confirming Enter into a Tab completion for skills.
+  const originalHandleInput = input.handleInput.bind(input);
+  input.handleInput = (data: string) => {
+    try {
+      if (
+        (data === "\r" || data === "\n") &&
+        (input as any).autocompleteState &&
+        (input as any).autocompleteList
+      ) {
+        const selected = (input as any).autocompleteList.getSelectedItem?.();
+        const name = selected?.value ?? selected?.name ?? selected?.label;
+        const cmd = name ? commandRegistry.get(String(name).replace(/^\//, "")) : undefined;
+        if (cmd?.bareInvokable) {
+          originalHandleInput("\t");
+          return;
+        }
+      }
+    } catch {
+      // Fall through to default handling on any introspection failure.
+    }
+    originalHandleInput(data);
+  };
+
   const root = new VStack([]);
   // Keep fixed chrome (spacer, input, status, header, dropdown) from being
   // collapsed when the transcript grows; only the output region may shrink.
@@ -1193,13 +1218,15 @@ export async function run(args: string[]): Promise<void> {
       appendLine(`skill not found: ${name}`);
       return false;
     }
+    if (extra) {
+      appendLine(`> ${extra}`, theme.tokens.user);
+    }
     session.appendMessage({ role: "system", content });
     if (typeof (session as any).appendEvent === "function") {
       session.appendEvent({ type: "skill_loaded", name });
     }
-    appendLine(`Loaded skill: ${name}`);
+    appendLine(`Loaded skill: ${name}`, theme.tokens.dim);
     if (extra) {
-      appendLine(`> ${extra}`);
       await runTurn(extra);
     }
     return true;
