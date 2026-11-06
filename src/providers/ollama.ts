@@ -241,10 +241,28 @@ export class OllamaAdapter implements ProviderAdapter {
       const text = await res.text().catch(() => "");
       if (res.status === 401 || res.status === 403)
         throw new Error(`PROVIDER_AUTH_FAILED: ${text}`);
-      if (res.status === 429) {
-        lastErr = new Error(`PROVIDER_RATE_LIMITED: ${text}`);
+      const retryable = res.status === 429 || (res.status >= 500 && res.status < 600);
+      if (retryable) {
+        lastErr = new Error(
+          res.status === 429
+            ? `PROVIDER_RATE_LIMITED: ${text}`
+            : `PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`,
+        );
         if (attempt < 2) {
-          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+          const ra = res.headers.get("retry-after");
+          let delay = 500 * (attempt + 1);
+          if (ra) {
+            const sec = Number(ra);
+            if (Number.isFinite(sec) && sec >= 0) delay = Math.min(sec * 1000, 30000);
+            else {
+              const date = Date.parse(ra);
+              if (!isNaN(date)) {
+                const ms = date - Date.now();
+                if (ms > 0) delay = Math.min(ms, 30000);
+              }
+            }
+          }
+          await new Promise((r) => setTimeout(r, delay));
           continue;
         }
         throw lastErr;
