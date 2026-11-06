@@ -1,5 +1,5 @@
-import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+const { readFileSync, existsSync  } = require("node:fs");
+const { join  } = require("node:path");
 const p = join(process.cwd(), "hello.txt");
 if (!existsSync(p)) { console.error("missing hello.txt"); process.exit(1); }
 const c = readFileSync(p, "utf8");
