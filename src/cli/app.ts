@@ -2135,6 +2135,11 @@ export async function run(args: string[]): Promise<void> {
       }
       updateStatus();
     } else if (e.type === "tool_call") {
+      if (thinkingText) {
+        transcript.invalidate();
+        thinkingText = null;
+        thinkingBuffer = "";
+      }
       finalizeText();
       activity.setPhase("working", e.name);
       const box = new ToolBox({ id: e.id, name: e.name, args: e.args });
@@ -2160,6 +2165,11 @@ export async function run(args: string[]): Promise<void> {
         tui.requestRender();
       }
     } else if (e.type === "final") {
+      if (thinkingText) {
+        transcript.invalidate();
+        thinkingText = null;
+        thinkingBuffer = "";
+      }
       finalizeText();
       activity.stop();
     }
