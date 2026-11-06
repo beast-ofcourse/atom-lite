@@ -49,6 +49,24 @@ export const SessionsConfigSchema = z
   })
   .strict();
 
+export const LspServerConfigSchema = z
+  .object({
+    command: z.string().min(1),
+    args: z.array(z.string()).default([]),
+    extensions: z.array(z.string()).default([]),
+    rootMarkers: z.array(z.string()).default([]),
+    initialization: z.record(z.string(), z.unknown()).optional(),
+    disabled: z.boolean().default(false),
+  })
+  .strict();
+
+export const LspConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    servers: z.record(z.string(), LspServerConfigSchema).default({}),
+  })
+  .strict();
+
 export const UiConfigSchema = z
   .object({
     theme: z.string().default("auto"),
@@ -102,6 +120,7 @@ export const ConfigSchema = z
     runtime: RuntimeConfigSchema.prefault({}),
     context: ContextConfigSchema.prefault({}),
     sessions: SessionsConfigSchema.prefault({}),
+    lsp: LspConfigSchema.prefault({}),
     ui: UiConfigSchema.prefault({}),
     keybindings: KeybindingsConfigSchema.prefault({}),
     mcpServers: McpServersConfigSchema,

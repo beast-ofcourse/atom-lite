@@ -25,6 +25,7 @@ export const DEFAULT_CONFIG = {
     compactEveryNTurns: 0,
   },
   sessions: { enabled: true, retentionDays: null as number | null },
+  lsp: { enabled: false, servers: {} },
   ui: {
     theme: "auto",
     mouse: true,

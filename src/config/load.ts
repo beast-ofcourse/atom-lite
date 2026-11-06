@@ -137,6 +137,11 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
       ...((userRaw.sessions as object) ?? {}),
       ...((projectRaw.sessions as object) ?? {}),
     },
+    lsp: {
+      ...DEFAULT_CONFIG.lsp,
+      ...((userRaw.lsp as object) ?? {}),
+      ...((projectRaw.lsp as object) ?? {}),
+    },
     // UI settings are user-owned: a repository must not change the user's
     // colours, mouse capture, or editor behaviour just by being opened.
     ui: {

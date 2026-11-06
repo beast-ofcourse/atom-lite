@@ -2,6 +2,7 @@ import type { AgentRuntimeOptions, ContextUsage } from "./types.js";
 import { DEFAULT_LIMITS } from "../types.js";
 import type { Message, ModelRequest, AgentLimits } from "../types.js";
 import { executeToolBatch } from "../runtime/scheduler.js";
+import { touchFile as touchLspFile } from "../lsp/index.js";
 import { ContextManager } from "../context/manager.js";
 import { DEFAULT_SYSTEM_PROMPT } from "./system-prompt.js";
 import { BackgroundTaskManager } from "../runtime/background-tasks.js";
@@ -539,6 +540,13 @@ export class AgentRuntime {
         undefined,
         this.bashConcurrency,
       );
+
+      for (const call of execCalls) {
+        const pathArg = (call as any)?.arguments?.path;
+        if (typeof pathArg === "string") {
+          void touchLspFile(pathArg).catch(() => {});
+        }
+      }
 
       const resultMap = new Map<string, any>();
       for (const r of blockedResults.values()) resultMap.set(r.toolCallId, r);

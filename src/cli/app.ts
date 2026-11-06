@@ -37,6 +37,7 @@ import {
   knownVisionModel,
 } from "../providers/context-window.js";
 import { StreamText } from "./stream-text.js";
+import { initLsp, shutdownLsp } from "../lsp/index.js";
 import { Transcript } from "./transcript.js";
 import { AgentRuntime } from "../agent/loop.js";
 import { JsonlSessionStore } from "../sessions/store.js";
@@ -74,6 +75,10 @@ import {
   grepTool,
   globTool,
   taskTool,
+  lspDiagnosticsTool,
+  lspDefinitionTool,
+  lspReferencesTool,
+  lspSymbolsTool,
 } from "../tools/index.js";
 import {
   McpManager,
@@ -176,6 +181,7 @@ export async function run(args: string[]): Promise<void> {
   }
 
   let config = loadConfig();
+  initLsp(config, process.cwd());
   const initialProfile = providerOverride ?? config.defaultProvider;
   if (!(config.providers as Record<string, unknown>)[initialProfile]) {
     const preset = getPreset(initialProfile);
@@ -199,6 +205,9 @@ export async function run(args: string[]): Promise<void> {
         grepTool,
         globTool,
         taskTool,
+        ...(config.lsp?.enabled
+          ? [lspDiagnosticsTool, lspDefinitionTool, lspReferencesTool, lspSymbolsTool]
+          : []),
       ]
     : [];
 
@@ -1635,9 +1644,11 @@ export async function run(args: string[]): Promise<void> {
     runTurn,
     requestExit: () => {
       extensionLoader.notifySessionEnd();
-      void mcpManager.close().finally(() => {
-        tui.stop();
-        process.exit(0);
+      void shutdownLsp().finally(() => {
+        void mcpManager.close().finally(() => {
+          tui.stop();
+          process.exit(0);
+        });
       });
     },
   };
