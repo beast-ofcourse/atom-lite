@@ -10,17 +10,17 @@ import {
   sessionSelectionFromEvents,
 } from "../../dist/sessions/history.js";
 
-function withStore(run: (store: JsonlSessionStore) => void): void {
+async function withStore(run: (store: JsonlSessionStore) => void | Promise<void>): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), "atom-lite-sessions-"));
   try {
-    run(new JsonlSessionStore(dir));
+    await run(new JsonlSessionStore(dir));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
-test("resuming restores retained messages and the event log", () => {
-  withStore((store) => {
+test("resuming restores retained messages and the event log", async () => {
+  await withStore(async (store) => {
     const created = store.create({ workspace: "/w", provider: "fake", id: "s1" });
     created.appendMessage({
       role: "user",
@@ -36,6 +36,7 @@ test("resuming restores retained messages and the event log", () => {
       name: "read",
       content: "file contents",
     });
+    await created.flush();
 
     const resumed = store.resume("s1");
     assert.ok(resumed);
@@ -43,6 +44,7 @@ test("resuming restores retained messages and the event log", () => {
     assert.equal(resumed.messages[0].role, "user");
 
     resumed.appendEvent({ type: "session_resumed", from: "s0" });
+    await resumed.flush();
     const reopened = store.resume("s1");
     assert.ok(reopened);
     const resumeEvent = reopened.events.find(
@@ -53,8 +55,8 @@ test("resuming restores retained messages and the event log", () => {
   });
 });
 
-test("session index derives titles, message counts, and search text", () => {
-  withStore((store) => {
+test("session index derives titles, message counts, and search text", async () => {
+  await withStore(async (store) => {
     const created = store.create({ workspace: "/w", provider: "fake", id: "s1" });
     created.appendMessage({
       role: "user",
@@ -64,6 +66,7 @@ test("session index derives titles, message counts, and search text", () => {
       role: "assistant",
       content: [{ type: "text", text: "assistant reply" }],
     });
+    await created.flush();
 
     let [summary] = store.list("/w");
     assert.equal(summary.title, "first user message");
@@ -71,15 +74,18 @@ test("session index derives titles, message counts, and search text", () => {
     assert.match(summary.searchText ?? "", /assistant reply/);
 
     created.appendEvent({ type: "session_renamed", title: "renamed session" });
+    await created.flush();
     [summary] = store.list("/w");
     assert.equal(summary.title, "renamed session");
   });
 });
 
-test("listing is scoped by workspace", () => {
-  withStore((store) => {
-    store.create({ workspace: "/a", provider: "fake", id: "a" });
-    store.create({ workspace: "/b", provider: "fake", id: "b" });
+test("listing is scoped by workspace", async () => {
+  await withStore(async (store) => {
+    const sa = store.create({ workspace: "/a", provider: "fake", id: "a" });
+    const sb = store.create({ workspace: "/b", provider: "fake", id: "b" });
+    await sa.flush();
+    await sb.flush();
     assert.deepEqual(
       store.list("/a").map((summary) => summary.id),
       ["a"],
