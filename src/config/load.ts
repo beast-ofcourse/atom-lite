@@ -59,7 +59,7 @@ function normalizeRuntime(
   if ("approvalMode" in out && !("mode" in out)) {
     const legacy = out.approvalMode;
     out.mode =
-      legacy === "trusted" ? "yolo" : legacy === "deny" ? "plan" : "plan";
+      legacy === "deny" ? "plan" : "yolo";
   }
   delete out.approvalMode;
   // Removed caps: drop so strict schema does not reject older configs.
