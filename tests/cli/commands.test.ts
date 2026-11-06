@@ -7,6 +7,10 @@ import {
   parseCommandInput,
   type CommandContext,
 } from "../../dist/cli/commands.js";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 
 const SKILLS = [
   {
@@ -214,4 +218,22 @@ test("empty session searches and renames explain their usage", async () => {
     "usage: /search <query>",
     "usage: /session rename <title>",
   ]);
+});
+
+test("/undo reports unavailable outside a git repo", async () => {
+  const { ctx, lines } = fakeContext();
+  const registry = createCommandRegistry();
+  await registry.dispatch("/undo", ctx);
+  assert.ok(lines.some((l) => /undo unavailable/.test(l)));
+});
+
+test("/undo with no checkpoints says so", async () => {
+  // Use a temp git repo with no checkpoints
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  const { ctx, lines } = fakeContext();
+  (ctx.session as any).workspace = dir;
+  const registry = createCommandRegistry();
+  await registry.dispatch("/undo", ctx);
+  assert.ok(lines.some((l) => /no checkpoints/.test(l)));
 });

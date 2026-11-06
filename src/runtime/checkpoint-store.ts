@@ -425,6 +425,10 @@ export class CheckpointStore {
     }
   }
 
+  discard(id: string): void {
+    rmSync(this.checkpointDir(id), { recursive: true, force: true });
+  }
+
   prune(): void {
     const list = this.list();
     if (list.length <= this.maxCount) return;

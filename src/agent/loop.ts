@@ -5,6 +5,7 @@ import { executeToolBatch } from "../runtime/scheduler.js";
 import { ContextManager } from "../context/manager.js";
 import { DEFAULT_SYSTEM_PROMPT } from "./system-prompt.js";
 import { BackgroundTaskManager } from "../runtime/background-tasks.js";
+import { CheckpointStore } from "../runtime/checkpoint-store.js";
 import { runModelTurn } from "./model-turn.js";
 import { TurnRecorder } from "./turn-recorder.js";
 
@@ -31,6 +32,12 @@ export class AgentRuntime {
   private contextUsed: number | undefined;
   private supportsVision: boolean | undefined;
   private backgroundTasks: BackgroundTaskManager;
+  private checkpointingEnabled: boolean;
+  private checkpointStoreOverride: CheckpointStore | undefined;
+  private turnCheckpointed = false;
+  private turnCheckpointId: string | null = null;
+  private turnCheckpointStore: CheckpointStore | null = null;
+  private turnIndex = 0;
 
   constructor(options: AgentRuntimeOptions) {
     this.provider = options.provider;
@@ -64,6 +71,8 @@ export class AgentRuntime {
     this.contextWindow = options.contextWindow;
     this.supportsVision = options.supportsVision;
     this.backgroundTasks = options.backgroundTasks ?? new BackgroundTaskManager();
+    this.checkpointingEnabled = options.checkpointingEnabled ?? true;
+    this.checkpointStoreOverride = options.checkpointStore;
     this.contextManager.setModelContextWindow(options.contextWindow);
   }
 
@@ -181,7 +190,11 @@ export class AgentRuntime {
       );
     }
 
+    this.turnIndex += 1;
     this.injectCompletedBackgroundTasks(session);
+    this.turnCheckpointed = false;
+    this.turnCheckpointId = null;
+    this.turnCheckpointStore = null;
 
     session.appendMessage({ role: "user", content: [{ type: "text", text: input }] });
 
@@ -331,6 +344,20 @@ export class AgentRuntime {
           forceContinue = true;
           continue;
         }
+        // Discard a checkpoint that produced no changes.
+        if (this.turnCheckpointId && this.turnCheckpointStore) {
+          try {
+            if (this.turnCheckpointStore.isAtCheckpoint(this.turnCheckpointId)) {
+              const m = this.turnCheckpointStore.get(this.turnCheckpointId);
+              if (m) {
+                this.turnCheckpointStore.discard(this.turnCheckpointId);
+              }
+              this.turnCheckpointId = null;
+            }
+          } catch {
+            // best effort
+          }
+        }
         await this.extensionDispatch?.("agent_settled", {
           type: "agent_settled",
         });
@@ -453,6 +480,51 @@ export class AgentRuntime {
         });
       }
 
+      // Capture a checkpoint before the first mutating batch of this turn.
+      const readOnly = new Set(["read", "grep", "glob", "webfetch", "websearch", "task"]);
+      const hasMutating = toolCalls.some((c: any) => !blocked.has(c.id) && !readOnly.has(c.name));
+      if (hasMutating && !this.turnCheckpointed) {
+        this.turnCheckpointed = true;
+        if (this.checkpointingEnabled) {
+          const store =
+            this.checkpointStoreOverride ??
+            new CheckpointStore(
+              (session as any).workspace ?? this.workspace,
+              (session as any).id ?? "session",
+              { enabled: this.checkpointingEnabled },
+            );
+          this.turnCheckpointStore = store;
+          const avail = store.isAvailable();
+          if (avail.available) {
+            try {
+              const m = store.create(this.turnIndex, `turn ${this.turnIndex}`);
+              this.turnCheckpointId = m.id;
+              try {
+                if (typeof (session as any).appendEvent === "function") {
+                  (session as any).appendEvent({
+                    type: "checkpoint_created",
+                    checkpointId: m.id,
+                    turn: this.turnIndex,
+                    fileCount: m.files.length,
+                    bytes: m.bytes,
+                  });
+                }
+              } catch {
+                // best effort
+              }
+              this.onEvent?.({ type: "checkpoint_created", id: m.id });
+            } catch (err) {
+              this.onEvent?.({
+                type: "checkpoint_failed",
+                reason: err instanceof Error ? err.message : String(err),
+              });
+            }
+          } else {
+            this.onEvent?.({ type: "checkpoint_unavailable", reason: avail.reason });
+          }
+        }
+      }
+
       const execCalls = toolCalls.filter((c: any) => !blocked.has(c.id));
       const execResults = await executeToolBatch(
         execCalls,
@@ -504,6 +576,20 @@ export class AgentRuntime {
       }
 
       if (terminate) {
+        // Discard a checkpoint that produced no changes.
+        if (this.turnCheckpointId && this.turnCheckpointStore) {
+          try {
+            if (this.turnCheckpointStore.isAtCheckpoint(this.turnCheckpointId)) {
+              const m = this.turnCheckpointStore.get(this.turnCheckpointId);
+              if (m) {
+                this.turnCheckpointStore.discard(this.turnCheckpointId);
+              }
+              this.turnCheckpointId = null;
+            }
+          } catch {
+            // best effort
+          }
+        }
         await this.extensionDispatch?.("agent_settled", {
           type: "agent_settled",
         });

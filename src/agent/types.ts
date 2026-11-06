@@ -34,6 +34,9 @@ export type AgentEvent =
   | { type: "skill_loaded"; name: string }
   | { type: "budget_warning"; scope: "turn" | "session"; used: number; limit: number }
   | { type: "background_task_complete"; id: string; status: string; exitCode: number | null }
+  | { type: "checkpoint_created"; id: string }
+  | { type: "checkpoint_failed"; reason: string }
+  | { type: "checkpoint_unavailable"; reason?: string }
   | { type: "error"; message: string };
 
 export interface AgentRuntimeOptions {
@@ -60,6 +63,10 @@ export interface AgentRuntimeOptions {
   supportsVision?: boolean;
   /** Background task manager override (defaults to a new manager). */
   backgroundTasks?: import("../runtime/background-tasks.js").BackgroundTaskManager;
+  /** Whether checkpointing is enabled for this runtime. Defaults to true. */
+  checkpointingEnabled?: boolean;
+  /** Checkpoint store override (defaults to a new store per turn). */
+  checkpointStore?: import("../runtime/checkpoint-store.js").CheckpointStore;
   /** Optional steering queue drained into the turn between iterations. */
   steeringQueue?: string[];
   /** Optional dispatcher for Pi extension events. */

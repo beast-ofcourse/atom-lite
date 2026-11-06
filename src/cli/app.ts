@@ -335,6 +335,7 @@ export async function run(args: string[]): Promise<void> {
     contextManager,
     extensionDispatch,
     bashConcurrency: config.runtime.bashConcurrency,
+    checkpointingEnabled: interactive || Boolean(config.runtime.checkpointing),
   });
 
   mcpManager.onToolsChanged = () => {
@@ -1858,6 +1859,15 @@ export async function run(args: string[]): Promise<void> {
       updateStatus();
     } else if (e.type === "background_task_complete") {
       appendLine(`background task ${e.id}: ${e.status} (exit ${e.exitCode ?? "null"})`, theme.tokens.dim);
+      tui.requestRender();
+    } else if (e.type === "checkpoint_created") {
+      appendLine(`checkpoint ${e.id} created`, theme.tokens.dim);
+      tui.requestRender();
+    } else if (e.type === "checkpoint_failed") {
+      appendLine(`checkpoint failed: ${e.reason}`, theme.tokens.warning);
+      tui.requestRender();
+    } else if (e.type === "checkpoint_unavailable") {
+      appendLine(`checkpoint unavailable: ${e.reason ?? "not a git repository"}`, theme.tokens.warning);
       tui.requestRender();
     } else if (e.type === "budget_warning") {
       appendLine(`budget warning (${e.scope}): ${e.used}/${e.limit} tokens`, theme.tokens.warning);

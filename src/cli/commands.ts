@@ -1,5 +1,6 @@
 import type { SlashCommand } from "@earendil-works/pi-tui";
 import type { Skill } from "../skills/registry.js";
+import { CheckpointStore } from "../runtime/checkpoint-store.js";
 
 /**
  * One interactive command. The registry is the single source of truth for
@@ -292,6 +293,73 @@ export function createCommandRegistry(
     argumentHint: "[focus]",
     async run(ctx, args) {
       await ctx.runCompact(args);
+    },
+  });
+
+  registry.register({
+    name: "undo",
+    description: "restore workspace to a checkpoint",
+    category: "Session",
+    argumentHint: "[list|<n>] [--keep-untracked] [--yes]",
+    run(ctx, args) {
+      const session = ctx.session;
+      const store = new CheckpointStore(session.workspace, session.id);
+      const avail = store.isAvailable();
+      if (!avail.available) {
+        ctx.appendLine(`undo unavailable: ${avail.reason}`);
+        return;
+      }
+      const tokens = (args ?? "").split(/\s+/).filter(Boolean);
+      const keepUntracked = tokens.includes("--keep-untracked");
+      const force = tokens.includes("--yes") || tokens.includes("--force");
+      const positional = tokens.filter((t) => !t.startsWith("--"));
+      if (positional[0] === "list") {
+        const list = store.list();
+        if (!list.length) {
+          ctx.appendLine("no checkpoints");
+          return;
+        }
+        ctx.appendLine(
+          list
+            .map((m, i) => `${i + 1}. ${m.id}  ${new Date(m.createdAt).toISOString()}  ${m.files.length} files`)
+            .join("\n"),
+        );
+        return;
+      }
+      const list = store.list();
+      if (!list.length) {
+        ctx.appendLine("no checkpoints");
+        return;
+      }
+      let id = list[0].id;
+      if (positional[0] && /^\d+$/.test(positional[0])) {
+        const idx = parseInt(positional[0], 10) - 1;
+        if (idx < 0 || idx >= list.length) {
+          ctx.appendLine("checkpoint not found");
+          return;
+        }
+        id = list[idx].id;
+      }
+      const preview = store.previewRestore(id, keepUntracked);
+      ctx.appendLine(
+        `preview:\n  changed: ${preview.changed.join(", ") || "(none)"}\n  restored: ${preview.restored.join(", ") || "(none)"}\n  removed: ${preview.removed.join(", ") || "(none)"}`,
+      );
+      if (
+        preview.changed.length === 0 &&
+        preview.restored.length === 0 &&
+        preview.removed.length === 0
+      ) {
+        ctx.appendLine("already at checkpoint");
+        return;
+      }
+      if (!force) {
+        ctx.appendLine("rerun with --yes to apply");
+        return;
+      }
+      const result = store.restore(id, keepUntracked);
+      ctx.appendLine(
+        `restored ${result.changed.length + result.restored.length} files; removed ${result.removed.length}`,
+      );
     },
   });
 
