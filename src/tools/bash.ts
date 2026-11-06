@@ -60,13 +60,31 @@ export const bashTool: Tool = {
     const capMs = ctx.maxBashTimeMs ?? 120000;
     const timeout = Math.min(timeout_ms ?? capMs, capMs);
     const workdir = cwd ? resolve(ctx.workspace, cwd) : ctx.workspace;
-    if (cwd && !isWithinWorkspace(ctx.workspace, cwd)) {
-      return {
-        toolCallId: call.id,
-        name: "bash",
-        content: "PATH_OUTSIDE_WORKSPACE",
-        isError: true,
-      };
+    const cwdOutside = !!cwd && !isWithinWorkspace(ctx.workspace, cwd);
+    if (cwdOutside) {
+      if (ctx.mode !== "yolo" || ctx.approvals?.nonInteractive || !ctx.approvals?.handler) {
+        return {
+          toolCallId: call.id,
+          name: "bash",
+          content: "PATH_OUTSIDE_WORKSPACE",
+          isError: true,
+        };
+      }
+      const { checkApproval } = await import("../runtime/approvals.js");
+      const decision = await checkApproval(ctx.approvals, {
+        command,
+        cwd: workdir,
+        timeoutMs: timeout,
+        sandboxed: false,
+      });
+      if (!decision.allowed) {
+        return {
+          toolCallId: call.id,
+          name: "bash",
+          content: "COMMAND_APPROVAL_REQUIRED",
+          isError: true,
+        };
+      }
     }
     if (ctx.mode !== "yolo" && ctx.approvals) {
       const { checkApproval } = await import("../runtime/approvals.js");

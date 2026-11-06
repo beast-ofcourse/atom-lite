@@ -2390,8 +2390,28 @@ export async function run(args: string[]): Promise<void> {
     await runTurn(trimmed);
   };
 
-  // Approval prompts are superseded by plan/yolo modes.
-  approvals.handler = undefined;
+  approvals.handler = interactive
+    ? (req) =>
+        new Promise<ApprovalDecision>((resolve) => {
+          uiModalOpen = true;
+          closeOverlay();
+          dropdownContainer.clear();
+          activity.setPhase("waiting");
+          const prompt = new ApprovalPrompt(req, (decision) => {
+            uiModalOpen = false;
+            dropdownContainer.clear();
+            tui.setFocus(input);
+            activity.setPhase("working");
+            if (decision === "trust-session") {
+              appendLine("trusted this session: outside-workspace operations will run without approval", theme.tokens.dim);
+            }
+            resolve(decision);
+          });
+          dropdownContainer.addChild(prompt);
+          tui.setFocus(prompt);
+          tui.requestRender();
+        })
+    : undefined;
 
   process.on("SIGTERM", () => {
     void mcpManager.close().finally(() => {
