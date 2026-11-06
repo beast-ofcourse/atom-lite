@@ -5,6 +5,22 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-11-06
+
+### Added
+- Filesystem checkpoint fallback so `/undo` and `/diff` work in non-Git workspaces (copy-based snapshots; honors root `.gitignore`).
+- Shared provider retry helper with exponential backoff, `Retry-After` handling, and abort-aware delays.
+
+### Changed
+- `grep` now runs ripgrep asynchronously, unblocking parallel tool batches.
+- Session persistence is asynchronous (queued writes with `flush()`), reducing per-turn I/O.
+- `edit` diff rendering is bounded for large files to stay within the performance budget.
+- Process-tree termination on Windows is non-blocking.
+- Provider retry behavior (429/5xx/network) is consistent across OpenAI-compatible, Ollama, and Gemini adapters, including streaming.
+
+### Fixed
+- Checkpoint availability reporting reflects filesystem fallback.
+
 ## [0.8.0] - 2026-11-06
 
 ### Added
