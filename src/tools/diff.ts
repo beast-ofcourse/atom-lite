@@ -2,7 +2,13 @@
  * Line diff used by write/edit so the CLI can render a diff without re-reading
  * files or diffing during a TUI frame.
  */
+const MAX_DIFF_CHARS = 200_000;
+
 export function renderDiff(oldText: string, newText: string): string[] {
+  if (oldText === newText) return ["(no changes)"];
+  if (oldText.length > MAX_DIFF_CHARS || newText.length > MAX_DIFF_CHARS) {
+    return ["(diff too large to display)"];
+  }
   const oldLines = oldText.split(/\r?\n/);
   const newLines = newText.split(/\r?\n/);
   const out: string[] = [];
