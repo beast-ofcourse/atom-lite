@@ -1,5 +1,14 @@
 import { spawn } from "node:child_process";
-import { cpSync, mkdtempSync, rmSync, readdirSync, statSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+  cpSync,
+  mkdtempSync,
+  rmSync,
+  readdirSync,
+  statSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ProviderAdapter } from "../providers/types.js";
@@ -63,7 +72,17 @@ export interface RunEvalOptions {
   onProgress?: (msg: string) => void;
 }
 
-const BUILTIN_TOOLS = [readTool, writeTool, editTool, bashTool, grepTool, globTool, webfetchTool, websearchTool, taskTool];
+const BUILTIN_TOOLS = [
+  readTool,
+  writeTool,
+  editTool,
+  bashTool,
+  grepTool,
+  globTool,
+  webfetchTool,
+  websearchTool,
+  taskTool,
+];
 
 function discoverTasks(tasksDir: string): string[] {
   const out: string[] = [];
@@ -96,15 +115,30 @@ function existsSyncSafe(p: string): boolean {
   }
 }
 
-function runCheck(checkPath: string, cwd: string, timeoutMs = 30000): Promise<{ code: number; output: string }> {
+function runCheck(
+  checkPath: string,
+  cwd: string,
+  timeoutMs = 30000,
+): Promise<{ code: number; output: string }> {
   return new Promise((resolve) => {
-    const child = spawn("node", [checkPath], { cwd, env: { ...process.env, WORKSPACE: cwd } });
+    const child = spawn("node", [checkPath], {
+      cwd,
+      env: { ...process.env, WORKSPACE: cwd },
+    });
     let out = "";
     let err = "";
-    child.stdout?.on("data", (c: Buffer) => { out += c.toString("utf8"); });
-    child.stderr?.on("data", (c: Buffer) => { err += c.toString("utf8"); });
+    child.stdout?.on("data", (c: Buffer) => {
+      out += c.toString("utf8");
+    });
+    child.stderr?.on("data", (c: Buffer) => {
+      err += c.toString("utf8");
+    });
     const timer = setTimeout(() => {
-      try { child.kill("SIGKILL"); } catch { /* ignore */ }
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* ignore */
+      }
     }, timeoutMs);
     child.on("close", (code) => {
       clearTimeout(timer);
@@ -123,7 +157,9 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
   const startedAt = new Date().toISOString();
   const runId = `run-${Date.now()}`;
   const discovered = discoverTasks(tasksDir);
-  const names = discovered.filter((n) => !options.taskFilter || n === options.taskFilter);
+  const names = discovered.filter(
+    (n) => !options.taskFilter || n === options.taskFilter,
+  );
 
   const tasks: EvalTaskResult[] = [];
   const taskMessages: any[] = [];
@@ -170,8 +206,16 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
           }
         },
       });
-      session = new InMemorySession(`eval-${name}`, tmp, options.provider.id ?? "fake");
-      const result = await runtime.runAgentTurn(prompt, session, new AbortController().signal);
+      session = new InMemorySession(
+        `eval-${name}`,
+        tmp,
+        options.provider.id ?? "fake",
+      );
+      const result = await runtime.runAgentTurn(
+        prompt,
+        session,
+        new AbortController().signal,
+      );
       if (typeof result === "string" && result === "TOKEN_BUDGET_REACHED") {
         error = "TOKEN_BUDGET_REACHED";
       }
@@ -192,13 +236,26 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
       checkOutput = error;
     }
 
-    tasks.push({ name, pass, turns, inputTokens, outputTokens, wallMs, error, checkOutput });
+    tasks.push({
+      name,
+      pass,
+      turns,
+      inputTokens,
+      outputTokens,
+      wallMs,
+      error,
+      checkOutput,
+    });
     taskMessages.push(session ? session.messages : []);
     totalTurns += turns;
     totalInput += inputTokens;
     totalOutput += outputTokens;
 
-    try { rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(tmp, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   }
 
   const finishedAt = new Date().toISOString();
@@ -213,7 +270,9 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
       total: tasks.length,
       passed: tasks.filter((t) => t.pass).length,
       failed: tasks.filter((t) => !t.pass).length,
-      passRate: tasks.length ? tasks.filter((t) => t.pass).length / tasks.length : 0,
+      passRate: tasks.length
+        ? tasks.filter((t) => t.pass).length / tasks.length
+        : 0,
       totalTurns,
       totalInputTokens: totalInput,
       totalOutputTokens: totalOutput,
@@ -222,7 +281,9 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
   };
 
   // Baseline comparison
-  const baselinePath = options.outDir ? join(options.outDir, "baseline.json") : null;
+  const baselinePath = options.outDir
+    ? join(options.outDir, "baseline.json")
+    : null;
   if (baselinePath) {
     try {
       const prev = JSON.parse(readFileSync(baselinePath, "utf8")) as EvalReport;
@@ -247,23 +308,39 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
 
   if (options.outDir) {
     mkdirSync(options.outDir, { recursive: true });
-    writeFileSync(join(options.outDir, "report.json"), JSON.stringify(report, null, 2));
+    writeFileSync(
+      join(options.outDir, "report.json"),
+      JSON.stringify(report, null, 2),
+    );
     // per-task logs
     tasks.forEach((t, i) => {
-      const transcript = (taskMessages[i] ?? []).map((m: any) => JSON.stringify(m)).join("\n");
-      writeFileSync(join(options.outDir as string, `${t.name}.log`), `pass=${t.pass}\nturns=${t.turns}\ninput=${t.inputTokens}\noutput=${t.outputTokens}\nwallMs=${t.wallMs}\nerror=${t.error ?? ""}\ncheckOutput=${t.checkOutput ?? ""}\n--- transcript ---\n${transcript}\n`);
+      const transcript = (taskMessages[i] ?? [])
+        .map((m: any) => JSON.stringify(m))
+        .join("\n");
+      writeFileSync(
+        join(options.outDir as string, `${t.name}.log`),
+        `pass=${t.pass}\nturns=${t.turns}\ninput=${t.inputTokens}\noutput=${t.outputTokens}\nwallMs=${t.wallMs}\nerror=${t.error ?? ""}\ncheckOutput=${t.checkOutput ?? ""}\n--- transcript ---\n${transcript}\n`,
+      );
     });
     if (options.writeBaseline) {
-      if (options.outDir) writeFileSync(join(options.outDir, "baseline.json"), JSON.stringify(report, null, 2));
+      if (options.outDir)
+        writeFileSync(
+          join(options.outDir, "baseline.json"),
+          JSON.stringify(report, null, 2),
+        );
     }
   }
 
-  options.onProgress?.(`done: ${report.summary.passed}/${report.summary.total} passed`);
+  options.onProgress?.(
+    `done: ${report.summary.passed}/${report.summary.total} passed`,
+  );
   return report;
 }
 
-
-export function compareBaseline(current: EvalReport, baseline: EvalReport): {
+export function compareBaseline(
+  current: EvalReport,
+  baseline: EvalReport,
+): {
   previousPassRate: number;
   deltaPassRate: number;
   newlyPassing: string[];

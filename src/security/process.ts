@@ -14,7 +14,11 @@ export function defaultShell(): string {
  * `detached: true`). Windows: use `taskkill /T`.
  */
 export function terminateProcessTree(
-  child: { pid?: number; killed?: boolean; kill(signal?: NodeJS.Signals | number): boolean },
+  child: {
+    pid?: number;
+    killed?: boolean;
+    kill(signal?: NodeJS.Signals | number): boolean;
+  },
   signal: NodeJS.Signals = "SIGTERM",
 ): void {
   const pid = child.pid;

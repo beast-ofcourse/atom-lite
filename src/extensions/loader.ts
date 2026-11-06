@@ -15,7 +15,10 @@ import type { AtomEvent } from "./types.js";
 export interface ExtensionLoaderOptions {
   cliPaths?: string[];
   hasUI?: boolean;
-  uiFactory?: (registries: ReturnType<typeof createExtensionRegistries>, ctx: ExtensionContext) => ExtensionContext["ui"];
+  uiFactory?: (
+    registries: ReturnType<typeof createExtensionRegistries>,
+    ctx: ExtensionContext,
+  ) => ExtensionContext["ui"];
   userDir?: string;
   cwd?: string;
   agentDir?: string;
@@ -85,9 +88,7 @@ export class ExtensionLoader {
         config.extensions?.trustedProjects ??
         [],
       denied:
-        this.options.deniedProjects ??
-        config.extensions?.deniedProjects ??
-        [],
+        this.options.deniedProjects ?? config.extensions?.deniedProjects ?? [],
     };
   }
 
@@ -98,8 +99,7 @@ export class ExtensionLoader {
       cliPaths: this.options.cliPaths,
       cwd,
       agentDir: this.options.agentDir ?? defaultAgentDir(),
-      userDir:
-        this.options.userDir ?? join(userConfigDir(), "extensions"),
+      userDir: this.options.userDir ?? join(userConfigDir(), "extensions"),
       projectDir: join(cwd, ".atom-lite", "extensions"),
       packageRoots: this.options.packageRoots,
       trustedProjects: decisions.trusted,
@@ -143,7 +143,13 @@ export class ExtensionLoader {
 
       if (entry.errors.length > 0) {
         const error = entry.errors.join("; ");
-        this.recordLifecycle("extension_error", entry.id, error, registries, ctx);
+        this.recordLifecycle(
+          "extension_error",
+          entry.id,
+          error,
+          registries,
+          ctx,
+        );
         loaded.push({
           id: entry.id,
           source: entry.source,
@@ -201,18 +207,25 @@ export class ExtensionLoader {
           );
         }
 
-        const api = createExtensionAPI(
-          entry.id,
-          ctx,
-          registries,
-          "current",
-        );
+        const api = createExtensionAPI(entry.id, ctx, registries, "current");
         api.ui = ctx.ui;
         await factory(api);
         this.emitToRegistries(registries, ctx, "extension_load", entry.id);
-        this.recordLifecycle("extension_load", entry.id, undefined, registries, ctx);
+        this.recordLifecycle(
+          "extension_load",
+          entry.id,
+          undefined,
+          registries,
+          ctx,
+        );
         this.emitToRegistries(registries, ctx, "extension_activate", entry.id);
-        this.recordLifecycle("extension_activate", entry.id, undefined, registries, ctx);
+        this.recordLifecycle(
+          "extension_activate",
+          entry.id,
+          undefined,
+          registries,
+          ctx,
+        );
         loaded.push({
           id: entry.id,
           source: entry.source,
@@ -223,10 +236,21 @@ export class ExtensionLoader {
           context: ctx,
         });
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : String(error);
-        this.emitToRegistries(registries, ctx, "extension_error", entry.id, message);
-        this.recordLifecycle("extension_error", entry.id, message, registries, ctx);
+        const message = error instanceof Error ? error.message : String(error);
+        this.emitToRegistries(
+          registries,
+          ctx,
+          "extension_error",
+          entry.id,
+          message,
+        );
+        this.recordLifecycle(
+          "extension_error",
+          entry.id,
+          message,
+          registries,
+          ctx,
+        );
         loaded.push({
           id: entry.id,
           source: entry.source,
@@ -313,8 +337,7 @@ export class ExtensionLoader {
         version: entry.manifest?.version,
         entryPath: entry.entryPath,
         status: loaded?.status ?? (entry.skipReason ? "skipped" : "discovered"),
-        error:
-          loaded?.error ?? (entry.errors.join("; ") || entry.skipReason),
+        error: loaded?.error ?? (entry.errors.join("; ") || entry.skipReason),
         trusted: entry.trusted,
         toolCount: loaded?.registries.tools.size ?? 0,
         commandCount: loaded?.registries.commands.size ?? 0,
@@ -333,8 +356,10 @@ export class ExtensionLoader {
     const lines: string[] = [];
     for (const entry of this.discovered) {
       const loaded = loadedByPath.get(entry.entryPath);
-      const status = loaded?.status ?? (entry.skipReason ? "skipped" : "discovered");
-      const error = loaded?.error ?? (entry.errors.join("; ") || entry.skipReason);
+      const status =
+        loaded?.status ?? (entry.skipReason ? "skipped" : "discovered");
+      const error =
+        loaded?.error ?? (entry.errors.join("; ") || entry.skipReason);
       const counts = loaded
         ? `${loaded.registries.tools.size} tools, ${loaded.registries.commands.size} commands, ${loaded.registries.handlers.size} event types`
         : "not loaded";

@@ -29,7 +29,9 @@ export class BackgroundTaskManager {
   private completedQueue: string[] = [];
 
   start(command: string, cwd: string, env: NodeJS.ProcessEnv): BackgroundTask {
-    const running = [...this.tasks.values()].filter((t) => t.status === "running").length;
+    const running = [...this.tasks.values()].filter(
+      (t) => t.status === "running",
+    ).length;
     if (running >= MAX_CONCURRENT) {
       throw new Error("too many background tasks");
     }
@@ -49,7 +51,10 @@ export class BackgroundTaskManager {
     };
     this.tasks.set(id, task);
 
-    const shell = process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : (process.env.SHELL ?? "/bin/sh");
+    const shell =
+      process.platform === "win32"
+        ? (process.env.ComSpec ?? "cmd.exe")
+        : (process.env.SHELL ?? "/bin/sh");
     const flag = process.platform === "win32" ? "/c" : "-c";
     const child = spawn(shell, [flag, command], {
       cwd,
@@ -62,7 +67,10 @@ export class BackgroundTaskManager {
       const s = chunk.toString("utf8");
       if (task.output.length + s.length > OUTPUT_CAP) {
         task.truncated = true;
-        const accepted = s.slice(0, Math.max(0, OUTPUT_CAP - task.output.length));
+        const accepted = s.slice(
+          0,
+          Math.max(0, OUTPUT_CAP - task.output.length),
+        );
         task.output += accepted;
       } else {
         task.output += s;
@@ -71,7 +79,11 @@ export class BackgroundTaskManager {
     child.stdout?.on("data", (c: Buffer) => append(c));
     child.stderr?.on("data", (c: Buffer) => append(c));
 
-    const finish = (code: number | null, signal: string | null, timedOut = false) => {
+    const finish = (
+      code: number | null,
+      signal: string | null,
+      timedOut = false,
+    ) => {
       if (task.status !== "running") return;
       if (timedOut) task.status = "timed_out";
       else if (signal) task.status = "cancelled";
@@ -133,7 +145,10 @@ export class BackgroundTaskManager {
     return this.get(id);
   }
 
-  async wait(id: string, timeoutMs = 30_000): Promise<BackgroundTask | undefined> {
+  async wait(
+    id: string,
+    timeoutMs = 30_000,
+  ): Promise<BackgroundTask | undefined> {
     const t = this.tasks.get(id);
     if (!t) return undefined;
     if (t.status !== "running") return this.snapshot(t);

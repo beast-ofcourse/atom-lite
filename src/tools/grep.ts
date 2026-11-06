@@ -31,7 +31,9 @@ function collectFiles(root: string, globPattern?: string): string[] {
   }
   if (globPattern) {
     try {
-      const matches = (fs as any).globSync(globPattern, { cwd: root }) as string[];
+      const matches = (fs as any).globSync(globPattern, {
+        cwd: root,
+      }) as string[];
       return matches.map((m: string) => resolve(root, m));
     } catch {
       // fall through to walk
@@ -84,7 +86,9 @@ function grepJs(
   try {
     regex = new RegExp(pattern, caseSensitive ? "g" : "gi");
   } catch (err) {
-    return "INVALID_REGEX: " + (err instanceof Error ? err.message : String(err));
+    return (
+      "INVALID_REGEX: " + (err instanceof Error ? err.message : String(err))
+    );
   }
 
   for (const file of files) {
@@ -130,13 +134,17 @@ function grepJs(
   }
 
   if (outputMode === "files_with_matches") {
-    return [...filesWithMatches].slice(0, maxResults).join("\n") || "(no matches)";
+    return (
+      [...filesWithMatches].slice(0, maxResults).join("\n") || "(no matches)"
+    );
   }
   if (outputMode === "count") {
-    return [...counts.entries()]
-      .map(([f, n]) => `${f}: ${n}`)
-      .slice(0, maxResults)
-      .join("\n") || "(no matches)";
+    return (
+      [...counts.entries()]
+        .map(([f, n]) => `${f}: ${n}`)
+        .slice(0, maxResults)
+        .join("\n") || "(no matches)"
+    );
   }
   return output.trimEnd() || "(no matches)";
 }
@@ -189,7 +197,9 @@ export const grepTool: Tool = {
       output_mode = "content",
     } = parsed.data;
 
-    const root = searchPath ? resolve(ctx.workspace, searchPath) : ctx.workspace;
+    const root = searchPath
+      ? resolve(ctx.workspace, searchPath)
+      : ctx.workspace;
     if (searchPath && !isWithinWorkspace(ctx.workspace, searchPath)) {
       return {
         toolCallId: call.id,

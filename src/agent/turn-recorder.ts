@@ -17,13 +17,23 @@ export class TurnRecorder {
     this.extensionDispatch = options.extensionDispatch;
   }
 
-  async recordAssistant(response: {
-    message: Message;
-    toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
-    usage?: { input?: number; output?: number };
-  }, streamedText: string): Promise<string> {
+  async recordAssistant(
+    response: {
+      message: Message;
+      toolCalls?: Array<{
+        id: string;
+        name: string;
+        arguments: Record<string, unknown>;
+      }>;
+      usage?: { input?: number; output?: number };
+    },
+    streamedText: string,
+  ): Promise<string> {
     let message: Message = response.message;
-    void this.extensionDispatch?.("message_start", { type: "message_start", message });
+    void this.extensionDispatch?.("message_start", {
+      type: "message_start",
+      message,
+    });
     const results = await this.extensionDispatch?.("message_end", {
       type: "message_end",
       message,

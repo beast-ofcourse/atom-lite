@@ -29,11 +29,11 @@ export function formatMcpDoctor(statuses: McpServerStatus[]): string[] {
   }
   for (const status of statuses) {
     const tools =
-      status.state === "ready" ? ` ${status.toolCount} tool${status.toolCount === 1 ? "" : "s"}` : "";
+      status.state === "ready"
+        ? ` ${status.toolCount} tool${status.toolCount === 1 ? "" : "s"}`
+        : "";
     const error = status.lastError ? ` lastError=${status.lastError}` : "";
-    lines.push(
-      `    ${status.name}: ${status.state}${tools}${error}`,
-    );
+    lines.push(`    ${status.name}: ${status.state}${tools}${error}`);
   }
   return lines;
 }

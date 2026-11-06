@@ -19,7 +19,8 @@ export function renderDiff(oldText: string, newText: string): string[] {
   while (
     suffix < oldLines.length - prefix &&
     suffix < newLines.length - prefix &&
-    oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]
+    oldLines[oldLines.length - 1 - suffix] ===
+      newLines[newLines.length - 1 - suffix]
   ) {
     suffix++;
   }

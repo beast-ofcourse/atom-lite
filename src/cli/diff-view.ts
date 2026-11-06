@@ -76,7 +76,12 @@ export class DiffView implements Component {
       }
     }
     if (this.lines.length > cap) {
-      out.push(fillBg(` ${dim(`… ${this.lines.length - cap} more lines truncated`)}`, w));
+      out.push(
+        fillBg(
+          ` ${dim(`… ${this.lines.length - cap} more lines truncated`)}`,
+          w,
+        ),
+      );
     }
     out.push(fillBg("", w));
     return out;

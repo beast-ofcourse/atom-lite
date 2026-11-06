@@ -69,7 +69,11 @@ export class CheckpointStore {
   private enabled: boolean;
   private sequence = 0;
 
-  constructor(workspace: string, sessionId: string, options: CheckpointOptions = {}) {
+  constructor(
+    workspace: string,
+    sessionId: string,
+    options: CheckpointOptions = {},
+  ) {
     this.workspace = workspace;
     this.sessionId = sessionId;
     this.maxBytes = options.maxCheckpointBytes ?? DEFAULT_MAX_BYTES;
@@ -84,11 +88,19 @@ export class CheckpointStore {
   }
 
   private workspaceHash(): string {
-    return createHash("sha256").update(this.workspace).digest("hex").slice(0, 16);
+    return createHash("sha256")
+      .update(this.workspace)
+      .digest("hex")
+      .slice(0, 16);
   }
 
   private storageRoot(): string {
-    return join(userConfigDir(), "checkpoints", this.workspaceHash(), this.sessionId);
+    return join(
+      userConfigDir(),
+      "checkpoints",
+      this.workspaceHash(),
+      this.sessionId,
+    );
   }
 
   private checkpointDir(id: string): string {
@@ -104,7 +116,8 @@ export class CheckpointStore {
   }
 
   isAvailable(): CheckpointAvailability {
-    if (!this.enabled) return { available: false, reason: "checkpointing disabled" };
+    if (!this.enabled)
+      return { available: false, reason: "checkpointing disabled" };
     try {
       const out = execFileSync("git", ["rev-parse", "--is-inside-work-tree"], {
         cwd: this.workspace,
@@ -130,14 +143,17 @@ export class CheckpointStore {
     let tracked: string[] = [];
     let untracked: string[] = [];
     try {
-      tracked = this.runGit(["ls-files", "-z"])
-        .split("\0")
-        .filter(Boolean);
+      tracked = this.runGit(["ls-files", "-z"]).split("\0").filter(Boolean);
     } catch {
       tracked = [];
     }
     try {
-      untracked = this.runGit(["ls-files", "--others", "--exclude-standard", "-z"])
+      untracked = this.runGit([
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "-z",
+      ])
         .split("\0")
         .filter(Boolean);
     } catch {
@@ -194,7 +210,8 @@ export class CheckpointStore {
 
   create(turn: number, label?: string): CheckpointManifest {
     const avail = this.isAvailable();
-    if (!avail.available) throw new Error(avail.reason ?? "checkpoint unavailable");
+    if (!avail.available)
+      throw new Error(avail.reason ?? "checkpoint unavailable");
 
     // prune by count
     const existing = this.list();
@@ -216,7 +233,11 @@ export class CheckpointStore {
     const dir = this.checkpointDir(id);
     const filesDir = this.filesDir(id);
     mkdirSync(filesDir, { recursive: true, mode: 0o700 });
-    try { chmodSync(dir, 0o700); } catch { /* best effort */ }
+    try {
+      chmodSync(dir, 0o700);
+    } catch {
+      /* best effort */
+    }
 
     const skipped: CheckpointSkipped[] = [];
     const captured: string[] = [];
@@ -230,7 +251,11 @@ export class CheckpointStore {
       const full = join(this.workspace, rel);
       if (this.isSymlink(rel)) {
         let target: string | undefined;
-        try { target = readlinkSync(join(this.workspace, rel)); } catch { target = undefined; }
+        try {
+          target = readlinkSync(join(this.workspace, rel));
+        } catch {
+          target = undefined;
+        }
         skipped.push({ path: rel, reason: "symlink", target });
         continue;
       }
@@ -282,7 +307,9 @@ export class CheckpointStore {
       bytes,
       empty: captured.length === 0 && skipped.length === 0,
     };
-    writeFileSync(this.manifestPath(id), JSON.stringify(manifest, null, 2), { mode: 0o600 });
+    writeFileSync(this.manifestPath(id), JSON.stringify(manifest, null, 2), {
+      mode: 0o600,
+    });
     // ensure storage root perms
     try {
       mkdirSync(this.storageRoot(), { recursive: true, mode: 0o700 });
@@ -397,7 +424,11 @@ export class CheckpointStore {
         const cur = join(this.workspace, rel);
         if (!existsSync(cur)) {
           out.push({ path: rel, status: "deleted" });
-        } else if (!readFileSync(cur).equals(readFileSync(join(this.filesDir(manifest.id), rel)))) {
+        } else if (
+          !readFileSync(cur).equals(
+            readFileSync(join(this.filesDir(manifest.id), rel)),
+          )
+        ) {
           out.push({ path: rel, status: "modified" });
         }
       }
@@ -417,7 +448,13 @@ export class CheckpointStore {
         else if (code.startsWith("D")) out.push({ path: p, status: "deleted" });
         else out.push({ path: p, status: "modified" });
       }
-      const untracked = this.runGit(["ls-files", "--others", "--exclude-standard"]).split("\n").filter(Boolean);
+      const untracked = this.runGit([
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+      ])
+        .split("\n")
+        .filter(Boolean);
       for (const p of untracked) out.push({ path: p, status: "added" });
       return out;
     } catch {

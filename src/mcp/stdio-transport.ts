@@ -1,7 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
 import { terminateProcessTree } from "../security/process.js";
-import type { McpServerConfig, McpTransport, McpTransportHandlers } from "./types.js";
+import type {
+  McpServerConfig,
+  McpTransport,
+  McpTransportHandlers,
+} from "./types.js";
 
 const ENV_ALLOWLIST = new Set([
   "PATH",
@@ -132,7 +136,10 @@ export class StdioTransport implements McpTransport {
         }
       });
 
-      this.lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
+      this.lines = createInterface({
+        input: child.stdout,
+        crlfDelay: Infinity,
+      });
       this.lines.on("line", (line) => {
         const trimmed = line.trim();
         if (!trimmed) return;

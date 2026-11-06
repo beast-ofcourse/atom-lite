@@ -26,16 +26,27 @@ export interface ExtensionAPI {
   on(event: AtomEvent, handler: ExtensionEventHandler): () => void;
   off(event: AtomEvent, handler: ExtensionEventHandler): void;
   appendEntry(type: string, data: unknown): void;
-  getSessionEntries(filter?: { type?: string }): Array<{ type: string; data: unknown }>;
+  getSessionEntries(filter?: {
+    type?: string;
+  }): Array<{ type: string; data: unknown }>;
   setStatus(part: string, value: string | undefined): void;
   notify(message: string, level?: "info" | "warning" | "error"): void;
-  registerWidget(location: ExtensionWidget["location"], widget: ExtensionWidget): void;
+  registerWidget(
+    location: ExtensionWidget["location"],
+    widget: ExtensionWidget,
+  ): void;
   unregisterWidget(id: string): void;
   registerToolRenderer(resolver: any): void;
   registerMessageRenderer(customType: string, renderer: any): void;
   registerEntryRenderer(customType: string, renderer: any): void;
   registerMarkdownTransformer(transformer: any): void;
-  registerShortcut(shortcut: string, options: { description?: string; handler: (ctx: any) => void | Promise<void> }): void;
+  registerShortcut(
+    shortcut: string,
+    options: {
+      description?: string;
+      handler: (ctx: any) => void | Promise<void>;
+    },
+  ): void;
   registerFlag(name: string, options: any): void;
   getFlag(name: string): boolean | string | undefined;
   addAutocompleteProvider(factory: any): void;
@@ -44,12 +55,17 @@ export interface ExtensionAPI {
     content: string[] | ((tui: any, theme: any) => any) | undefined,
     options?: { placement?: "aboveEditor" | "belowEditor" },
   ): void;
-  setFooter(factory: ((tui: any, theme: any, footerData: any) => any) | undefined): void;
+  setFooter(
+    factory: ((tui: any, theme: any, footerData: any) => any) | undefined,
+  ): void;
   setHeader(factory: ((tui: any, theme: any) => any) | undefined): void;
   setTitle(title: string): void;
   setWorkingMessage(message?: string): void;
   setWorkingVisible(visible: boolean): void;
-  setWorkingIndicator(options?: { frames?: string[]; intervalMs?: number }): void;
+  setWorkingIndicator(options?: {
+    frames?: string[];
+    intervalMs?: number;
+  }): void;
   setHiddenThinkingLabel(label?: string): void;
   getToolsExpanded(): boolean;
   setToolsExpanded(expanded: boolean): void;
@@ -63,7 +79,11 @@ export interface ExtensionAPI {
   registerProvider(provider: ExtensionProvider): void;
   unregisterProvider(name: string): void;
   registerModel(model: ExtensionModel): void;
-  exec(command: string, args?: string[], options?: ExecOptions): Promise<ExecResult>;
+  exec(
+    command: string,
+    args?: string[],
+    options?: ExecOptions,
+  ): Promise<ExecResult>;
   log(message: string): void;
 }
 
@@ -226,13 +246,15 @@ export function createExtensionAPI(
     },
     registerFlag: (name, options) => {
       registries.flags.set(name, options);
-      if (options?.default !== undefined) registries.flagValues.set(name, options.default);
+      if (options?.default !== undefined)
+        registries.flagValues.set(name, options.default);
     },
     getFlag: (name) => registries.flagValues.get(name),
     addAutocompleteProvider: (factory) => {
       registries.autocompleteProviders.push(factory);
     },
-    setWidget: (key, content, options) => ctx.ui.setWidget(key, content, options),
+    setWidget: (key, content, options) =>
+      ctx.ui.setWidget(key, content, options),
     setFooter: (factory) => ctx.ui.setFooter(factory),
     setHeader: (factory) => ctx.ui.setHeader(factory),
     setTitle: (title) => ctx.ui.setTitle(title),
@@ -252,11 +274,11 @@ export function createExtensionAPI(
       const name =
         typeof providerOrName === "string"
           ? providerOrName
-          : providerOrName?.name ?? providerOrName?.id;
+          : (providerOrName?.name ?? providerOrName?.id);
       const cfg =
         typeof providerOrName === "string"
           ? (config ?? {})
-          : providerOrName?.config ?? providerOrName ?? {};
+          : (providerOrName?.config ?? providerOrName ?? {});
       if (!name) {
         // eslint-disable-next-line no-console
         console.error("[extension] registerProvider requires a provider name");

@@ -2,7 +2,7 @@ import type { AgentRuntimeOptions, ContextUsage } from "./types.js";
 import { DEFAULT_LIMITS } from "../types.js";
 import type { Message, ModelRequest, AgentLimits } from "../types.js";
 import { executeToolBatch } from "../runtime/scheduler.js";
-import { touchFile as touchLspFile } from "../lsp/index.js";
+import { touchFile as touchLspFile, getDiagnostics as getLspDiagnostics } from "../lsp/index.js";
 import { ContextManager } from "../context/manager.js";
 import { DEFAULT_SYSTEM_PROMPT } from "./system-prompt.js";
 import { BackgroundTaskManager } from "../runtime/background-tasks.js";
@@ -71,7 +71,8 @@ export class AgentRuntime {
     this.systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     this.contextWindow = options.contextWindow;
     this.supportsVision = options.supportsVision;
-    this.backgroundTasks = options.backgroundTasks ?? new BackgroundTaskManager();
+    this.backgroundTasks =
+      options.backgroundTasks ?? new BackgroundTaskManager();
     this.checkpointingEnabled = options.checkpointingEnabled ?? true;
     this.checkpointStoreOverride = options.checkpointStore;
     this.contextManager.setModelContextWindow(options.contextWindow);
@@ -83,7 +84,11 @@ export class AgentRuntime {
     this.contextManager.setProvider(provider, this.model);
     // The new model has a fresh window; usage from the old one is meaningless.
     this.contextUsed = undefined;
-    this.onEvent?.({ type: "model_switched", provider: provider.id, model: this.model });
+    this.onEvent?.({
+      type: "model_switched",
+      provider: provider.id,
+      model: this.model,
+    });
     this.emitContextUsage();
   }
 
@@ -103,13 +108,20 @@ export class AgentRuntime {
     this.supportsVision = value;
   }
 
-  private injectCompletedBackgroundTasks(session: { appendMessage(m: any): void }): void {
+  private injectCompletedBackgroundTasks(session: {
+    appendMessage(m: any): void;
+  }): void {
     for (const t of this.backgroundTasks.drainCompleted()) {
       session.appendMessage({
         role: "system",
         content: `[background task ${t.id} ${t.status}] ${t.output}`,
       });
-      this.onEvent?.({ type: "background_task_complete", id: t.id, status: t.status, exitCode: t.exitCode });
+      this.onEvent?.({
+        type: "background_task_complete",
+        id: t.id,
+        status: t.status,
+        exitCode: t.exitCode,
+      });
     }
   }
 
@@ -142,7 +154,11 @@ export class AgentRuntime {
   }
 
   async compactSession(
-    session: { messages: Message[]; appendMessage(m: Message): void; appendEvent?(partial: any): any },
+    session: {
+      messages: Message[];
+      appendMessage(m: Message): void;
+      appendEvent?(partial: any): any;
+    },
     focus?: string,
   ): Promise<string | null> {
     const summary = await this.contextManager.compactHistory(
@@ -178,16 +194,24 @@ export class AgentRuntime {
 
   async runAgentTurn(
     input: string,
-    session: { messages: Message[]; appendMessage(m: Message): void; appendEvent?(partial: any): any },
+    session: {
+      messages: Message[];
+      appendMessage(m: Message): void;
+      appendEvent?(partial: any): any;
+    },
     signal: AbortSignal,
   ): Promise<string> {
     // Restore any persisted session memory for resumed sessions.
     const events = (session as any).events;
     if (Array.isArray(events)) {
-      const latest = [...events].reverse().find((e: any) => e?.type === "context_compacted");
+      const latest = [...events]
+        .reverse()
+        .find((e: any) => e?.type === "context_compacted");
       this.contextManager.setSessionMemory(
         typeof latest?.summary === "string" ? latest.summary : null,
-        typeof latest?.coveredCount === "number" ? latest.coveredCount : undefined,
+        typeof latest?.coveredCount === "number"
+          ? latest.coveredCount
+          : undefined,
       );
     }
 
@@ -197,7 +221,10 @@ export class AgentRuntime {
     this.turnCheckpointId = null;
     this.turnCheckpointStore = null;
 
-    session.appendMessage({ role: "user", content: [{ type: "text", text: input }] });
+    session.appendMessage({
+      role: "user",
+      content: [{ type: "text", text: input }],
+    });
 
     await this.extensionDispatch?.("turn_start", { type: "turn_start" });
     let forceContinue = false;
@@ -233,7 +260,8 @@ export class AgentRuntime {
         this.contextUsed = undefined;
         this.emitContextUsage();
         const summary = this.contextManager.consumeCompactionSummary();
-        const coveredCount = this.contextManager.consumeCompactionCoveredCount();
+        const coveredCount =
+          this.contextManager.consumeCompactionCoveredCount();
         if (summary && typeof (session as any).appendEvent === "function") {
           (session as any).appendEvent({
             type: "context_compacted",
@@ -284,8 +312,7 @@ export class AgentRuntime {
       const text = await recorder.recordAssistant(response, streamedText);
 
       if (response.usage) {
-        const used =
-          (response.usage.input ?? 0) + (response.usage.output ?? 0);
+        const used = (response.usage.input ?? 0) + (response.usage.output ?? 0);
         if (used > 0) {
           // The latest assistant step's prompt + generated tokens is the
           // current context occupancy (not a cumulative session total).
@@ -352,7 +379,9 @@ export class AgentRuntime {
         // Discard a checkpoint that produced no changes.
         if (this.turnCheckpointId && this.turnCheckpointStore) {
           try {
-            if (this.turnCheckpointStore.isAtCheckpoint(this.turnCheckpointId)) {
+            if (
+              this.turnCheckpointStore.isAtCheckpoint(this.turnCheckpointId)
+            ) {
               const m = this.turnCheckpointStore.get(this.turnCheckpointId);
               if (m) {
                 this.turnCheckpointStore.discard(this.turnCheckpointId);
@@ -486,8 +515,17 @@ export class AgentRuntime {
       }
 
       // Capture a checkpoint before the first mutating batch of this turn.
-      const readOnly = new Set(["read", "grep", "glob", "webfetch", "websearch", "task"]);
-      const hasMutating = toolCalls.some((c: any) => !blocked.has(c.id) && !readOnly.has(c.name));
+      const readOnly = new Set([
+        "read",
+        "grep",
+        "glob",
+        "webfetch",
+        "websearch",
+        "task",
+      ]);
+      const hasMutating = toolCalls.some(
+        (c: any) => !blocked.has(c.id) && !readOnly.has(c.name),
+      );
       if (hasMutating && !this.turnCheckpointed) {
         this.turnCheckpointed = true;
         if (this.checkpointingEnabled) {
@@ -525,12 +563,21 @@ export class AgentRuntime {
               });
             }
           } else {
-            this.onEvent?.({ type: "checkpoint_unavailable", reason: avail.reason });
+            this.onEvent?.({
+              type: "checkpoint_unavailable",
+              reason: avail.reason,
+            });
           }
         }
       }
 
       const execCalls = toolCalls.filter((c: any) => !blocked.has(c.id));
+      for (const call of execCalls) {
+        const pathArg = (call as any)?.arguments?.path;
+        if (typeof pathArg === "string") {
+          void touchLspFile(pathArg).catch(() => {});
+        }
+      }
       const execResults = await executeToolBatch(
         execCalls,
         wrappedToolMap,
@@ -541,10 +588,22 @@ export class AgentRuntime {
         this.bashConcurrency,
       );
 
-      for (const call of execCalls) {
-        const pathArg = (call as any)?.arguments?.path;
-        if (typeof pathArg === "string") {
-          void touchLspFile(pathArg).catch(() => {});
+      for (const r of execResults) {
+        const call = toolCalls.find((c: any) => c.id === r.toolCallId);
+        if (
+          call &&
+          (call.name === "write" || call.name === "edit") &&
+          typeof (call as any).arguments?.path === "string"
+        ) {
+          try {
+            const diags = await getLspDiagnostics((call as any).arguments.path);
+            const messages = [...diags.values()].flat().map((d: any) => d.message);
+            if (messages.length > 0) {
+              r.content = `${r.content}\nLSP diagnostics:\n${messages.join("\n")}`;
+            }
+          } catch {
+            // Best effort.
+          }
         }
       }
 
@@ -591,7 +650,9 @@ export class AgentRuntime {
         // Discard a checkpoint that produced no changes.
         if (this.turnCheckpointId && this.turnCheckpointStore) {
           try {
-            if (this.turnCheckpointStore.isAtCheckpoint(this.turnCheckpointId)) {
+            if (
+              this.turnCheckpointStore.isAtCheckpoint(this.turnCheckpointId)
+            ) {
               const m = this.turnCheckpointStore.get(this.turnCheckpointId);
               if (m) {
                 this.turnCheckpointStore.discard(this.turnCheckpointId);

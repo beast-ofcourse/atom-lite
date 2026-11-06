@@ -49,7 +49,10 @@ export function coerceToolArguments(
       }
     } else if (type === "object" && prop?.properties) {
       if (result[key] && typeof result[key] === "object") {
-        result[key] = coerceToolArguments(prop, result[key] as Record<string, unknown>);
+        result[key] = coerceToolArguments(
+          prop,
+          result[key] as Record<string, unknown>,
+        );
       }
     }
   }
@@ -87,7 +90,10 @@ export function extensionToolToAgentTool(
     },
     annotations: extensionTool.annotations,
     exposure: extensionTool.exposure,
-    execute: async (call: ToolCall, toolCtx: ToolContext): Promise<ToolResult> => {
+    execute: async (
+      call: ToolCall,
+      toolCtx: ToolContext,
+    ): Promise<ToolResult> => {
       const coerced = coerceToolArguments(
         extensionTool.parameters,
         call.arguments ?? {},
@@ -149,19 +155,21 @@ export function extensionToolToAgentTool(
   return tool;
 }
 
-export function collectExtensionTools(
-  loader: { list: () => Array<{ registries: { tools: Map<string, ExtensionTool> }; context?: ExtensionContext }> },
-): Tool[] {
+export function collectExtensionTools(loader: {
+  list: () => Array<{
+    registries: { tools: Map<string, ExtensionTool> };
+    context?: ExtensionContext;
+  }>;
+}): Tool[] {
   const out: Tool[] = [];
   for (const loaded of loader.list()) {
-    const ctx =
-      loaded.context ?? {
-        workspace: process.cwd(),
-        trusted: true,
-        hasUI: false,
-        ui: null as any,
-        log: () => {},
-      };
+    const ctx = loaded.context ?? {
+      workspace: process.cwd(),
+      trusted: true,
+      hasUI: false,
+      ui: null as any,
+      log: () => {},
+    };
     for (const tool of loaded.registries.tools.values()) {
       out.push(extensionToolToAgentTool(tool, ctx));
     }

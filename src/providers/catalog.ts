@@ -38,7 +38,11 @@ const CLAUDE_FALLBACKS = [
   "claude-3-5-haiku-latest",
 ];
 
-const GEMINI_FALLBACKS = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"];
+const GEMINI_FALLBACKS = [
+  "gemini-2.5-flash",
+  "gemini-2.5-pro",
+  "gemini-2.0-flash",
+];
 
 /**
  * Curated provider catalog. Hosted providers use the OpenAI-compatible adapter
@@ -103,7 +107,11 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     requiresKey: true,
     keyEnv: "OPENROUTER_API_KEY",
     keyUrl: "https://openrouter.ai/keys",
-    fallbackModels: ["openai/gpt-4o-mini", "anthropic/claude-sonnet-4", "google/gemini-2.5-flash"],
+    fallbackModels: [
+      "openai/gpt-4o-mini",
+      "anthropic/claude-sonnet-4",
+      "google/gemini-2.5-flash",
+    ],
   },
   {
     id: "groq",
@@ -127,7 +135,11 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     requiresKey: true,
     keyEnv: "MISTRAL_API_KEY",
     keyUrl: "https://console.mistral.ai/api-keys",
-    fallbackModels: ["mistral-large-latest", "mistral-small-latest", "codestral-latest"],
+    fallbackModels: [
+      "mistral-large-latest",
+      "mistral-small-latest",
+      "codestral-latest",
+    ],
   },
   {
     id: "xai",
@@ -190,13 +202,15 @@ export function materializeProviderConfig(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {
     type: preset.type,
-    model:
-      (existing?.model as string | undefined) ??
-      preset.model,
+    model: (existing?.model as string | undefined) ?? preset.model,
     apiKeyEnv: preset.keyEnv ?? null,
   };
   if (preset.baseUrl) out.baseUrl = existing?.baseUrl ?? preset.baseUrl;
-  if (preset.headers) out.headers = { ...preset.headers, ...(existing?.headers as object ?? {}) };
+  if (preset.headers)
+    out.headers = {
+      ...preset.headers,
+      ...((existing?.headers as object) ?? {}),
+    };
   return out;
 }
 
@@ -263,8 +277,13 @@ export async function listModelsForProvider(
   try {
     const adapter = createProvider(config, profile) as any;
     if (typeof adapter.listModels !== "function") return [];
-    const models = (await withTimeout(adapter.listModels(), timeoutMs)) as string[];
-    return models.filter((m) => typeof m === "string" && m && isLikelyChatModel(m));
+    const models = (await withTimeout(
+      adapter.listModels(),
+      timeoutMs,
+    )) as string[];
+    return models.filter(
+      (m) => typeof m === "string" && m && isLikelyChatModel(m),
+    );
   } catch {
     return [];
   }
@@ -292,16 +311,28 @@ export async function probeApiKey(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     if (preset.type === "gemini") {
-      const base = (preset.baseUrl ?? "https://generativelanguage.googleapis.com").replace(/\/$/, "");
+      const base = (
+        preset.baseUrl ?? "https://generativelanguage.googleapis.com"
+      ).replace(/\/$/, "");
       const res = await fetch(
         `${base}/v1beta/models?key=${encodeURIComponent(apiKey)}`,
         { signal: controller.signal },
       );
       if (res.status === 401 || res.status === 403) {
-        return { ok: false, invalid: true, models: [], error: `HTTP ${res.status}` };
+        return {
+          ok: false,
+          invalid: true,
+          models: [],
+          error: `HTTP ${res.status}`,
+        };
       }
       if (!res.ok) {
-        return { ok: false, invalid: false, models: [], error: `HTTP ${res.status}` };
+        return {
+          ok: false,
+          invalid: false,
+          models: [],
+          error: `HTTP ${res.status}`,
+        };
       }
       const json = (await res.json()) as any;
       const models = (json.models ?? [])
@@ -319,10 +350,20 @@ export async function probeApiKey(
       signal: controller.signal,
     });
     if (res.status === 401 || res.status === 403) {
-      return { ok: false, invalid: true, models: [], error: `HTTP ${res.status}` };
+      return {
+        ok: false,
+        invalid: true,
+        models: [],
+        error: `HTTP ${res.status}`,
+      };
     }
     if (!res.ok) {
-      return { ok: false, invalid: false, models: [], error: `HTTP ${res.status}` };
+      return {
+        ok: false,
+        invalid: false,
+        models: [],
+        error: `HTTP ${res.status}`,
+      };
     }
     const json = (await res.json()) as any;
     const data = json.data ?? json.models ?? [];

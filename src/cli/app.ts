@@ -1,6 +1,10 @@
 import { loadConfig } from "../config/load.js";
 import { DEFAULT_SYSTEM_PROMPT } from "../agent/system-prompt.js";
-import { defaultAgentDir, defaultUserConfigPath, userConfigDir } from "../config/paths.js";
+import {
+  defaultAgentDir,
+  defaultUserConfigPath,
+  userConfigDir,
+} from "../config/paths.js";
 import {
   saveProviderModel,
   saveProviderSelection,
@@ -182,6 +186,18 @@ export async function run(args: string[]): Promise<void> {
 
   let config = loadConfig();
   initLsp(config, process.cwd());
+  const shutdownLspOnce = () => {
+    void shutdownLsp();
+  };
+  process.on("exit", shutdownLspOnce);
+  process.on("SIGINT", () => {
+    shutdownLspOnce();
+    process.exit(0);
+  });
+  process.on("SIGTERM", () => {
+    shutdownLspOnce();
+    process.exit(0);
+  });
   const initialProfile = providerOverride ?? config.defaultProvider;
   if (!(config.providers as Record<string, unknown>)[initialProfile]) {
     const preset = getPreset(initialProfile);
@@ -206,7 +222,12 @@ export async function run(args: string[]): Promise<void> {
         globTool,
         taskTool,
         ...(config.lsp?.enabled
-          ? [lspDiagnosticsTool, lspDefinitionTool, lspReferencesTool, lspSymbolsTool]
+          ? [
+              lspDiagnosticsTool,
+              lspDefinitionTool,
+              lspReferencesTool,
+              lspSymbolsTool,
+            ]
           : []),
       ]
     : [];
@@ -393,7 +414,10 @@ export async function run(args: string[]): Promise<void> {
     ]);
   };
 
-  void extensionDispatch("session_start", { type: "session_start", reason: "startup" });
+  void extensionDispatch("session_start", {
+    type: "session_start",
+    reason: "startup",
+  });
 
   if (oneShot || !interactive) {
     // non-interactive / one-shot path
@@ -1593,7 +1617,10 @@ export async function run(args: string[]): Promise<void> {
         }
       } else if (process.platform === "linux") {
         try {
-          spawn("xdg-open", [path], { detached: true, stdio: "ignore" }).unref();
+          spawn("xdg-open", [path], {
+            detached: true,
+            stdio: "ignore",
+          }).unref();
         } catch {
           // Best effort.
         }
@@ -1728,7 +1755,9 @@ export async function run(args: string[]): Promise<void> {
         if (renderedToolCallIds.has(String(message.toolCallId ?? ""))) continue;
         const text = String(message.content ?? "").trim();
         if (text) {
-          transcript.add(new Text(theme.tokens.text(`[${message.name}] ${text}`)));
+          transcript.add(
+            new Text(theme.tokens.text(`[${message.name}] ${text}`)),
+          );
         }
         continue;
       }
@@ -2742,7 +2771,10 @@ export async function run(args: string[]): Promise<void> {
             tui.setFocus(input);
             activity.setPhase("working");
             if (decision === "trust-session") {
-              appendLine("trusted this session: outside-workspace operations will run without approval", theme.tokens.dim);
+              appendLine(
+                "trusted this session: outside-workspace operations will run without approval",
+                theme.tokens.dim,
+              );
             }
             resolve(decision);
           });

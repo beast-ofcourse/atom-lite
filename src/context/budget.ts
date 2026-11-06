@@ -17,7 +17,9 @@ function stripImages(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value
       .map((v) => stripImages(v))
-      .filter((v) => !(v && typeof v === "object" && (v as any).type === "image"));
+      .filter(
+        (v) => !(v && typeof v === "object" && (v as any).type === "image"),
+      );
   }
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};

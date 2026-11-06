@@ -159,7 +159,13 @@ export class OllamaAdapter implements ProviderAdapter {
       Object.assign(mergedOptions, reqOpts.options as Record<string, unknown>);
     }
     for (const [k, v] of Object.entries(reqOpts)) {
-      if (k === "options" || k === "keep_alive" || k === "think" || k === "effort") continue;
+      if (
+        k === "options" ||
+        k === "keep_alive" ||
+        k === "think" ||
+        k === "effort"
+      )
+        continue;
       mergedOptions[k] = v;
     }
     if (Object.keys(mergedOptions).length) body.options = mergedOptions;
@@ -195,7 +201,9 @@ export class OllamaAdapter implements ProviderAdapter {
 
   async listModels(): Promise<string[]> {
     try {
-      const res = await fetch(`${this.baseUrl}/api/tags`, { headers: this.buildHeaders() });
+      const res = await fetch(`${this.baseUrl}/api/tags`, {
+        headers: this.buildHeaders(),
+      });
       if (!res.ok) return [this.model];
       const json = (await res.json()) as any;
       const models = json.models ?? [];
@@ -426,7 +434,11 @@ export class OllamaAdapter implements ProviderAdapter {
       contextWindow: this.contextWindow,
       supportsTools: this.supportsToolsFlag,
       supportsStreaming: this.supportsStreamingFlag,
-      supportsVision: this.supportsVisionOverride ?? this.supportsVisionFlag ?? knownVisionModel(this.model) ?? false,
+      supportsVision:
+        this.supportsVisionOverride ??
+        this.supportsVisionFlag ??
+        knownVisionModel(this.model) ??
+        false,
     };
   }
 

@@ -108,7 +108,9 @@ export class SecretInput implements Component, Focusable {
   }
 
   render(width: number): string[] {
-    const masked = "•".repeat(Math.min(this.value.length, Math.max(0, width - 20)));
+    const masked = "•".repeat(
+      Math.min(this.value.length, Math.max(0, width - 20)),
+    );
     const shown = this.value ? masked : `${DIM}${this.placeholder}${RESET}`;
     const marker = this.focused ? CURSOR_MARKER : "";
     return [` ${CYAN}${this.label}:${RESET} ${shown}${marker}`];

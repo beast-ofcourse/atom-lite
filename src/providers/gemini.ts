@@ -146,7 +146,8 @@ export class GeminiAdapter implements ProviderAdapter {
           : this.contextWindowOverride,
       supportsTools: true,
       supportsStreaming: true,
-      supportsVision: this.supportsVisionOverride ?? (knownVisionModel(this.model) ?? false),
+      supportsVision:
+        this.supportsVisionOverride ?? knownVisionModel(this.model) ?? false,
     };
   }
 
@@ -159,7 +160,10 @@ export class GeminiAdapter implements ProviderAdapter {
     const effort = (request.options as any)?.effort;
     if (effort) {
       const budget = effort === "low" ? 1024 : effort === "high" ? 16384 : 4096;
-      body.generationConfig = { ...(body.generationConfig ?? {}), thinkingConfig: { thinkingBudget: budget } };
+      body.generationConfig = {
+        ...(body.generationConfig ?? {}),
+        thinkingConfig: { thinkingBudget: budget },
+      };
     }
     if (request.tools && request.tools.length) {
       body.tools = [

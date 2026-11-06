@@ -34,7 +34,10 @@ class RWLock {
   private barriers = 0;
   private queue: Waiter[] = [];
 
-  acquire(mode: "read" | "write" | "barrier", signal?: AbortSignal): Promise<Release> {
+  acquire(
+    mode: "read" | "write" | "barrier",
+    signal?: AbortSignal,
+  ): Promise<Release> {
     const key = ""; // unused; lock instance is per-resource
     return new Promise<Release>((resolve, reject) => {
       const waiter: Waiter = { mode, resolve, reject, signal };

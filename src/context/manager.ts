@@ -3,7 +3,10 @@ import type { ProviderAdapter } from "../providers/types.js";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { loadProjectInstructions, statSignature } from "./instructions.js";
-import { DefaultSkillRegistry, skillCacheSignature } from "../skills/registry.js";
+import {
+  DefaultSkillRegistry,
+  skillCacheSignature,
+} from "../skills/registry.js";
 import { estimateMessageTokens } from "./budget.js";
 import { userConfigDir } from "../config/paths.js";
 
@@ -119,15 +122,10 @@ export class ContextManager {
     return Math.floor(this.budget() * (this.opts.compactAtPercent / 100));
   }
 
-  private async summarize(
-    older: Message[],
-    focus?: string,
-  ): Promise<string> {
+  private async summarize(older: Message[], focus?: string): Promise<string> {
     let summaryText = "";
     try {
-      const focusLine = focus
-        ? `\nFocus the summary on: ${focus}`
-        : "";
+      const focusLine = focus ? `\nFocus the summary on: ${focus}` : "";
       const summaryReq = {
         model: this.opts.model,
         messages: [
@@ -161,7 +159,8 @@ export class ContextManager {
   async build(workspace: string, history: Message[]): Promise<Message[]> {
     this.compactedThisBuild = false;
     this.lastCompactionSummary = null;
-    const userPath = this.opts.userInstructionsPath ?? join(userConfigDir(), "AGENTS.md");
+    const userPath =
+      this.opts.userInstructionsPath ?? join(userConfigDir(), "AGENTS.md");
     const instructionSignature =
       `${this.opts.maxProjectInstructionBytes}|` +
       statSignature([userPath, join(workspace, "AGENTS.md")]);
@@ -174,7 +173,10 @@ export class ContextManager {
         this.opts.maxProjectInstructionBytes,
         userPath,
       );
-      this.instructionCache = { signature: instructionSignature, text: instructions };
+      this.instructionCache = {
+        signature: instructionSignature,
+        text: instructions,
+      };
     }
 
     const skillSignature = skillCacheSignature(workspace);
@@ -187,7 +189,11 @@ export class ContextManager {
     } else {
       const registry = new DefaultSkillRegistry(workspace);
       skillIndex = registry.indexText();
-      this.skillCache = { workspace, signature: skillSignature, index: skillIndex };
+      this.skillCache = {
+        workspace,
+        signature: skillSignature,
+        index: skillIndex,
+      };
     }
     const systemPrompt = skillIndex
       ? `${this.opts.systemPrompt}\n\n${skillIndex}`
@@ -227,8 +233,7 @@ export class ContextManager {
     messages.push(...workingHistory);
 
     const total = messages.reduce((s, m) => s + estimateMessageTokens(m), 0);
-    const overThreshold =
-      total > this.threshold() && workingHistory.length > 6;
+    const overThreshold = total > this.threshold() && workingHistory.length > 6;
 
     if (!this.forceCompact && !periodic && !overThreshold) {
       return messages;

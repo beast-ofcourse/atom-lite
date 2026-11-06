@@ -6,9 +6,10 @@ export function normalizeProjectPath(projectDir: string): string {
   return resolve(projectDir);
 }
 
-function readExtensions(
-  configPath?: string,
-): { trustedProjects: string[]; deniedProjects: string[] } {
+function readExtensions(configPath?: string): {
+  trustedProjects: string[];
+  deniedProjects: string[];
+} {
   const config = loadConfig(
     configPath ? { userConfigPath: configPath } : undefined,
   );
@@ -40,34 +41,31 @@ function writeDecision(
   configPath?: string,
 ): void {
   const normalized = normalizeProjectPath(projectDir);
-  updateUserConfig(
-    (config) => {
-      const extensions =
-        config.extensions && typeof config.extensions === "object"
-          ? (config.extensions as Record<string, unknown>)
-          : {};
-      const trusted = Array.isArray(extensions.trustedProjects)
-        ? [...(extensions.trustedProjects as string[])]
-        : [];
-      const denied = Array.isArray(extensions.deniedProjects)
-        ? [...(extensions.deniedProjects as string[])]
-        : [];
+  updateUserConfig((config) => {
+    const extensions =
+      config.extensions && typeof config.extensions === "object"
+        ? (config.extensions as Record<string, unknown>)
+        : {};
+    const trusted = Array.isArray(extensions.trustedProjects)
+      ? [...(extensions.trustedProjects as string[])]
+      : [];
+    const denied = Array.isArray(extensions.deniedProjects)
+      ? [...(extensions.deniedProjects as string[])]
+      : [];
 
-      const without = (paths: string[]) =>
-        paths.filter((path) => path !== normalized);
+    const without = (paths: string[]) =>
+      paths.filter((path) => path !== normalized);
 
-      extensions.trustedProjects =
-        decision === "trusted"
-          ? [...without(trusted), normalized]
-          : without(trusted);
-      extensions.deniedProjects =
-        decision === "denied"
-          ? [...without(denied), normalized]
-          : without(denied);
-      config.extensions = extensions;
-    },
-    configPath,
-  );
+    extensions.trustedProjects =
+      decision === "trusted"
+        ? [...without(trusted), normalized]
+        : without(trusted);
+    extensions.deniedProjects =
+      decision === "denied"
+        ? [...without(denied), normalized]
+        : without(denied);
+    config.extensions = extensions;
+  }, configPath);
 }
 
 export function trustProject(projectDir: string, configPath?: string): void {

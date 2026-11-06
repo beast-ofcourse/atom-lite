@@ -3,7 +3,9 @@
 // known-model table below.
 
 /** Extract a context window from an OpenAI-compatible /models entry. */
-export function contextWindowFromModelEntry(entry: unknown): number | undefined {
+export function contextWindowFromModelEntry(
+  entry: unknown,
+): number | undefined {
   if (!entry || typeof entry !== "object") return undefined;
   const e = entry as Record<string, any>;
   const candidates = [
@@ -72,13 +74,20 @@ export function formatContextUsage(
   used: number | undefined,
   window: number | undefined,
 ): string {
-  const usedText = used !== undefined && used > 0 ? formatTokenCount(used) : used === 0 ? "0" : "?";
+  const usedText =
+    used !== undefined && used > 0
+      ? formatTokenCount(used)
+      : used === 0
+        ? "0"
+        : "?";
   if (window === undefined || window <= 0) return usedText;
   return `${usedText}/${formatTokenCount(window)}`;
 }
 
 /** Guess a context window from the model id when no metadata is available. */
-export function knownContextWindow(model: string | undefined): number | undefined {
+export function knownContextWindow(
+  model: string | undefined,
+): number | undefined {
   if (!model) return undefined;
   const id = model.toLowerCase();
   for (const [pattern, window] of KNOWN_WINDOWS) {
@@ -88,15 +97,27 @@ export function knownContextWindow(model: string | undefined): number | undefine
 }
 
 /** Extract a vision-support flag from an OpenAI-compatible /models entry. */
-export function supportsVisionFromModelEntry(entry: unknown): boolean | undefined {
+export function supportsVisionFromModelEntry(
+  entry: unknown,
+): boolean | undefined {
   if (!entry || typeof entry !== "object") return undefined;
   const e = entry as Record<string, any>;
-  const caps = [e.capabilities, e.modalities, e.supported_modalities, e.input_modalities];
+  const caps = [
+    e.capabilities,
+    e.modalities,
+    e.supported_modalities,
+    e.input_modalities,
+  ];
   for (const c of caps) {
     if (Array.isArray(c)) {
       const lower = c.map((x) => String(x).toLowerCase());
-      if (lower.some((x) => x.includes("vision") || x.includes("image"))) return true;
-      if (lower.length > 0 && lower.every((x) => x === "text" || x === "text-only")) return false;
+      if (lower.some((x) => x.includes("vision") || x.includes("image")))
+        return true;
+      if (
+        lower.length > 0 &&
+        lower.every((x) => x === "text" || x === "text-only")
+      )
+        return false;
     }
     if (typeof c === "object" && c) {
       if (c.vision === true || c.image === true) return true;
@@ -108,7 +129,9 @@ export function supportsVisionFromModelEntry(entry: unknown): boolean | undefine
 }
 
 /** Best-effort vision capability by model id/name. */
-export function knownVisionModel(model: string | undefined): boolean | undefined {
+export function knownVisionModel(
+  model: string | undefined,
+): boolean | undefined {
   if (!model) return undefined;
   const id = model.toLowerCase();
   const visionPatterns = [

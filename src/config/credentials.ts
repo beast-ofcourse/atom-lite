@@ -30,7 +30,9 @@ export function loadCredentials(path = defaultCredentialsPath()): Credentials {
     const apiKeys = (raw as { apiKeys?: unknown }).apiKeys;
     if (!apiKeys || typeof apiKeys !== "object") return emptyCredentials();
     const out: Record<string, string> = {};
-    for (const [name, value] of Object.entries(apiKeys as Record<string, unknown>)) {
+    for (const [name, value] of Object.entries(
+      apiKeys as Record<string, unknown>,
+    )) {
       if (typeof value === "string" && value) out[name] = value;
     }
     return { apiKeys: out };
@@ -94,7 +96,11 @@ export function hasApiKey(
  */
 export function resolveApiKey(
   profile: string,
-  opts: { apiKeyEnv?: string | null; inline?: string | null; path?: string } = {},
+  opts: {
+    apiKeyEnv?: string | null;
+    inline?: string | null;
+    path?: string;
+  } = {},
 ): string | null {
   if (opts.apiKeyEnv) {
     const fromEnv = process.env[opts.apiKeyEnv];

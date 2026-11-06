@@ -54,9 +54,9 @@ export class StatusLine implements Component {
     const tokens = this.theme.tokens;
     const contentWidth = Math.max(1, width - 2);
     const modePart = this.parts.mode
-      ? (this.parts.mode === "yolo"
-          ? tokens.warning(`mode:${this.parts.mode}`)
-          : tokens.accent(`mode:${this.parts.mode}`))
+      ? this.parts.mode === "yolo"
+        ? tokens.warning(`mode:${this.parts.mode}`)
+        : tokens.accent(`mode:${this.parts.mode}`)
       : "";
     const right = [modePart, tokens.dim(this.parts.effort)]
       .filter(Boolean)

@@ -54,8 +54,7 @@ export function sessionSelectionFromEvents(
       event.type === "provider_selected" ||
       event.type === "model_switched"
     ) {
-      provider =
-        typeof event.provider === "string" ? event.provider : provider;
+      provider = typeof event.provider === "string" ? event.provider : provider;
       model = typeof event.model === "string" ? event.model : model;
     }
   }
@@ -77,7 +76,11 @@ export function providerSwitchNotice(
     ? `${current.provider}${current.model ? `/${current.model}` : ""}`
     : current.model;
   if (!savedLabel || !currentLabel) return undefined;
-  if (saved.provider && current.provider && saved.provider !== current.provider) {
+  if (
+    saved.provider &&
+    current.provider &&
+    saved.provider !== current.provider
+  ) {
     return `this session used ${savedLabel}; current provider is ${currentLabel}. Run /model or /provider to switch.`;
   }
   if (saved.model && current.model && saved.model !== current.model) {

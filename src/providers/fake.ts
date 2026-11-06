@@ -1,4 +1,9 @@
-import type { ModelRequest, ModelResponse, TokenUsage, ToolCall } from "../types.js";
+import type {
+  ModelRequest,
+  ModelResponse,
+  TokenUsage,
+  ToolCall,
+} from "../types.js";
 import type { ProviderAdapter } from "./types.js";
 
 export interface FakeResponse {

@@ -42,7 +42,10 @@ export class ToolExecutor {
 
   async run(
     calls: ToolCall[],
-    context: ToolContext & { toolMap: Map<string, Tool>; lockManager?: LockManager },
+    context: ToolContext & {
+      toolMap: Map<string, Tool>;
+      lockManager?: LockManager;
+    },
     signal: AbortSignal,
   ): Promise<ToolResult[]> {
     const toolMap = context.toolMap;
@@ -102,7 +105,9 @@ export class ToolExecutor {
 
     const tasks = calls.map((call, i) => {
       return (async () => {
-        if (!isToolAllowed((ctx.mode as "plan" | "yolo") ?? "yolo", call.name)) {
+        if (
+          !isToolAllowed((ctx.mode as "plan" | "yolo") ?? "yolo", call.name)
+        ) {
           results[i] = {
             toolCallId: call.id,
             name: call.name,
@@ -112,7 +117,12 @@ export class ToolExecutor {
           return;
         }
         if (signal.aborted) {
-          results[i] = { toolCallId: call.id, name: call.name, content: "USER_CANCELLED", isError: true };
+          results[i] = {
+            toolCallId: call.id,
+            name: call.name,
+            content: "USER_CANCELLED",
+            isError: true,
+          };
           return;
         }
         let release: Release | undefined;
@@ -120,12 +130,22 @@ export class ToolExecutor {
         try {
           release = await acquire(call);
           if (signal.aborted) {
-            results[i] = { toolCallId: call.id, name: call.name, content: "USER_CANCELLED", isError: true };
+            results[i] = {
+              toolCallId: call.id,
+              name: call.name,
+              content: "USER_CANCELLED",
+              isError: true,
+            };
             return;
           }
           const tool = toolMap.get(call.name);
           if (!tool) {
-            results[i] = { toolCallId: call.id, name: call.name, content: `TOOL_NOT_FOUND: ${call.name}`, isError: true };
+            results[i] = {
+              toolCallId: call.id,
+              name: call.name,
+              content: `TOOL_NOT_FOUND: ${call.name}`,
+              isError: true,
+            };
           } else {
             const r = await tool.execute(call, ctx);
             results[i] = r;

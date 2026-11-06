@@ -11,7 +11,12 @@ export type AgentEvent =
   | { type: "assistant_delta"; text: string }
   | { type: "thinking_delta"; text: string }
   | { type: "assistant_text"; text: string }
-  | { type: "tool_call"; id: string; name: string; args: Record<string, unknown> }
+  | {
+      type: "tool_call";
+      id: string;
+      name: string;
+      args: Record<string, unknown>;
+    }
   | {
       type: "tool_output";
       toolCallId: string;
@@ -32,8 +37,18 @@ export type AgentEvent =
   | { type: "context_usage"; used?: number; window?: number }
   | { type: "model_switched"; provider: string; model: string }
   | { type: "skill_loaded"; name: string }
-  | { type: "budget_warning"; scope: "turn" | "session"; used: number; limit: number }
-  | { type: "background_task_complete"; id: string; status: string; exitCode: number | null }
+  | {
+      type: "budget_warning";
+      scope: "turn" | "session";
+      used: number;
+      limit: number;
+    }
+  | {
+      type: "background_task_complete";
+      id: string;
+      status: string;
+      exitCode: number | null;
+    }
   | { type: "checkpoint_created"; id: string }
   | { type: "checkpoint_failed"; reason: string }
   | { type: "checkpoint_unavailable"; reason?: string }

@@ -1,12 +1,5 @@
 import type { Component } from "@earendil-works/pi-tui";
-import {
-  cyan,
-  dim,
-  green,
-  red,
-  yellow,
-  type Color,
-} from "./panel.js";
+import { cyan, dim, green, red, yellow, type Color } from "./panel.js";
 import { wrapTextWithAnsi, visibleWidth } from "@earendil-works/pi-tui";
 import { DiffView } from "./diff-view.js";
 
@@ -147,14 +140,16 @@ export class ToolBox implements Component {
     }
 
     if (this.diffLines) {
-      const view = new DiffView({ lines: this.diffLines, path:
-        typeof this.args?.path === "string"
-          ? this.args.path
-          : typeof this.args?.file === "string"
-            ? this.args.file
-            : typeof this.args?.file_path === "string"
-              ? this.args.file_path
-              : undefined,
+      const view = new DiffView({
+        lines: this.diffLines,
+        path:
+          typeof this.args?.path === "string"
+            ? this.args.path
+            : typeof this.args?.file === "string"
+              ? this.args.file
+              : typeof this.args?.file_path === "string"
+                ? this.args.file_path
+                : undefined,
       });
       // Render diff lines with bg fill by re-wrapping view output? view already fills.
       lines.push(...view.render(width));
@@ -208,7 +203,11 @@ export class ToolBox implements Component {
     return this.outputLines;
   }
 
-  private renderOutput(output: string[], width: number, fill: (line: string) => string): string[] {
+  private renderOutput(
+    output: string[],
+    width: number,
+    fill: (line: string) => string,
+  ): string[] {
     const w = Math.max(8, Math.floor(width));
     const color: Color =
       this.status === "error"

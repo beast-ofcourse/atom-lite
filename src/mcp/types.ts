@@ -30,10 +30,7 @@ export interface JsonRpcFailure {
 }
 
 export type JsonRpcMessage =
-  | JsonRpcRequest
-  | JsonRpcNotification
-  | JsonRpcSuccess
-  | JsonRpcFailure;
+  JsonRpcRequest | JsonRpcNotification | JsonRpcSuccess | JsonRpcFailure;
 
 export interface McpTransportCloseInfo {
   code?: number | null;
@@ -80,12 +77,7 @@ export interface McpToolState {
 }
 
 export type McpServerState =
-  | "disabled"
-  | "idle"
-  | "connecting"
-  | "ready"
-  | "failed"
-  | "closed";
+  "disabled" | "idle" | "connecting" | "ready" | "failed" | "closed";
 
 export interface McpServerStatus {
   name: string;

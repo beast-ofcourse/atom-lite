@@ -43,8 +43,14 @@ export const globTool: Tool = {
         isError: true,
       };
     }
-    const { pattern, path: searchPath, max_results = DEFAULT_MAX } = parsed.data;
-    const root = searchPath ? resolve(ctx.workspace, searchPath) : ctx.workspace;
+    const {
+      pattern,
+      path: searchPath,
+      max_results = DEFAULT_MAX,
+    } = parsed.data;
+    const root = searchPath
+      ? resolve(ctx.workspace, searchPath)
+      : ctx.workspace;
     if (searchPath && !isWithinWorkspace(ctx.workspace, searchPath)) {
       return {
         toolCallId: call.id,
@@ -79,14 +85,14 @@ export const globTool: Tool = {
         return {
           toolCallId: call.id,
           name: "glob",
-          content: "INVALID_GLOB: " + (err instanceof Error ? err.message : String(err)),
+          content:
+            "INVALID_GLOB: " +
+            (err instanceof Error ? err.message : String(err)),
           isError: true,
         };
       }
     } else {
-      matches = (res.stdout || "")
-        .split("\n")
-        .filter((l) => l.length > 0);
+      matches = (res.stdout || "").split("\n").filter((l) => l.length > 0);
     }
 
     const out = matches

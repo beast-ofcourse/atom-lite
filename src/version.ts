@@ -5,7 +5,10 @@ import { dirname, join } from "node:path";
 let version = "0.0.0";
 try {
   const pkg = JSON.parse(
-    readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8"),
+    readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"),
+      "utf8",
+    ),
   );
   if (typeof pkg?.version === "string") version = pkg.version;
 } catch {

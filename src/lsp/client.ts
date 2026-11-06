@@ -79,7 +79,9 @@ export class LspClient {
       const length = Number(match[1]);
       const bodyStart = headerEnd + 4;
       if (this.buffer.length < bodyStart + length) return;
-      const body = this.buffer.slice(bodyStart, bodyStart + length).toString("utf8");
+      const body = this.buffer
+        .slice(bodyStart, bodyStart + length)
+        .toString("utf8");
       this.buffer = this.buffer.slice(bodyStart + length);
       try {
         const message = JSON.parse(body);
@@ -91,12 +93,17 @@ export class LspClient {
   }
 
   private handleMessage(message: any): void {
-    if (message.id !== undefined && (message.result !== undefined || message.error !== undefined) && !message.method) {
+    if (
+      message.id !== undefined &&
+      (message.result !== undefined || message.error !== undefined) &&
+      !message.method
+    ) {
       const pending = this.pending.get(message.id);
       if (pending) {
         this.pending.delete(message.id);
         clearTimeout(pending.timer);
-        if (message.error) pending.reject(new Error(JSON.stringify(message.error)));
+        if (message.error)
+          pending.reject(new Error(JSON.stringify(message.error)));
         else pending.resolve(message.result);
       }
       return;
@@ -121,7 +128,9 @@ export class LspClient {
         return;
       }
       if (message.method === "workspace/workspaceFolders") {
-        this.respond(message.id, [{ name: "workspace", uri: pathToFileURL(this.root).href }]);
+        this.respond(message.id, [
+          { name: "workspace", uri: pathToFileURL(this.root).href },
+        ]);
         return;
       }
       if (message.method === "window/workDoneProgress/create") {
@@ -141,7 +150,9 @@ export class LspClient {
       await this.sendRequest("initialize", {
         processId: process.pid,
         rootUri: pathToFileURL(this.root).href,
-        workspaceFolders: [{ name: "workspace", uri: pathToFileURL(this.root).href }],
+        workspaceFolders: [
+          { name: "workspace", uri: pathToFileURL(this.root).href },
+        ],
         capabilities: {
           textDocument: {
             synchronization: { didOpen: true, didChange: true },
@@ -206,21 +217,35 @@ export class LspClient {
     return new Map(this.diagnosticsMap);
   }
 
-  async definition(filePath: string, line: number, character: number): Promise<unknown> {
+  async definition(
+    filePath: string,
+    line: number,
+    character: number,
+  ): Promise<unknown> {
     await this.touchFile(filePath);
     const uri = pathToFileURL(filePath).href;
     return this.sendRequest("textDocument/definition", {
       textDocument: { uri },
-      position: { line: Math.max(0, line - 1), character: Math.max(0, character - 1) },
+      position: {
+        line: Math.max(0, line - 1),
+        character: Math.max(0, character - 1),
+      },
     });
   }
 
-  async references(filePath: string, line: number, character: number): Promise<unknown> {
+  async references(
+    filePath: string,
+    line: number,
+    character: number,
+  ): Promise<unknown> {
     await this.touchFile(filePath);
     const uri = pathToFileURL(filePath).href;
     return this.sendRequest("textDocument/references", {
       textDocument: { uri },
-      position: { line: Math.max(0, line - 1), character: Math.max(0, character - 1) },
+      position: {
+        line: Math.max(0, line - 1),
+        character: Math.max(0, character - 1),
+      },
       context: { includeDeclaration: true },
     });
   }

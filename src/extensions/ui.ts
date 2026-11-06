@@ -6,15 +6,29 @@ export interface ExtensionUICallbacks {
   requestRender?: () => void;
   getToolsExpanded?: () => boolean;
   setToolsExpanded?: (expanded: boolean) => void;
-  select?: (title: string, options: string[], opts?: any) => Promise<string | undefined>;
+  select?: (
+    title: string,
+    options: string[],
+    opts?: any,
+  ) => Promise<string | undefined>;
   confirm?: (title: string, message: string, opts?: any) => Promise<boolean>;
-  input?: (title: string, placeholder?: string, opts?: any) => Promise<string | undefined>;
-  editor?: (title: string, prefill?: string, opts?: any) => Promise<string | undefined>;
+  input?: (
+    title: string,
+    placeholder?: string,
+    opts?: any,
+  ) => Promise<string | undefined>;
+  editor?: (
+    title: string,
+    prefill?: string,
+    opts?: any,
+  ) => Promise<string | undefined>;
   custom?: <T>(factory: any, options?: any) => Promise<T>;
   pasteToEditor?: (text: string) => void;
   setEditorText?: (text: string) => void;
   getEditorText?: () => string;
-  onTerminalInput?: (handler: (data: string) => { consume?: boolean; data?: string } | undefined) => () => void;
+  onTerminalInput?: (
+    handler: (data: string) => { consume?: boolean; data?: string } | undefined,
+  ) => () => void;
 }
 
 export function createDefaultExtensionUI(
@@ -71,27 +85,44 @@ export function createDefaultExtensionUI(
       callbacks.requestRender?.();
     },
     select: (title, options, opts) =>
-      callbacks.select ? callbacks.select(title, options, opts) : Promise.resolve(undefined),
+      callbacks.select
+        ? callbacks.select(title, options, opts)
+        : Promise.resolve(undefined),
     confirm: (title, message, opts) =>
-      callbacks.confirm ? callbacks.confirm(title, message, opts) : Promise.resolve(false),
+      callbacks.confirm
+        ? callbacks.confirm(title, message, opts)
+        : Promise.resolve(false),
     input: (title, placeholder, opts) =>
-      callbacks.input ? callbacks.input(title, placeholder, opts) : Promise.resolve(undefined),
+      callbacks.input
+        ? callbacks.input(title, placeholder, opts)
+        : Promise.resolve(undefined),
     editor: (title, prefill, opts) =>
-      callbacks.editor ? callbacks.editor(title, prefill, opts) : Promise.resolve(undefined),
+      callbacks.editor
+        ? callbacks.editor(title, prefill, opts)
+        : Promise.resolve(undefined),
     custom: <T>(factory: any, options?: any) =>
-      callbacks.custom ? callbacks.custom<T>(factory, options) : Promise.resolve(undefined as T),
+      callbacks.custom
+        ? callbacks.custom<T>(factory, options)
+        : Promise.resolve(undefined as T),
     pasteToEditor: (text) => callbacks.pasteToEditor?.(text),
     setEditorText: (text) => callbacks.setEditorText?.(text),
-    getEditorText: () => (callbacks.getEditorText ? callbacks.getEditorText() : ""),
+    getEditorText: () =>
+      callbacks.getEditorText ? callbacks.getEditorText() : "",
     onTerminalInput: (handler) =>
       callbacks.onTerminalInput ? callbacks.onTerminalInput(handler) : () => {},
-    getToolsExpanded: () => (callbacks.getToolsExpanded ? callbacks.getToolsExpanded() : registries.toolsExpanded),
+    getToolsExpanded: () =>
+      callbacks.getToolsExpanded
+        ? callbacks.getToolsExpanded()
+        : registries.toolsExpanded,
     setToolsExpanded: (expanded) => {
       registries.toolsExpanded = expanded;
       if (callbacks.setToolsExpanded) callbacks.setToolsExpanded(expanded);
       else callbacks.requestRender?.();
     },
     getTheme: () => undefined,
-    setTheme: () => ({ success: false, error: "theme switching is not available" }),
+    setTheme: () => ({
+      success: false,
+      error: "theme switching is not available",
+    }),
   };
 }

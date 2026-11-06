@@ -127,7 +127,10 @@ export const editTool: Tool = {
       };
     }
     const matchIndex = text.indexOf(old_string);
-    const newText = text.slice(0, matchIndex) + new_string + text.slice(matchIndex + old_string.length);
+    const newText =
+      text.slice(0, matchIndex) +
+      new_string +
+      text.slice(matchIndex + old_string.length);
     const newBuf = Buffer.from(newText, "utf8");
     const tmp = full + ".tmp-" + process.pid;
     writeFileSync(tmp, newBuf);

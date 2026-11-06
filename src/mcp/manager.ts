@@ -125,9 +125,10 @@ export class McpManager {
       toolCount: record.state === "ready" ? record.remoteTools.length : 0,
       tools:
         record.state === "ready"
-          ? record.remoteTools.map((tool) =>
-              namesByRemote.get(`${record.name}\u0000${tool.name}`) ??
-              namespacedToolName(record.name, tool.name),
+          ? record.remoteTools.map(
+              (tool) =>
+                namesByRemote.get(`${record.name}\u0000${tool.name}`) ??
+                namespacedToolName(record.name, tool.name),
             )
           : [],
       lastError: record.lastError,
@@ -147,8 +148,7 @@ export class McpManager {
           remoteName: remote.name,
           name,
           description:
-            remote.description ??
-            `MCP tool ${remote.name} from ${record.name}`,
+            remote.description ?? `MCP tool ${remote.name} from ${record.name}`,
           inputSchema: remote.inputSchema ?? {
             type: "object",
             properties: {},

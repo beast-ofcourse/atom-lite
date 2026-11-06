@@ -18,7 +18,8 @@ const ArgsSchema = z
 export const bashTool: Tool = {
   definition: {
     name: "bash",
-    description: "Execute a shell command and return its output. Set background:true to run asynchronously.",
+    description:
+      "Execute a shell command and return its output. Set background:true to run asynchronously.",
     parameters: {
       type: "object",
       properties: {
@@ -44,17 +45,40 @@ export const bashTool: Tool = {
     const { command, cwd, timeout_ms, background } = parsed.data;
     if (background) {
       if (!ctx.backgroundTasks) {
-        return { toolCallId: call.id, name: "bash", content: "BACKGROUND_TASKS_UNAVAILABLE", isError: true };
+        return {
+          toolCallId: call.id,
+          name: "bash",
+          content: "BACKGROUND_TASKS_UNAVAILABLE",
+          isError: true,
+        };
       }
       const workdir = cwd ? resolve(ctx.workspace, cwd) : ctx.workspace;
       if (cwd && !isWithinWorkspace(ctx.workspace, cwd)) {
-        return { toolCallId: call.id, name: "bash", content: "PATH_OUTSIDE_WORKSPACE", isError: true };
+        return {
+          toolCallId: call.id,
+          name: "bash",
+          content: "PATH_OUTSIDE_WORKSPACE",
+          isError: true,
+        };
       }
       try {
         const task = ctx.backgroundTasks.start(command, workdir, process.env);
-        return { toolCallId: call.id, name: "bash", content: JSON.stringify({ task_id: task.id, status: "started", command }) };
+        return {
+          toolCallId: call.id,
+          name: "bash",
+          content: JSON.stringify({
+            task_id: task.id,
+            status: "started",
+            command,
+          }),
+        };
       } catch (err) {
-        return { toolCallId: call.id, name: "bash", content: `COMMAND_FAILED: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+        return {
+          toolCallId: call.id,
+          name: "bash",
+          content: `COMMAND_FAILED: ${err instanceof Error ? err.message : String(err)}`,
+          isError: true,
+        };
       }
     }
     const capMs = ctx.maxBashTimeMs ?? 120000;

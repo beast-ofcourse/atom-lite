@@ -21,7 +21,12 @@ export interface SkillRegistry {
  * invalidates the cache while normal turns stay allocation-light.
  */
 export function skillCacheSignature(workspace: string): string {
-  const bundledDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "skills");
+  const bundledDir = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+    "skills",
+  );
   const dirs = [
     bundledDir,
     join(homedir(), ".agents", "skills"),
@@ -49,7 +54,10 @@ export function skillCacheSignature(workspace: string): string {
   return parts.join("|");
 }
 
-function parseFrontmatter(text: string): { name?: string; description?: string } {
+function parseFrontmatter(text: string): {
+  name?: string;
+  description?: string;
+} {
   const m = text.match(/^---\n([\s\S]*?)\n---/);
   if (!m) return {};
   const out: Record<string, string> = {};
@@ -102,7 +110,12 @@ export class DefaultSkillRegistry implements SkillRegistry {
   private skills: Skill[] = [];
 
   constructor(workspace: string) {
-    const bundledDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "skills");
+    const bundledDir = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "..",
+      "skills",
+    );
     const globalDir = join(homedir(), ".agents", "skills");
     const projectDir = join(workspace, ".agents", "skills");
     const bundledSkills = scanDir(bundledDir, "global");
@@ -132,7 +145,9 @@ export class DefaultSkillRegistry implements SkillRegistry {
 
   indexText(): string {
     if (this.skills.length === 0) return "";
-    const lines = this.skills.map((s) => `- ${s.name}: ${s.description} (${s.path})`);
+    const lines = this.skills.map(
+      (s) => `- ${s.name}: ${s.description} (${s.path})`,
+    );
     return `Available skills:\n${lines.join("\n")}\n\nRead a skill's SKILL.md with the read tool when relevant.`;
   }
 }

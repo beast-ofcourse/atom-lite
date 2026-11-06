@@ -353,12 +353,16 @@ export function createCommandRegistry(
       try {
         preview = store.previewRestore(id, keepUntracked);
       } catch (err) {
-        ctx.appendLine(`checkpoint no longer available: ${err instanceof Error ? err.message : String(err)}`);
+        ctx.appendLine(
+          `checkpoint no longer available: ${err instanceof Error ? err.message : String(err)}`,
+        );
         return;
       }
       // Non-interactive: refuse unless forced.
       if ((ctx.approvals as any)?.nonInteractive && !force) {
-        ctx.appendLine("undo unavailable in non-interactive mode (use --force)");
+        ctx.appendLine(
+          "undo unavailable in non-interactive mode (use --force)",
+        );
         return;
       }
       const manifest = store.get(id);
@@ -373,7 +377,9 @@ export function createCommandRegistry(
       // Dirty workspace (modified or removed files) requires --force.
       const dirty = preview.changed.length > 0 || preview.removed.length > 0;
       if (dirty && !force) {
-        ctx.appendLine("workspace has changes since checkpoint; rerun with --force to override");
+        ctx.appendLine(
+          "workspace has changes since checkpoint; rerun with --force to override",
+        );
         return;
       }
       if (!force && !tokens.includes("--yes")) {
@@ -384,7 +390,9 @@ export function createCommandRegistry(
       try {
         result = store.restore(id, keepUntracked);
       } catch (err) {
-        ctx.appendLine(`checkpoint no longer available: ${err instanceof Error ? err.message : String(err)}`);
+        ctx.appendLine(
+          `checkpoint no longer available: ${err instanceof Error ? err.message : String(err)}`,
+        );
         return;
       }
       ctx.appendLine(
@@ -423,15 +431,21 @@ export function createCommandRegistry(
       try {
         entries = store.diff();
       } catch (err) {
-        ctx.appendLine(`diff unavailable: ${err instanceof Error ? err.message : String(err)}`);
+        ctx.appendLine(
+          `diff unavailable: ${err instanceof Error ? err.message : String(err)}`,
+        );
         return;
       }
       if (pathFilter) {
-        entries = entries.filter((e) => e.path === pathFilter || e.path.startsWith(pathFilter + "/"));
+        entries = entries.filter(
+          (e) => e.path === pathFilter || e.path.startsWith(pathFilter + "/"),
+        );
       }
       if (!entries.length) {
         if (!hasCheckpoint && !avail.available) {
-          ctx.appendLine("diff unavailable: not a git repository and no checkpoints");
+          ctx.appendLine(
+            "diff unavailable: not a git repository and no checkpoints",
+          );
         } else {
           ctx.appendLine("(no changes)");
         }
@@ -583,7 +597,8 @@ export function createCommandRegistry(
 
   registry.register({
     name: "extensions",
-    description: "list discovered extensions and load status; use /extensions doctor for diagnostics",
+    description:
+      "list discovered extensions and load status; use /extensions doctor for diagnostics",
     category: "Extensions",
     argumentHint: "[doctor]",
     run(ctx, args) {

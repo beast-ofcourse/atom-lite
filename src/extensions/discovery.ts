@@ -1,9 +1,4 @@
-import {
-  existsSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-} from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 export type ExtensionSource = "cli" | "user" | "project" | "package";
@@ -192,7 +187,9 @@ function packageCandidates(
   if (!existsSync(packageJsonPath)) return undefined;
   const { manifest, errors } = parseManifest(readJson(packageJsonPath));
   if (errors.length > 0) {
-    return [candidate(source, origin, packageDir, packageDir, undefined, errors)];
+    return [
+      candidate(source, origin, packageDir, packageDir, undefined, errors),
+    ];
   }
   if (!manifest) return undefined;
   return manifest.extensions.map((relativeEntry) => {
@@ -332,7 +329,11 @@ export function discoverExtensions(
 
   if (cwd) {
     out.push(
-      ...discoverDirectory("project", "pi project", join(cwd, ".pi", "extensions")),
+      ...discoverDirectory(
+        "project",
+        "pi project",
+        join(cwd, ".pi", "extensions"),
+      ),
     );
   }
 
@@ -349,12 +350,16 @@ export function discoverExtensions(
   // Settings entries come after extension directories so directory discovery
   // wins duplicate-resolution ties.
   if (options.agentDir) {
-    for (const path of settingsExtensionPaths(join(options.agentDir, "settings.json"))) {
+    for (const path of settingsExtensionPaths(
+      join(options.agentDir, "settings.json"),
+    )) {
       out.push(...discoverPath("user", "pi global settings", path));
     }
   }
   if (cwd) {
-    for (const path of settingsExtensionPaths(join(cwd, ".pi", "settings.json"))) {
+    for (const path of settingsExtensionPaths(
+      join(cwd, ".pi", "settings.json"),
+    )) {
       out.push(...discoverPath("project", "pi project settings", path));
     }
   }
@@ -381,7 +386,8 @@ export function discoverExtensions(
     return true;
   });
 
-  const trustKey = cwd ?? (options.projectDir ? resolve(options.projectDir) : undefined);
+  const trustKey =
+    cwd ?? (options.projectDir ? resolve(options.projectDir) : undefined);
   const trusted = new Set(
     (options.trustedProjects ?? []).map((path) => resolve(path)),
   );

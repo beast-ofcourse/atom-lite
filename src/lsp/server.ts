@@ -1,13 +1,17 @@
 import { existsSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import type { LspServerConfig, LspServerInfo } from "./types.js";
 
 function commandExists(command: string): boolean {
   try {
-    execSync(process.platform === "win32" ? `where ${command}` : `command -v ${command}`, {
-      stdio: "ignore",
-    });
+    execFileSync(
+      process.platform === "win32" ? "where" : "command",
+      process.platform === "win32" ? [command] : ["-v", command],
+      {
+        stdio: "ignore",
+      },
+    );
     return true;
   } catch {
     return false;
@@ -60,7 +64,10 @@ export function builtinServers(): LspServerInfo[] {
   return out;
 }
 
-export function configToServer(id: string, cfg: LspServerConfig): LspServerInfo {
+export function configToServer(
+  id: string,
+  cfg: LspServerConfig,
+): LspServerInfo {
   return {
     id,
     command: cfg.command,
@@ -88,10 +95,14 @@ export function resolveRoot(
     if (!dir.startsWith(workspaceResolved)) break;
     dir = parent;
   }
-  if (path.resolve(filePath).startsWith(workspaceResolved)) return workspaceResolved;
+  if (path.resolve(filePath).startsWith(workspaceResolved))
+    return workspaceResolved;
   return null;
 }
 
-export function matchesExtension(server: LspServerInfo, filePath: string): boolean {
+export function matchesExtension(
+  server: LspServerInfo,
+  filePath: string,
+): boolean {
   return server.extensions.includes(path.extname(filePath).toLowerCase());
 }

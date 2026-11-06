@@ -17,10 +17,23 @@ function detectImageMime(path: string, buf: Buffer): string | null {
   };
   let magic: string | null = null;
   if (buf.length >= 4) {
-    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) magic = "image/png";
-    else if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) magic = "image/jpeg";
-    else if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) magic = "image/gif";
-    else if (buf.length >= 12 && buf.slice(0, 4).toString() === "RIFF" && buf.slice(8, 12).toString() === "WEBP") magic = "image/webp";
+    if (
+      buf[0] === 0x89 &&
+      buf[1] === 0x50 &&
+      buf[2] === 0x4e &&
+      buf[3] === 0x47
+    )
+      magic = "image/png";
+    else if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)
+      magic = "image/jpeg";
+    else if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46)
+      magic = "image/gif";
+    else if (
+      buf.length >= 12 &&
+      buf.slice(0, 4).toString() === "RIFF" &&
+      buf.slice(8, 12).toString() === "WEBP"
+    )
+      magic = "image/webp";
   }
   if (byExt[ext]) return magic ?? byExt[ext];
   return magic;

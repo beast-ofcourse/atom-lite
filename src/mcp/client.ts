@@ -153,7 +153,9 @@ export class McpClient {
   }
 
   /** Spawn the transport and perform the MCP initialize handshake. */
-  async connect(options: McpConnectOptions = {}): Promise<McpClientConnectResult> {
+  async connect(
+    options: McpConnectOptions = {},
+  ): Promise<McpClientConnectResult> {
     if (this.closed) throw new McpNotConnectedError();
     if (!this.started) {
       this.started = true;
@@ -194,9 +196,7 @@ export class McpClient {
       throw new McpError("MCP initialize returned an invalid result");
     }
     const protocolVersion =
-      typeof result.protocolVersion === "string"
-        ? result.protocolVersion
-        : "";
+      typeof result.protocolVersion === "string" ? result.protocolVersion : "";
     if (
       !(SUPPORTED_PROTOCOL_VERSIONS as readonly string[]).includes(
         protocolVersion,
@@ -263,11 +263,7 @@ export class McpClient {
     args: Record<string, unknown>,
     options: McpRequestOptions = {},
   ): Promise<unknown> {
-    return this.request(
-      "tools/call",
-      { name, arguments: args },
-      options,
-    );
+    return this.request("tools/call", { name, arguments: args }, options);
   }
 
   async ping(options: McpRequestOptions = {}): Promise<unknown> {
@@ -356,11 +352,7 @@ export class McpClient {
           params,
         });
       } catch (error) {
-        fail(
-          new McpError(
-            `Failed to send ${method}: ${errorMessage(error)}`,
-          ),
-        );
+        fail(new McpError(`Failed to send ${method}: ${errorMessage(error)}`));
       }
     });
   }

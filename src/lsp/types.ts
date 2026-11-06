@@ -1,5 +1,8 @@
 export interface LspDiagnostic {
-  range?: { start: { line: number; character: number }; end: { line: number; character: number } };
+  range?: {
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+  };
   severity?: number;
   code?: string | number;
   source?: string;
@@ -26,15 +29,26 @@ export interface LspServerInfo {
 
 export interface LspLocation {
   uri?: string;
-  range?: { start: { line: number; character: number }; end: { line: number; character: number } };
+  range?: {
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+  };
 }
 
 export interface LspClientHandle {
   touchFile(filePath: string): Promise<void>;
   waitForDiagnostics(filePath: string, timeoutMs?: number): Promise<void>;
   diagnostics(filePath?: string): Map<string, LspDiagnostic[]>;
-  definition(filePath: string, line: number, character: number): Promise<unknown>;
-  references(filePath: string, line: number, character: number): Promise<unknown>;
+  definition(
+    filePath: string,
+    line: number,
+    character: number,
+  ): Promise<unknown>;
+  references(
+    filePath: string,
+    line: number,
+    character: number,
+  ): Promise<unknown>;
   documentSymbols(filePath: string): Promise<unknown>;
   workspaceSymbols(query: string): Promise<unknown>;
   shutdown(): Promise<void>;

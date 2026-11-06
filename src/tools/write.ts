@@ -118,7 +118,10 @@ export const writeTool: Tool = {
       toolCallId: call.id,
       name: "write",
       content: `Wrote ${buf.length} bytes to ${path} (sha256:${newHash}).`,
-      diff: oldText === undefined ? renderAddedLines(content) : renderDiff(oldText, content),
+      diff:
+        oldText === undefined
+          ? renderAddedLines(content)
+          : renderDiff(oldText, content),
     };
   },
 };

@@ -58,8 +58,7 @@ function normalizeRuntime(
   const out: Record<string, unknown> = { ...raw };
   if ("approvalMode" in out && !("mode" in out)) {
     const legacy = out.approvalMode;
-    out.mode =
-      legacy === "deny" ? "plan" : "yolo";
+    out.mode = legacy === "deny" ? "plan" : "yolo";
   }
   delete out.approvalMode;
   // Removed caps: drop so strict schema does not reject older configs.
@@ -89,10 +88,14 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
   // Normalize legacy runtime keys (approvalMode, removed caps) so older
   // configs keep loading.
   if (userRaw.runtime && typeof userRaw.runtime === "object") {
-    userRaw.runtime = normalizeRuntime(userRaw.runtime as Record<string, unknown>);
+    userRaw.runtime = normalizeRuntime(
+      userRaw.runtime as Record<string, unknown>,
+    );
   }
   if (projectRaw.runtime && typeof projectRaw.runtime === "object") {
-    projectRaw.runtime = normalizeRuntime(projectRaw.runtime as Record<string, unknown>);
+    projectRaw.runtime = normalizeRuntime(
+      projectRaw.runtime as Record<string, unknown>,
+    );
   }
 
   const warn = options.onWarning ?? defaultWarning;
@@ -156,12 +159,12 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     // Extensions trust is user-owned.
     extensions: {
       trustedProjects: [
-        ...((userRaw.extensions as { trustedProjects?: string[] })?.trustedProjects ??
-          []),
+        ...((userRaw.extensions as { trustedProjects?: string[] })
+          ?.trustedProjects ?? []),
       ],
       deniedProjects: [
-        ...((userRaw.extensions as { deniedProjects?: string[] })?.deniedProjects ??
-          []),
+        ...((userRaw.extensions as { deniedProjects?: string[] })
+          ?.deniedProjects ?? []),
       ],
     },
     // MCP servers are user-owned: opening a repository must never launch a
@@ -176,8 +179,7 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     (userRaw.runtime as Record<string, unknown> | undefined) ?? {};
   const mergedRuntime = (merged.runtime as Record<string, unknown>) ?? {};
   mergedRuntime.mode = userRuntime.mode ?? "yolo";
-  mergedRuntime.maxTokensPerSession =
-    userRuntime.maxTokensPerSession ?? null;
+  mergedRuntime.maxTokensPerSession = userRuntime.maxTokensPerSession ?? null;
   mergedRuntime.maxTokensPerTurn = userRuntime.maxTokensPerTurn ?? null;
   delete mergedRuntime.approvalMode;
   merged.runtime = mergedRuntime;

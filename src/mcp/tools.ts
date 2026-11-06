@@ -38,8 +38,7 @@ export class McpTool implements Tool {
       );
     const requiresApproval =
       current?.requiresApproval ?? this.tool.requiresApproval;
-    const callTimeoutMs =
-      current?.callTimeoutMs ?? this.tool.callTimeoutMs;
+    const callTimeoutMs = current?.callTimeoutMs ?? this.tool.callTimeoutMs;
 
     if (requiresApproval) {
       const approvals = ctx.approvals;
@@ -82,8 +81,7 @@ export class McpTool implements Tool {
         isError: Boolean(result?.isError),
       };
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
       if (message === "USER_CANCELLED") {
         return {
           toolCallId: call.id,
@@ -134,8 +132,7 @@ export function summariseMcpResult(result: unknown): string {
         const resource = typed.resource;
         if (resource && typeof resource === "object") {
           const r = resource as Record<string, unknown>;
-          const mime =
-            typeof r.mimeType === "string" ? r.mimeType : "resource";
+          const mime = typeof r.mimeType === "string" ? r.mimeType : "resource";
           const bytes = byteLengthOf(r.blob);
           return `[${mime} ${bytes} bytes]`;
         }

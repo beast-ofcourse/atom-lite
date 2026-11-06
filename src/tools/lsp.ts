@@ -27,7 +27,8 @@ function result(call: ToolCall, content: unknown, isError = false): ToolResult {
   return {
     toolCallId: call.id,
     name: call.name,
-    content: typeof content === "string" ? content : JSON.stringify(content, null, 2),
+    content:
+      typeof content === "string" ? content : JSON.stringify(content, null, 2),
     isError,
   };
 }
@@ -35,7 +36,8 @@ function result(call: ToolCall, content: unknown, isError = false): ToolResult {
 export const lspDiagnosticsTool: Tool = {
   definition: {
     name: "lsp_diagnostics",
-    description: "Get LSP diagnostics for a file or all open files. LSP must be enabled in config.",
+    description:
+      "Get LSP diagnostics for a file or all open files. LSP must be enabled in config.",
     parameters: {
       type: "object",
       properties: { path: { type: "string" } },
@@ -45,7 +47,11 @@ export const lspDiagnosticsTool: Tool = {
   async execute(call: ToolCall): Promise<ToolResult> {
     const parsed = DiagnosticsSchema.safeParse(call.arguments ?? {});
     if (!parsed.success) {
-      return result(call, "TOOL_ARGUMENT_INVALID: " + parsed.error.message, true);
+      return result(
+        call,
+        "TOOL_ARGUMENT_INVALID: " + parsed.error.message,
+        true,
+      );
     }
     if (!lsp.lspEnabled()) {
       return result(call, "LSP_DISABLED: enable lsp.enabled in config", true);
@@ -59,7 +65,8 @@ export const lspDiagnosticsTool: Tool = {
 export const lspDefinitionTool: Tool = {
   definition: {
     name: "lsp_definition",
-    description: "Find the definition of a symbol using LSP. Lines are 1-based.",
+    description:
+      "Find the definition of a symbol using LSP. Lines are 1-based.",
     parameters: {
       type: "object",
       properties: {
@@ -74,12 +81,20 @@ export const lspDefinitionTool: Tool = {
   async execute(call: ToolCall): Promise<ToolResult> {
     const parsed = PositionSchema.safeParse(call.arguments ?? {});
     if (!parsed.success) {
-      return result(call, "TOOL_ARGUMENT_INVALID: " + parsed.error.message, true);
+      return result(
+        call,
+        "TOOL_ARGUMENT_INVALID: " + parsed.error.message,
+        true,
+      );
     }
     if (!lsp.lspEnabled()) {
       return result(call, "LSP_DISABLED: enable lsp.enabled in config", true);
     }
-    const data = await lsp.definition(parsed.data.path, parsed.data.line, parsed.data.character || 1);
+    const data = await lsp.definition(
+      parsed.data.path,
+      parsed.data.line,
+      parsed.data.character || 1,
+    );
     return result(call, data ?? []);
   },
 };
@@ -102,12 +117,20 @@ export const lspReferencesTool: Tool = {
   async execute(call: ToolCall): Promise<ToolResult> {
     const parsed = PositionSchema.safeParse(call.arguments ?? {});
     if (!parsed.success) {
-      return result(call, "TOOL_ARGUMENT_INVALID: " + parsed.error.message, true);
+      return result(
+        call,
+        "TOOL_ARGUMENT_INVALID: " + parsed.error.message,
+        true,
+      );
     }
     if (!lsp.lspEnabled()) {
       return result(call, "LSP_DISABLED: enable lsp.enabled in config", true);
     }
-    const data = await lsp.references(parsed.data.path, parsed.data.line, parsed.data.character || 1);
+    const data = await lsp.references(
+      parsed.data.path,
+      parsed.data.line,
+      parsed.data.character || 1,
+    );
     return result(call, data ?? []);
   },
 };
@@ -115,7 +138,8 @@ export const lspReferencesTool: Tool = {
 export const lspSymbolsTool: Tool = {
   definition: {
     name: "lsp_symbols",
-    description: "Get document symbols for a file, or workspace symbols for a query.",
+    description:
+      "Get document symbols for a file, or workspace symbols for a query.",
     parameters: {
       type: "object",
       properties: {
@@ -128,7 +152,11 @@ export const lspSymbolsTool: Tool = {
   async execute(call: ToolCall): Promise<ToolResult> {
     const parsed = SymbolsSchema.safeParse(call.arguments ?? {});
     if (!parsed.success) {
-      return result(call, "TOOL_ARGUMENT_INVALID: " + parsed.error.message, true);
+      return result(
+        call,
+        "TOOL_ARGUMENT_INVALID: " + parsed.error.message,
+        true,
+      );
     }
     if (!lsp.lspEnabled()) {
       return result(call, "LSP_DISABLED: enable lsp.enabled in config", true);
@@ -138,7 +166,11 @@ export const lspSymbolsTool: Tool = {
       return result(call, data ?? []);
     }
     if (!parsed.data.path) {
-      return result(call, "TOOL_ARGUMENT_INVALID: path or query required", true);
+      return result(
+        call,
+        "TOOL_ARGUMENT_INVALID: path or query required",
+        true,
+      );
     }
     const data = await lsp.documentSymbols(parsed.data.path);
     return result(call, data ?? []);

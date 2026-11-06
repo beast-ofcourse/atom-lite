@@ -1,7 +1,12 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { Config } from "../config/schema.js";
-import { builtinServers, configToServer, matchesExtension, resolveRoot } from "./server.js";
+import {
+  builtinServers,
+  configToServer,
+  matchesExtension,
+  resolveRoot,
+} from "./server.js";
 import { LspClient } from "./client.js";
 import type { LspClientHandle, LspServerInfo } from "./types.js";
 
@@ -16,7 +21,7 @@ export function initLsp(config: Config, workspace: string): void {
   servers.length = 0;
   if (!enabled) return;
   for (const server of builtinServers()) {
-    if (!(config.lsp?.servers?.[server.id]?.disabled)) servers.push(server);
+    if (!config.lsp?.servers?.[server.id]?.disabled) servers.push(server);
   }
   for (const [id, cfg] of Object.entries(config.lsp?.servers ?? {})) {
     if (cfg.disabled) continue;
@@ -73,7 +78,9 @@ export async function touchFile(filePath: string): Promise<void> {
   await getClient(filePath);
 }
 
-export async function getDiagnostics(filePath?: string): Promise<Map<string, any[]>> {
+export async function getDiagnostics(
+  filePath?: string,
+): Promise<Map<string, any[]>> {
   if (!enabled) return new Map();
   if (filePath) {
     const client = await getClient(filePath);
@@ -91,14 +98,22 @@ export async function getDiagnostics(filePath?: string): Promise<Map<string, any
   return out;
 }
 
-export async function definition(filePath: string, line: number, character: number): Promise<unknown> {
+export async function definition(
+  filePath: string,
+  line: number,
+  character: number,
+): Promise<unknown> {
   const client = await getClient(filePath);
   if (!client) return null;
   await client.touchFile(filePath);
   return client.definition(filePath, line, character);
 }
 
-export async function references(filePath: string, line: number, character: number): Promise<unknown> {
+export async function references(
+  filePath: string,
+  line: number,
+  character: number,
+): Promise<unknown> {
   const client = await getClient(filePath);
   if (!client) return null;
   await client.touchFile(filePath);
