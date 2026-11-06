@@ -170,7 +170,7 @@ Type `/help` for the grouped list, or press `ctrl+p` for the fuzzy command palet
 | `/model [model]` | Show or switch the active model |
 | `/provider [profile]` | Show or switch the active provider |
 | `/effort [low\|medium\|high]` | Set reasoning effort |
-| `/session [rename <title>]` | Show or rename the current session |
+| `/rename [rename <title>]` | Show or rename the current session |
 | `/sessions [all]` | Search and resume a session |
 | `/search <query>` | Search sessions by title or content |
 | `/export [path]` | Export the session transcript |
@@ -189,7 +189,7 @@ Type `/help` for the grouped list, or press `ctrl+p` for the fuzzy command palet
 
 ## Sessions
 
-Sessions are append-only JSONL event logs recording everything in one conversation. They are resumable across CLI restarts and grouped by workspace. The session index derives a title from the first user message unless `/session rename <title>` overrides it, and records the provider, update time, and message count. `/sessions` resumes a session in place: retained messages are replayed into the transcript and a `session_resumed` event is appended. `/search <query>` matches titles, message content, and workspace paths, ranking title hits first. `--list-sessions` and `--search-sessions` print the same index as stable tab-separated rows for scripts. Compaction summarizes older history to stay within the context budget while retaining the full transcript.
+Sessions are append-only JSONL event logs recording everything in one conversation. They are resumable across CLI restarts and grouped by workspace. The session index derives a title from the first user message unless `/rename rename <title>` overrides it, and records the provider, update time, and message count. `/sessions` resumes a session in place: retained messages are replayed into the transcript and a `session_resumed` event is appended. `/search <query>` matches titles, message content, and workspace paths, ranking title hits first. `--list-sessions` and `--search-sessions` print the same index as stable tab-separated rows for scripts. Compaction summarizes older history to stay within the context budget while retaining the full transcript.
 
 ## Context management
 

@@ -243,7 +243,8 @@ export function createCommandRegistry(
   });
 
   registry.register({
-    name: "session",
+    name: "rename",
+    aliases: ["session"],
     description: "session info or rename",
     category: "Session",
     argumentHint: "[rename <title>]",
@@ -251,7 +252,7 @@ export function createCommandRegistry(
       if (args === "rename" || args.startsWith("rename ")) {
         const title = args.slice("rename".length).trim();
         if (!title) {
-          ctx.appendLine("usage: /session rename <title>");
+          ctx.appendLine("usage: /rename rename <title>");
           return;
         }
         ctx.renameSession(title);

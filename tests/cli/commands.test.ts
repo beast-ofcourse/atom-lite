@@ -83,7 +83,7 @@ test("registry lists every built-in command plus skills", () => {
     "model",
     "provider",
     "effort",
-    "session",
+    "rename",
     "sessions",
     "search",
     "compact",
@@ -193,8 +193,8 @@ test("session commands open pickers, search, and rename", async () => {
   await registry.dispatch("/sessions", ctx);
   await registry.dispatch("/sessions all", ctx);
   await registry.dispatch("/search login bug", ctx);
-  await registry.dispatch("/session rename Release checklist", ctx);
-  await registry.dispatch("/session", ctx);
+  await registry.dispatch("/rename rename Release checklist", ctx);
+  await registry.dispatch("/rename", ctx);
 
   assert.deepEqual(calls, [
     "sessions:workspace",
@@ -211,12 +211,12 @@ test("empty session searches and renames explain their usage", async () => {
   const { ctx, calls, lines } = fakeContext();
 
   await registry.dispatch("/search", ctx);
-  await registry.dispatch("/session rename", ctx);
+  await registry.dispatch("/rename rename", ctx);
 
   assert.deepEqual(calls, []);
   assert.deepEqual(lines, [
     "usage: /search <query>",
-    "usage: /session rename <title>",
+    "usage: /rename rename <title>",
   ]);
 });
 
