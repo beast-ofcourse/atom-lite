@@ -638,13 +638,13 @@ export async function run(args: string[]): Promise<void> {
   tui.setLayoutRoot(root);
 
   function jumpToBottomRow(): number {
-    let dropdownHeight = 0;
-    try {
-      dropdownHeight = dropdownContainer.render(terminal.columns).length;
-    } catch {
-      dropdownHeight = 0;
-    }
-    return Math.max(0, terminal.rows - dropdownHeight - 3);
+    const width = terminal.columns;
+    const outputHeight = Math.max(
+      1,
+      output.viewportHeight || output.render(width).length,
+    );
+    const inputHeight = Math.max(1, input.render(width).length);
+    return outputHeight + 1 + inputHeight;
   }
   tui.setFocus(input);
 
