@@ -254,3 +254,5 @@ Report vulnerabilities privately as described in [`SECURITY.md`](./SECURITY.md).
 ## License
 
 MIT
+
+<!-- appended -->
