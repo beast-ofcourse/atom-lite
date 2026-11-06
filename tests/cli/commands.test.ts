@@ -220,11 +220,11 @@ test("empty session searches and renames explain their usage", async () => {
   ]);
 });
 
-test("/undo reports unavailable outside a git repo", async () => {
+test("/undo reports no checkpoints outside a git repo with none", async () => {
   const { ctx, lines } = fakeContext();
   const registry = createCommandRegistry();
   await registry.dispatch("/undo", ctx);
-  assert.ok(lines.some((l) => /undo unavailable/.test(l)));
+  assert.ok(lines.some((l) => /no checkpoints/.test(l)));
 });
 
 test("/undo with no checkpoints says so", async () => {
@@ -261,7 +261,7 @@ test("/diff reports no changes when at checkpoint", async () => {
   assert.ok(lines.some((l) => /\(no changes\)/.test(l)));
 });
 
-test("/diff explains when no git and no checkpoints", async () => {
+test("/diff reports no changes when no git and no checkpoints", async () => {
   const { mkdtempSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -270,5 +270,5 @@ test("/diff explains when no git and no checkpoints", async () => {
   (ctx.session as any).workspace = dir;
   const registry = createCommandRegistry();
   await registry.dispatch("/diff", ctx);
-  assert.ok(lines.some((l) => /diff unavailable/.test(l)));
+  assert.ok(lines.some((l) => l.includes("(no changes)")));
 });

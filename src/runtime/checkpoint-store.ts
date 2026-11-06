@@ -68,6 +68,7 @@ export class CheckpointStore {
   private maxCount: number;
   private enabled: boolean;
   private sequence = 0;
+  private gitAvailableCache: boolean | undefined;
 
   constructor(
     workspace: string,
@@ -115,9 +116,8 @@ export class CheckpointStore {
     return join(this.checkpointDir(id), "manifest.json");
   }
 
-  isAvailable(): CheckpointAvailability {
-    if (!this.enabled)
-      return { available: false, reason: "checkpointing disabled" };
+  private isGitAvailable(): boolean {
+    if (this.gitAvailableCache !== undefined) return this.gitAvailableCache;
     try {
       const out = execFileSync("git", ["rev-parse", "--is-inside-work-tree"], {
         cwd: this.workspace,
@@ -125,11 +125,21 @@ export class CheckpointStore {
       })
         .toString("utf8")
         .trim();
-      if (out === "true") return { available: true };
-      return { available: false, reason: "not a git worktree" };
+      this.gitAvailableCache = out === "true";
     } catch {
-      return { available: false, reason: "not a git repository" };
+      this.gitAvailableCache = false;
     }
+    return this.gitAvailableCache;
+  }
+
+  isAvailable(): CheckpointAvailability {
+    if (!this.enabled)
+      return { available: false, reason: "checkpointing disabled" };
+    if (this.isGitAvailable()) return { available: true };
+    return {
+      available: true,
+      reason: "filesystem fallback (not a git worktree)",
+    };
   }
 
   private runGit(args: string[]): string {
@@ -140,27 +150,68 @@ export class CheckpointStore {
   }
 
   private listWorkspaceFiles(): string[] {
-    let tracked: string[] = [];
-    let untracked: string[] = [];
-    try {
-      tracked = this.runGit(["ls-files", "-z"]).split("\0").filter(Boolean);
-    } catch {
-      tracked = [];
+    if (this.isGitAvailable()) {
+      let tracked: string[] = [];
+      let untracked: string[] = [];
+      try {
+        tracked = this.runGit(["ls-files", "-z"]).split("\0").filter(Boolean);
+      } catch {
+        tracked = [];
+      }
+      try {
+        untracked = this.runGit([
+          "ls-files",
+          "--others",
+          "--exclude-standard",
+          "-z",
+        ])
+          .split("\0")
+          .filter(Boolean);
+      } catch {
+        untracked = [];
+      }
+      return [...new Set([...tracked, ...untracked])].sort();
     }
-    try {
-      untracked = this.runGit([
-        "ls-files",
-        "--others",
-        "--exclude-standard",
-        "-z",
-      ])
-        .split("\0")
-        .filter(Boolean);
-    } catch {
-      untracked = [];
-    }
-    return [...new Set([...tracked, ...untracked])].sort();
+    return this.walkWorkspaceFiles();
   }
+
+  private walkWorkspaceFiles(): string[] {
+    const SKIP = new Set([
+      ".git",
+      "node_modules",
+      "dist",
+      ".next",
+      ".atom-lite",
+    ]);
+    const out: string[] = [];
+    const walk = (dir: string, relPrefix: string) => {
+      let entries: string[] = [];
+      try {
+        entries = readdirSync(dir);
+      } catch {
+        return;
+      }
+      for (const name of entries) {
+        if (SKIP.has(name)) continue;
+        const full = join(dir, name);
+        const rel = relPrefix ? `${relPrefix}/${name}` : name;
+        let st;
+        try {
+          st = statSync(full);
+        } catch {
+          continue;
+        }
+        if (st.isDirectory()) {
+          walk(full, rel);
+        } else if (st.isFile()) {
+          out.push(rel);
+        }
+      }
+    };
+    walk(this.workspace, "");
+    return out.sort();
+  }
+
 
   private isSymlink(rel: string): boolean {
     try {

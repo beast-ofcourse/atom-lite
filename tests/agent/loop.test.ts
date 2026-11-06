@@ -225,5 +225,5 @@ test("non-git workspace warns and continues", async () => {
   const session = new InMemorySession("s1", dir);
   const result = await runtime.runAgentTurn("go", session, new AbortController().signal);
   assert.equal(result, "done");
-  assert.ok(events.some((e) => e.type === "checkpoint_unavailable"));
+  assert.ok(events.some((e) => e.type === "checkpoint_created"));
 });
