@@ -7,6 +7,7 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
+import { promises as fsPromises } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -29,6 +30,8 @@ export interface Session {
   appendMessage(message: Message): void;
   // Back-compat alias.
   append?(message: Message): void;
+  // Flush pending durable writes (async persistence).
+  flush?(): Promise<void>;
 }
 
 export class InMemorySession implements Session {
@@ -48,6 +51,9 @@ export class InMemorySession implements Session {
   }
   append(message: Message): void {
     this.appendMessage(message);
+  }
+  async flush(): Promise<void> {
+    // no-op
   }
 }
 
@@ -94,7 +100,7 @@ function ensureFile(path: string): void {
   }
 }
 
-export class JsonlSession {
+export class JsonlSession implements Session {
   readonly id: string;
   readonly workspace: string;
   readonly provider: string;
@@ -103,6 +109,7 @@ export class JsonlSession {
   events: SessionEvent[] = [];
   private seq: number;
   private store: any;
+  private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(options: JsonlSessionOptions) {
     this.id = options.id;
@@ -137,13 +144,33 @@ export class JsonlSession {
   }
 
   private persist(event: SessionEvent): void {
-    try {
-      ensureDir(join(this.filePath, ".."));
-      ensureFile(this.filePath);
-      appendFileSync(this.filePath, JSON.stringify(event) + "\n", "utf8");
-    } catch {
-      // Best effort.
-    }
+    this.writeQueue = this.writeQueue
+      .then(async () => {
+        try {
+          ensureDir(join(this.filePath, ".."));
+          ensureFile(this.filePath);
+          await fsPromises.appendFile(
+            this.filePath,
+            JSON.stringify(event) + "\n",
+            "utf8",
+          );
+        } catch (err) {
+          console.error(
+            "atom-lite: session persist failed:",
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      })
+      .catch((err) => {
+        console.error(
+          "atom-lite: session persist queue failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+      });
+  }
+
+  async flush(): Promise<void> {
+    await this.writeQueue;
   }
 
   append(message: Message): void {

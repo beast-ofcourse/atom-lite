@@ -1,7 +1,7 @@
 import { readdirSync, statSync, readFileSync, existsSync } from "node:fs";
 import * as fs from "node:fs";
 import { resolve, relative, join, dirname } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { isWithinWorkspace } from "../security/paths.js";
 import type { Tool, ToolContext, ToolResult } from "./types.js";
 import type { ToolCall } from "../types.js";
@@ -228,11 +228,48 @@ export const grepTool: Tool = {
     rgArgs.push(pattern);
     rgArgs.push(root);
 
-    const res = spawnSync("rg", rgArgs, {
-      encoding: "utf8",
-      maxBuffer: 10 * 1024 * 1024,
-      timeout: 30000,
+    const rgResult = await new Promise<{
+      stdout: string;
+      stderr: string;
+      status: number | null;
+      error?: Error;
+    }>((resolve) => {
+      const child = spawn("rg", rgArgs, { stdio: ["ignore", "pipe", "pipe"] });
+      let stdout = "";
+      let stderr = "";
+      let killed = false;
+      const timer = setTimeout(() => {
+        killed = true;
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // ignore
+        }
+      }, 30000);
+      child.stdout?.setEncoding("utf8");
+      child.stderr?.setEncoding("utf8");
+      child.stdout?.on("data", (c: string) => {
+        if (stdout.length < 10 * 1024 * 1024) stdout += c;
+      });
+      child.stderr?.on("data", (c: string) => {
+        if (stderr.length < 1024 * 1024) stderr += c;
+      });
+      child.on("error", (err) => {
+        clearTimeout(timer);
+        resolve({ stdout, stderr, status: null, error: err });
+      });
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        resolve({ stdout, stderr, status: killed ? 124 : code });
+      });
     });
+
+    const res = {
+      stdout: rgResult.stdout,
+      stderr: rgResult.stderr,
+      status: rgResult.status,
+      error: rgResult.error,
+    };
 
     if (res.error || (res.status !== 0 && res.status !== 1)) {
       // Fallback to JS implementation.

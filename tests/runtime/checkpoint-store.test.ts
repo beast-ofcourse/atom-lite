@@ -22,12 +22,12 @@ function track(dir: string, files: Record<string, string>): void {
   execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: dir });
 }
 
-test("reports unavailable outside a git worktree", () => {
+test("reports available via filesystem fallback outside a git worktree", () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   const store = new CheckpointStore(dir, "s1");
   const avail = store.isAvailable();
-  assert.equal(avail.available, false);
-  assert.ok(avail.reason);
+  assert.equal(avail.available, true);
+  assert.match(avail.reason ?? "", /fallback/);
 });
 
 test("reports available inside a git worktree", () => {

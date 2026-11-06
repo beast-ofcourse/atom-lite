@@ -1,5 +1,5 @@
 // Process policy helpers (full implementation in later tickets).
-import { execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 
 export function defaultShell(): string {
   if (process.platform === "win32") {
@@ -24,8 +24,34 @@ export function terminateProcessTree(
   const pid = child.pid;
   if (!pid) return;
   if (process.platform === "win32") {
+    // Non-blocking: spawn taskkill asynchronously instead of execSync.
     try {
-      execSync(`taskkill /PID ${pid} /T /F`, { stdio: "ignore" });
+      const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
+        stdio: "ignore",
+      });
+      killer.on("error", () => {
+        try {
+          child.kill();
+        } catch {
+          // Ignore.
+        }
+      });
+      killer.on("close", (code) => {
+        if (code !== 0) {
+          try {
+            child.kill();
+          } catch {
+            // Ignore.
+          }
+          setTimeout(() => {
+            try {
+              child.kill("SIGKILL");
+            } catch {
+              // Ignore.
+            }
+          }, 1000).unref();
+        }
+      });
     } catch {
       try {
         child.kill();
