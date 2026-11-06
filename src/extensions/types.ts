@@ -10,6 +10,8 @@ export type AtomEvent =
   | "tool_call"
   | "tool_result"
   | "message"
+  | "message_start"
+  | "message_end"
   | "context_build"
   | "config_change";
 

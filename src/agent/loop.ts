@@ -218,6 +218,10 @@ export class AgentRuntime {
         throw new Error("USER_CANCELLED");
       }
 
+      await this.extensionDispatch?.("context_build", {
+        type: "context_build",
+        messages: session.messages,
+      });
       const messages = await this.contextManager.build(
         this.workspace,
         session.messages,
