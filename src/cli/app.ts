@@ -30,6 +30,7 @@ import { Banner } from "./banner.js";
 import {
   formatContextUsage,
   knownContextWindow,
+  knownVisionModel,
 } from "../providers/context-window.js";
 import { StreamText } from "./stream-text.js";
 import { Transcript } from "./transcript.js";
@@ -826,12 +827,20 @@ export async function run(args: string[]): Promise<void> {
   function refreshContextWindow(): void {
     const profile = provider.id;
     const model = currentModelLabel();
-    const configured = profileConfig(profile)?.contextWindow;
+    const pcfg = profileConfig(profile);
+    const configuredWindow = pcfg?.contextWindow;
     const window =
-      typeof configured === "number" && configured > 0
-        ? configured
+      typeof configuredWindow === "number" && configuredWindow > 0
+        ? configuredWindow
         : knownContextWindow(model);
     runtime.setContextWindow(window);
+    // Config override for vision takes precedence over provider metadata.
+    if (typeof pcfg?.supportsVision === "boolean") {
+      runtime.setSupportsVision(pcfg.supportsVision);
+    } else {
+      const guessed = knownVisionModel(model);
+      if (typeof guessed === "boolean") runtime.setSupportsVision(guessed);
+    }
     updateStatus();
 
     const getModelInfo = (provider as any).getModelInfo;
@@ -841,11 +850,11 @@ export async function run(args: string[]): Promise<void> {
       .then((info: any) => {
         if (provider.id !== profile || currentModelLabel() !== model) return;
         const resolved = info?.contextWindow;
-        if (typeof resolved === "number" && resolved > 0) {
+        if (typeof resolved === "number" && resolved > 0 && typeof configuredWindow !== "number") {
           runtime.setContextWindow(resolved);
           updateStatus();
         }
-        if (typeof info?.supportsVision === "boolean") {
+        if (typeof pcfg?.supportsVision !== "boolean" && typeof info?.supportsVision === "boolean") {
           runtime.setSupportsVision(info.supportsVision);
         }
       })

@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import {
   contextWindowFromModelEntry,
+  knownVisionModel,
+  supportsVisionFromModelEntry,
   formatContextUsage,
   formatTokenCount,
   knownContextWindow,
@@ -117,6 +119,70 @@ test("Gemini adapter resolves inputTokenLimit for the selected model", async () 
       });
       const info = await adapter.getModelInfo();
       assert.equal(info?.contextWindow, 1_048_576);
+    },
+  );
+});
+
+
+test("knownVisionModel recognizes common vision families", () => {
+  assert.equal(knownVisionModel("gpt-4o"), true);
+  assert.equal(knownVisionModel("claude-sonnet-4-20250514"), true);
+  assert.equal(knownVisionModel("gemini-2.5-flash"), true);
+  assert.equal(knownVisionModel("llava:13b"), true);
+  assert.equal(knownVisionModel("qwen2.5-vl-7b"), true);
+  assert.equal(knownVisionModel("some-unknown-model"), undefined);
+});
+
+test("supportsVisionFromModelEntry reads capability metadata", () => {
+  assert.equal(supportsVisionFromModelEntry({ capabilities: ["vision", "text"] }), true);
+  assert.equal(supportsVisionFromModelEntry({ modalities: ["text", "image"] }), true);
+  assert.equal(supportsVisionFromModelEntry({ supports_vision: true }), true);
+  assert.equal(supportsVisionFromModelEntry({}), undefined);
+  assert.equal(supportsVisionFromModelEntry(null), undefined);
+});
+
+test("OpenAI-compatible adapter reports vision from metadata", async () => {
+  await withServer(
+    (_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          data: [{ id: "test-model", context_length: 256_000, capabilities: ["vision"] }],
+        }),
+      );
+    },
+    async (baseUrl) => {
+      const adapter = new OpenAICompatibleAdapter({ id: "test", baseUrl, model: "test-model" });
+      const info = await adapter.getModelInfo();
+      assert.equal(info?.supportsVision, true);
+    },
+  );
+});
+
+test("OpenAI-compatible adapter honors config override", async () => {
+  await withServer(
+    (_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ data: [{ id: "test-model", capabilities: ["vision"] }] }));
+    },
+    async (baseUrl) => {
+      const adapter = new OpenAICompatibleAdapter({ id: "test", baseUrl, model: "test-model", supportsVision: false });
+      const info = await adapter.getModelInfo();
+      assert.equal(info?.supportsVision, false);
+    },
+  );
+});
+
+test("Gemini adapter reports vision support", async () => {
+  await withServer(
+    (_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ models: [{ name: "models/gemini-2.5-flash", inputTokenLimit: 1_048_576 }] }));
+    },
+    async (baseUrl) => {
+      const adapter = new GeminiAdapter({ id: "google", baseUrl, model: "gemini-2.5-flash", apiKey: "test-key" });
+      const info = await adapter.getModelInfo();
+      assert.equal(info?.supportsVision, true);
     },
   );
 });

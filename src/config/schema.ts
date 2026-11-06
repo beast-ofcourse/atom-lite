@@ -13,6 +13,8 @@ export const ProviderConfigSchema = z
     options: z.record(z.string(), z.unknown()).optional(),
     /** Explicit context window for custom/local models without metadata. */
     contextWindow: z.number().int().positive().optional(),
+    /** Whether the model supports image/vision input. Overrides provider metadata. */
+    supportsVision: z.boolean().optional(),
   })
   .strict();
 

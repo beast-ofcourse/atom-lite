@@ -8,6 +8,7 @@ import type {
 } from "../types.js";
 import type { ProviderAdapter } from "./types.js";
 import { parseArgs } from "./tool-calls.js";
+import { knownVisionModel } from "./context-window.js";
 
 export interface GeminiConfig {
   id: string;
@@ -16,6 +17,7 @@ export interface GeminiConfig {
   baseUrl?: string;
   headers?: Record<string, string>;
   contextWindow?: number;
+  supportsVision?: boolean;
 }
 
 function toGeminiContents(messages: Message[]): {
@@ -91,6 +93,7 @@ export class GeminiAdapter implements ProviderAdapter {
   private apiKey: string | null;
   private baseUrl: string;
   private contextWindowOverride: number | undefined;
+  private supportsVisionOverride: boolean | undefined;
   private modelList?: Promise<any[]>;
 
   constructor(config: GeminiConfig) {
@@ -101,6 +104,7 @@ export class GeminiAdapter implements ProviderAdapter {
       config.baseUrl ?? "https://generativelanguage.googleapis.com"
     ).replace(/\/$/, "");
     this.contextWindowOverride = config.contextWindow;
+    this.supportsVisionOverride = config.supportsVision;
   }
 
   private fetchModelList(): Promise<any[]> {
@@ -142,6 +146,7 @@ export class GeminiAdapter implements ProviderAdapter {
           : this.contextWindowOverride,
       supportsTools: true,
       supportsStreaming: true,
+      supportsVision: this.supportsVisionOverride ?? (knownVisionModel(this.model) ?? false),
     };
   }
 

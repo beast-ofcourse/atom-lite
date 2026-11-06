@@ -1,6 +1,6 @@
 import type { ModelInfo, ModelRequest, ModelResponse, ModelStreamEvent, ToolCall, TokenUsage } from "../types.js";
 import type { ProviderAdapter } from "./types.js";
-import { contextWindowFromModelEntry } from "./context-window.js";
+import { contextWindowFromModelEntry, supportsVisionFromModelEntry, knownVisionModel } from "./context-window.js";
 import { parseArgs, assembleToolCalls, toToolCalls, type RawToolCallChunk } from "./tool-calls.js";
 
 export interface OpenAICompatibleConfig {
@@ -10,6 +10,7 @@ export interface OpenAICompatibleConfig {
   apiKey?: string | null;
   headers?: Record<string, string>;
   contextWindow?: number;
+  supportsVision?: boolean;
 }
 
 export class OpenAICompatibleAdapter implements ProviderAdapter {
@@ -19,6 +20,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
   private apiKey: string | null;
   private headers: Record<string, string>;
   private contextWindowOverride: number | undefined;
+  private supportsVisionOverride: boolean | undefined;
   private modelList?: Promise<any[]>;
 
   constructor(config: OpenAICompatibleConfig) {
@@ -28,6 +30,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     this.apiKey = config.apiKey ?? null;
     this.headers = config.headers ?? {};
     this.contextWindowOverride = config.contextWindow;
+    this.supportsVisionOverride = config.supportsVision;
   }
 
   private fetchModelList(): Promise<any[]> {
@@ -51,6 +54,11 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       contextWindow: contextWindowFromModelEntry(entry) ?? this.contextWindowOverride,
       supportsTools: true,
       supportsStreaming: true,
+      supportsVision:
+        this.supportsVisionOverride ??
+        supportsVisionFromModelEntry(entry) ??
+        knownVisionModel(this.model) ??
+        false,
     };
   }
 

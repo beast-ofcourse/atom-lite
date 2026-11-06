@@ -8,6 +8,7 @@ import type {
 } from "../types.js";
 import type { ProviderAdapter } from "./types.js";
 import { parseArgs } from "./tool-calls.js";
+import { knownVisionModel } from "./context-window.js";
 
 export interface OllamaConfig {
   id?: string;
@@ -21,6 +22,7 @@ export interface OllamaConfig {
   contextWindow?: number;
   supportsTools?: boolean;
   supportsStreaming?: boolean;
+  supportsVision?: boolean;
 }
 
 export class OllamaAdapter implements ProviderAdapter {
@@ -34,6 +36,8 @@ export class OllamaAdapter implements ProviderAdapter {
   private contextWindow: number | undefined;
   private supportsToolsFlag: boolean;
   private supportsStreamingFlag: boolean;
+  private supportsVisionFlag: boolean | undefined;
+  private supportsVisionOverride: boolean | undefined;
 
   constructor(config: OllamaConfig) {
     this.id = config.id ?? "ollama";
@@ -49,6 +53,8 @@ export class OllamaAdapter implements ProviderAdapter {
     this.contextWindow = config.contextWindow;
     this.supportsToolsFlag = config.supportsTools ?? true;
     this.supportsStreamingFlag = config.supportsStreaming ?? true;
+    this.supportsVisionFlag = undefined;
+    this.supportsVisionOverride = config.supportsVision;
   }
 
   // Capability metadata (multiple access styles for compatibility).
@@ -407,6 +413,9 @@ export class OllamaAdapter implements ProviderAdapter {
         const caps = json?.capabilities;
         if (Array.isArray(caps)) {
           this.supportsToolsFlag = caps.includes("tools");
+          if (this.supportsVisionOverride === undefined) {
+            this.supportsVisionFlag = caps.includes("vision");
+          }
         }
       }
     } catch {
@@ -417,6 +426,7 @@ export class OllamaAdapter implements ProviderAdapter {
       contextWindow: this.contextWindow,
       supportsTools: this.supportsToolsFlag,
       supportsStreaming: this.supportsStreamingFlag,
+      supportsVision: this.supportsVisionOverride ?? this.supportsVisionFlag ?? knownVisionModel(this.model) ?? false,
     };
   }
 

@@ -230,3 +230,15 @@ test("read rejects images for non-vision models", async () => {
   assert.equal(r.isError, true);
   assert.match(r.content, /vision not supported/);
 });
+
+test("read rejects oversized images with FILE_TOO_LARGE", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  const big = Buffer.alloc(11 * 1024 * 1024, 0x89);
+  writeFileSync(join(dir, "big.png"), big);
+  const r = await readTool.execute(
+    { id: "i3", name: "read", arguments: { path: "big.png" } },
+    { workspace: dir, signal: new AbortController().signal, supportsVision: true } as any,
+  );
+  assert.equal(r.isError, true);
+  assert.match(r.content, /FILE_TOO_LARGE/);
+});
