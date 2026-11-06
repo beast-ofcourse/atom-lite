@@ -36,6 +36,22 @@ export function terminateProcessTree(
           // Ignore.
         }
       });
+      killer.on("close", (code) => {
+        if (code !== 0) {
+          try {
+            child.kill();
+          } catch {
+            // Ignore.
+          }
+          setTimeout(() => {
+            try {
+              child.kill("SIGKILL");
+            } catch {
+              // Ignore.
+            }
+          }, 1000).unref();
+        }
+      });
     } catch {
       try {
         child.kill();

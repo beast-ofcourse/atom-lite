@@ -9,6 +9,7 @@ import type {
 import type { ProviderAdapter } from "./types.js";
 import { parseArgs } from "./tool-calls.js";
 import { knownVisionModel } from "./context-window.js";
+import { isRetryableStatus, retryDelayMs, delay } from "./retry.js";
 
 export interface OllamaConfig {
   id?: string;
@@ -232,7 +233,7 @@ export class OllamaAdapter implements ProviderAdapter {
           `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
         );
         if (attempt < 2) {
-          await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+          await delay(200 * (attempt + 1), request.signal);
           continue;
         }
         throw lastErr;
@@ -241,28 +242,14 @@ export class OllamaAdapter implements ProviderAdapter {
       const text = await res.text().catch(() => "");
       if (res.status === 401 || res.status === 403)
         throw new Error(`PROVIDER_AUTH_FAILED: ${text}`);
-      const retryable = res.status === 429 || (res.status >= 500 && res.status < 600);
-      if (retryable) {
+      if (isRetryableStatus(res.status)) {
         lastErr = new Error(
           res.status === 429
             ? `PROVIDER_RATE_LIMITED: ${text}`
             : `PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`,
         );
         if (attempt < 2) {
-          const ra = res.headers.get("retry-after");
-          let delay = 500 * (attempt + 1);
-          if (ra) {
-            const sec = Number(ra);
-            if (Number.isFinite(sec) && sec >= 0) delay = Math.min(sec * 1000, 30000);
-            else {
-              const date = Date.parse(ra);
-              if (!isNaN(date)) {
-                const ms = date - Date.now();
-                if (ms > 0) delay = Math.min(ms, 30000);
-              }
-            }
-          }
-          await new Promise((r) => setTimeout(r, delay));
+          await delay(retryDelayMs(res, attempt, 500), request.signal);
           continue;
         }
         throw lastErr;

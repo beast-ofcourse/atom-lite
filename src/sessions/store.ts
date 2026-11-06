@@ -100,7 +100,7 @@ function ensureFile(path: string): void {
   }
 }
 
-export class JsonlSession {
+export class JsonlSession implements Session {
   readonly id: string;
   readonly workspace: string;
   readonly provider: string;
@@ -154,12 +154,18 @@ export class JsonlSession {
             JSON.stringify(event) + "\n",
             "utf8",
           );
-        } catch {
-          // Best effort.
+        } catch (err) {
+          console.error(
+            "atom-lite: session persist failed:",
+            err instanceof Error ? err.message : String(err),
+          );
         }
       })
-      .catch(() => {
-        // Best effort.
+      .catch((err) => {
+        console.error(
+          "atom-lite: session persist queue failed:",
+          err instanceof Error ? err.message : String(err),
+        );
       });
   }
 

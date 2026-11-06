@@ -35,6 +35,15 @@ export function renderDiff(oldText: string, newText: string): string[] {
   if (oldMid.length === 0 && newMid.length === 0) {
     return ["(no changes)"];
   }
+  const MAX_DIFF_LINES = 200;
+  const total = oldMid.length + newMid.length;
+  if (total > MAX_DIFF_LINES) {
+    const keep = Math.floor(MAX_DIFF_LINES / 2);
+    for (const l of oldMid.slice(0, keep)) out.push(`- ${l}`);
+    for (const l of newMid.slice(0, keep)) out.push(`+ ${l}`);
+    out.push(`... (${total - keep * 2} more lines truncated)`);
+    return out;
+  }
   for (const l of oldMid) out.push(`- ${l}`);
   for (const l of newMid) out.push(`+ ${l}`);
   return out;

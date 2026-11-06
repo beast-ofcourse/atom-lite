@@ -10,7 +10,7 @@ Status: Accepted
 ## Decision
 
 - Checkpointing is a runtime concern, not a built-in tool. The agent loop captures at most one checkpoint before the first mutating tool batch of a turn.
-- Checkpointing is Git-gated: it works only inside a Git worktree. Outside Git it is disabled with a clear warning and no checkpoint is created.
+- Checkpointing prefers Git: inside a Git worktree it enumerates tracked/untracked non-ignored files via Git. Outside Git it falls back to a copy-based filesystem snapshot (walking the workspace, honoring a root `.gitignore` where present and skipping common build/dependency directories), so recovery works in any directory.
 - Snapshots are stored outside the workspace, under the user config directory, with restrictive permissions. The user's index and `HEAD` are never touched; Git is used only to discover the worktree and enumerate tracked/untracked non-ignored files.
 - Restore is file-level: snapshot files are copied back and files created after the checkpoint are removed (unless `--keep-untracked`). No `git reset`, `git checkout`, or `git stash` is ever run.
 - Read-only built-ins do not trigger a checkpoint. Extension and MCP tools are treated as potentially mutating.
@@ -20,6 +20,6 @@ Status: Accepted
 
 ## Consequences
 
-- Recovery is reliable and never clobbers unrelated work, at the cost of not supporting non-Git workspaces (a future fallback may add copy-based snapshots).
+- Recovery is reliable and never clobbers unrelated work. Non-Git workspaces are supported via the copy-based fallback, which may capture a broader file set than Git's ignore rules.
 - The checkpoint store is a new runtime module with its own storage, pruning, and restore semantics.
 - Recovery state is not part of the tool surface, preserving the small built-in tool count.

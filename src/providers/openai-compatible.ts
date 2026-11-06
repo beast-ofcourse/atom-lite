@@ -12,6 +12,7 @@ import {
   supportsVisionFromModelEntry,
   knownVisionModel,
 } from "./context-window.js";
+import { isRetryableStatus, retryDelayMs, delay } from "./retry.js";
 import {
   parseArgs,
   assembleToolCalls,
@@ -123,28 +124,14 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       const text = await res.text().catch(() => "");
       if (res.status === 401 || res.status === 403)
         throw new Error(`PROVIDER_AUTH_FAILED: ${text}`);
-      const retryable = res.status === 429 || (res.status >= 500 && res.status < 600);
-      if (retryable) {
+      if (isRetryableStatus(res.status)) {
         lastErr = new Error(
           res.status === 429
             ? `PROVIDER_RATE_LIMITED: ${text}`
             : `PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`,
         );
         if (attempt < maxAttempts - 1) {
-          const ra = res.headers.get("retry-after");
-          let delay = 500 * (attempt + 1);
-          if (ra) {
-            const sec = Number(ra);
-            if (Number.isFinite(sec) && sec >= 0) delay = Math.min(sec * 1000, 30000);
-            else {
-              const date = Date.parse(ra);
-              if (!isNaN(date)) {
-                const ms = date - Date.now();
-                if (ms > 0) delay = Math.min(ms, 30000);
-              }
-            }
-          }
-          await new Promise((r) => setTimeout(r, delay));
+          await delay(retryDelayMs(res, attempt, 500), init.signal as AbortSignal | undefined);
           continue;
         }
         throw lastErr;
@@ -252,9 +239,34 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         body: JSON.stringify(body),
         signal: request.signal,
       });
-    let res: Response;
+    let res: Response | undefined;
     try {
-      res = await post();
+      // Retry the initial request on transient failures.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          res = await post();
+        } catch (err) {
+          if (attempt < 2) {
+            await delay(200 * (attempt + 1), request.signal);
+            continue;
+          }
+          throw new Error(
+            `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        if (res.ok || !isRetryableStatus(res.status)) break;
+        const text = await res.text().catch(() => "");
+        if (attempt < 2) {
+          await delay(retryDelayMs(res, attempt, 500), request.signal);
+          continue;
+        }
+        throw new Error(
+          res.status === 429
+            ? `PROVIDER_RATE_LIMITED: ${text}`
+            : `PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`,
+        );
+      }
+      if (!res) throw new Error("PROVIDER_INVALID_RESPONSE");
       // Not every OpenAI-compatible gateway accepts stream_options. Retry
       // once without it so chat keeps working (usage will simply be absent).
       if (
@@ -279,6 +291,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+    if (!res) throw new Error("PROVIDER_INVALID_RESPONSE");
     if (!res.ok || !res.body) {
       const text = await res.text().catch(() => "");
       if (res.status === 401 || res.status === 403)

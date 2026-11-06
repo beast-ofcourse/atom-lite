@@ -175,6 +175,47 @@ export class CheckpointStore {
     return this.walkWorkspaceFiles();
   }
 
+  private loadIgnorePatterns(): string[] {
+    const patterns: string[] = [];
+    try {
+      const raw = readFileSync(join(this.workspace, ".gitignore"), "utf8");
+      for (const line of raw.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        patterns.push(trimmed);
+      }
+    } catch {
+      // No .gitignore or unreadable; ignore nothing extra.
+    }
+    return patterns;
+  }
+
+  private isIgnored(rel: string, isDir: boolean): boolean {
+    const patterns = this.loadIgnorePatterns();
+    for (const raw of patterns) {
+      let p = raw;
+      let dirOnly = false;
+      if (p.endsWith("/")) {
+        dirOnly = true;
+        p = p.replace(/\/+$/, "");
+      }
+      if (dirOnly && !isDir) continue;
+      const anchored = p.startsWith("/");
+      if (anchored) p = p.slice(1);
+      const re = new RegExp(
+        "^" +
+          p
+            .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+            .replace(/\*\*/g, ".*")
+            .replace(/\*/g, "[^/]*") +
+          "$",
+      );
+      const target = anchored ? rel : (rel.split("/").pop() ?? rel);
+      if (re.test(rel) || (!anchored && re.test(target))) return true;
+    }
+    return false;
+  }
+
   private walkWorkspaceFiles(): string[] {
     const SKIP = new Set([
       ".git",
@@ -201,7 +242,9 @@ export class CheckpointStore {
         } catch {
           continue;
         }
-        if (st.isDirectory()) {
+        const isDir = st.isDirectory();
+        if (this.isIgnored(rel, isDir)) continue;
+        if (isDir) {
           walk(full, rel);
         } else if (st.isFile()) {
           out.push(rel);
