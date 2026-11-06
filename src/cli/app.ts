@@ -2139,28 +2139,6 @@ export async function run(args: string[]): Promise<void> {
         tui.requestRender();
         return { consume: true };
       }
-      if (matchesBinding("inputHistoryUp") || matchesKey(data, Key.up)) {
-        if (inputHistory.length > 0) {
-          if (historyIndex < 0) historyIndex = inputHistory.length - 1;
-          else if (historyIndex > 0) historyIndex--;
-          input.setText(inputHistory[historyIndex] ?? "");
-        }
-        tui.requestRender();
-        return { consume: true };
-      }
-      if (matchesBinding("inputHistoryDown") || matchesKey(data, Key.down)) {
-        if (historyIndex >= 0) {
-          historyIndex++;
-          if (historyIndex >= inputHistory.length) {
-            historyIndex = -1;
-            input.setText("");
-          } else {
-            input.setText(inputHistory[historyIndex] ?? "");
-          }
-        }
-        tui.requestRender();
-        return { consume: true };
-      }
     }
 
     // Ctrl+P opens the command palette unless a modal owns the keyboard.
@@ -2525,10 +2503,13 @@ export async function run(args: string[]): Promise<void> {
   input.onSubmit = async (value: string) => {
     const trimmed = value.trim();
     input.setText("");
-    if (trimmed && inputHistory[inputHistory.length - 1] !== trimmed) {
-      inputHistory.push(trimmed);
+    if (trimmed) {
+      try {
+        (input as any).addToHistory?.(trimmed);
+      } catch {
+        // Best effort; history is non-critical.
+      }
     }
-    historyIndex = -1;
     if (!trimmed) {
       tui.requestRender();
       return;
