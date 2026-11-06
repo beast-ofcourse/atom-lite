@@ -43,6 +43,8 @@ export interface CommandContext {
   runExport(args: string): Promise<void> | void;
   openModelPicker(): void;
   openProviderPicker(): void;
+  openKeybindings(): void;
+  shortcutsText(): string;
   openEffortPicker(): void;
   openThemePicker(): void;
   openSessionsPicker(scope: "workspace" | "all"): void;
@@ -601,6 +603,22 @@ export function createCommandRegistry(
     },
   });
 
+  registry.register({
+    name: "keybindings",
+    description: "open the keybindings config file",
+    category: "System",
+    run(ctx) {
+      ctx.openKeybindings();
+    },
+  });
+  registry.register({
+    name: "shortcuts",
+    description: "list keyboard shortcuts",
+    category: "System",
+    run(ctx) {
+      ctx.appendLine(ctx.shortcutsText());
+    },
+  });
   registry.register({
     name: "exit",
     aliases: ["quit"],

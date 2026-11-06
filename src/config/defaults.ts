@@ -31,6 +31,16 @@ export const DEFAULT_CONFIG = {
     vimMode: false,
     showThinking: true,
   },
+  keybindings: {
+    jumpBottom: "ctrl+b",
+    newSession: "ctrl+n",
+    searchSessions: "ctrl+f",
+    scrollUp: "ctrl+up",
+    scrollDown: "ctrl+down",
+    toggleThinking: "ctrl+t",
+    inputHistoryUp: "up",
+    inputHistoryDown: "down",
+  },
   mcpServers: {} as Record<string, unknown>,
   extensions: {
     trustedProjects: [] as string[],

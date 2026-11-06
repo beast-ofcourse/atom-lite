@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASCII Atom</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0d1117; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
+  #atom {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px; line-height: 13px; margin: 0; white-space: pre; color: #4b5563;
+  }
+  #atom .e { color: #58a6ff; }
+  #atom .n { color: #ff7b72; }
+  #atom .o { color: #4b5563; }
+  button {
+    background: transparent; color: #c9d1d9; border: 1px solid #30363d;
+    border-radius: 8px; padding: 8px 16px; font-size: 14px; cursor: pointer;
+  }
+  button:hover { background: #161b22; }
+  @media (min-width: 700px) { #atom { font-size: 15px; line-height: 18px; } }
+</style>
+</head>
+<body>
+<pre id="atom" role="img" aria-label="Animated ASCII atom"></pre>
+<button id="tg">Pause</button>
+<script>
+(function () {
+  var W = 48, H = 25, cx = 23.5, cy = 12, A = 22, B = 8;
+  var orbits = [
+    { th: 0, sp: 1.1, ph: 0 },
+    { th: Math.PI / 3, sp: -1.4, ph: 2 },
+    { th: 2 * Math.PI / 3, sp: 0.85, ph: 4 }
+  ];
+  var trail = ['@', 'O', 'o', '*', '+', '.'];
+  var el = document.getElementById('atom');
+  var btn = document.getElementById('tg');
+  var running = true, clock = 0, last = null;
+  var ch2 = [], cl2 = [];
+
+  function pt(o, t) {
+    var x = A * Math.cos(t), y = B * Math.sin(t);
+    var X = x * Math.cos(o.th) - y * Math.sin(o.th);
+    var Y = x * Math.sin(o.th) + y * Math.cos(o.th);
+    return [Math.round(cx + X), Math.round(cy + Y / 2)];
+  }
+
+  function put(ch, c, r, cls, force) {
+    if (c < 0 || c >= W || r < 0 || r >= H) return;
+    var i = r * W + c;
+    if (force || ch2[i] === ' ') { ch2[i] = ch; cl2[i] = cls; }
+  }
+
+  function draw() {
+    ch2 = new Array(W * H).fill(' ');
+    cl2 = new Array(W * H).fill('');
+    var k, j, n;
+
+    for (k = 0; k < 240; k++) {
+      var t = k / 240 * Math.PI * 2;
+      orbits.forEach(function (o) {
+        var p = pt(o, t);
+        put('.', p[0], p[1], 'o', false);
+      });
+    }
+
+    var pulse = 1 + 0.18 * Math.sin(clock * 3);
+    for (n = 0; n < 10; n++) {
+      var ang = n * 2.4 + clock * 0.9;
+      var rad = 1.9 * Math.sqrt((n + 0.5) / 10) * pulse;
+      put(n % 2 ? 'o' : 'O',
+          Math.round(cx + rad * Math.cos(ang)),
+          Math.round(cy + rad * Math.sin(ang) / 2), 'n', true);
+    }
+    put('@', Math.round(cx), Math.round(cy), 'n', true);
+
+    orbits.forEach(function (o) {
+      var dir = o.sp > 0 ? 1 : -1;
+      for (j = trail.length - 1; j >= 0; j--) {
+        var p = pt(o, o.ph + o.sp * clock - dir * j * 0.14);
+        put(trail[j], p[0], p[1], 'e', true);
+      }
+    });
+
+    var out = '', r, c, cur = null;
+    for (r = 0; r < H; r++) {
+      for (c = 0; c < W; c++) {
+        var i = r * W + c, cl = cl2[i];
+        if (cl !== cur) {
+          if (cur) out += '</span>';
+          if (cl) out += '<span class="' + cl + '">';
+          cur = cl;
+        }
+        out += ch2[i];
+      }
+      if (cur) { out += '</span>'; cur = null; }
+      out += '\n';
+    }
+    el.innerHTML = out;
+  }
+
+  function loop(ts) {
+    if (last === null) last = ts;
+    if (running) clock += (ts - last) / 1000;
+    last = ts;
+    draw();
+    setTimeout(function () { requestAnimationFrame(loop); }, 33);
+  }
+
+  btn.addEventListener('click', function () {
+    running = !running;
+    btn.textContent = running ? 'Pause' : 'Play';
+  });
+
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 import { loadConfig } from "../config/load.js";
 import { DEFAULT_SYSTEM_PROMPT } from "../agent/system-prompt.js";
-import { defaultAgentDir, userConfigDir } from "../config/paths.js";
+import { defaultAgentDir, defaultUserConfigPath, userConfigDir } from "../config/paths.js";
 import {
   saveProviderModel,
   saveProviderSelection,
@@ -687,6 +687,8 @@ export async function run(args: string[]): Promise<void> {
   let showThinking = config.ui.showThinking;
   let expandTools = false;
   let uiModalOpen = false;
+  const inputHistory: string[] = [];
+  let historyIndex = -1;
   let closeActiveOverlay: (() => void) | undefined;
   const toolBoxes: ToolBox[] = [];
 
@@ -1543,6 +1545,33 @@ export async function run(args: string[]): Promise<void> {
     openEffortPicker,
     openThemePicker,
     openSessionsPicker,
+    openKeybindings: () => {
+      const path = defaultUserConfigPath();
+      appendLine(`keybindings config: ${path}`);
+      const editor = process.env.EDITOR || process.env.VISUAL;
+      if (editor) {
+        try {
+          spawn(editor, [path], { stdio: "inherit" });
+        } catch (error) {
+          appendLine(
+            `could not open editor: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      } else if (process.platform === "linux") {
+        try {
+          spawn("xdg-open", [path], { detached: true, stdio: "ignore" }).unref();
+        } catch {
+          // Best effort.
+        }
+      }
+      tui.requestRender();
+    },
+    shortcutsText: () => {
+      const kb = (config as any).keybindings ?? {};
+      return Object.entries(kb)
+        .map(([action, key]) => `${action}: ${key ?? "(disabled)"}`)
+        .join("\n");
+    },
     searchSessions: searchSessionsInStore,
     renameSession,
     listExtensions: () => {
@@ -2067,6 +2096,73 @@ export async function run(args: string[]): Promise<void> {
   tui.addInputListener((data: string) => {
     // Releases and repeats must not toggle modal shortcuts twice.
     if (isKeyRelease(data) || isKeyRepeat(data)) return undefined;
+
+    const keybindings = ((config as any).keybindings ?? {}) as Record<
+      string,
+      string | null
+    >;
+    const matchesBinding = (action: string): boolean => {
+      const key = keybindings[action];
+      return typeof key === "string" && matchesKey(data, key as any);
+    };
+
+    if (!uiModalOpen) {
+      if (matchesBinding("jumpBottom")) {
+        output.scrollToEnd();
+        tui.requestRender();
+        return { consume: true };
+      }
+      if (matchesBinding("newSession")) {
+        session.messages.length = 0;
+        content.clear();
+        appendLine("started new session");
+        tui.requestRender();
+        return { consume: true };
+      }
+      if (matchesBinding("searchSessions")) {
+        openSessionsPicker("workspace");
+        return { consume: true };
+      }
+      if (matchesBinding("scrollUp")) {
+        output.scrollBy(-5);
+        tui.requestRender();
+        return { consume: true };
+      }
+      if (matchesBinding("scrollDown")) {
+        output.scrollBy(5);
+        tui.requestRender();
+        return { consume: true };
+      }
+      if (matchesBinding("toggleThinking")) {
+        showThinking = !showThinking;
+        appendLine(`thinking display: ${showThinking ? "shown" : "hidden"}`);
+        tui.requestRender();
+        return { consume: true };
+      }
+      if (matchesBinding("inputHistoryUp")) {
+        if (inputHistory.length > 0) {
+          if (historyIndex < 0) historyIndex = inputHistory.length - 1;
+          else if (historyIndex > 0) historyIndex--;
+          input.setText(inputHistory[historyIndex] ?? "");
+        }
+        tui.requestRender();
+        return { consume: true };
+      }
+      if (matchesBinding("inputHistoryDown")) {
+        if (historyIndex >= 0) {
+          historyIndex++;
+          if (historyIndex >= inputHistory.length) {
+            historyIndex = -1;
+            input.setText("");
+          } else {
+            input.setText(inputHistory[historyIndex] ?? "");
+          }
+        }
+        tui.requestRender();
+        return { consume: true };
+      }
+    }
+
     // Ctrl+P opens the command palette unless a modal owns the keyboard.
     if (matchesKey(data, Key.ctrl("p")) && !uiModalOpen) {
       openPalette();
@@ -2429,6 +2525,10 @@ export async function run(args: string[]): Promise<void> {
   input.onSubmit = async (value: string) => {
     const trimmed = value.trim();
     input.setText("");
+    if (trimmed && inputHistory[inputHistory.length - 1] !== trimmed) {
+      inputHistory.push(trimmed);
+    }
+    historyIndex = -1;
     if (!trimmed) {
       tui.requestRender();
       return;

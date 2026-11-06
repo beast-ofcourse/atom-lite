@@ -143,6 +143,11 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
       ...DEFAULT_CONFIG.ui,
       ...((userRaw.ui as object) ?? {}),
     },
+    // Keybindings are user-owned.
+    keybindings: {
+      ...DEFAULT_CONFIG.keybindings,
+      ...((userRaw.keybindings as object) ?? {}),
+    },
     // Extensions trust is user-owned.
     extensions: {
       trustedProjects: [

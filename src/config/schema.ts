@@ -58,6 +58,19 @@ export const UiConfigSchema = z
   })
   .strict();
 
+export const KeybindingsConfigSchema = z
+  .object({
+    jumpBottom: z.string().nullable().default("ctrl+b"),
+    newSession: z.string().nullable().default("ctrl+n"),
+    searchSessions: z.string().nullable().default("ctrl+f"),
+    scrollUp: z.string().nullable().default("ctrl+up"),
+    scrollDown: z.string().nullable().default("ctrl+down"),
+    toggleThinking: z.string().nullable().default("ctrl+t"),
+    inputHistoryUp: z.string().nullable().default("up"),
+    inputHistoryDown: z.string().nullable().default("down"),
+  })
+  .strict();
+
 export const McpServerConfigSchema = z
   .object({
     command: z.string().min(1),
@@ -90,6 +103,7 @@ export const ConfigSchema = z
     context: ContextConfigSchema.prefault({}),
     sessions: SessionsConfigSchema.prefault({}),
     ui: UiConfigSchema.prefault({}),
+    keybindings: KeybindingsConfigSchema.prefault({}),
     mcpServers: McpServersConfigSchema,
     extensions: ExtensionsConfigSchema.prefault({}),
   })
