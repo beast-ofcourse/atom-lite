@@ -70,7 +70,7 @@ stored credential, then inline `apiKey`.
 | `maxToolOutputBytes`   | positive integer           | `30000`    | Output cap per tool result.                                                                                 |
 | `maxBashTimeMs`        | positive integer           | `120000`   | Timeout for a single `bash` call (2 minutes).                                                               |
 | `bashConcurrency`      | `"serial"` \| `"parallel"` | `"serial"` | `serial` keeps `bash` as a global exclusive barrier.                                                        |
-| `mode`                 | `"plan"` \| `"yolo"`       | `"plan"`   | `plan` allows read/web only; `yolo` allows all tools without approval. User config and environment only.    |
+| `mode`                 | `"plan"` \| `"yolo"`       | `"yolo"`   | `plan` allows read/web only; `yolo` allows all tools without approval. User config and environment only.    |
 | `maxTokensPerSession`  | positive integer \| null   | `null`     | Optional session token budget (hard stop). `null` means no limit. User config only.                         |
 | `maxTokensPerTurn`     | positive integer \| null   | `null`     | Optional per-turn token soft warning. `null` means no warning. User config only.                            |
 | `checkpointing`        | boolean                    | `false`    | Enable automatic checkpoints in non-interactive runs. Interactive runs always checkpoint. User config only. |

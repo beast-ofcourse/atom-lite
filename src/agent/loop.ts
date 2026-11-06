@@ -44,7 +44,7 @@ export class AgentRuntime {
     this.model = options.model ?? "default";
     this.workspace = options.workspace ?? process.cwd();
     this.approvals = options.approvals;
-    this.mode = options.mode ?? "plan";
+    this.mode = options.mode ?? "yolo";
     this.maxTokensPerSession = options.maxTokensPerSession ?? null;
     this.maxTokensPerTurn = options.maxTokensPerTurn ?? null;
     this.totalTokensUsed = 0;

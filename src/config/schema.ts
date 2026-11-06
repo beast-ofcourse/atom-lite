@@ -24,7 +24,7 @@ export const RuntimeConfigSchema = z
     maxToolOutputBytes: z.number().int().positive().default(30_000),
     maxBashTimeMs: z.number().int().positive().default(120_000),
     bashConcurrency: z.enum(["serial", "parallel"]).default("serial"),
-    mode: z.enum(["plan", "yolo"]).default("plan"),
+    mode: z.enum(["plan", "yolo"]).default("yolo"),
     maxTokensPerSession: z.number().int().positive().nullable().default(null),
     maxTokensPerTurn: z.number().int().positive().nullable().default(null),
     /** Enable checkpointing in non-interactive runs. Interactive runs always enable it. */

@@ -30,7 +30,7 @@ Most coding agents accumulate tools, sub-agents, and orchestration until the har
 - **Durable sessions** — append-only JSONL event logs, resumable across restarts, grouped by workspace.
 - **Context management** — token estimation and compaction before the budget is exceeded, full transcript retained.
 - **Live context meter** — `tokens: 4.5k/256k` against the model's real window, resolved from provider metadata with fallbacks.
-- **Autonomy modes** — `plan` (read/web only) and `yolo` (all tools), toggled with Tab; default `plan`.
+- **Autonomy modes** — `plan` (read/web only) and `yolo` (all tools), toggled with Tab; default `yolo`.
 - **Hash guards** — `expected_hash` rejects stale `write`/`edit` when a file changed since read.
 - **Provider-agnostic** — Ollama, Gemini, and any OpenAI-compatible endpoint (LM Studio, llama.cpp, Kilo, OpenAI, Anthropic, OpenRouter, Groq, Mistral, xAI, …).
 - **Interactive pickers** — `/provider` adds a provider and stores its key securely; `/model` fuzzy-searches every configured provider's models.
@@ -155,7 +155,7 @@ The selected provider/model is persisted to user config, so the next session sta
 ## Safety & security
 
 - **Workspace boundary** — `read`/`write`/`edit` resolve paths against the workspace and reject escapes. Shell commands are not constrained by this boundary, so `bash` runs as a global exclusive barrier.
-- **Autonomy modes** — `plan` allows read/web tools only; `yolo` allows all tools. Toggle with Tab or set `runtime.mode`.
+- **Autonomy modes** — `plan` allows read/web tools only; `yolo` allows all tools. Default `yolo`. Toggle with Tab or set `runtime.mode`.
 - **Hash guards** — prevent stale overwrites when a file changed since it was read.
 - **Sandboxing flags** — reported per command; see `src/security/`.
 - **No secrets in config** — interactive setup stores API keys in `~/.config/atom-lite/credentials.json` (`0600`); environment variables take precedence.

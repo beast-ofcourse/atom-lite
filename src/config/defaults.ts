@@ -13,7 +13,7 @@ export const DEFAULT_CONFIG = {
     maxToolOutputBytes: 30000,
     maxBashTimeMs: 120000,
     bashConcurrency: "serial",
-    mode: "plan",
+    mode: "yolo",
     maxTokensPerSession: null as number | null,
     maxTokensPerTurn: null as number | null,
   },

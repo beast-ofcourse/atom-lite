@@ -12,7 +12,7 @@ test("loadConfig returns defaults when no files exist", () => {
     userConfigPath: join(dir, "nope.json"),
   });
   assert.equal(cfg.defaultProvider, "kilo");
-  assert.equal(cfg.runtime.mode, "plan");
+  assert.equal(cfg.runtime.mode, "yolo");
 });
 
 test("loadConfig reads project config", () => {

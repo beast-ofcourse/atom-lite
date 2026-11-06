@@ -165,7 +165,7 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
   const userRuntime =
     (userRaw.runtime as Record<string, unknown> | undefined) ?? {};
   const mergedRuntime = (merged.runtime as Record<string, unknown>) ?? {};
-  mergedRuntime.mode = userRuntime.mode ?? "plan";
+  mergedRuntime.mode = userRuntime.mode ?? "yolo";
   mergedRuntime.maxTokensPerSession =
     userRuntime.maxTokensPerSession ?? null;
   mergedRuntime.maxTokensPerTurn = userRuntime.maxTokensPerTurn ?? null;
