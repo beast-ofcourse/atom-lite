@@ -237,3 +237,38 @@ test("/undo with no checkpoints says so", async () => {
   await registry.dispatch("/undo", ctx);
   assert.ok(lines.some((l) => /no checkpoints/.test(l)));
 });
+
+test("/diff reports no changes when at checkpoint", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  execFileSync("git", ["config", "user.email", "t@t.com"], { cwd: dir });
+  execFileSync("git", ["config", "user.name", "t"], { cwd: dir });
+  const { writeFileSync } = await import("node:fs");
+  writeFileSync(join(dir, "a.txt"), "a");
+  execFileSync("git", ["add", "-A"], { cwd: dir });
+  execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: dir });
+  const { CheckpointStore } = await import("../../dist/runtime/checkpoint-store.js");
+  const store = new CheckpointStore(dir, "s1");
+  store.create(1);
+  const { ctx, lines } = fakeContext();
+  (ctx.session as any).workspace = dir;
+  const registry = createCommandRegistry();
+  await registry.dispatch("/diff", ctx);
+  assert.ok(lines.some((l) => /\(no changes\)/.test(l)));
+});
+
+test("/diff explains when no git and no checkpoints", async () => {
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  const { ctx, lines } = fakeContext();
+  (ctx.session as any).workspace = dir;
+  const registry = createCommandRegistry();
+  await registry.dispatch("/diff", ctx);
+  assert.ok(lines.some((l) => /diff unavailable/.test(l)));
+});

@@ -1,6 +1,9 @@
 import type { SlashCommand } from "@earendil-works/pi-tui";
 import type { Skill } from "../skills/registry.js";
 import { CheckpointStore } from "../runtime/checkpoint-store.js";
+import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import { renderDiff } from "../tools/diff.js";
 
 /**
  * One interactive command. The registry is the single source of truth for
@@ -300,7 +303,7 @@ export function createCommandRegistry(
     name: "undo",
     description: "restore workspace to a checkpoint",
     category: "Session",
-    argumentHint: "[list|<n>] [--keep-untracked] [--yes]",
+    argumentHint: "[list|<n>] [--keep-untracked] [--yes|--force]",
     run(ctx, args) {
       const session = ctx.session;
       const store = new CheckpointStore(session.workspace, session.id);
@@ -321,7 +324,10 @@ export function createCommandRegistry(
         }
         ctx.appendLine(
           list
-            .map((m, i) => `${i + 1}. ${m.id}  ${new Date(m.createdAt).toISOString()}  ${m.files.length} files`)
+            .map((m, i) => {
+              const label = m.label ? `  ${m.label}` : "";
+              return `${i + 1}. ${m.id}  ${new Date(m.createdAt).toISOString()}  ${m.files.length} files${label}`;
+            })
             .join("\n"),
         );
         return;
@@ -340,26 +346,130 @@ export function createCommandRegistry(
         }
         id = list[idx].id;
       }
-      const preview = store.previewRestore(id, keepUntracked);
+      let preview;
+      try {
+        preview = store.previewRestore(id, keepUntracked);
+      } catch (err) {
+        ctx.appendLine(`checkpoint no longer available: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+      // Non-interactive: refuse unless forced.
+      if ((ctx.approvals as any)?.nonInteractive && !force) {
+        ctx.appendLine("undo unavailable in non-interactive mode (use --force)");
+        return;
+      }
+      const manifest = store.get(id);
+      const skipped = manifest?.skipped ?? [];
       ctx.appendLine(
         `preview:\n  changed: ${preview.changed.join(", ") || "(none)"}\n  restored: ${preview.restored.join(", ") || "(none)"}\n  removed: ${preview.removed.join(", ") || "(none)"}`,
       );
-      if (
-        preview.changed.length === 0 &&
-        preview.restored.length === 0 &&
-        preview.removed.length === 0
-      ) {
+      if (store.isAtCheckpoint(id)) {
         ctx.appendLine("already at checkpoint");
         return;
       }
-      if (!force) {
+      // Dirty workspace (modified or removed files) requires --force.
+      const dirty = preview.changed.length > 0 || preview.removed.length > 0;
+      if (dirty && !force) {
+        ctx.appendLine("workspace has changes since checkpoint; rerun with --force to override");
+        return;
+      }
+      if (!force && !tokens.includes("--yes")) {
         ctx.appendLine("rerun with --yes to apply");
         return;
       }
-      const result = store.restore(id, keepUntracked);
+      let result;
+      try {
+        result = store.restore(id, keepUntracked);
+      } catch (err) {
+        ctx.appendLine(`checkpoint no longer available: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
       ctx.appendLine(
-        `restored ${result.changed.length + result.restored.length} files; removed ${result.removed.length}`,
+        `restored ${result.changed.length + result.restored.length} files; removed ${result.removed.length}; skipped ${skipped.length}`,
       );
+      if (typeof (ctx.session as any).appendEvent === "function") {
+        try {
+          (ctx.session as any).appendEvent({
+            type: "checkpoint_restored",
+            checkpointId: id,
+            changed: result.changed.length,
+            restored: result.restored.length,
+            removed: result.removed.length,
+          });
+        } catch {
+          // best effort
+        }
+      }
+    },
+  });
+
+  registry.register({
+    name: "diff",
+    description: "show workspace changes since the last checkpoint",
+    category: "Session",
+    argumentHint: "[--stat] [path]",
+    run(ctx, args) {
+      const session = ctx.session;
+      const store = new CheckpointStore(session.workspace, session.id);
+      const avail = store.isAvailable();
+      const tokens = (args ?? "").split(/\s+/).filter(Boolean);
+      const statOnly = tokens.includes("--stat");
+      const pathFilter = tokens.filter((t) => !t.startsWith("--"))[0];
+      const hasCheckpoint = store.list().length > 0;
+      let entries;
+      try {
+        entries = store.diff();
+      } catch (err) {
+        ctx.appendLine(`diff unavailable: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+      if (pathFilter) {
+        entries = entries.filter((e) => e.path === pathFilter || e.path.startsWith(pathFilter + "/"));
+      }
+      if (!entries.length) {
+        if (!hasCheckpoint && !avail.available) {
+          ctx.appendLine("diff unavailable: not a git repository and no checkpoints");
+        } else {
+          ctx.appendLine("(no changes)");
+        }
+        return;
+      }
+      if (statOnly) {
+        const counts = { added: 0, modified: 0, deleted: 0 };
+        for (const e of entries) counts[e.status]++;
+        ctx.appendLine(
+          `${entries.length} files changed: ${counts.added} added, ${counts.modified} modified, ${counts.deleted} deleted\n` +
+            entries.map((e) => `${e.status.padEnd(8)} ${e.path}`).join("\n"),
+        );
+        return;
+      }
+      // Detailed: per-file status + line diff for checkpoint-backed entries.
+      const cp = hasCheckpoint ? store.list()[0] : undefined;
+      const lines: string[] = [];
+      for (const e of entries) {
+        lines.push(`${e.status.padEnd(8)} ${e.path}`);
+        if (cp) {
+          const snap = store.snapshotFileContent(cp.id, e.path);
+          const curPath = join(session.workspace, e.path);
+          let cur: Buffer | null = null;
+          try {
+            cur = readFileSync(curPath);
+          } catch {
+            cur = null;
+          }
+          if (e.status === "modified" && snap && cur) {
+            const d = renderDiff(snap.toString("utf8"), cur.toString("utf8"));
+            for (const l of d) lines.push("  " + l);
+          } else if (e.status === "added" && cur) {
+            const d = renderDiff("", cur.toString("utf8"));
+            for (const l of d) lines.push("  " + l);
+          } else if (e.status === "deleted" && snap) {
+            const d = renderDiff(snap.toString("utf8"), "");
+            for (const l of d) lines.push("  " + l);
+          }
+        }
+      }
+      ctx.appendLine(lines.join("\n"));
     },
   });
 

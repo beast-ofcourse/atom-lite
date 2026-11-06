@@ -429,6 +429,14 @@ export class CheckpointStore {
     rmSync(this.checkpointDir(id), { recursive: true, force: true });
   }
 
+  snapshotFileContent(id: string, rel: string): Buffer | null {
+    const m = this.get(id);
+    if (!m || !m.files.includes(rel)) return null;
+    const full = join(this.filesDir(id), rel);
+    if (!existsSync(full)) return null;
+    return readFileSync(full);
+  }
+
   prune(): void {
     const list = this.list();
     if (list.length <= this.maxCount) return;
