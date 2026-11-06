@@ -13,7 +13,11 @@ import { execSync, spawn } from "node:child_process";
 import { defaultShell, terminateProcessTree } from "../security/process.js";
 import { openSearchablePicker, type PickerItem } from "./picker.js";
 import { openCommandPalette, type PaletteItem } from "./palette.js";
-import { bareCommandName, createCommandRegistry, type CommandContext } from "./commands.js";
+import {
+  bareCommandName,
+  createCommandRegistry,
+  type CommandContext,
+} from "./commands.js";
 import {
   resolveTheme,
   themeLabel,
@@ -60,8 +64,23 @@ import {
   parseSgrMouse,
   shouldEnableMouse,
 } from "./mouse.js";
-import { readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool, grepTool, globTool, taskTool } from "../tools/index.js";
-import { McpManager, formatMcpStatus, formatMcpDoctor, createMcpTools } from "../mcp/index.js";
+import {
+  readTool,
+  writeTool,
+  editTool,
+  bashTool,
+  webfetchTool,
+  websearchTool,
+  grepTool,
+  globTool,
+  taskTool,
+} from "../tools/index.js";
+import {
+  McpManager,
+  formatMcpStatus,
+  formatMcpDoctor,
+  createMcpTools,
+} from "../mcp/index.js";
 import { createProvider } from "../providers/factory.js";
 import {
   availableProviderNames,
@@ -133,7 +152,8 @@ export async function run(args: string[]): Promise<void> {
   }
 
   if (showVersion) {
-    process.stdout.write("0.3.1\n");
+    const { VERSION } = await import("../version.js");
+    process.stdout.write(VERSION + "\n");
     return;
   }
 
@@ -169,14 +189,27 @@ export async function run(args: string[]): Promise<void> {
   if (modelOverride) modelByProvider.set(provider.id, modelOverride);
   const useTools = !positional.includes("__notools__");
   const builtInTools = useTools
-    ? [readTool, writeTool, editTool, bashTool, webfetchTool, websearchTool, grepTool, globTool, taskTool]
+    ? [
+        readTool,
+        writeTool,
+        editTool,
+        bashTool,
+        webfetchTool,
+        websearchTool,
+        grepTool,
+        globTool,
+        taskTool,
+      ]
     : [];
 
   const interactive = process.stdin.isTTY === true && !jsonMode;
 
   // one-shot task from positional or stdin
   let stdinTask = "";
-  if (!process.stdin.isTTY && positional.filter((p) => !p.startsWith("__")).length === 0) {
+  if (
+    !process.stdin.isTTY &&
+    positional.filter((p) => !p.startsWith("__")).length === 0
+  ) {
     const chunks: Buffer[] = [];
     for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
     stdinTask = Buffer.concat(chunks).toString("utf8").trim();
@@ -185,12 +218,13 @@ export async function run(args: string[]): Promise<void> {
   const oneShot = (taskArgs.join(" ").trim() || stdinTask).trim();
 
   const store = new JsonlSessionStore();
-  let session =
-    sessionOverride
-      ? store.resume(sessionOverride) ?? store.create(process.cwd(), provider.id)
-      : positional.includes("__continue__")
-        ? store.resumeLatest(process.cwd()) ?? store.create(process.cwd(), provider.id)
-        : store.create(process.cwd(), provider.id);
+  let session = sessionOverride
+    ? (store.resume(sessionOverride) ??
+      store.create(process.cwd(), provider.id))
+    : positional.includes("__continue__")
+      ? (store.resumeLatest(process.cwd()) ??
+        store.create(process.cwd(), provider.id))
+      : store.create(process.cwd(), provider.id);
 
   const mcpServers = (config.mcpServers ?? {}) as Record<string, any>;
   const mcpManager = new McpManager({
@@ -212,7 +246,9 @@ export async function run(args: string[]): Promise<void> {
       try {
         const { execFileSync } = require("node:child_process");
         const parts = value.slice(1).trim().split(/\s+/);
-        return execFileSync(parts[0], parts.slice(1), { encoding: "utf8" }).trim();
+        return execFileSync(parts[0], parts.slice(1), {
+          encoding: "utf8",
+        }).trim();
       } catch {
         return undefined;
       }
@@ -254,11 +290,12 @@ export async function run(args: string[]): Promise<void> {
   // Bridge Pi-style extension providers into Atom-lite's config so they
   // appear in /provider, /model, and the command palette.
   for (const loaded of extensionLoader.list()) {
-    for (const [name, provider] of (loaded.registries?.providers ?? new Map())) {
+    for (const [name, provider] of loaded.registries?.providers ?? new Map()) {
       const cfg = (provider as any)?.config ?? {};
-      const firstModel = Array.isArray(cfg.models) && cfg.models.length > 0
-        ? (cfg.models[0].id ?? cfg.models[0].name ?? "default")
-        : "default";
+      const firstModel =
+        Array.isArray(cfg.models) && cfg.models.length > 0
+          ? (cfg.models[0].id ?? cfg.models[0].name ?? "default")
+          : "default";
       const apiKey = resolveExtensionApiKey(cfg.apiKey);
       const headers = { ...(cfg.headers ?? {}) };
       if (cfg.authHeader && apiKey) headers.Authorization = `Bearer ${apiKey}`;
@@ -284,9 +321,7 @@ export async function run(args: string[]): Promise<void> {
       if (!handlers) continue;
       for (const handler of handlers) {
         try {
-          results.push(
-            await handler(payload, loaded.context ?? ({} as any)),
-          );
+          results.push(await handler(payload, loaded.context ?? ({} as any)));
         } catch (error) {
           // eslint-disable-next-line no-console
           console.error(
@@ -339,7 +374,11 @@ export async function run(args: string[]): Promise<void> {
   });
 
   mcpManager.onToolsChanged = () => {
-    runtime.setTools([...builtInTools, ...extensionTools, ...createMcpTools(mcpManager)]);
+    runtime.setTools([
+      ...builtInTools,
+      ...extensionTools,
+      ...createMcpTools(mcpManager),
+    ]);
   };
 
   if (oneShot || !interactive) {
@@ -350,17 +389,35 @@ export async function run(args: string[]): Promise<void> {
     try {
       if (useTools) {
         await mcpManager.syncTools();
-        runtime.setTools([...builtInTools, ...extensionTools, ...createMcpTools(mcpManager)]);
+        runtime.setTools([
+          ...builtInTools,
+          ...extensionTools,
+          ...createMcpTools(mcpManager),
+        ]);
       }
-      const result = await runtime.runAgentTurn(oneShot || " ", session, controller.signal);
+      const result = await runtime.runAgentTurn(
+        oneShot || " ",
+        session,
+        controller.signal,
+      );
       if (jsonMode) {
-        process.stdout.write(JSON.stringify({ result, sessionId: session.id }) + "\n");
+        process.stdout.write(
+          JSON.stringify({ result, sessionId: session.id }) + "\n",
+        );
       } else {
         process.stdout.write(result + "\n");
       }
     } catch (err) {
-      if (jsonMode) process.stderr.write(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }) + "\n");
-      else process.stderr.write(`atom-lite: ${err instanceof Error ? err.message : String(err)}\n`);
+      if (jsonMode)
+        process.stderr.write(
+          JSON.stringify({
+            error: err instanceof Error ? err.message : String(err),
+          }) + "\n",
+        );
+      else
+        process.stderr.write(
+          `atom-lite: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
       process.exit(1);
     } finally {
       await mcpManager.close().catch(() => {});
@@ -370,8 +427,19 @@ export async function run(args: string[]): Promise<void> {
   }
 
   // ---- Interactive TUI (first-class) ----
-  const { TuiAltScreen, Text, Input, Editor, Container, Spacer, ScrollView, VStack, Loader, Markdown, Box } =
-    await import("@earendil-works/pi-tui");
+  const {
+    TuiAltScreen,
+    Text,
+    Input,
+    Editor,
+    Container,
+    Spacer,
+    ScrollView,
+    VStack,
+    Loader,
+    Markdown,
+    Box,
+  } = await import("@earendil-works/pi-tui");
 
   const mouseEnabled = shouldEnableMouse({
     interactive,
@@ -379,7 +447,9 @@ export async function run(args: string[]): Promise<void> {
     stdoutIsTTY: process.stdout.isTTY === true,
   });
   const terminal = new ProcessTerminal();
-  const tui = new TuiAltScreen(terminal, false, undefined, { mouse: mouseEnabled });
+  const tui = new TuiAltScreen(terminal, false, undefined, {
+    mouse: mouseEnabled,
+  });
   const mouseCapture = createMouseCapture((data) => terminal.write(data));
 
   let effortLevel = "medium";
@@ -400,18 +470,32 @@ export async function run(args: string[]): Promise<void> {
   transcript.add(new Spacer(1));
   const content = transcript.container;
   const output = new ScrollView(content, { follow: "end" });
-  const streamText = new StreamText(transcript, 200, 200, markdownThemeFor(theme));
+  const streamText = new StreamText(
+    transcript,
+    200,
+    200,
+    markdownThemeFor(theme),
+  );
 
   function headerLabel(): string {
     const cwd = process.cwd();
     const home = process.env.HOME ?? "";
     let displayPath = cwd;
-    if (home && cwd.startsWith(home)) displayPath = "~" + cwd.slice(home.length);
+    if (home && cwd.startsWith(home))
+      displayPath = "~" + cwd.slice(home.length);
     let branch = "";
     try {
-      branch = execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      branch = execSync("git rev-parse --abbrev-ref HEAD", {
+        cwd,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
       if (branch === "HEAD") {
-        branch = execSync("git rev-parse --short HEAD", { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+        branch = execSync("git rev-parse --short HEAD", {
+          cwd,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
       }
     } catch {
       branch = "";
@@ -444,8 +528,10 @@ export async function run(args: string[]): Promise<void> {
     selectList: selectListTheme,
   };
   const input = new Editor(tui, editorTheme, {});
-  const { CombinedAutocompleteProvider } = await import("@earendil-works/pi-tui");
-  const { DefaultSkillRegistry, skillCacheSignature } = await import("../skills/registry.js");
+  const { CombinedAutocompleteProvider } =
+    await import("@earendil-works/pi-tui");
+  const { DefaultSkillRegistry, skillCacheSignature } =
+    await import("../skills/registry.js");
   let skillSignature = skillCacheSignature(process.cwd());
   let skillReg = new DefaultSkillRegistry(process.cwd());
   function cachedSkillRegistry(): InstanceType<typeof DefaultSkillRegistry> {
@@ -462,10 +548,16 @@ export async function run(args: string[]): Promise<void> {
   function refreshCommandRegistry(): void {
     const sig = skillCacheSignature(process.cwd());
     if (sig === registrySkillSignature) return;
-    commandRegistry = createCommandRegistry({ skills: cachedSkillRegistry().list() });
+    commandRegistry = createCommandRegistry({
+      skills: cachedSkillRegistry().list(),
+    });
     registrySkillSignature = sig;
     input.setAutocompleteProvider(
-      new CombinedAutocompleteProvider(commandRegistry.autocomplete() as any, process.cwd(), fdPath),
+      new CombinedAutocompleteProvider(
+        commandRegistry.autocomplete() as any,
+        process.cwd(),
+        fdPath,
+      ),
     );
   }
   const fdPath = (() => {
@@ -483,7 +575,11 @@ export async function run(args: string[]): Promise<void> {
     return null;
   })();
   input.setAutocompleteProvider(
-    new CombinedAutocompleteProvider(commandRegistry.autocomplete() as any, process.cwd(), fdPath),
+    new CombinedAutocompleteProvider(
+      commandRegistry.autocomplete() as any,
+      process.cwd(),
+      fdPath,
+    ),
   );
 
   // Skills should autocomplete (fill the input) rather than execute immediately
@@ -499,7 +595,9 @@ export async function run(args: string[]): Promise<void> {
       ) {
         const selected = (input as any).autocompleteList.getSelectedItem?.();
         const name = selected?.value ?? selected?.name ?? selected?.label;
-        const cmd = name ? commandRegistry.get(String(name).replace(/^\//, "")) : undefined;
+        const cmd = name
+          ? commandRegistry.get(String(name).replace(/^\//, ""))
+          : undefined;
         if (cmd?.bareInvokable) {
           originalHandleInput("\t");
           return;
@@ -544,7 +642,8 @@ export async function run(args: string[]): Promise<void> {
       const lines: string[] = [theme.tokens.dim("💭 thinking")];
       const sep = theme.tokens.dim("│ ");
       const contentWidth = Math.max(1, width - 2);
-      const logicalLines = this.buffer.length > 0 ? this.buffer.split("\\n") : [""];
+      const logicalLines =
+        this.buffer.length > 0 ? this.buffer.split("\\n") : [""];
       for (const logical of logicalLines) {
         const wrapped = wrapTextWithAnsi(logical, contentWidth);
         if (wrapped.length === 0) {
@@ -680,9 +779,17 @@ export async function run(args: string[]): Promise<void> {
     try {
       if (useTools) {
         await mcpManager.syncTools();
-        runtime.setTools([...builtInTools, ...extensionTools, ...createMcpTools(mcpManager)]);
+        runtime.setTools([
+          ...builtInTools,
+          ...extensionTools,
+          ...createMcpTools(mcpManager),
+        ]);
       }
-      const turnResult = await runtime.runAgentTurn(prompt, session, controller.signal);
+      const turnResult = await runtime.runAgentTurn(
+        prompt,
+        session,
+        controller.signal,
+      );
       if (turnResult === "TOKEN_BUDGET_REACHED") {
         appendLine("token budget reached; stopping", theme.tokens.warning);
         tui.requestRender();
@@ -691,7 +798,9 @@ export async function run(args: string[]): Promise<void> {
       if (err instanceof Error && err.message === "USER_CANCELLED") {
         appendLine("cancelled");
       } else {
-        appendLine(`atom-lite: ${err instanceof Error ? err.message : String(err)}`);
+        appendLine(
+          `atom-lite: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     } finally {
       activeTurnController = null;
@@ -745,25 +854,29 @@ export async function run(args: string[]): Promise<void> {
       });
       child.stdout?.on("data", (c: Buffer) => append("out", c));
       child.stderr?.on("data", (c: Buffer) => append("err", c));
-      const exit = await new Promise<{ code: number | null; signal: string | null }>(
-        (resolve) => {
-          const timer = setTimeout(() => {
-            terminateProcessTree(child, "SIGTERM");
-            setTimeout(() => terminateProcessTree(child, "SIGKILL"), 1000).unref();
-            resolve({ code: null, signal: "SIGTERM" });
-          }, 120000);
-          timer.unref();
-          child.on("exit", (code, signal) => {
-            clearTimeout(timer);
-            resolve({ code, signal });
-          });
-          child.on("error", (err) => {
-            clearTimeout(timer);
-            resolve({ code: null, signal: null });
-            stderr = `COMMAND_FAILED: ${err instanceof Error ? err.message : String(err)}`;
-          });
-        },
-      );
+      const exit = await new Promise<{
+        code: number | null;
+        signal: string | null;
+      }>((resolve) => {
+        const timer = setTimeout(() => {
+          terminateProcessTree(child, "SIGTERM");
+          setTimeout(
+            () => terminateProcessTree(child, "SIGKILL"),
+            1000,
+          ).unref();
+          resolve({ code: null, signal: "SIGTERM" });
+        }, 120000);
+        timer.unref();
+        child.on("exit", (code, signal) => {
+          clearTimeout(timer);
+          resolve({ code, signal });
+        });
+        child.on("error", (err) => {
+          clearTimeout(timer);
+          resolve({ code: null, signal: null });
+          stderr = `COMMAND_FAILED: ${err instanceof Error ? err.message : String(err)}`;
+        });
+      });
       const parts: string[] = [];
       parts.push(`exit_code: ${exit.code ?? "null"}`);
       if (exit.signal) parts.push(`signal: ${exit.signal}`);
@@ -772,11 +885,17 @@ export async function run(args: string[]): Promise<void> {
       if (stdout) parts.push(`stdout:\n${stdout}`);
       if (stderr) parts.push(`stderr:\n${stderr}`);
       const content = parts.join("\n");
-      appendLine(content, exit.code === 0 && !exit.signal && !stderr
-        ? theme.tokens.success
-        : theme.tokens.error);
+      appendLine(
+        content,
+        exit.code === 0 && !exit.signal && !stderr
+          ? theme.tokens.success
+          : theme.tokens.error,
+      );
     } catch (err) {
-      appendLine(`shell error: ${err instanceof Error ? err.message : String(err)}`, theme.tokens.error);
+      appendLine(
+        `shell error: ${err instanceof Error ? err.message : String(err)}`,
+        theme.tokens.error,
+      );
     }
   }
 
@@ -851,11 +970,18 @@ export async function run(args: string[]): Promise<void> {
       .then((info: any) => {
         if (provider.id !== profile || currentModelLabel() !== model) return;
         const resolved = info?.contextWindow;
-        if (typeof resolved === "number" && resolved > 0 && typeof configuredWindow !== "number") {
+        if (
+          typeof resolved === "number" &&
+          resolved > 0 &&
+          typeof configuredWindow !== "number"
+        ) {
           runtime.setContextWindow(resolved);
           updateStatus();
         }
-        if (typeof pcfg?.supportsVision !== "boolean" && typeof info?.supportsVision === "boolean") {
+        if (
+          typeof pcfg?.supportsVision !== "boolean" &&
+          typeof info?.supportsVision === "boolean"
+        ) {
           runtime.setSupportsVision(info.supportsVision);
         }
       })
@@ -870,7 +996,7 @@ export async function run(args: string[]): Promise<void> {
   const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
   const modelCache = new Map<string, { models: string[]; at: number }>();
   for (const loaded of extensionLoader.list()) {
-    for (const [name, provider] of (loaded.registries?.providers ?? new Map())) {
+    for (const [name, provider] of loaded.registries?.providers ?? new Map()) {
       const cfg = (provider as any)?.config ?? {};
       const models = Array.isArray(cfg.models)
         ? cfg.models.map((m: any) => m.id ?? m.name).filter(Boolean)
@@ -949,10 +1075,7 @@ export async function run(args: string[]): Promise<void> {
     return items;
   }
 
-  function refreshModelCache(
-    names: string[],
-    onUpdate: () => void,
-  ): void {
+  function refreshModelCache(names: string[], onUpdate: () => void): void {
     if (names.length === 0) return;
     let remaining = names.length;
     for (const name of names) {
@@ -994,7 +1117,9 @@ export async function run(args: string[]): Promise<void> {
     try {
       saveProviderSelection(profile, { model }, { defaultProvider: profile });
     } catch (err) {
-      appendLine(`warning: could not persist model choice: ${err instanceof Error ? err.message : String(err)}`);
+      appendLine(
+        `warning: could not persist model choice: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
     modelByProvider.set(profile, model);
     modelOverride = model;
@@ -1063,7 +1188,9 @@ export async function run(args: string[]): Promise<void> {
     closeActiveOverlay = picker.close;
     const stale = providersNeedingRefresh(names);
     if (stale.length) {
-      picker.setStatus(`loading live models from ${stale.length} provider${stale.length === 1 ? "" : "s"}…`);
+      picker.setStatus(
+        `loading live models from ${stale.length} provider${stale.length === 1 ? "" : "s"}…`,
+      );
       refreshModelCache(stale, () => {
         picker.setStatus("");
         picker.updateItems(buildModelItems());
@@ -1112,7 +1239,11 @@ export async function run(args: string[]): Promise<void> {
     provider = createProvider(config, preset.id, chosen);
     runtime.switchModel(provider, chosen);
     if (typeof (session as any).appendEvent === "function") {
-      session.appendEvent({ type: "provider_selected", provider: preset.id, model: chosen });
+      session.appendEvent({
+        type: "provider_selected",
+        provider: preset.id,
+        model: chosen,
+      });
     }
     refreshContextWindow();
     appendLine(`provider: ${preset.label} (${preset.id}) · model: ${chosen}`);
@@ -1127,14 +1258,25 @@ export async function run(args: string[]): Promise<void> {
     tui.requestRender();
   }
 
-  function promptForApiKey(preset: ProviderPreset, existingKey: string | null): void {
+  function promptForApiKey(
+    preset: ProviderPreset,
+    existingKey: string | null,
+  ): void {
     uiModalOpen = true;
     closeOverlay();
     dropdownContainer.clear();
     const wrapper = new Container();
     wrapper.addChild(new Text(theme.tokens.accent(`${preset.label} API key`)));
-    if (preset.keyUrl) wrapper.addChild(new Text(theme.tokens.dim(`create one: ${preset.keyUrl}`)));
-    if (existingKey) wrapper.addChild(new Text(theme.tokens.dim("a key is already saved — press Enter to keep it")));
+    if (preset.keyUrl)
+      wrapper.addChild(
+        new Text(theme.tokens.dim(`create one: ${preset.keyUrl}`)),
+      );
+    if (existingKey)
+      wrapper.addChild(
+        new Text(
+          theme.tokens.dim("a key is already saved — press Enter to keep it"),
+        ),
+      );
     const secret = new SecretInput(
       "API key",
       existingKey ? "hidden (Enter keeps saved key)" : "paste key (hidden)",
@@ -1161,7 +1303,9 @@ export async function run(args: string[]): Promise<void> {
           try {
             activateProvider(preset);
           } catch (err) {
-            appendLine(`could not activate ${preset.label}: ${err instanceof Error ? err.message : String(err)}`);
+            appendLine(
+              `could not activate ${preset.label}: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
           return;
         }
@@ -1195,7 +1339,9 @@ export async function run(args: string[]): Promise<void> {
       }
       closeApiKeyPrompt();
       if (!probe.ok) {
-        appendLine(`warning: could not verify ${preset.label} key (${probe.error ?? "network error"}); saved anyway`);
+        appendLine(
+          `warning: could not verify ${preset.label} key (${probe.error ?? "network error"}); saved anyway`,
+        );
       }
       try {
         activateProvider(preset, probe.models);
@@ -1217,7 +1363,9 @@ export async function run(args: string[]): Promise<void> {
       try {
         activateProvider(preset);
       } catch (err) {
-        appendLine(`could not activate ${preset.label}: ${err instanceof Error ? err.message : String(err)}`);
+        appendLine(
+          `could not activate ${preset.label}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       return;
     }
@@ -1377,7 +1525,9 @@ export async function run(args: string[]): Promise<void> {
       if (report.length === 0) return "No extensions discovered.";
       return report
         .map((ext) => {
-          const origin = ext.origin ? `${ext.source}:${ext.origin}` : ext.source;
+          const origin = ext.origin
+            ? `${ext.source}:${ext.origin}`
+            : ext.source;
           const version = ext.version ? `v${ext.version}` : "-";
           const counts = `${ext.toolCount} tools / ${ext.commandCount} commands`;
           const error = ext.error ? `\t${ext.error}` : "";
@@ -1396,10 +1546,12 @@ export async function run(args: string[]): Promise<void> {
     },
     setTheme: setThemeTarget,
     listSkills: () =>
-      cachedSkillRegistry().list().map((skill) => ({
-        name: skill.name,
-        description: skill.description,
-      })),
+      cachedSkillRegistry()
+        .list()
+        .map((skill) => ({
+          name: skill.name,
+          description: skill.description,
+        })),
     loadSkill,
     runTurn,
     requestExit: () => {
@@ -1474,9 +1626,7 @@ export async function run(args: string[]): Promise<void> {
       const toggle: PickerItem = {
         value: "__scope__",
         label:
-          scope === "all"
-            ? "Show this workspace only"
-            : "Show all workspaces",
+          scope === "all" ? "Show this workspace only" : "Show all workspaces",
         description: `scope: ${scope === "all" ? "all workspaces" : process.cwd()}`,
       };
       return [
@@ -1502,7 +1652,9 @@ export async function run(args: string[]): Promise<void> {
           scope = scope === "all" ? "workspace" : "all";
           picker.updateItems(buildItems());
           picker.setStatus(
-            scope === "all" ? "showing all workspaces" : "showing this workspace",
+            scope === "all"
+              ? "showing all workspaces"
+              : "showing this workspace",
           );
           return;
         }
@@ -1647,11 +1799,16 @@ export async function run(args: string[]): Promise<void> {
     const previous = extensionLoader.list();
     // Emit session_shutdown and extension_unload before unloading.
     for (const loaded of previous) {
-      const handlers = loaded.registries?.handlers?.get?.("session_shutdown" as any);
+      const handlers = loaded.registries?.handlers?.get?.(
+        "session_shutdown" as any,
+      );
       if (handlers) {
         for (const handler of handlers) {
           try {
-            await handler({ type: "session_shutdown", reason: "reload" }, (loaded.context ?? {}) as any);
+            await handler(
+              { type: "session_shutdown", reason: "reload" },
+              (loaded.context ?? {}) as any,
+            );
           } catch (error) {
             appendLine(
               `extension shutdown error: ${error instanceof Error ? error.message : String(error)}`,
@@ -1677,14 +1834,17 @@ export async function run(args: string[]): Promise<void> {
     }
     extensionProviderNames.clear();
     for (const loaded of extensionLoader.list()) {
-      for (const [name, provider] of (loaded.registries?.providers ?? new Map())) {
+      for (const [name, provider] of loaded.registries?.providers ??
+        new Map()) {
         const cfg = (provider as any)?.config ?? {};
-        const firstModel = Array.isArray(cfg.models) && cfg.models.length > 0
-          ? (cfg.models[0].id ?? cfg.models[0].name ?? "default")
-          : "default";
+        const firstModel =
+          Array.isArray(cfg.models) && cfg.models.length > 0
+            ? (cfg.models[0].id ?? cfg.models[0].name ?? "default")
+            : "default";
         const apiKey = resolveExtensionApiKey(cfg.apiKey);
         const headers = { ...(cfg.headers ?? {}) };
-        if (cfg.authHeader && apiKey) headers.Authorization = `Bearer ${apiKey}`;
+        if (cfg.authHeader && apiKey)
+          headers.Authorization = `Bearer ${apiKey}`;
         (config.providers as Record<string, any>)[name] = {
           type: "openai-compatible",
           baseUrl: cfg.baseUrl,
@@ -1715,11 +1875,16 @@ export async function run(args: string[]): Promise<void> {
     ]);
     // Emit session_start with reason reload.
     for (const loaded of extensionLoader.list()) {
-      const handlers = loaded.registries?.handlers?.get?.("session_start" as any);
+      const handlers = loaded.registries?.handlers?.get?.(
+        "session_start" as any,
+      );
       if (handlers) {
         for (const handler of handlers) {
           try {
-            await handler({ type: "session_start", reason: "reload" }, (loaded.context ?? {}) as any);
+            await handler(
+              { type: "session_start", reason: "reload" },
+              (loaded.context ?? {}) as any,
+            );
           } catch (error) {
             appendLine(
               `extension start error: ${error instanceof Error ? error.message : String(error)}`,
@@ -1735,7 +1900,10 @@ export async function run(args: string[]): Promise<void> {
   }
 
   // Wire interactive extension UI callbacks now that the TUI exists.
-  extensionUICallbacks.notify = (message: string, type?: "info" | "warning" | "error") => {
+  extensionUICallbacks.notify = (
+    message: string,
+    type?: "info" | "warning" | "error",
+  ) => {
     const style =
       type === "error"
         ? theme.tokens.error
@@ -1752,7 +1920,10 @@ export async function run(args: string[]): Promise<void> {
 
   function toggleToolBoxAtScreenRow(screenY: number): boolean {
     const width = terminal.columns;
-    const outputHeight = Math.max(1, output.viewportHeight || output.render(width).length);
+    const outputHeight = Math.max(
+      1,
+      output.viewportHeight || output.render(width).length,
+    );
     if (screenY < 0 || screenY >= outputHeight) return false;
 
     const children = content.children as any[];
@@ -1858,7 +2029,10 @@ export async function run(args: string[]): Promise<void> {
     } else if (e.type === "context_usage") {
       updateStatus();
     } else if (e.type === "background_task_complete") {
-      appendLine(`background task ${e.id}: ${e.status} (exit ${e.exitCode ?? "null"})`, theme.tokens.dim);
+      appendLine(
+        `background task ${e.id}: ${e.status} (exit ${e.exitCode ?? "null"})`,
+        theme.tokens.dim,
+      );
       tui.requestRender();
     } else if (e.type === "checkpoint_created") {
       appendLine(`checkpoint ${e.id} created`, theme.tokens.dim);
@@ -1867,15 +2041,25 @@ export async function run(args: string[]): Promise<void> {
       appendLine(`checkpoint failed: ${e.reason}`, theme.tokens.warning);
       tui.requestRender();
     } else if (e.type === "checkpoint_unavailable") {
-      appendLine(`checkpoint unavailable: ${e.reason ?? "not a git repository"}`, theme.tokens.warning);
+      appendLine(
+        `checkpoint unavailable: ${e.reason ?? "not a git repository"}`,
+        theme.tokens.warning,
+      );
       tui.requestRender();
     } else if (e.type === "budget_warning") {
-      appendLine(`budget warning (${e.scope}): ${e.used}/${e.limit} tokens`, theme.tokens.warning);
+      appendLine(
+        `budget warning (${e.scope}): ${e.used}/${e.limit} tokens`,
+        theme.tokens.warning,
+      );
       tui.requestRender();
     } else if (e.type === "model_switched") {
       appendLine(`switched model to ${e.provider}/${e.model}`);
       if (typeof (session as any).appendEvent === "function") {
-        session.appendEvent({ type: "model_switched", provider: e.provider, model: e.model });
+        session.appendEvent({
+          type: "model_switched",
+          provider: e.provider,
+          model: e.model,
+        });
       }
       updateStatus();
     } else if (e.type === "tool_call") {
@@ -1911,12 +2095,26 @@ export async function run(args: string[]): Promise<void> {
 
   async function runDoctor(): Promise<string> {
     const lines: string[] = ["Doctor:"];
-    try { loadConfig(); lines.push("  config: ok"); }
-    catch (e) { lines.push(`  config: FAIL ${e instanceof Error ? e.message : String(e)}`); }
     try {
-      const r = await provider.generate({ model: modelOverride ?? "default", messages: [{ role: "user", content: [{ type: "text", text: "ping" }] }], tools: [] });
+      loadConfig();
+      lines.push("  config: ok");
+    } catch (e) {
+      lines.push(
+        `  config: FAIL ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+    try {
+      const r = await provider.generate({
+        model: modelOverride ?? "default",
+        messages: [{ role: "user", content: [{ type: "text", text: "ping" }] }],
+        tools: [],
+      });
       lines.push(`  provider generate: ok (${r.finishReason})`);
-    } catch (e) { lines.push(`  provider generate: FAIL ${e instanceof Error ? e.message : String(e)}`); }
+    } catch (e) {
+      lines.push(
+        `  provider generate: FAIL ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
     lines.push(...formatMcpDoctor(mcpManager.status()));
     return lines.join("\n");
   }
@@ -1936,7 +2134,11 @@ export async function run(args: string[]): Promise<void> {
       }
       if (useTools) {
         await mcpManager.syncTools();
-        runtime.setTools([...builtInTools, ...extensionTools, ...createMcpTools(mcpManager)]);
+        runtime.setTools([
+          ...builtInTools,
+          ...extensionTools,
+          ...createMcpTools(mcpManager),
+        ]);
       }
       appendLine(formatMcpStatus(mcpManager.status()));
       return;
@@ -2046,7 +2248,9 @@ export async function run(args: string[]): Promise<void> {
     for (const message of session.messages) {
       if (message.role === "user") {
         turn++;
-        const snippet = redactText(messageText(message)).split("\\n")[0].slice(0, 80);
+        const snippet = redactText(messageText(message))
+          .split("\\n")[0]
+          .slice(0, 80);
         lines.push(`${turn}. ${snippet || "(empty)"}`);
       }
     }
@@ -2068,7 +2272,9 @@ export async function run(args: string[]): Promise<void> {
           lines.push("");
           lines.push("Tool calls:");
           for (const call of message.toolCalls) {
-            lines.push(`- \`${call.name}\` ${JSON.stringify(call.arguments ?? {})}`);
+            lines.push(
+              `- \`${call.name}\` ${JSON.stringify(call.arguments ?? {})}`,
+            );
           }
         }
         lines.push("");
@@ -2096,10 +2302,7 @@ export async function run(args: string[]): Promise<void> {
       appendLine("nothing to compact");
       return;
     }
-    const summary = await runtime.compactSession(
-      session,
-      focus || undefined,
-    );
+    const summary = await runtime.compactSession(session, focus || undefined);
     if (!summary) {
       appendLine("nothing to compact");
       return;
@@ -2170,7 +2373,10 @@ export async function run(args: string[]): Promise<void> {
     // Skills remain invokable by bare name, but still run through the registry.
     const bare = bareCommandName(commandRegistry, trimmed);
     if (bare) {
-      await commandRegistry.dispatch(`/${bare} ${trimmed.slice(bare.length)}`, commandContext);
+      await commandRegistry.dispatch(
+        `/${bare} ${trimmed.slice(bare.length)}`,
+        commandContext,
+      );
       return;
     }
 

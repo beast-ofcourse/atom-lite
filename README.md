@@ -18,7 +18,7 @@ Atom-lite is a local-first, model-agnostic coding agent built on a deliberately 
 
 Most coding agents accumulate tools, sub-agents, and orchestration until the harness becomes the product. Atom-lite takes the opposite stance:
 
-- **Small core, strong primitives.** Provider interface, session model, one agent loop, six tools, scheduler/executor, context management, config, and CLI.
+- **Small core, strong primitives.** Provider interface, session model, one agent loop, nine tools, scheduler/executor, context management, config, and CLI.
 - **The model decides; the runtime enforces.** The model chooses tools and next steps; the runtime validates arguments, enforces workspace boundaries, applies approval rules, schedules calls safely, and returns accurate results. No hard-coded workflow.
 - **Thin harness, not weak engineering.** Streaming failures, concurrent file access, shell timeouts, large outputs, context exhaustion, and session recovery are handled as the reliability layer.
 
@@ -30,13 +30,14 @@ Most coding agents accumulate tools, sub-agents, and orchestration until the har
 - **Durable sessions** — append-only JSONL event logs, resumable across restarts, grouped by workspace.
 - **Context management** — token estimation and compaction before the budget is exceeded, full transcript retained.
 - **Live context meter** — `tokens: 4.5k/256k` against the model's real window, resolved from provider metadata with fallbacks.
-- **Approval modes** — `ask` / `trusted` / `deny` for shell commands, with session-level trust.
+- **Autonomy modes** — `plan` (read/web only) and `yolo` (all tools), toggled with Tab; default `plan`.
 - **Hash guards** — `expected_hash` rejects stale `write`/`edit` when a file changed since read.
 - **Provider-agnostic** — Ollama, Gemini, and any OpenAI-compatible endpoint (LM Studio, llama.cpp, Kilo, OpenAI, Anthropic, OpenRouter, Groq, Mistral, xAI, …).
 - **Interactive pickers** — `/provider` adds a provider and stores its key securely; `/model` fuzzy-searches every configured provider's models.
 - **Command palette & themes** — `ctrl+p` fuzzy-searches commands, skills, providers, models, themes, sessions. `/theme` switches auto/dark/light/no-colour.
 - **Local-first** — runs fully against local providers; no telemetry or hosted database.
 - **Safe path handling** — file tools resolve against the workspace and reject escapes; shell is an explicit boundary.
+- **Recovery** — automatic Git-gated checkpoints before mutating turns, with `/undo` and `/diff` for review. See [ADR 0014](./docs/adr/0014-checkpoints-and-undo.md).
 
 ## Install
 
@@ -84,7 +85,7 @@ Secrets live in `~/.config/atom-lite/credentials.json` (`0600`). Environment var
 | Variable | Effect |
 | --- | --- |
 | `ATOM_LITE_PROVIDER` | Default provider profile name |
-| `ATOM_LITE_APPROVAL_MODE` | `ask` / `trusted` / `deny` |
+| `ATOM_LITE_MODE` | `plan` / `yolo` |
 
 See [`docs/configuration.md`](./docs/configuration.md) for every field, default, and precedence rule.
 
@@ -117,7 +118,7 @@ In the TUI, type `/help` for every command grouped by category, or press `ctrl+p
 
 ## Tools
 
-Eight built-in tools — the four core tools from [ADR 0001](./docs/adr/0001-four-built-in-tools-only.md), file search, plus the additive network tools from [ADR 0006](./docs/adr/0006-expanded-toolset.md):
+Nine built-in tools — the four core tools from [ADR 0001](./docs/adr/0001-four-built-in-tools-only.md), file search, network tools from [ADR 0006](./docs/adr/0006-expanded-toolset.md), plus `task` for background work from [ADR 0013](./docs/adr/0013-advanced-tool-features.md):
 
 | Tool | Purpose |
 | --- | --- |
@@ -129,6 +130,7 @@ Eight built-in tools — the four core tools from [ADR 0001](./docs/adr/0001-fou
 | `glob` | Find files matching a glob pattern |
 | `webfetch` | Fetch a URL and convert HTML to markdown |
 | `websearch` | Search the web and return ranked results |
+| `task` | Query or control a background bash task |
 
 Tests, Git, builds, formatters, and package managers are available through `bash`.
 
@@ -153,7 +155,7 @@ The selected provider/model is persisted to user config, so the next session sta
 ## Safety & security
 
 - **Workspace boundary** — `read`/`write`/`edit` resolve paths against the workspace and reject escapes. Shell commands are not constrained by this boundary, so `bash` runs as a global exclusive barrier.
-- **Approval modes** — `ask` prompts before each shell command; `trusted` auto-approves; `deny` blocks. Session trust can be granted interactively (`t`).
+- **Autonomy modes** — `plan` allows read/web tools only; `yolo` allows all tools. Toggle with Tab or set `runtime.mode`.
 - **Hash guards** — prevent stale overwrites when a file changed since it was read.
 - **Sandboxing flags** — reported per command; see `src/security/`.
 - **No secrets in config** — interactive setup stores API keys in `~/.config/atom-lite/credentials.json` (`0600`); environment variables take precedence.
@@ -176,7 +178,9 @@ Type `/help` for the grouped list, or press `ctrl+p` for the fuzzy command palet
 | `/extensions` | List discovered extensions and load status |
 | `/compact` | Compact older context |
 | `/clear` | Clear the transcript view |
-| `/approval` | Change approval mode |
+| `/undo` | Restore workspace to a checkpoint |
+| `/diff` | Show changes since the last checkpoint |
+| `/approval` | Show approval mode (legacy) |
 | `/doctor` | Run diagnostics |
 | `/thinking` | Toggle thinking display |
 | `/theme [auto\|dark\|light\|ansi]` | Switch theme |
@@ -207,13 +211,14 @@ Tests live in `tests/` (agent, config, runtime, tools). The project is TypeScrip
 
 ### Releasing
 
-1. Update `version` in `package.json` and add a `CHANGELOG.md` entry.
-2. Run `npm run typecheck && npm test && npm run bench`.
-3. Commit, then tag and push: `git tag vX.Y.Z && git push origin master --tags`.
-4. The `Release` workflow stages the package on npm with provenance and opens a draft GitHub release. It requires an `NPM_TOKEN` repository secret with publish access.
-5. Approve the staged version on npm (Staged Packages tab, or `npm stage approve <stage-id>` with 2FA), then publish the draft release on GitHub.
+Follow the release workflow in [`AGENTS.md`](./AGENTS.md):
 
-npm requires a maintainer with 2FA to approve staged releases; CI cannot complete that step.
+1. Bump `version` in `package.json` and add a `CHANGELOG.md` entry.
+2. Run `npm run typecheck && npm test && npm run bench` (bench is non-gating).
+3. Commit, tag, push: `git commit ... && git tag vX.Y.Z && git push origin master --tags`.
+4. Publish to npm directly: `npm publish --access public` (do not use `npm stage approve`).
+5. Create GitHub release: `gh release create vX.Y.Z --title "vX.Y.Z" --notes "..."`.
+6. Verify: `npm view atom-lite version` and the GitHub release page.
 
 ## Architecture
 

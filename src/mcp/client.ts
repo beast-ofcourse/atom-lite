@@ -5,6 +5,8 @@ import type {
   McpTransport,
 } from "./types.js";
 
+import { VERSION } from "../version.js";
+
 export const SUPPORTED_PROTOCOL_VERSIONS = [
   "2024-11-05",
   "2025-03-26",
@@ -121,7 +123,7 @@ export class McpClient {
   constructor(transport: McpTransport, options: McpClientOptions = {}) {
     this.transport = transport;
     this.clientName = options.clientName ?? "atom-lite";
-    this.clientVersion = options.clientVersion ?? "0.3.1";
+    this.clientVersion = options.clientVersion ?? VERSION;
     this.onClose = options.onClose;
     transport.setHandlers({
       onMessage: (message) => this.handleMessage(message),

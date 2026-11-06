@@ -21,6 +21,8 @@ with the code and is readable offline.
   [0001](./adr/0001-four-built-in-tools-only.md),
   [0006](./adr/0006-expanded-toolset.md), and
   [0007](./adr/0007-pi-tui-replaces-opentui.md).
+- [0014 — Checkpoints and undo](./adr/0014-checkpoints-and-undo.md)
+- [0015 — Eval harness](./adr/0015-eval-harness.md)
 
 ## Contributing
 
@@ -32,5 +34,5 @@ with the code and is readable offline.
 ## Operations
 
 - [Security policy](../SECURITY.md) — supported versions and private reporting.
-- [Release workflow](../README.md#releasing) — tagging, staged npm publishing,
-  2FA approval, and draft GitHub releases.
+- [Release workflow](../AGENTS.md) — tagging, direct npm publishing,
+  and GitHub releases.

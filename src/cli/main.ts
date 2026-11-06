@@ -3,7 +3,8 @@
 // loading providers, tools, zod and the TUI.
 const args = process.argv.slice(2);
 if (args.includes("--version")) {
-  process.stdout.write("0.5.1\n");
+  const { VERSION } = await import("../version.js");
+  process.stdout.write(VERSION + "\n");
 } else if (args.includes("--help")) {
   process.stdout.write(
     "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json] [--debug] [--theme NAME] [--no-color] [-e PATH] [--version] [--help]\n",
