@@ -190,7 +190,7 @@ const EFFORT_LEVELS = ["low", "medium", "high"] as const;
  * is invoked through exactly the same dispatch path as a built-in.
  */
 export function createCommandRegistry(
-  options: { skills?: Skill[] } = {},
+  options: { skills?: Skill[]; extensionCommands?: any[] } = {},
 ): CommandRegistry {
   const registry = new CommandRegistry();
 
@@ -629,6 +629,22 @@ export function createCommandRegistry(
       ctx.requestExit();
     },
   });
+
+  for (const command of options.extensionCommands ?? []) {
+    registry.register({
+      name: command.name,
+      description: command.description ?? "",
+      category: command.category ?? "Extensions",
+      argumentHint: command.argumentHint,
+      async run(ctx, args) {
+        if (typeof command.run === "function") {
+          await command.run(args, ctx as any);
+        } else if (typeof command.handler === "function") {
+          await command.handler(args, ctx as any);
+        }
+      },
+    });
+  }
 
   for (const skill of options.skills ?? []) {
     registry.register({

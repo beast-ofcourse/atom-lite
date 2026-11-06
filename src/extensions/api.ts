@@ -246,15 +246,9 @@ export function createExtensionAPI(
     setHiddenThinkingLabel: (label) => ctx.ui.setHiddenThinkingLabel(label),
     getToolsExpanded: () => ctx.ui.getToolsExpanded(),
     setToolsExpanded: (expanded) => ctx.ui.setToolsExpanded(expanded),
-    select: () => {
-      throw new Error("extension runtime not initialized");
-    },
-    confirm: () => {
-      throw new Error("extension runtime not initialized");
-    },
-    input: () => {
-      throw new Error("extension runtime not initialized");
-    },
+    select: (title, options) => ctx.ui.select(title, options),
+    confirm: (title, message) => ctx.ui.confirm(title, message),
+    input: (title, placeholder) => ctx.ui.input(title, placeholder),
     getWorkspace: () => ctx.workspace,
     getSession: () => ({ id: sessionId }),
     isProjectTrusted: () => ctx.trusted,

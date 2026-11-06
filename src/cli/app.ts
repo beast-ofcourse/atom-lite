@@ -381,6 +381,8 @@ export async function run(args: string[]): Promise<void> {
     ]);
   };
 
+  void extensionDispatch("session_start", { type: "session_start", reason: "startup" });
+
   if (oneShot || !interactive) {
     // non-interactive / one-shot path
     const controller = new AbortController();
@@ -544,13 +546,27 @@ export async function run(args: string[]): Promise<void> {
     return skillReg;
   }
 
-  let commandRegistry = createCommandRegistry({ skills: skillReg.list() });
+  const collectExtensionCommands = () => {
+    const out: any[] = [];
+    for (const loaded of extensionLoader.list()) {
+      for (const command of loaded.registries?.commands?.values?.() ?? []) {
+        out.push(command);
+      }
+    }
+    return out;
+  };
+
+  let commandRegistry = createCommandRegistry({
+    skills: skillReg.list(),
+    extensionCommands: collectExtensionCommands(),
+  });
   let registrySkillSignature = skillSignature;
   function refreshCommandRegistry(): void {
     const sig = skillCacheSignature(process.cwd());
     if (sig === registrySkillSignature) return;
     commandRegistry = createCommandRegistry({
       skills: cachedSkillRegistry().list(),
+      extensionCommands: collectExtensionCommands(),
     });
     registrySkillSignature = sig;
     input.setAutocompleteProvider(
@@ -1154,6 +1170,12 @@ export async function run(args: string[]): Promise<void> {
     runtime.switchModel(provider, model);
     refreshContextWindow();
     appendLine(`switched to ${profile}/${model}`);
+    void extensionDispatch("config_change", {
+      type: "config_change",
+      scope: "model",
+      provider: profile,
+      model,
+    });
   }
 
   /** Interpret `/model` arguments: bare model, provider/model, or provider. */
@@ -1609,6 +1631,7 @@ export async function run(args: string[]): Promise<void> {
     loadSkill,
     runTurn,
     requestExit: () => {
+      void extensionDispatch("session_end", { type: "session_end", reason: "exit" });
       void mcpManager.close().finally(() => {
         tui.stop();
         process.exit(0);
@@ -2043,6 +2066,106 @@ export async function run(args: string[]): Promise<void> {
   extensionUICallbacks.setToolsExpanded = (expanded: boolean) => {
     if (expandTools !== expanded) toggleTools();
   };
+
+  extensionUICallbacks.select = (title, options, opts) =>
+    new Promise((resolve) => {
+      if (!interactive) {
+        resolve(undefined);
+        return;
+      }
+      uiModalOpen = true;
+      closeOverlay();
+      dropdownContainer.clear();
+      const items = (options ?? []).map((option: any, index: number) => ({
+        value: String(index),
+        label: String(option),
+      }));
+      const picker = openSearchablePicker({
+        tui,
+        container: dropdownContainer,
+        title: String(title ?? "Select"),
+        theme,
+        items,
+        closeOnSelect: true,
+        onSelect: (item) => {
+          uiModalOpen = false;
+          dropdownContainer.clear();
+          tui.setFocus(input);
+          resolve(options?.[Number(item.value)]);
+        },
+        onCancel: () => {
+          uiModalOpen = false;
+          dropdownContainer.clear();
+          tui.setFocus(input);
+          resolve(undefined);
+        },
+        restoreFocus: () => tui.setFocus(input),
+      });
+      closeActiveOverlay = picker.close;
+      tui.requestRender();
+    });
+
+  extensionUICallbacks.confirm = (title, message, opts) =>
+    new Promise((resolve) => {
+      if (!interactive) {
+        resolve(false);
+        return;
+      }
+      uiModalOpen = true;
+      closeOverlay();
+      dropdownContainer.clear();
+      const items = [
+        { value: "yes", label: "Yes" },
+        { value: "no", label: "No" },
+      ];
+      const picker = openSearchablePicker({
+        tui,
+        container: dropdownContainer,
+        title: `${title ?? "Confirm"}: ${message ?? ""}`,
+        theme,
+        items,
+        closeOnSelect: true,
+        onSelect: (item) => {
+          uiModalOpen = false;
+          dropdownContainer.clear();
+          tui.setFocus(input);
+          resolve(item.value === "yes");
+        },
+        onCancel: () => {
+          uiModalOpen = false;
+          dropdownContainer.clear();
+          tui.setFocus(input);
+          resolve(false);
+        },
+        restoreFocus: () => tui.setFocus(input),
+      });
+      closeActiveOverlay = picker.close;
+      tui.requestRender();
+    });
+
+  extensionUICallbacks.input = (title, placeholder, opts) =>
+    new Promise((resolve) => {
+      if (!interactive) {
+        resolve(undefined);
+        return;
+      }
+      uiModalOpen = true;
+      closeOverlay();
+      dropdownContainer.clear();
+      const wrapper = new Container();
+      wrapper.addChild(new Text(theme.tokens.accent(String(title ?? "Input"))));
+      const editor = new Editor(tui, editorTheme, {});
+      editor.onSubmit = (value: string) => {
+        uiModalOpen = false;
+        dropdownContainer.clear();
+        tui.setFocus(input);
+        resolve(value.trim());
+      };
+      wrapper.addChild(editor);
+      dropdownContainer.addChild(wrapper);
+      tui.setFocus(editor);
+      tui.requestRender();
+    });
 
   function toggleToolBoxAtScreenRow(screenY: number): boolean {
     const width = terminal.columns;
