@@ -45,26 +45,21 @@ export function messageToEvent(
 ): SessionEvent {
   const timestamp = nowIso();
   if (message.role === "user") {
-    const text = contentPartsText(message.content);
     return {
       type: "user_message",
       timestamp,
       sessionId,
       seq,
-      content: text,
       message,
     };
   }
   if (message.role === "assistant") {
-    const text = contentPartsText(message.content ?? []);
     return {
       type: "assistant_message",
       timestamp,
       sessionId,
       seq,
-      content: text,
       message,
-      toolCalls: message.toolCalls,
     };
   }
   if (message.role === "tool") {
@@ -76,6 +71,8 @@ export function messageToEvent(
       toolCallId: message.toolCallId,
       name: message.name,
       content: message.content,
+      isError: message.isError,
+      diff: Array.isArray(message.diff) ? message.diff : undefined,
     };
   }
   return { type: "assistant_message", timestamp, sessionId, seq, message };
@@ -112,6 +109,8 @@ export function eventToMessage(event: SessionEvent): Message | null {
       toolCallId: String(event.toolCallId ?? ""),
       name: String(event.name ?? ""),
       content: String(event.content ?? ""),
+      isError: event.isError === true,
+      diff: Array.isArray(event.diff) ? (event.diff as string[]) : undefined,
     };
   }
   return null;

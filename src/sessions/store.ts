@@ -155,23 +155,6 @@ export class JsonlSession {
     const ev = messageToEvent(message, this.id, ++this.seq);
     this.events.push(ev);
     this.persist(ev);
-
-    // Emit tool_call_started events for assistant tool calls.
-    if (message.role === "assistant" && Array.isArray(message.toolCalls)) {
-      for (const tc of message.toolCalls) {
-        const ev2: SessionEvent = {
-          type: "tool_call_started",
-          timestamp: nowIso(),
-          sessionId: this.id,
-          seq: ++this.seq,
-          toolCallId: tc.id,
-          name: tc.name,
-          arguments: tc.arguments,
-        };
-        this.events.push(ev2);
-        this.persist(ev2);
-      }
-    }
   }
 
   appendEvent(partial: Partial<SessionEvent>): SessionEvent {

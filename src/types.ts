@@ -21,6 +21,8 @@ export type Message =
       name: string;
       content: string;
       images?: ImagePart[];
+      isError?: boolean;
+      diff?: string[];
     };
 
 export interface ToolCall {

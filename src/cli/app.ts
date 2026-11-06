@@ -1565,12 +1565,84 @@ export async function run(args: string[]): Promise<void> {
   function restoreTranscript(next: any): void {
     streamText.finalize();
     transcript.reset();
+    // Drop stale references so toggles only affect the resumed transcript.
+    toolBoxes.length = 0;
     banner.setTheme(theme);
     transcript.add(banner);
     transcript.add(new Spacer(1));
-    for (const line of sessionHistoryLines(next.messages)) {
-      transcript.addLine(line);
+
+    const messages = Array.isArray(next?.messages) ? next.messages : [];
+
+    // Index tool results by their call id so each restored ToolBox can carry
+    // its output and render as the same collapsible block used live.
+    const resultsByCallId = new Map<string, any>();
+    for (const message of messages) {
+      if (message?.role === "tool" && message.toolCallId) {
+        resultsByCallId.set(String(message.toolCallId), message);
+      }
     }
+    const renderedToolCallIds = new Set<string>();
+
+    const textOf = (content: unknown): string => {
+      if (typeof content === "string") return content;
+      if (Array.isArray(content)) {
+        return content
+          .map((part: any) =>
+            part?.type === "text" ? String(part.text ?? "") : "",
+          )
+          .join("");
+      }
+      return "";
+    };
+
+    for (const message of messages) {
+      if (!message || typeof message !== "object") continue;
+      if (message.role === "system") continue;
+
+      if (message.role === "user") {
+        const text = textOf(message.content).trim();
+        if (text) {
+          transcript.add(new Text(theme.tokens.user(`> ${text}`)));
+        }
+        continue;
+      }
+
+      if (message.role === "assistant") {
+        const text = textOf(message.content).trim();
+        if (text) {
+          transcript.add(new Markdown(text, 0, 0, markdownThemeFor(theme)));
+        }
+        for (const call of message.toolCalls ?? []) {
+          const box = new ToolBox({
+            id: String(call?.id ?? ""),
+            name: String(call?.name ?? ""),
+            args: call?.arguments ?? {},
+          });
+          box.setExpanded(expandTools);
+          const result = resultsByCallId.get(String(call?.id ?? ""));
+          if (result) {
+            box.setResult(String(result.content ?? ""), {
+              isError: result.isError === true,
+              diff: Array.isArray(result.diff) ? result.diff : undefined,
+            });
+            renderedToolCallIds.add(String(call?.id ?? ""));
+          }
+          transcript.add(box);
+          toolBoxes.push(box);
+        }
+        continue;
+      }
+
+      if (message.role === "tool") {
+        if (renderedToolCallIds.has(String(message.toolCallId ?? ""))) continue;
+        const text = String(message.content ?? "").trim();
+        if (text) {
+          transcript.add(new Text(theme.tokens.text(`[${message.name}] ${text}`)));
+        }
+        continue;
+      }
+    }
+
     tui.requestRender();
   }
 

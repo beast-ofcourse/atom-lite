@@ -85,6 +85,8 @@ export class TurnRecorder {
       name: result.name,
       content: result.content,
       images: result.images,
+      isError: result.isError,
+      diff: Array.isArray(result.diff) ? result.diff : undefined,
     });
     this.onEvent?.({
       type: "tool_result",
