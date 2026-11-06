@@ -1,0 +1,1 @@
+Fix the off-by-one bug in src/sum.js so that sum([1,2,3]) returns 6. Run the tests to confirm.

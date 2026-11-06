@@ -81,7 +81,7 @@ function discoverTasks(tasksDir: string): string[] {
       continue;
     }
     if (!existsSyncSafe(join(full, "prompt.txt"))) continue;
-    if (!existsSyncSafe(join(full, "check.mjs"))) continue;
+    if (!existsSyncSafe(join(full, "check.cjs"))) continue;
     out.push(name);
   }
   return out.sort();
@@ -137,7 +137,7 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
     const taskDir = join(tasksDir, name);
     const prompt = readFileSync(join(taskDir, "prompt.txt"), "utf8").trim();
     const workspaceSrc = join(taskDir, "workspace");
-    const checkPath = join(taskDir, "check.mjs");
+    const checkPath = join(taskDir, "check.cjs");
     const tmp = mkdtempSync(join(tmpdir(), `eval-${name}-`));
     // copy workspace fixture
     try {

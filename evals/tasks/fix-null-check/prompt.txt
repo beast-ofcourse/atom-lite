@@ -1,0 +1,1 @@
+Fix getDisplayName in user.js so it returns "Anonymous" when user is null or undefined, and returns user.name otherwise. Do not crash.

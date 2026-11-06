@@ -1,0 +1,1 @@
+Create a test file tests/add.test.js that tests the `add` function in src/add.js using node:test, then run `node --test` and make sure it passes. Do not modify src/add.js.

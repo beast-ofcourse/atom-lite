@@ -1,0 +1,1 @@
+Fix the syntax error in main.js so `node main.js` prints "ok".

@@ -1,0 +1,1 @@
+Rename the constant `OLD_NAME` to `NEW_NAME` in both files (config.js and app.js) and update all references so `node app.js` prints "NEW_NAME".

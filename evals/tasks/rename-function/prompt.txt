@@ -1,0 +1,1 @@
+Rename the function `oldName` to `newName` in both a.js and b.js so that `node b.js` prints "newName works". Update all references.
