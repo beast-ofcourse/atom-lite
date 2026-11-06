@@ -26,6 +26,7 @@ export function createProvider(
       apiKey,
       headers: pcfg.headers,
       contextWindow: pcfg.contextWindow,
+      supportsVision: pcfg.supportsVision,
     });
   }
   if (pcfg.type === "ollama") {
@@ -38,6 +39,7 @@ export function createProvider(
       think: pcfg.think,
       options: pcfg.options,
       contextWindow: pcfg.contextWindow,
+      supportsVision: pcfg.supportsVision,
     });
   }
   if (pcfg.type === "gemini") {
@@ -52,6 +54,7 @@ export function createProvider(
       apiKey,
       headers: pcfg.headers,
       contextWindow: pcfg.contextWindow,
+      supportsVision: pcfg.supportsVision,
     });
   }
   return new FakeProvider([
