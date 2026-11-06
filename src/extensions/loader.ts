@@ -345,6 +345,18 @@ export class ExtensionLoader {
     return lines.join("\n") || "No extensions discovered.";
   }
 
+  notifySessionEnd(): void {
+    for (const loaded of this.extensions) {
+      this.recordLifecycle(
+        "session_end",
+        loaded.id,
+        undefined,
+        loaded.registries,
+        loaded.context,
+      );
+    }
+  }
+
   async unloadAll(): Promise<void> {
     for (const loaded of this.extensions) {
       this.recordLifecycle(

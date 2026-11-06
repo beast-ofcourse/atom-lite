@@ -264,6 +264,9 @@ export async function run(args: string[]): Promise<void> {
     agentDir: defaultAgentDir(),
     userDir: join(userConfigDir(), "extensions"),
     projectDir: process.cwd(),
+    hasUI: interactive,
+    uiFactory: (registries, ctx) =>
+      createDefaultExtensionUI(registries, ctx, extensionUICallbacks),
   });
   const pendingTrust = extensionLoader
     .discover()
@@ -1631,7 +1634,7 @@ export async function run(args: string[]): Promise<void> {
     loadSkill,
     runTurn,
     requestExit: () => {
-      void extensionDispatch("session_end", { type: "session_end", reason: "exit" });
+      extensionLoader.notifySessionEnd();
       void mcpManager.close().finally(() => {
         tui.stop();
         process.exit(0);
@@ -2042,9 +2045,14 @@ export async function run(args: string[]): Promise<void> {
         }
       }
     }
+    refreshCommandRegistry();
     appendLine(
       `extensions: ${extensionLoader.list().length} reloaded (see /extensions)`,
     );
+    void extensionDispatch("config_change", {
+      type: "config_change",
+      scope: "extensions",
+    });
     tui.requestRender();
   }
 

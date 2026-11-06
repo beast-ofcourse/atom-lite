@@ -219,11 +219,7 @@ export function createExtensionAPI(
       registries.entryRenderers.set(customType, renderer);
     },
     registerMarkdownTransformer: (transformer) => {
-      if (registries.markdownTransformers.length > 0) {
-        registries.markdownTransformers[registries.markdownTransformers.length - 1] = transformer;
-      } else {
-        registries.markdownTransformers.push(transformer);
-      }
+      registries.markdownTransformers.push(transformer);
     },
     registerShortcut: (shortcut, options) => {
       registries.shortcuts.set(shortcut, options);
