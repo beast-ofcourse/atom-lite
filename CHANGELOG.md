@@ -5,6 +5,20 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-11-06
+
+### Added
+- Clickable “↓ bottom” control above the status line to jump the transcript to the end.
+- `/rename` command (replacing `/session`) for showing or renaming the current session.
+
+### Fixed
+- Resuming a session via `/sessions` now rebuilds rich transcript components (Markdown, collapsible tool boxes with output/diff/error state) instead of flattening to raw text.
+- Thinking blocks are finalized before tool calls, so later thinking steps render as separate blocks.
+- Session JSONL storage trimmed: removed redundant `tool_call_started` events and duplicated top-level message fields.
+
+### Changed
+- Session tool results now persist `isError` and `diff` for faithful resume rendering.
+
 ## [0.6.3] - 2026-11-06
 
 ### Added
