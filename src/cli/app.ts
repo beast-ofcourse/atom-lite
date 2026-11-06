@@ -2139,7 +2139,7 @@ export async function run(args: string[]): Promise<void> {
         tui.requestRender();
         return { consume: true };
       }
-      if (matchesBinding("inputHistoryUp")) {
+      if (matchesBinding("inputHistoryUp") || matchesKey(data, Key.up)) {
         if (inputHistory.length > 0) {
           if (historyIndex < 0) historyIndex = inputHistory.length - 1;
           else if (historyIndex > 0) historyIndex--;
@@ -2148,7 +2148,7 @@ export async function run(args: string[]): Promise<void> {
         tui.requestRender();
         return { consume: true };
       }
-      if (matchesBinding("inputHistoryDown")) {
+      if (matchesBinding("inputHistoryDown") || matchesKey(data, Key.down)) {
         if (historyIndex >= 0) {
           historyIndex++;
           if (historyIndex >= inputHistory.length) {
