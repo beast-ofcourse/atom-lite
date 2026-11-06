@@ -104,15 +104,35 @@ export const readTool: Tool = {
       };
     }
     const { path, offset, limit } = parsed.data;
-    if (!isWithinWorkspace(ctx.workspace, path)) {
-      return {
-        toolCallId: call.id,
-        name: "read",
-        content: "PATH_OUTSIDE_WORKSPACE",
-        isError: true,
-      };
+    const resolved = resolve(ctx.workspace, path);
+    const within = isWithinWorkspace(ctx.workspace, path);
+    let full = resolved;
+    if (!within) {
+      if (ctx.approvals?.nonInteractive || !ctx.approvals?.handler) {
+        return {
+          toolCallId: call.id,
+          name: "read",
+          content: "PATH_OUTSIDE_WORKSPACE",
+          isError: true,
+        };
+      }
+      const { checkApproval } = await import("../runtime/approvals.js");
+      const decision = await checkApproval(ctx.approvals, {
+        command: `read ${path}`,
+        cwd: ctx.workspace,
+        timeoutMs: 0,
+        sandboxed: false,
+      });
+      if (!decision.allowed) {
+        return {
+          toolCallId: call.id,
+          name: "read",
+          content: "READ_APPROVAL_REQUIRED",
+          isError: true,
+        };
+      }
+      full = resolved;
     }
-    const full = resolve(ctx.workspace, path);
     if (!existsSync(full)) {
       return {
         toolCallId: call.id,

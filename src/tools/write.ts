@@ -57,7 +57,7 @@ export const writeTool: Tool = {
     let full = resolved;
     if (!within) {
       // Outside the workspace requires interactive approval.
-      if (ctx.mode !== "yolo" || ctx.approvals?.nonInteractive || !ctx.approvals?.handler) {
+      if (ctx.approvals?.nonInteractive || !ctx.approvals?.handler) {
         return {
           toolCallId: call.id,
           name: "write",

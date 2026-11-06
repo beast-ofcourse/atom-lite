@@ -62,7 +62,7 @@ export const bashTool: Tool = {
     const workdir = cwd ? resolve(ctx.workspace, cwd) : ctx.workspace;
     const cwdOutside = !!cwd && !isWithinWorkspace(ctx.workspace, cwd);
     if (cwdOutside) {
-      if (ctx.mode !== "yolo" || ctx.approvals?.nonInteractive || !ctx.approvals?.handler) {
+      if (ctx.approvals?.nonInteractive || !ctx.approvals?.handler) {
         return {
           toolCallId: call.id,
           name: "bash",
