@@ -879,6 +879,7 @@ export async function run(args: string[]): Promise<void> {
       activity.stop();
       if (messageQueue.length > 0) {
         const next = messageQueue.shift()!;
+        transcript.add(new Spacer(1));
         transcript.add(new UserBox(`> ${next}`));
         tui.requestRender();
         void runTurn(next);
@@ -1571,6 +1572,7 @@ export async function run(args: string[]): Promise<void> {
       return false;
     }
     if (extra) {
+      transcript.add(new Spacer(1));
       transcript.add(new UserBox(`> ${extra}`));
       tui.requestRender();
     }
@@ -1738,6 +1740,7 @@ export async function run(args: string[]): Promise<void> {
       if (message.role === "user") {
         const text = textOf(message.content).trim();
         if (text) {
+          transcript.add(new Spacer(1));
           transcript.add(new UserBox(`> ${text}`));
         }
         continue;
@@ -2373,6 +2376,7 @@ export async function run(args: string[]): Promise<void> {
       if (!showThinking) return;
       if (!thinkingText) {
         thinkingText = new ThinkingBlock();
+        transcript.add(new Spacer(1));
         transcript.add(thinkingText);
         thinkingBuffer = "";
       }
@@ -2449,6 +2453,7 @@ export async function run(args: string[]): Promise<void> {
       activity.setPhase("working", e.name);
       const box = new ToolBox({ id: e.id, name: e.name, args: e.args });
       box.setExpanded(expandTools);
+      transcript.add(new Spacer(1));
       transcript.add(box);
       toolBoxes.push(box);
       tui.requestRender();
@@ -2747,7 +2752,9 @@ export async function run(args: string[]): Promise<void> {
         steeringQueue.push(text);
         appendLine(`steering: ${text}`, theme.tokens.dim);
       } else {
-        transcript.add(new UserBox(`> ${text}`));
+        transcript.add(new Spacer(1));
+          transcript.add(new Spacer(1));
+          transcript.add(new UserBox(`> ${text}`));
         tui.requestRender();
         await runTurn(text);
       }
@@ -2781,6 +2788,7 @@ export async function run(args: string[]): Promise<void> {
       tui.requestRender();
       return;
     }
+    transcript.add(new Spacer(1));
     transcript.add(new UserBox(`> ${trimmed}`));
     tui.requestRender();
     await runTurn(trimmed);
