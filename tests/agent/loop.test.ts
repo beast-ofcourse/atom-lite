@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { AgentRuntime } from "../../dist/agent/loop.js";
 import { FakeProvider } from "../../dist/providers/fake.js";
 import { InMemorySession } from "../../dist/sessions/store.js";
-import { readTool, writeTool, bashTool } from "../../dist/tools/index.js";
+import { readTool, writeTool, bashTool, todoTool } from "../../dist/tools/index.js";
+import { TodoStore } from "../../dist/runtime/todos.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -226,4 +227,19 @@ test("non-git workspace warns and continues", async () => {
   const result = await runtime.runAgentTurn("go", session, new AbortController().signal);
   assert.equal(result, "done");
   assert.ok(events.some((e) => e.type === "checkpoint_created"));
+});
+
+test("repeated long requests do not duplicate the task ledger", async () => {
+  const longInput = "x".repeat(250);
+  const provider = new FakeProvider([{ text: "done" }, { text: "done" }]);
+  const todoStore = new TodoStore();
+  const runtime = new AgentRuntime({
+    provider,
+    tools: [todoTool],
+    todoStore,
+  });
+  const session = new InMemorySession("s1", "/tmp/ws");
+  await runtime.runAgentTurn(longInput, session, new AbortController().signal);
+  await runtime.runAgentTurn(longInput, session, new AbortController().signal);
+  assert.equal(todoStore.list().length, 1);
 });

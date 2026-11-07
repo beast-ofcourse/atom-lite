@@ -280,8 +280,9 @@ export class AgentRuntime {
     if (!this.toolMap.has("todo")) return;
     const text = input.replace(/\s+/g, " ").trim();
     if (!text || this.isContinuation(text) || this.isQuestion(text)) return;
-    if (this.todoStore.contains(text)) return;
-    this.todoStore.add({ content: text.slice(0, 200), status: "pending" });
+    const captured = text.slice(0, 200);
+    if (this.todoStore.contains(captured)) return;
+    this.todoStore.add({ content: captured, status: "pending" });
     this.persistTodos(session);
   }
 
