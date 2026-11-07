@@ -271,7 +271,10 @@ export class McpManager {
         const remoteTools = await client.listTools({
           timeoutMs: record.config.callTimeoutMs,
         });
-        if (record.client !== client) return;
+        if (this.closed || record.client !== client) {
+          await client.close().catch(() => {});
+          return;
+        }
         record.remoteTools = remoteTools;
         record.state = "ready";
         record.failedReported = false;
@@ -283,7 +286,10 @@ export class McpManager {
         });
         this.emitToolsChanged();
       } catch (error) {
-        if (record.client !== client) return;
+        if (this.closed || record.client !== client) {
+          await client.close().catch(() => {});
+          return;
+        }
         this.fail(record, error, transport);
         await client.close().catch(() => {});
         if (record.client === client) {
