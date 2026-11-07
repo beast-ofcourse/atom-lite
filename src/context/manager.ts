@@ -64,6 +64,10 @@ export class ContextManager {
     if (typeof used === "number" && used > 0) this.lastReportedUsage = used;
   }
 
+  resetUsage(): void {
+    this.lastReportedUsage = undefined;
+  }
+
   getLastBuildTokens(): number {
     return this.lastBuildTokens;
   }

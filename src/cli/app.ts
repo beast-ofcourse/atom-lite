@@ -1607,6 +1607,15 @@ export async function run(args: string[]): Promise<void> {
       content.clear();
       tui.requestRender();
     },
+    newSession: () => {
+      session = store.create(process.cwd(), provider.id);
+      sessionTrusted = false;
+      session.messages.length = 0;
+      content.clear();
+      runtime.resetContextUsage();
+      updateStatus();
+      tui.requestRender();
+    },
     updateStatus,
     runDoctor,
     runMcp,
@@ -2301,8 +2310,7 @@ export async function run(args: string[]): Promise<void> {
         return { consume: true };
       }
       if (matchesBinding("newSession")) {
-        session.messages.length = 0;
-        content.clear();
+        commandContext.newSession();
         appendLine("started new session");
         tui.requestRender();
         return { consume: true };

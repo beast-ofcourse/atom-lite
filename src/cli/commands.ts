@@ -36,6 +36,7 @@ export interface CommandContext {
   approvals: any;
   appendLine(text: string): void;
   clearContent(): void;
+  newSession(): void;
   updateStatus(): void;
   runDoctor(): Promise<string>;
   runMcp(args: string): Promise<void> | void;
@@ -491,12 +492,12 @@ export function createCommandRegistry(
   });
 
   registry.register({
-    name: "clear",
-    aliases: ["new"],
-    description: "clear session",
+    name: "new",
+    aliases: ["clear"],
+    description: "start a new session",
     category: "Session",
     run(ctx) {
-      ctx.clearContent();
+      ctx.newSession();
       ctx.appendLine("started new session");
     },
   });

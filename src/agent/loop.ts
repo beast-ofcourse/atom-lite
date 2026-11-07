@@ -137,6 +137,14 @@ export class AgentRuntime {
     return { used: this.contextUsed, window: this.contextWindow };
   }
 
+  /** Reset per-session context usage (e.g. when starting a new session). */
+  resetContextUsage(): void {
+    this.contextUsed = undefined;
+    this.contextManager.setSessionMemory(null);
+    this.contextManager.resetUsage();
+    this.emitContextUsage();
+  }
+
   private emitContextUsage(): void {
     this.onEvent?.({
       type: "context_usage",
