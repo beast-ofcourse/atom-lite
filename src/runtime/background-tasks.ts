@@ -148,18 +148,31 @@ export class BackgroundTaskManager {
   async wait(
     id: string,
     timeoutMs = 30_000,
+    signal?: AbortSignal,
   ): Promise<BackgroundTask | undefined> {
     const t = this.tasks.get(id);
     if (!t) return undefined;
     if (t.status !== "running") return this.snapshot(t);
+    if (signal?.aborted) return this.get(id);
+
     return new Promise<BackgroundTask | undefined>((resolve) => {
-      const timer = setTimeout(() => {
-        resolve(this.get(id));
-      }, timeoutMs);
-      t.waiters.push((task) => {
+      let settled = false;
+      const finish = (task: BackgroundTask | undefined) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
+        if (signal) signal.removeEventListener("abort", onAbort);
+        const idx = t.waiters.indexOf(waiter);
+        if (idx >= 0) t.waiters.splice(idx, 1);
         resolve(task);
-      });
+      };
+      const timer = setTimeout(() => finish(this.get(id)), Math.max(0, timeoutMs));
+      const waiter = (task: BackgroundTask) => finish(task);
+      const onAbort = () => finish(this.get(id));
+      if (signal) {
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+      t.waiters.push(waiter);
     });
   }
 

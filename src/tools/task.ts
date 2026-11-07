@@ -72,7 +72,7 @@ export const taskTool: Tool = {
       return { toolCallId: call.id, name: "task", content: JSON.stringify(t) };
     }
     if (action === "wait") {
-      const t = await mgr.wait(id, timeoutMs ?? 30000);
+      const t = await mgr.wait(id, timeoutMs ?? 30000, ctx.signal);
       if (!t)
         return {
           toolCallId: call.id,
