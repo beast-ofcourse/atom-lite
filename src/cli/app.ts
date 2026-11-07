@@ -29,6 +29,7 @@ import { SecretInput } from "./secret-input.js";
 import { StatusLine } from "./status-line.js";
 import { Activity } from "./activity.js";
 import { ToolBox } from "./tool-box.js";
+import { UserBox } from "./user-box.js";
 import { ApprovalPrompt, type ApprovalDecision } from "./approval-prompt.js";
 import { Banner } from "./banner.js";
 import {
@@ -703,7 +704,13 @@ export async function run(args: string[]): Promise<void> {
 
   class ThinkingBlock {
     buffer = "";
+    private cachedWidth = -1;
+    private cachedBuffer = "";
+    private cachedLines: string[] | null = null;
     render(width: number): string[] {
+      if (this.cachedLines && this.cachedWidth === width && this.cachedBuffer === this.buffer) {
+        return this.cachedLines;
+      }
       const lines: string[] = [theme.tokens.dim("💭 thinking")];
       const sep = theme.tokens.dim("│ ");
       const contentWidth = Math.max(1, width - 2);
@@ -717,9 +724,16 @@ export async function run(args: string[]): Promise<void> {
           for (const part of wrapped) lines.push(sep + theme.tokens.dim(part));
         }
       }
+      this.cachedLines = lines;
+      this.cachedWidth = width;
+      this.cachedBuffer = this.buffer;
       return lines;
     }
-    invalidate(): void {}
+    invalidate(): void {
+      this.cachedLines = null;
+      this.cachedWidth = -1;
+      this.cachedBuffer = "";
+    }
   }
 
   let thinkingText: ThinkingBlock | null = null;
@@ -865,7 +879,8 @@ export async function run(args: string[]): Promise<void> {
       activity.stop();
       if (messageQueue.length > 0) {
         const next = messageQueue.shift()!;
-        appendLine(`> ${next}`, theme.tokens.user);
+        transcript.add(new UserBox(`> ${next}`));
+        tui.requestRender();
         void runTurn(next);
       }
     }
@@ -1556,7 +1571,8 @@ export async function run(args: string[]): Promise<void> {
       return false;
     }
     if (extra) {
-      appendLine(`> ${extra}`, theme.tokens.user);
+      transcript.add(new UserBox(`> ${extra}`));
+      tui.requestRender();
     }
     session.appendMessage({ role: "system", content });
     if (typeof (session as any).appendEvent === "function") {
@@ -1722,7 +1738,7 @@ export async function run(args: string[]): Promise<void> {
       if (message.role === "user") {
         const text = textOf(message.content).trim();
         if (text) {
-          transcript.add(new Text(theme.tokens.user(`> ${text}`)));
+          transcript.add(new UserBox(`> ${text}`));
         }
         continue;
       }
@@ -2731,7 +2747,8 @@ export async function run(args: string[]): Promise<void> {
         steeringQueue.push(text);
         appendLine(`steering: ${text}`, theme.tokens.dim);
       } else {
-        appendLine(`> ${text}`, theme.tokens.user);
+        transcript.add(new UserBox(`> ${text}`));
+        tui.requestRender();
         await runTurn(text);
       }
       tui.requestRender();
@@ -2764,7 +2781,8 @@ export async function run(args: string[]): Promise<void> {
       tui.requestRender();
       return;
     }
-    appendLine(`> ${trimmed}`, theme.tokens.user);
+    transcript.add(new UserBox(`> ${trimmed}`));
+    tui.requestRender();
     await runTurn(trimmed);
   };
 

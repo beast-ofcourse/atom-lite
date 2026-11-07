@@ -28,6 +28,7 @@ export class StreamText {
   private buffer = "";
   private live: Markdown | null = null;
   private readonly markdownTheme: MarkdownTheme;
+  private lastInvalidateAt = 0;
 
   constructor(
     private readonly transcript: Transcript,
@@ -62,7 +63,11 @@ export class StreamText {
         this.transcript.add(this.live);
       }
       this.live.setText(this.buffer);
-      this.transcript.invalidate();
+      const now = Date.now();
+      if (now - this.lastInvalidateAt >= 50) {
+        this.transcript.invalidate();
+        this.lastInvalidateAt = now;
+      }
     }
   }
 
@@ -75,6 +80,7 @@ export class StreamText {
         // Best effort; keep raw text on failure.
       }
       this.transcript.invalidate();
+      this.lastInvalidateAt = Date.now();
     }
     this.buffer = "";
     this.live = null;

@@ -14,7 +14,16 @@ import {
 import { Banner } from "../../dist/cli/banner.js";
 
 test("theme registry exposes the built-in names", () => {
-  assert.deepEqual(themeNames(), ["auto", "dark", "light", "ansi"]);
+  assert.deepEqual(themeNames(), [
+  "auto",
+  "dark",
+  "light",
+  "ansi",
+  "dracula",
+  "monokai",
+  "nord",
+  "solarized",
+]);
 });
 
 test("semantic tokens render text and differ between dark and light", () => {

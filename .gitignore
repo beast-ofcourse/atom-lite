@@ -4,6 +4,8 @@ dist/
 *.log
 *.tgz
 .DS_Store
-
+.agents/skills/*
+!.agents/skills/atom-lite-extensions/
+skills-lock.json
 plans/
 evals/tasks/git-commit/workspace

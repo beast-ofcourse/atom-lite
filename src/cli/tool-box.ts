@@ -67,6 +67,7 @@ export class ToolBox implements Component {
   private expanded = false;
   private outputLines: string[] = [];
   private diffLines: string[] | undefined;
+  private diffView: DiffView | undefined;
   private liveBuffer = "";
   private startedAt = Date.now();
   private finishedAt: number | undefined;
@@ -96,6 +97,21 @@ export class ToolBox implements Component {
     this.liveBuffer = "";
     this.diffLines = Array.isArray(options.diff) ? options.diff : undefined;
     this.outputLines = this.diffLines ? [] : content.split("\n");
+    if (this.diffLines) {
+      this.diffView = new DiffView({
+        lines: this.diffLines,
+        path:
+          typeof this.args?.path === "string"
+            ? this.args.path
+            : typeof this.args?.file === "string"
+              ? this.args.file
+              : typeof this.args?.file_path === "string"
+                ? this.args.file_path
+                : undefined,
+      });
+    } else {
+      this.diffView = undefined;
+    }
   }
 
   appendLive(text: string): void {
@@ -139,20 +155,8 @@ export class ToolBox implements Component {
       lines.push(fill(""));
     }
 
-    if (this.diffLines) {
-      const view = new DiffView({
-        lines: this.diffLines,
-        path:
-          typeof this.args?.path === "string"
-            ? this.args.path
-            : typeof this.args?.file === "string"
-              ? this.args.file
-              : typeof this.args?.file_path === "string"
-                ? this.args.file_path
-                : undefined,
-      });
-      // Render diff lines with bg fill by re-wrapping view output? view already fills.
-      lines.push(...view.render(width));
+    if (this.diffLines && this.diffView) {
+      lines.push(...this.diffView.render(width));
     } else {
       const output = this.renderedOutput();
       if (output.length > 0) {

@@ -6,7 +6,14 @@
  * and makes the choice testable without asserting on raw escape sequences.
  */
 
-export type ThemeMode = "dark" | "light" | "ansi";
+export type ThemeMode =
+  | "dark"
+  | "light"
+  | "ansi"
+  | "dracula"
+  | "monokai"
+  | "nord"
+  | "solarized";
 
 export type ThemeToken =
   | "text"
@@ -133,6 +140,64 @@ export function markdownThemeFor(theme: Theme): MarkdownTheme {
   };
 }
 
+export const draculaTheme: Theme = {
+  name: "dracula",
+  mode: "dark",
+  tokens: tokens({
+    accent: sgr("35"),
+    border: sgr("95"),
+    link: sgr("4;35"),
+    code: sgr("35"),
+    banner: sgr("1;35"),
+    quote: sgr("3;35"),
+  }),
+};
+
+export const monokaiTheme: Theme = {
+  name: "monokai",
+  mode: "dark",
+  tokens: tokens({
+    accent: sgr("33"),
+    success: sgr("32"),
+    warning: sgr("33"),
+    error: sgr("31"),
+    link: sgr("4;33"),
+    code: sgr("33"),
+    banner: sgr("1;33"),
+  }),
+};
+
+export const nordTheme: Theme = {
+  name: "nord",
+  mode: "dark",
+  tokens: tokens({
+    accent: sgr("36"),
+    success: sgr("32"),
+    border: sgr("94"),
+    link: sgr("4;36"),
+    code: sgr("36"),
+    banner: sgr("1;36"),
+    quote: sgr("2;36"),
+  }),
+};
+
+export const solarizedTheme: Theme = {
+  name: "solarized",
+  mode: "light",
+  tokens: tokens({
+    accent: sgr("34"),
+    success: sgr("32"),
+    warning: sgr("33"),
+    error: sgr("31"),
+    border: sgr("90"),
+    status: sgr("90"),
+    link: sgr("4;34"),
+    code: sgr("34"),
+    quote: sgr("3"),
+    banner: sgr("1;34"),
+  }),
+};
+
 export const ansiTheme: Theme = {
   name: "ansi",
   mode: "ansi",
@@ -161,7 +226,16 @@ export const ansiTheme: Theme = {
 
 /** Names shown in the /theme picker, including the auto sentinel. */
 export function themeNames(): string[] {
-  return ["auto", "dark", "light", "ansi"];
+  return [
+    "auto",
+    "dark",
+    "light",
+    "ansi",
+    "dracula",
+    "monokai",
+    "nord",
+    "solarized",
+  ];
 }
 
 /** NO_COLOR is honoured when it is present and non-empty (per no-color.org). */
@@ -190,11 +264,12 @@ export function detectColorScheme(
 export function resolveThemeName(
   name: string,
   options: ThemeOptions = {},
-): "dark" | "light" | "ansi" {
+): "dark" | "light" | "ansi" | "dracula" | "monokai" | "nord" | "solarized" {
   if (options.noColor || isNoColorEnabled(options.env)) return "ansi";
   if (name === "ansi") return "ansi";
-  if (name === "light") return "light";
-  if (name === "dark") return "dark";
+  if (name === "light" || name === "solarized") return name as "light" | "solarized";
+  if (name === "dark" || name === "dracula" || name === "monokai" || name === "nord")
+    return name as "dark" | "dracula" | "monokai" | "nord";
   // Unknown custom names are not loadable yet; keep the safe default.
   if (name !== "auto") return "dark";
   return options.scheme ?? detectColorScheme(options.env) ?? "dark";
@@ -204,6 +279,10 @@ export function resolveTheme(name: string, options: ThemeOptions = {}): Theme {
   const resolved = resolveThemeName(name, options);
   if (resolved === "light") return lightTheme;
   if (resolved === "ansi") return ansiTheme;
+  if (resolved === "dracula") return draculaTheme;
+  if (resolved === "monokai") return monokaiTheme;
+  if (resolved === "nord") return nordTheme;
+  if (resolved === "solarized") return solarizedTheme;
   return darkTheme;
 }
 

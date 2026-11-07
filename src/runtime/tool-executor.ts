@@ -82,9 +82,9 @@ export class ToolExecutor {
       const tool = toolMap.get(call.name);
       const readOnly = tool?.annotations?.readOnlyHint === true;
       if (isMutation(call)) return lm.acquireWrite(key, signal);
-      // Extension tools: read-only hint => read lock; otherwise (including
-      // unclassified path-bearing tools) => write lock.
-      if (tool?.annotations !== undefined && !readOnly) {
+      // Default unclassified path-bearing tools (including those without
+      // annotations) to a write lock to avoid concurrent writes.
+      if (readOnly !== true) {
         return lm.acquireWrite(key, signal);
       }
       return lm.acquireRead(key, signal);
@@ -92,14 +92,30 @@ export class ToolExecutor {
 
     let active = 0;
     const queue: Array<() => void> = [];
-    function acquireSlot(): Promise<void> {
-      return new Promise<void>((resolve) => {
+    function acquireSlot(signal: AbortSignal): Promise<void> {
+      return new Promise<void>((resolve, reject) => {
+        if (signal.aborted) {
+          reject(new DOMException("aborted", "AbortError"));
+          return;
+        }
+        const onAbort = () => {
+          const idx = queue.indexOf(resolveWrapped);
+          if (idx >= 0) queue.splice(idx, 1);
+          reject(new DOMException("aborted", "AbortError"));
+        };
+        const resolveWrapped = () => {
+          signal.removeEventListener("abort", onAbort);
+          active++;
+          resolve();
+        };
         if (active < maxParallel) {
           active++;
           resolve();
-        } else {
-          queue.push(resolve);
+          return;
         }
+        const wrapped = resolveWrapped;
+        queue.push(wrapped);
+        signal.addEventListener("abort", onAbort, { once: true });
       });
     }
     function releaseSlot() {
@@ -134,7 +150,7 @@ export class ToolExecutor {
           return;
         }
         let release: Release | undefined;
-        await acquireSlot();
+        try { await acquireSlot(signal); } catch { results[i] = { toolCallId: call.id, name: call.name, content: "USER_CANCELLED", isError: true }; return; }
         try {
           release = await acquire(call);
           if (signal.aborted) {
