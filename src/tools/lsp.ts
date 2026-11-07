@@ -1,4 +1,5 @@
 import { z } from "zod";
+import path from "node:path";
 import type { Tool, ToolCall, ToolContext, ToolResult } from "./types.js";
 import * as lsp from "../lsp/index.js";
 
@@ -44,7 +45,7 @@ export const lspDiagnosticsTool: Tool = {
       additionalProperties: false,
     },
   },
-  async execute(call: ToolCall): Promise<ToolResult> {
+  async execute(call: ToolCall, ctx?: ToolContext): Promise<ToolResult> {
     const parsed = DiagnosticsSchema.safeParse(call.arguments ?? {});
     if (!parsed.success) {
       return result(
@@ -56,7 +57,10 @@ export const lspDiagnosticsTool: Tool = {
     if (!lsp.lspEnabled()) {
       return result(call, "LSP_DISABLED: enable lsp.enabled in config", true);
     }
-    const diagnostics = await lsp.getDiagnostics(parsed.data.path);
+    const target = parsed.data.path
+      ? path.resolve(ctx?.workspace ?? process.cwd(), parsed.data.path)
+      : undefined;
+    const diagnostics = await lsp.getDiagnostics(target);
     const obj = Object.fromEntries(diagnostics);
     return result(call, obj);
   },
@@ -78,7 +82,7 @@ export const lspDefinitionTool: Tool = {
       additionalProperties: false,
     },
   },
-  async execute(call: ToolCall): Promise<ToolResult> {
+  async execute(call: ToolCall, ctx?: ToolContext): Promise<ToolResult> {
     const parsed = PositionSchema.safeParse(call.arguments ?? {});
     if (!parsed.success) {
       return result(
@@ -90,8 +94,12 @@ export const lspDefinitionTool: Tool = {
     if (!lsp.lspEnabled()) {
       return result(call, "LSP_DISABLED: enable lsp.enabled in config", true);
     }
-    const data = await lsp.definition(
+    const resolved = path.resolve(
+      ctx?.workspace ?? process.cwd(),
       parsed.data.path,
+    );
+    const data = await lsp.definition(
+      resolved,
       parsed.data.line,
       parsed.data.character || 1,
     );
@@ -114,7 +122,7 @@ export const lspReferencesTool: Tool = {
       additionalProperties: false,
     },
   },
-  async execute(call: ToolCall): Promise<ToolResult> {
+  async execute(call: ToolCall, ctx?: ToolContext): Promise<ToolResult> {
     const parsed = PositionSchema.safeParse(call.arguments ?? {});
     if (!parsed.success) {
       return result(
@@ -126,8 +134,12 @@ export const lspReferencesTool: Tool = {
     if (!lsp.lspEnabled()) {
       return result(call, "LSP_DISABLED: enable lsp.enabled in config", true);
     }
-    const data = await lsp.references(
+    const resolved = path.resolve(
+      ctx?.workspace ?? process.cwd(),
       parsed.data.path,
+    );
+    const data = await lsp.references(
+      resolved,
       parsed.data.line,
       parsed.data.character || 1,
     );
@@ -149,7 +161,7 @@ export const lspSymbolsTool: Tool = {
       additionalProperties: false,
     },
   },
-  async execute(call: ToolCall): Promise<ToolResult> {
+  async execute(call: ToolCall, ctx?: ToolContext): Promise<ToolResult> {
     const parsed = SymbolsSchema.safeParse(call.arguments ?? {});
     if (!parsed.success) {
       return result(
@@ -172,7 +184,11 @@ export const lspSymbolsTool: Tool = {
         true,
       );
     }
-    const data = await lsp.documentSymbols(parsed.data.path);
+    const resolved = path.resolve(
+      ctx?.workspace ?? process.cwd(),
+      parsed.data.path,
+    );
+    const data = await lsp.documentSymbols(resolved);
     return result(call, data ?? []);
   },
 };

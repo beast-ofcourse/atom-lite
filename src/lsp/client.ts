@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { LspDiagnostic, LspServerInfo } from "./types.js";
 
 interface PendingRequest {
@@ -22,29 +22,81 @@ export class LspClient {
   private pending = new Map<number, PendingRequest>();
   private documents = new Map<string, OpenDocument>();
   private diagnosticsMap = new Map<string, LspDiagnostic[]>();
-  private ready: Promise<void>;
-  private readyResolved = false;
+  ready: Promise<void>;
+  readyResolved = false;
+  private readySettled = false;
+  private readyResolve!: () => void;
+  private readyReject!: (error: Error) => void;
+  private exited = false;
+  private shuttingDown = false;
+  private diagnosticWaiters = new Map<string, Set<() => void>>();
 
   constructor(
     public readonly server: LspServerInfo,
     public readonly root: string,
   ) {
+    this.ready = new Promise<void>((resolve, reject) => {
+      this.readyResolve = resolve;
+      this.readyReject = reject;
+    });
     this.proc = spawn(server.command, server.args ?? [], {
       cwd: root,
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.proc.stdout?.on("data", (chunk: Buffer) => this.onData(chunk));
     this.proc.stderr?.resume();
-    this.ready = this.initialize();
+    this.proc.on("error", (err: Error) => this.handleProcessExit(err));
+    this.proc.on("exit", (code, signal) => {
+      this.handleProcessExit(
+        new Error(
+          `LSP process exited (code=${code ?? "null"}, signal=${signal ?? "null"})`,
+        ),
+      );
+    });
+    void this.initialize();
+  }
+
+  private handleProcessExit(err: Error): void {
+    if (this.exited || this.shuttingDown) return;
+    this.exited = true;
+    this.readyResolved = false;
+    if (!this.readySettled) {
+      this.readySettled = true;
+      try {
+        this.readyReject(err);
+      } catch {
+        // ignore
+      }
+    }
+    for (const [id, pending] of this.pending) {
+      clearTimeout(pending.timer);
+      pending.reject(err);
+    }
+    this.pending.clear();
+    // Release any waiting diagnostics callers.
+    for (const waiters of this.diagnosticWaiters.values()) {
+      for (const w of waiters) w();
+    }
+    this.diagnosticWaiters.clear();
   }
 
   private writeMessage(message: unknown): void {
-    const json = JSON.stringify(message);
-    const header = `Content-Length: ${Buffer.byteLength(json, "utf8")}\r\n\r\n`;
-    this.proc.stdin?.write(header + json, "utf8");
+    if (this.exited) return;
+    const stdin = this.proc.stdin;
+    if (!stdin || stdin.destroyed || !stdin.writable) return;
+    try {
+      const json = JSON.stringify(message);
+      const header = `Content-Length: ${Buffer.byteLength(json, "utf8")}\r\n\r\n`;
+      stdin.write(header + json, "utf8");
+    } catch {
+      // Best effort; request will time out if write failed.
+    }
   }
 
   private sendRequest(method: string, params: unknown): Promise<any> {
+    if (this.exited) {
+      return Promise.reject(new Error("LSP process is not running"));
+    }
     const id = this.nextId++;
     const message = { jsonrpc: "2.0", id, method, params };
     return new Promise((resolve, reject) => {
@@ -53,7 +105,13 @@ export class LspClient {
         reject(new Error(`LSP request timed out: ${method}`));
       }, 10000);
       this.pending.set(id, { resolve, reject, timer });
-      this.writeMessage(message);
+      try {
+        this.writeMessage(message);
+      } catch (err) {
+        this.pending.delete(id);
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
   }
 
@@ -66,6 +124,7 @@ export class LspClient {
   }
 
   private onData(chunk: Buffer): void {
+    if (this.exited) return;
     this.buffer = Buffer.concat([this.buffer, chunk]);
     while (true) {
       const headerEnd = this.buffer.indexOf("\r\n\r\n");
@@ -77,6 +136,10 @@ export class LspClient {
         continue;
       }
       const length = Number(match[1]);
+      if (!Number.isFinite(length) || length < 0) {
+        this.buffer = this.buffer.slice(headerEnd + 4);
+        continue;
+      }
       const bodyStart = headerEnd + 4;
       if (this.buffer.length < bodyStart + length) return;
       const body = this.buffer
@@ -93,10 +156,12 @@ export class LspClient {
   }
 
   private handleMessage(message: any): void {
+    if (!message || typeof message !== "object") return;
+
     if (
       message.id !== undefined &&
-      (message.result !== undefined || message.error !== undefined) &&
-      !message.method
+      !message.method &&
+      (message.result !== undefined || message.error !== undefined)
     ) {
       const pending = this.pending.get(message.id);
       if (pending) {
@@ -112,15 +177,25 @@ export class LspClient {
     if (message.method === "textDocument/publishDiagnostics") {
       const uri = message.params?.uri;
       if (typeof uri === "string") {
-        const filePath = uriToPath(uri);
-        this.diagnosticsMap.set(filePath, message.params?.diagnostics ?? []);
+        const filePath = path.resolve(uriToPath(uri));
+        const diags = Array.isArray(message.params?.diagnostics)
+          ? message.params.diagnostics
+          : [];
+        this.diagnosticsMap.set(filePath, diags);
+        const waiters = this.diagnosticWaiters.get(filePath);
+        if (waiters) {
+          for (const w of waiters) w();
+          waiters.clear();
+        }
       }
       return;
     }
 
     if (message.method && message.id !== undefined) {
       if (message.method === "workspace/configuration") {
-        const items = message.params?.items ?? [];
+        const items = Array.isArray(message.params?.items)
+          ? message.params.items
+          : [];
         this.respond(
           message.id,
           items.map(() => this.server.initialization ?? {}),
@@ -153,6 +228,7 @@ export class LspClient {
         workspaceFolders: [
           { name: "workspace", uri: pathToFileURL(this.root).href },
         ],
+        clientInfo: { name: "atom-lite", version: "0.1.0" },
         capabilities: {
           textDocument: {
             synchronization: { didOpen: true, didChange: true },
@@ -172,46 +248,89 @@ export class LspClient {
       });
       this.sendNotification("initialized", {});
       this.readyResolved = true;
-    } catch {
+      if (!this.readySettled) {
+        this.readySettled = true;
+        this.readyResolve();
+      }
+    } catch (err) {
       this.readyResolved = false;
+      if (!this.readySettled) {
+        this.readySettled = true;
+        this.readyReject(err instanceof Error ? err : new Error(String(err)));
+      }
     }
+  }
+
+  private resolved(filePath: string): string {
+    return path.resolve(filePath);
   }
 
   async touchFile(filePath: string): Promise<void> {
     await this.ready;
-    if (!this.readyResolved) return;
-    const text = readFileSync(filePath, "utf8");
-    const uri = pathToFileURL(filePath).href;
-    const languageId = languageIdForPath(filePath);
-    const existing = this.documents.get(filePath);
+    if (!this.readyResolved || this.exited) return;
+    const resolvedPath = this.resolved(filePath);
+    let text: string;
+    try {
+      text = await readFile(resolvedPath, "utf8");
+    } catch {
+      return;
+    }
+    const uri = pathToFileURL(resolvedPath).href;
+    const languageId = languageIdForPath(resolvedPath);
+    const existing = this.documents.get(resolvedPath);
     if (!existing) {
+      this.diagnosticsMap.delete(resolvedPath);
       this.sendNotification("textDocument/didOpen", {
         textDocument: { uri, languageId, version: 0, text },
       });
-      this.documents.set(filePath, { version: 0, text });
+      this.documents.set(resolvedPath, { version: 0, text });
     } else if (existing.text !== text) {
+      this.diagnosticsMap.delete(resolvedPath);
       const version = existing.version + 1;
       this.sendNotification("textDocument/didChange", {
         textDocument: { uri, version },
         contentChanges: [{ text }],
       });
-      this.documents.set(filePath, { version, text });
+      this.documents.set(resolvedPath, { version, text });
     }
   }
 
   async waitForDiagnostics(filePath: string, timeoutMs = 1000): Promise<void> {
     await this.ready;
-    if (!this.readyResolved) return;
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+    if (!this.readyResolved || this.exited) return;
+    const resolvedPath = this.resolved(filePath);
+    if (this.diagnosticsMap.has(resolvedPath)) {
+      return Promise.resolve();
     }
+    return new Promise<void>((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        const waiters = this.diagnosticWaiters.get(resolvedPath);
+        if (waiters) {
+          waiters.delete(waiter);
+          if (waiters.size === 0) this.diagnosticWaiters.delete(resolvedPath);
+        }
+        resolve();
+      };
+      const waiter = () => finish();
+      let waiters = this.diagnosticWaiters.get(resolvedPath);
+      if (!waiters) {
+        waiters = new Set();
+        this.diagnosticWaiters.set(resolvedPath, waiters);
+      }
+      waiters.add(waiter);
+      const timer = setTimeout(finish, Math.max(0, timeoutMs));
+    });
   }
 
   diagnostics(filePath?: string): Map<string, LspDiagnostic[]> {
     if (filePath) {
+      const resolvedPath = this.resolved(filePath);
       const result = new Map<string, LspDiagnostic[]>();
-      result.set(filePath, this.diagnosticsMap.get(filePath) ?? []);
+      result.set(resolvedPath, this.diagnosticsMap.get(resolvedPath) ?? []);
       return result;
     }
     return new Map(this.diagnosticsMap);
@@ -223,7 +342,9 @@ export class LspClient {
     character: number,
   ): Promise<unknown> {
     await this.touchFile(filePath);
-    const uri = pathToFileURL(filePath).href;
+    if (!this.readyResolved || this.exited) return null;
+    const resolvedPath = this.resolved(filePath);
+    const uri = pathToFileURL(resolvedPath).href;
     return this.sendRequest("textDocument/definition", {
       textDocument: { uri },
       position: {
@@ -239,7 +360,9 @@ export class LspClient {
     character: number,
   ): Promise<unknown> {
     await this.touchFile(filePath);
-    const uri = pathToFileURL(filePath).href;
+    if (!this.readyResolved || this.exited) return null;
+    const resolvedPath = this.resolved(filePath);
+    const uri = pathToFileURL(resolvedPath).href;
     return this.sendRequest("textDocument/references", {
       textDocument: { uri },
       position: {
@@ -252,23 +375,49 @@ export class LspClient {
 
   async documentSymbols(filePath: string): Promise<unknown> {
     await this.touchFile(filePath);
-    const uri = pathToFileURL(filePath).href;
+    if (!this.readyResolved || this.exited) return null;
+    const resolvedPath = this.resolved(filePath);
+    const uri = pathToFileURL(resolvedPath).href;
     return this.sendRequest("textDocument/documentSymbol", {
       textDocument: { uri },
     });
   }
 
   async workspaceSymbols(query: string): Promise<unknown> {
+    await this.ready;
+    if (!this.readyResolved || this.exited) return null;
     return this.sendRequest("workspace/symbol", { query });
   }
 
   async shutdown(): Promise<void> {
+    if (this.exited || this.shuttingDown) return;
+    this.shuttingDown = true;
+    // Release any waiting diagnostics callers.
+    for (const waiters of this.diagnosticWaiters.values()) {
+      for (const w of waiters) w();
+    }
+    this.diagnosticWaiters.clear();
     try {
-      await this.sendRequest("shutdown", null);
-      this.sendNotification("exit", null);
+      if (this.readyResolved) {
+        await this.sendRequest("shutdown", null).catch(() => {});
+        this.sendNotification("exit", null);
+      } else {
+        console.error("NOT_READY");
+      }
     } catch {
       // Best effort.
     }
+    this.exited = true;
+    this.readyResolved = false;
+    for (const [id, pending] of this.pending) {
+      clearTimeout(pending.timer);
+      try {
+        pending.reject(new Error("LSP process is not running"));
+      } catch {
+        // ignore
+      }
+    }
+    this.pending.clear();
     try {
       this.proc.kill();
     } catch {
@@ -279,9 +428,13 @@ export class LspClient {
 
 function uriToPath(uri: string): string {
   try {
-    return decodeURIComponent(new URL(uri).pathname);
+    return fileURLToPath(uri);
   } catch {
-    return uri;
+    try {
+      return decodeURIComponent(new URL(uri).pathname);
+    } catch {
+      return uri;
+    }
   }
 }
 
@@ -294,6 +447,8 @@ function languageIdForPath(filePath: string): string {
     ".jsx": "javascriptreact",
     ".mjs": "javascript",
     ".cjs": "javascript",
+    ".mts": "typescript",
+    ".cts": "javascript",
     ".py": "python",
     ".pyi": "python",
     ".go": "go",

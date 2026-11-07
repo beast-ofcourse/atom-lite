@@ -3,15 +3,19 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import type { LspServerConfig, LspServerInfo } from "./types.js";
 
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
 function commandExists(command: string): boolean {
   try {
-    execFileSync(
-      process.platform === "win32" ? "where" : "command",
-      process.platform === "win32" ? [command] : ["-v", command],
-      {
+    if (process.platform === "win32") {
+      execFileSync("where", [command], { stdio: "ignore" });
+    } else {
+      execFileSync("sh", ["-c", `command -v ${shellQuote(command)}`], {
         stdio: "ignore",
-      },
-    );
+      });
+    }
     return true;
   } catch {
     return false;
@@ -83,8 +87,15 @@ export function resolveRoot(
   filePath: string,
   workspace: string,
 ): string | null {
-  let dir = path.dirname(filePath);
   const workspaceResolved = path.resolve(workspace);
+  const resolvedFile = path.resolve(filePath);
+  if (
+    !resolvedFile.startsWith(workspaceResolved + path.sep) &&
+    resolvedFile !== workspaceResolved
+  ) {
+    return null;
+  }
+  let dir = path.dirname(resolvedFile);
   while (true) {
     for (const marker of server.rootMarkers) {
       if (existsSync(path.join(dir, marker))) return dir;
@@ -92,11 +103,19 @@ export function resolveRoot(
     if (dir === workspaceResolved) break;
     const parent = path.dirname(dir);
     if (parent === dir) break;
-    if (!dir.startsWith(workspaceResolved)) break;
+    if (
+      !dir.startsWith(workspaceResolved + path.sep) &&
+      dir !== workspaceResolved
+    )
+      break;
     dir = parent;
   }
-  if (path.resolve(filePath).startsWith(workspaceResolved))
+  if (
+    resolvedFile.startsWith(workspaceResolved + path.sep) ||
+    resolvedFile === workspaceResolved
+  ) {
     return workspaceResolved;
+  }
   return null;
 }
 
@@ -104,5 +123,7 @@ export function matchesExtension(
   server: LspServerInfo,
   filePath: string,
 ): boolean {
-  return server.extensions.includes(path.extname(filePath).toLowerCase());
+  const ext = path.extname(filePath).toLowerCase();
+  if (server.extensions.length === 0) return false;
+  return server.extensions.includes(ext);
 }

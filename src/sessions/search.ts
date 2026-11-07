@@ -38,6 +38,7 @@ const MESSAGE_EVENT_TYPES = new Set([
   "user_message",
   "assistant_message",
   "tool_result",
+  "system_message",
 ]);
 
 export function sessionMessageCount(events: SessionEvent[]): number {
@@ -52,6 +53,7 @@ export function sessionSearchText(events: SessionEvent[]): string {
         event.type === "user_message" ||
         event.type === "assistant_message" ||
         event.type === "tool_result" ||
+        event.type === "system_message" ||
         event.type === "session_renamed",
     )
     .map((event) =>
