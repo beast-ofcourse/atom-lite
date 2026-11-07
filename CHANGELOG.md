@@ -5,6 +5,30 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-11-07
+
+### Added
+- Optional built-in LSP client subsystem (off by default): lazy per-workspace servers, JSON-RPC over stdio, diagnostics caching, definition/reference/symbol navigation, and clean shutdown.
+- `system_message` session event type so system messages round-trip faithfully across save/load.
+- LSP diagnostics surfaced after write/edit operations.
+
+### Changed
+- Agent loop wraps turn execution in try/finally and flushes the session before reporting completion.
+- Provider retries (OpenAI-compatible and Ollama) honor the request AbortSignal via the shared signal-aware `delay` helper.
+- Context instruction cache is now scoped by workspace.
+- LockManager releases the global read lock when per-file acquire fails.
+- Background-task `wait` is abort-aware.
+- Scheduler guards `maxParallel` against zero/negative values.
+
+### Fixed
+- System messages (skill loads, background-task results) no longer replay as assistant messages after resume.
+- `delay()` rejects with `USER_CANCELLED` on abort instead of resolving.
+- OpenAI-compatible network-error retry path uses signal-aware delay.
+- MCP connect cleanup on reset/close races.
+- Sessions tolerate vanished files while listing.
+- Ollama retries transient streaming failures.
+- LSP shutdown now sends the `shutdown`/`exit` requests before tearing down.
+
 ## [0.9.1] - 2026-11-07
 
 ### Added
