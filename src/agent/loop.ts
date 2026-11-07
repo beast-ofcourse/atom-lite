@@ -1,6 +1,6 @@
 import type { AgentRuntimeOptions, ContextUsage } from "./types.js";
 import { DEFAULT_LIMITS } from "../types.js";
-import type { Message, ModelRequest, AgentLimits } from "../types.js";
+import type { Message, AgentLimits } from "../types.js";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { executeToolBatch } from "../runtime/scheduler.js";
@@ -31,7 +31,7 @@ export class AgentRuntime {
   private limits: AgentLimits;
   private extensionDispatch: AgentRuntimeOptions["extensionDispatch"];
   private steeringQueue: string[] | undefined;
-  private systemPrompt: string;
+
   private contextWindow: number | undefined;
   private contextUsed: number | undefined;
   private supportsVision: boolean | undefined;
@@ -75,7 +75,6 @@ export class AgentRuntime {
     this.limits = { ...DEFAULT_LIMITS, ...(options.limits ?? {}) };
     this.extensionDispatch = options.extensionDispatch;
     this.steeringQueue = options.steeringQueue;
-    this.systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     this.contextWindow = options.contextWindow;
     this.supportsVision = options.supportsVision;
     this.backgroundTasks =
@@ -351,14 +350,10 @@ export class AgentRuntime {
     });
 
     await this.extensionDispatch?.("turn_start", { type: "turn_start" });
-    let forceContinue = false;
     let completionNudges = 0;
     const maxCompletionNudges = 3;
-    const start = Date.now();
-
     try {
     while (true) {
-      forceContinue = false;
       // Drain any steering messages into the session before the next model turn.
       if (this.steeringQueue && this.steeringQueue.length > 0) {
         while (this.steeringQueue.length > 0) {
@@ -506,7 +501,6 @@ export class AgentRuntime {
           if (r && r.continue) continued = true;
         }
         if (continued) {
-          forceContinue = true;
           continue;
         }
         const settleResults = await this.extensionDispatch?.(
@@ -517,7 +511,6 @@ export class AgentRuntime {
           if (r && r.continue) continued = true;
         }
         if (continued) {
-          forceContinue = true;
           continue;
         }
         // Task ledger completion gate: only gate when the model actually
