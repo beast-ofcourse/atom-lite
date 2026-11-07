@@ -184,6 +184,7 @@ export class AgentRuntime {
       focus,
     );
     if (summary) {
+      this.contextManager.resetUsage();
       this.contextManager.setSessionMemory(
         summary,
         this.contextManager.getLastCompactionCoveredCount(),
