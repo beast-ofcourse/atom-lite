@@ -15,6 +15,7 @@ test("isWithinWorkspace: file inside workspace is allowed", () => {
   const ws = mkdtempSync(join(tmpdir(), "atom-paths-"));
   try {
     assert.equal(isWithinWorkspace(ws, "foo.txt"), true);
+    // non-existent nested path still resolves inside the workspace
     assert.equal(isWithinWorkspace(ws, "a/b/c.txt"), true);
   } finally {
     rmSync(ws, { recursive: true, force: true });

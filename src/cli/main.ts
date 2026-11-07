@@ -7,7 +7,7 @@ if (args.includes("--version")) {
   process.stdout.write(VERSION + "\n");
 } else if (args.includes("--help")) {
   process.stdout.write(
-    "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json] [--debug] [--theme NAME] [--no-color] [-e PATH] [--version] [--help]\n",
+    "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json] [--theme NAME] [--no-color] [-e PATH] [--version] [--help]\n",
   );
 } else {
   try {

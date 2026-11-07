@@ -72,6 +72,7 @@ export const globTool: Tool = {
     const rgResult = await new Promise<{
       stdout: string;
       stderr: string;
+      code: number | null;
       error?: Error;
     }>((resolvePromise) => {
       const child = spawn("rg", ["--hidden", "--files", "-g", pattern, root], {
@@ -101,7 +102,7 @@ export const globTool: Tool = {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        resolvePromise({ stdout, stderr, error: err });
+        resolvePromise({ stdout, stderr, code: null, error: err });
       });
       child.on("close", () => {
         if (settled) return;
@@ -111,10 +112,11 @@ export const globTool: Tool = {
           resolvePromise({
             stdout,
             stderr,
+            code: null,
             error: new Error("rg timed out"),
           });
         } else {
-          resolvePromise({ stdout, stderr });
+          resolvePromise({ stdout, stderr, code: child.exitCode });
         }
       });
     });
@@ -122,11 +124,12 @@ export const globTool: Tool = {
     const res = {
       stdout: rgResult.stdout,
       stderr: rgResult.stderr,
+      code: rgResult.code,
       error: rgResult.error,
     };
 
     let matches: string[];
-    if (res.error) {
+    if (res.error || (res.code !== null && res.code !== 0 && res.code !== 1)) {
       // Fallback to Node fs.globSync.
       try {
         matches = (fs as any).globSync(pattern, { cwd: root }) as string[];

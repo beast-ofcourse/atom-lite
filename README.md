@@ -95,25 +95,25 @@ See [`docs/configuration.md`](./docs/configuration.md) for every field, default,
 ```
 atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
           [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json]
-          [--debug] [--theme NAME] [--no-color] [--version] [--help]
+          [--theme NAME] [--no-color] [--version] [--help]
 ```
 
-| Flag                      | Description                                         |
-| ------------------------- | --------------------------------------------------- |
-| `task`                    | One-shot task; agent runs it and exits              |
-| `--provider NAME`         | Select a provider profile                           |
-| `--model MODEL`           | Override the model for this run                     |
-| `--continue`              | Resume the most recent session in this workspace    |
-| `--session ID`            | Resume a specific session                           |
-| `--list-sessions`         | Print the session index and exit                    |
-| `--search-sessions QUERY` | Print matching sessions with snippets and exit      |
-| `--no-tools`              | Disable all tools (model-only chat)                 |
-| `--json`                  | Non-interactive JSON output                         |
-| `--debug`                 | Debug logging                                       |
-| `--theme NAME`            | Use `auto`, `dark`, `light`, or `ansi` for this run |
-| `--no-color`              | Force the no-colour theme                           |
-| `--version`               | Print version                                       |
-| `--help`                  | Show help                                           |
+| Flag                      | Description                                      |
+| ------------------------- | ------------------------------------------------ |
+| `task`                    | One-shot task; agent runs it and exits           |
+| `--provider NAME`         | Select a provider profile                        |
+| `--model MODEL`           | Override the model for this run                  |
+| `--continue`              | Resume the most recent session in this workspace |
+| `--session ID`            | Resume a specific session                        |
+| `--list-sessions`         | Print the session index and exit                 |
+| `--search-sessions QUERY` | Print matching sessions with snippets and exit   |
+| `--no-tools`              | Disable all tools (model-only chat)              |
+| `--json`                  | Non-interactive JSON output                      |
+
+| `--theme NAME` | Use `auto`, `dark`, `light`, or `ansi` for this run |
+| `--no-color` | Force the no-colour theme |
+| `--version` | Print version |
+| `--help` | Show help |
 
 In the TUI, type `/help` for every command grouped by category, or press `ctrl+p` for the fuzzy command palette. `/theme` opens a live-preview picker and persists your choice; `NO_COLOR` and `--no-color` always win. `/sessions` opens a searchable picker scoped to the current workspace; `/search <query>` prints matching sessions with snippets. Mouse wheel scrolling and click-to-focus are enabled for interactive terminals and can be disabled with `ui.mouse: false`.
 

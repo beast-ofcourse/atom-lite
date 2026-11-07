@@ -138,7 +138,7 @@ export async function run(args: string[]): Promise<void> {
     else if (a === "--no-tools") positional.push("__notools__");
     else if (a === "--help") {
       process.stdout.write(
-        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json] [--debug] [--theme NAME] [--no-color] [-e PATH] [--version] [--help]\n",
+        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json] [--theme NAME] [--no-color] [-e PATH] [--version] [--help]\n",
       );
       return;
     } else if (a.startsWith("--")) {
@@ -2120,7 +2120,7 @@ export async function run(args: string[]): Promise<void> {
     if (expandTools !== expanded) toggleTools();
   };
 
-  extensionUICallbacks.select = (title, options) =>
+  extensionUICallbacks.select = (title, options, _opts) =>
     new Promise((resolve) => {
       if (!interactive) {
         resolve(undefined);
@@ -2158,7 +2158,7 @@ export async function run(args: string[]): Promise<void> {
       tui.requestRender();
     });
 
-  extensionUICallbacks.confirm = (title, message) =>
+  extensionUICallbacks.confirm = (title, message, _opts) =>
     new Promise((resolve) => {
       if (!interactive) {
         resolve(false);
@@ -2196,7 +2196,7 @@ export async function run(args: string[]): Promise<void> {
       tui.requestRender();
     });
 
-  extensionUICallbacks.input = (title) =>
+  extensionUICallbacks.input = (title, _placeholder, _opts) =>
     new Promise((resolve) => {
       if (!interactive) {
         resolve(undefined);
