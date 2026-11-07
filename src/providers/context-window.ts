@@ -2,12 +2,52 @@
 // order): an explicit provider config override, live provider metadata, or the
 // known-model table below.
 
+interface ModelEntry {
+  context_length?: number;
+  context_window?: number;
+  contextWindow?: number;
+  max_context_length?: number;
+  max_context_window?: number;
+  max_model_len?: number;
+  max_input_tokens?: number;
+  input_token_limit?: number;
+  max_context_window_tokens?: number;
+  n_ctx?: number;
+  max_seq_len?: number;
+  limits?: {
+    context?: number;
+    max_input_tokens?: number;
+    max_context_length?: number;
+  };
+  top_provider?: {
+    context_length?: number;
+    context_window?: number;
+    max_context_length?: number;
+  };
+  architecture?: {
+    context_length?: number;
+  };
+  capabilities?: unknown;
+  modalities?: unknown;
+  supported_modalities?: unknown;
+  input_modalities?: unknown;
+  supports_vision?: boolean;
+  vision?: boolean;
+  [key: string]: unknown;
+}
+
+interface ModalityEntry {
+  vision?: boolean;
+  image?: boolean;
+  [key: string]: unknown;
+}
+
 /** Extract a context window from an OpenAI-compatible /models entry. */
 export function contextWindowFromModelEntry(
   entry: unknown,
 ): number | undefined {
   if (!entry || typeof entry !== "object") return undefined;
-  const e = entry as Record<string, any>;
+  const e = entry as ModelEntry;
   const candidates = [
     e.context_length,
     e.context_window,
@@ -121,7 +161,7 @@ export function supportsVisionFromModelEntry(
   entry: unknown,
 ): boolean | undefined {
   if (!entry || typeof entry !== "object") return undefined;
-  const e = entry as Record<string, any>;
+  const e = entry as ModelEntry;
   const caps = [
     e.capabilities,
     e.modalities,
@@ -140,7 +180,8 @@ export function supportsVisionFromModelEntry(
         return false;
     }
     if (typeof c === "object" && c) {
-      if (c.vision === true || c.image === true) return true;
+      const m = c as ModalityEntry;
+      if (m.vision === true || m.image === true) return true;
     }
   }
   if (typeof e.supports_vision === "boolean") return e.supports_vision;

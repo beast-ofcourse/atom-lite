@@ -2,12 +2,28 @@ import type { Tool, ToolResult } from "../tools/types.js";
 import type { ToolCall, ToolContext } from "../tools/types.js";
 import type { ExtensionTool, ExtensionContext } from "./types.js";
 
+interface SchemaProperty {
+  type?: string;
+  items?: SchemaProperty;
+  properties?: Record<string, SchemaProperty>;
+  required?: string[];
+  [key: string]: unknown;
+}
+
+type CoercedValue =
+  | string
+  | number
+  | boolean
+  | null
+  | CoercedValue[]
+  | { [key: string]: CoercedValue };
+
 export function coerceToolArguments(
   schema: Record<string, unknown> | undefined,
   input: Record<string, unknown>,
 ): Record<string, unknown> {
   const result: Record<string, unknown> = { ...(input ?? {}) };
-  const properties = (schema?.properties ?? {}) as Record<string, any>;
+  const properties = (schema?.properties ?? {}) as Record<string, SchemaProperty>;
   const required = Array.isArray(schema?.required)
     ? (schema.required as string[])
     : [];
@@ -59,23 +75,25 @@ export function coerceToolArguments(
   return result;
 }
 
-function coerceScalar(prop: any, value: unknown): unknown {
-  if (value === null) return value;
+function coerceScalar(prop: SchemaProperty, value: unknown): CoercedValue {
+  if (value === null) return null;
   const type = prop?.type;
   if (type === "number" || type === "integer") {
     if (typeof value === "string") {
       const n = Number(value);
       if (!Number.isNaN(n)) return n;
     }
+    return value as CoercedValue;
   }
   if (type === "boolean" && typeof value === "string") {
     if (value === "true") return true;
     if (value === "false") return false;
+    return value as CoercedValue;
   }
   if (type === "string" && value !== null && typeof value !== "string") {
     return String(value);
   }
-  return value;
+  return value as CoercedValue;
 }
 
 export function extensionToolToAgentTool(

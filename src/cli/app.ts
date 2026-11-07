@@ -244,7 +244,7 @@ export async function run(args: string[]): Promise<void> {
         store.create(process.cwd(), provider.id))
       : store.create(process.cwd(), provider.id);
 
-  const mcpServers = (config.mcpServers ?? {}) as Record<string, any>;
+  const mcpServers = (config.mcpServers ?? {}) as Record<string, unknown>;
   const mcpManager = new McpManager({
     servers: mcpServers as any,
     onEvent: (event) => {
@@ -304,7 +304,7 @@ export async function run(args: string[]): Promise<void> {
   });
   // Remove any previously bridged extension providers before re-bridging.
   for (const name of extensionProviderNames) {
-    delete (config.providers as Record<string, any>)[name];
+    delete (config.providers as Record<string, unknown>)[name];
   }
   extensionProviderNames.clear();
 
@@ -324,7 +324,7 @@ export async function run(args: string[]): Promise<void> {
       if (cfg.authHeader && apiKey) {
         setHeader(headers, "Authorization", `Bearer ${apiKey}`);
       }
-      (config.providers as Record<string, any>)[name] = {
+      (config.providers as Record<string, unknown>)[name] = {
         type: "openai-compatible",
         baseUrl: cfg.baseUrl,
         model: firstModel,
@@ -1090,18 +1090,18 @@ export async function run(args: string[]): Promise<void> {
     }
   }
 
-  function profileConfig(profile: string): Record<string, any> | undefined {
-    return (config.providers as Record<string, any>)[profile];
+  function profileConfig(profile: string): Record<string, unknown> | undefined {
+    return (config.providers as Record<string, unknown>)[profile] as Record<string, unknown> | undefined;
   }
 
   /** Ensure a preset profile exists in the in-memory config. */
-  function ensureProfile(profile: string): Record<string, any> | undefined {
+  function ensureProfile(profile: string): Record<string, unknown> | undefined {
     let pcfg = profileConfig(profile);
     if (pcfg) return pcfg;
     const preset = getPreset(profile);
     if (!preset) return undefined;
     pcfg = materializeProviderConfig(preset);
-    (config.providers as Record<string, any>)[profile] = pcfg;
+    (config.providers as Record<string, unknown>)[profile] = pcfg;
     saveProviderSelection(profile, pcfg);
     return pcfg;
   }
@@ -1141,7 +1141,7 @@ export async function run(args: string[]): Promise<void> {
         // Materialize env/credential-only presets in memory so they appear in
         // the picker without being written to disk until the user picks one.
         pcfg = materializeProviderConfig(preset);
-        (config.providers as Record<string, any>)[name] = pcfg;
+        (config.providers as Record<string, unknown>)[name] = pcfg;
       }
       for (const model of modelsFor(name)) {
         const value = `${name}\u0000${model}`;
@@ -1313,7 +1313,7 @@ export async function run(args: string[]): Promise<void> {
   function activateProvider(preset: ProviderPreset, models?: string[]): void {
     const existing = profileConfig(preset.id);
     const pcfg = materializeProviderConfig(preset, existing);
-    (config.providers as Record<string, any>)[preset.id] = pcfg;
+    (config.providers as Record<string, unknown>)[preset.id] = pcfg;
     config.defaultProvider = preset.id;
     saveProviderSelection(preset.id, pcfg, { defaultProvider: preset.id });
     if (models?.length) {
@@ -2042,7 +2042,7 @@ export async function run(args: string[]): Promise<void> {
     }
     // Remove previously bridged providers, then re-bridge.
     for (const name of extensionProviderNames) {
-      delete (config.providers as Record<string, any>)[name];
+      delete (config.providers as Record<string, unknown>)[name];
       modelCache.delete(name);
     }
     extensionProviderNames.clear();
@@ -2061,7 +2061,7 @@ export async function run(args: string[]): Promise<void> {
         if (cfg.authHeader && apiKey) {
           setHeader(headers, "Authorization", `Bearer ${apiKey}`);
         }
-        (config.providers as Record<string, any>)[name] = {
+        (config.providers as Record<string, unknown>)[name] = {
           type: "openai-compatible",
           baseUrl: cfg.baseUrl,
           model: firstModel,

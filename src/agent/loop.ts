@@ -226,7 +226,7 @@ export class AgentRuntime {
     return this.effort;
   }
 
-  private restoreTodos(session: object): void {
+  private restoreTodos(session: unknown): void {
     const events = (session as { events?: unknown[] }).events;
     if (!Array.isArray(events)) return;
     const latest = [...events]

@@ -5,13 +5,27 @@ import { OllamaAdapter } from "./ollama.js";
 import { GeminiAdapter } from "./gemini.js";
 import { FakeProvider } from "./fake.js";
 
+interface ProviderConfig {
+  type: string;
+  baseUrl?: string;
+  model?: string;
+  apiKeyEnv?: string;
+  apiKey?: string;
+  headers?: Record<string, string>;
+  contextWindow?: number;
+  supportsVision?: boolean;
+  keepAlive?: string | number | undefined;
+  think?: boolean;
+  options?: Record<string, unknown>;
+}
+
 export function createProvider(
   config: Config,
   profileName?: string,
   modelOverride?: string,
 ): any {
   const name = profileName ?? config.defaultProvider;
-  const pcfg = (config.providers as Record<string, any>)[name];
+  const pcfg = (config.providers as Record<string, ProviderConfig>)[name];
   if (!pcfg)
     return new FakeProvider([{ text: "No provider configured; using fake." }]);
   if (pcfg.type === "openai-compatible") {
@@ -22,7 +36,7 @@ export function createProvider(
     return new OpenAICompatibleAdapter({
       id: name,
       baseUrl: pcfg.baseUrl ?? "http://127.0.0.1:1234/v1",
-      model: modelOverride ?? pcfg.model,
+      model: modelOverride ?? pcfg.model ?? "",
       apiKey,
       headers: pcfg.headers,
       contextWindow: pcfg.contextWindow,
@@ -33,7 +47,7 @@ export function createProvider(
     return new OllamaAdapter({
       id: name,
       baseUrl: pcfg.baseUrl ?? "http://127.0.0.1:11434",
-      model: modelOverride ?? pcfg.model,
+      model: modelOverride ?? pcfg.model ?? "",
       headers: pcfg.headers,
       keepAlive: pcfg.keepAlive,
       think: pcfg.think,
@@ -49,8 +63,8 @@ export function createProvider(
     });
     return new GeminiAdapter({
       id: name,
-      baseUrl: pcfg.baseUrl,
-      model: modelOverride ?? pcfg.model,
+      baseUrl: pcfg.baseUrl ?? "",
+      model: modelOverride ?? pcfg.model ?? "",
       apiKey,
       headers: pcfg.headers,
       contextWindow: pcfg.contextWindow,
