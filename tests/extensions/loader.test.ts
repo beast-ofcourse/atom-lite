@@ -16,7 +16,10 @@ test("loads trusted user extensions", async () => {
       join(dir, "ok.js"),
       "export default (atom) => { atom.appendEntry('note', { value: 1 }); };\n",
     );
-    const loader = new ExtensionLoader({ userDir: dir, agentDir: join(dir, "agent") });
+    const loader = new ExtensionLoader({
+      userDir: dir,
+      agentDir: join(dir, "agent"),
+    });
     const loaded = await loader.loadAll();
     assert.equal(loaded.length, 1);
     assert.equal(loaded[0].status, "loaded");
@@ -33,7 +36,10 @@ test("loads async factories", async () => {
       join(dir, "async.js"),
       "export default async (atom) => { await Promise.resolve(); atom.log('ready'); };\n",
     );
-    const loader = new ExtensionLoader({ userDir: dir, agentDir: join(dir, "agent") });
+    const loader = new ExtensionLoader({
+      userDir: dir,
+      agentDir: join(dir, "agent"),
+    });
     const loaded = await loader.loadAll();
     assert.equal(loaded[0].status, "loaded");
   } finally {
@@ -44,12 +50,21 @@ test("loads async factories", async () => {
 test("isolates factory errors", async () => {
   const dir = tempDir();
   try {
-    writeFileSync(join(dir, "bad.js"), "export default () => { throw new Error('boom'); };\n");
+    writeFileSync(
+      join(dir, "bad.js"),
+      "export default () => { throw new Error('boom'); };\n",
+    );
     writeFileSync(join(dir, "good.js"), "export default () => {};\n");
-    const loader = new ExtensionLoader({ userDir: dir, agentDir: join(dir, "agent") });
+    const loader = new ExtensionLoader({
+      userDir: dir,
+      agentDir: join(dir, "agent"),
+    });
     const loaded = await loader.loadAll();
     assert.equal(loaded.find((entry) => entry.id === "bad")?.status, "error");
-    assert.match(loaded.find((entry) => entry.id === "bad")?.error ?? "", /boom/);
+    assert.match(
+      loaded.find((entry) => entry.id === "bad")?.error ?? "",
+      /boom/,
+    );
     assert.equal(loaded.find((entry) => entry.id === "good")?.status, "loaded");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -61,7 +76,10 @@ test("skips project extensions unless the project is trusted", async () => {
   try {
     const extensionDir = join(projectDir, ".atom-lite", "extensions");
     mkdirSync(extensionDir, { recursive: true });
-    writeFileSync(join(extensionDir, "project.js"), "export default () => {};\n");
+    writeFileSync(
+      join(extensionDir, "project.js"),
+      "export default () => {};\n",
+    );
 
     const isolate = {
       projectDir,
@@ -88,7 +106,10 @@ test("reports missing factories", async () => {
   const dir = tempDir();
   try {
     writeFileSync(join(dir, "nofactory.js"), "export const value = 1;\n");
-    const loader = new ExtensionLoader({ userDir: dir, agentDir: join(dir, "agent") });
+    const loader = new ExtensionLoader({
+      userDir: dir,
+      agentDir: join(dir, "agent"),
+    });
     const loaded = await loader.loadAll();
     assert.equal(loaded[0].status, "error");
     assert.match(loaded[0].error ?? "", /default or activate/);
@@ -102,7 +123,10 @@ test("skips denied project extensions with a denial message", async () => {
   try {
     const extensionDir = join(projectDir, ".pi", "extensions");
     mkdirSync(extensionDir, { recursive: true });
-    writeFileSync(join(extensionDir, "project.js"), "export default () => {};\n");
+    writeFileSync(
+      join(extensionDir, "project.js"),
+      "export default () => {};\n",
+    );
 
     const loader = new ExtensionLoader({
       projectDir,
@@ -123,7 +147,10 @@ test("reports discovered entries that were never loaded", () => {
   try {
     const extensionDir = join(projectDir, ".pi", "extensions");
     mkdirSync(extensionDir, { recursive: true });
-    writeFileSync(join(extensionDir, "project.js"), "export default () => {};\n");
+    writeFileSync(
+      join(extensionDir, "project.js"),
+      "export default () => {};\n",
+    );
 
     const loader = new ExtensionLoader({
       projectDir,

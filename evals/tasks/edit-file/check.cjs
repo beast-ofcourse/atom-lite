@@ -1,7 +1,13 @@
-const { readFileSync, existsSync  } = require("node:fs");
-const { join  } = require("node:path");
+const { readFileSync, existsSync } = require("node:fs");
+const { join } = require("node:path");
 const p = join(process.cwd(), "config.json");
-if (!existsSync(p)) { console.error("missing config.json"); process.exit(1); }
+if (!existsSync(p)) {
+  console.error("missing config.json");
+  process.exit(1);
+}
 const j = JSON.parse(readFileSync(p, "utf8"));
-if (j.x !== 2) { console.error("expected x=2, got " + j.x); process.exit(1); }
+if (j.x !== 2) {
+  console.error("expected x=2, got " + j.x);
+  process.exit(1);
+}
 console.log("ok");

@@ -64,16 +64,16 @@ stored credential, then inline `apiKey`.
 
 ## `runtime`
 
-| Key                    | Type                       | Default    | Description                                                                                                 |
-| ---------------------- | -------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------- |
-| `maxParallelToolCalls` | positive integer           | `10`       | Concurrency cap for a tool-call batch.                                                                      |
-| `maxToolOutputBytes`   | positive integer           | `30000`    | Output cap per tool result.                                                                                 |
-| `maxBashTimeMs`        | positive integer           | `120000`   | Timeout for a single `bash` call (2 minutes).                                                               |
-| `bashConcurrency`      | `"serial"` \| `"parallel"` | `"serial"` | `serial` keeps `bash` as a global exclusive barrier.                                                        |
-| `mode`                 | `"plan"` \| `"yolo"`       | `"yolo"`   | `plan` allows read/web tools plus the session task ledger; `yolo` allows all tools without approval. User config and environment only.    |
-| `maxTokensPerSession`  | positive integer \| null   | `null`     | Optional session token budget (hard stop). `null` means no limit. User config only.                         |
-| `maxTokensPerTurn`     | positive integer \| null   | `null`     | Optional per-turn token soft warning. `null` means no warning. User config only.                            |
-| `checkpointing`        | boolean                    | `false`    | Enable automatic checkpoints in non-interactive runs. Interactive runs always checkpoint. User config only. |
+| Key                    | Type                       | Default    | Description                                                                                                                            |
+| ---------------------- | -------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `maxParallelToolCalls` | positive integer           | `10`       | Concurrency cap for a tool-call batch.                                                                                                 |
+| `maxToolOutputBytes`   | positive integer           | `30000`    | Output cap per tool result.                                                                                                            |
+| `maxBashTimeMs`        | positive integer           | `120000`   | Timeout for a single `bash` call (2 minutes).                                                                                          |
+| `bashConcurrency`      | `"serial"` \| `"parallel"` | `"serial"` | `serial` keeps `bash` as a global exclusive barrier.                                                                                   |
+| `mode`                 | `"plan"` \| `"yolo"`       | `"yolo"`   | `plan` allows read/web tools plus the session task ledger; `yolo` allows all tools without approval. User config and environment only. |
+| `maxTokensPerSession`  | positive integer \| null   | `null`     | Optional session token budget (hard stop). `null` means no limit. User config only.                                                    |
+| `maxTokensPerTurn`     | positive integer \| null   | `null`     | Optional per-turn token soft warning. `null` means no warning. User config only.                                                       |
+| `checkpointing`        | boolean                    | `false`    | Enable automatic checkpoints in non-interactive runs. Interactive runs always checkpoint. User config only.                            |
 
 ## `context`
 
@@ -165,7 +165,6 @@ listed here. User, global, and CLI extensions load without this setting.
 | `COLORFGBG`             | Falls back to this value to detect a light or dark background. |
 | Any name in `apiKeyEnv` | Supplies that provider's API key.                              |
 
-
 ## `lsp`
 
 Optional, off by default. When enabled, Atom-lite lazily spawns language servers
@@ -174,21 +173,21 @@ per workspace root and exposes `lsp_diagnostics`, `lsp_definition`,
 automatically when their server binary is installed (TypeScript/JavaScript,
 Python via pyright, Go, Rust).
 
-| Key        | Type    | Default | Description                                                |
-| ---------- | ------- | ------- | ---------------------------------------------------------- |
-| `enabled`  | boolean | `false` | Turn LSP on.                                               |
-| `servers`  | object  | `{}`    | Custom or override server definitions (same fields as below). |
+| Key       | Type    | Default | Description                                                   |
+| --------- | ------- | ------- | ------------------------------------------------------------- |
+| `enabled` | boolean | `false` | Turn LSP on.                                                  |
+| `servers` | object  | `{}`    | Custom or override server definitions (same fields as below). |
 
 Each entry in `servers`:
 
-| Key             | Type              | Default | Description                                                  |
-| --------------- | ----------------- | ------- | ------------------------------------------------------------ |
-| `command`       | string            | required | Executable to launch.                                       |
-| `args`          | string[]          | `[]`    | Arguments (for example `["--stdio"]`).                       |
-| `extensions`    | string[]          | `[]`    | File extensions handled by this server.                      |
-| `rootMarkers`   | string[]          | `[]`    | Files that identify a project root (for example `package.json`). |
-| `initialization`| object            | `{}`    | LSP `initializationOptions`.                                |
-| `disabled`      | boolean           | `false` | Disable a built-in preset by id (for example `typescript`).  |
+| Key              | Type     | Default  | Description                                                      |
+| ---------------- | -------- | -------- | ---------------------------------------------------------------- |
+| `command`        | string   | required | Executable to launch.                                            |
+| `args`           | string[] | `[]`     | Arguments (for example `["--stdio"]`).                           |
+| `extensions`     | string[] | `[]`     | File extensions handled by this server.                          |
+| `rootMarkers`    | string[] | `[]`     | Files that identify a project root (for example `package.json`). |
+| `initialization` | object   | `{}`     | LSP `initializationOptions`.                                     |
+| `disabled`       | boolean  | `false`  | Disable a built-in preset by id (for example `typescript`).      |
 
 To enable LSP, set in user or project config:
 

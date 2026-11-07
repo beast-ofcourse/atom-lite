@@ -18,7 +18,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { Container, Text } from "@earendil-works/pi-tui";
-import { readTool, writeTool, editTool, bashTool } from "../dist/tools/index.js";
+import {
+  readTool,
+  writeTool,
+  editTool,
+  bashTool,
+} from "../dist/tools/index.js";
 import { defaultShell } from "../dist/security/process.js";
 import { Transcript } from "../dist/cli/transcript.js";
 import { StreamText } from "../dist/cli/stream-text.js";
@@ -27,7 +32,12 @@ const RUNS = Math.max(3, Number(process.env.BENCH_RUNS ?? 15));
 const ROOT = join(import.meta.dirname, "..");
 const dir = mkdtempSync(join(tmpdir(), "atom-bench-"));
 const signal = new AbortController().signal;
-const ctx = { workspace: dir, signal, maxBashTimeMs: 10_000, maxToolOutputBytes: 30_000 };
+const ctx = {
+  workspace: dir,
+  signal,
+  maxBashTimeMs: 10_000,
+  maxToolOutputBytes: 30_000,
+};
 
 const results = [];
 function record(name, value, unit, budget) {
@@ -58,19 +68,28 @@ const bigEdit = big.slice(0, 4096) + "NEEDLE" + big.slice(4096 + 6);
 const editSource = join(dir, "edit-source.txt");
 writeFileSync(editSource, bigEdit);
 
-console.log(`atom-lite bench (${RUNS} runs, ${(big.length / 1024).toFixed(0)} KiB file)\n`);
+console.log(
+  `atom-lite bench (${RUNS} runs, ${(big.length / 1024).toFixed(0)} KiB file)\n`,
+);
 
 // --- tool overhead ---------------------------------------------------------
 const rawRead = await bench(() => readFileSync(bigPath));
 const fullRead = await bench(() =>
-  readTool.execute({ id: "r", name: "read", arguments: { path: "big.txt" } }, ctx),
+  readTool.execute(
+    { id: "r", name: "read", arguments: { path: "big.txt" } },
+    ctx,
+  ),
 );
 record("read full (tool)", fullRead, "ms", null);
 record("read full overhead vs readFileSync", fullRead - rawRead, "ms", 5);
 
 const partialRead = await bench(() =>
   readTool.execute(
-    { id: "r", name: "read", arguments: { path: "big.txt", offset: 5000, limit: 50 } },
+    {
+      id: "r",
+      name: "read",
+      arguments: { path: "big.txt", offset: 5000, limit: 50 },
+    },
     ctx,
   ),
 );
@@ -86,7 +105,11 @@ const rawWrite = await bench((i) => {
 });
 const toolWrite = await bench((i) =>
   writeTool.execute(
-    { id: "w", name: "write", arguments: { path: `tool-${i}.txt`, content: newContent } },
+    {
+      id: "w",
+      name: "write",
+      arguments: { path: `tool-${i}.txt`, content: newContent },
+    },
     ctx,
   ),
 );
@@ -119,12 +142,18 @@ record("edit overhead vs read/replace/rename", toolEdit - rawEdit, "ms", 5);
 const rawBash = await bench(
   () =>
     new Promise((resolve) => {
-      const child = spawn(defaultShell(), ["-c", "true"], { cwd: dir, env: process.env });
+      const child = spawn(defaultShell(), ["-c", "true"], {
+        cwd: dir,
+        env: process.env,
+      });
       child.on("close", resolve);
     }),
 );
 const toolBash = await bench(() =>
-  bashTool.execute({ id: "b", name: "bash", arguments: { command: "true" } }, ctx),
+  bashTool.execute(
+    { id: "b", name: "bash", arguments: { command: "true" } },
+    ctx,
+  ),
 );
 record("bash (tool)", toolBash, "ms", null);
 record("bash overhead vs raw shell", toolBash - rawBash, "ms", 10);
@@ -132,10 +161,14 @@ record("bash overhead vs raw shell", toolBash - rawBash, "ms", 10);
 // --- startup ---------------------------------------------------------------
 const startup = await bench(
   () => {
-    const r = spawnSync(process.execPath, [join(ROOT, "dist/cli/main.js"), "--version"], {
-      cwd: ROOT,
-      encoding: "utf8",
-    });
+    const r = spawnSync(
+      process.execPath,
+      [join(ROOT, "dist/cli/main.js"), "--version"],
+      {
+        cwd: ROOT,
+        encoding: "utf8",
+      },
+    );
     if (r.status !== 0) throw new Error(r.stderr);
   },
   Math.min(RUNS, 7),

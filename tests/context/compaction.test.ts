@@ -16,7 +16,10 @@ function manager(dir: string, requests: any[]): any {
       generate: async (req: any) => {
         requests.push(req);
         return {
-          message: { role: "assistant", content: [{ type: "text", text: "summary" }] },
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "summary" }],
+          },
           toolCalls: [],
           finishReason: "stop",
         };

@@ -77,12 +77,9 @@ test("AgentRuntime persists a caller-supplied request id", async () => {
   const provider = new RecordingProvider();
   const runtime = new AgentRuntime({ provider, workspace: dir, tools: [] });
   const session = new RecordingSession();
-  await runtime.runAgentTurn(
-    "say hi",
-    session,
-    new AbortController().signal,
-    { requestId: "turn-rid-2" },
-  );
+  await runtime.runAgentTurn("say hi", session, new AbortController().signal, {
+    requestId: "turn-rid-2",
+  });
   assert.equal(provider.requests[0].requestId, "turn-rid-2");
   const persisted = session.events.find(
     (event) => event.type === "model_request_id",

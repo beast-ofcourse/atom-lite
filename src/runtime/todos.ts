@@ -171,8 +171,7 @@ export class TodoStore {
     for (const raw of value) {
       if (!raw || typeof raw !== "object") continue;
       const record = raw as Record<string, unknown>;
-      const content =
-        typeof record.content === "string" ? record.content : "";
+      const content = typeof record.content === "string" ? record.content : "";
       if (!content.trim()) continue;
       inputs.push({
         id: typeof record.id === "string" ? record.id : undefined,

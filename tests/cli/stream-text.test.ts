@@ -16,7 +16,8 @@ test("stream text seals completed lines in batches", () => {
     transcript.container.children.length < 40,
     `components: ${transcript.container.children.length}`,
   );
-  const last = transcript.container.children[transcript.container.children.length - 1];
+  const last =
+    transcript.container.children[transcript.container.children.length - 1];
   assert.match(last.render(80).join("\n"), /tail/);
 });
 

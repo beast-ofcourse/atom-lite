@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { AgentRuntime } from "../../dist/agent/loop.js";
 import { FakeProvider } from "../../dist/providers/fake.js";
 import { InMemorySession } from "../../dist/sessions/store.js";
-import { readTool, writeTool, bashTool, todoTool } from "../../dist/tools/index.js";
+import {
+  readTool,
+  writeTool,
+  bashTool,
+  todoTool,
+} from "../../dist/tools/index.js";
 import { TodoStore } from "../../dist/runtime/todos.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -50,7 +55,11 @@ test("agent loop forwards streamed bash output and tool diffs", async () => {
     {
       toolCalls: [
         { id: "b1", name: "bash", arguments: { command: "echo streamed" } },
-        { id: "w1", name: "write", arguments: { path: "new.txt", content: "hi\n" } },
+        {
+          id: "w1",
+          name: "write",
+          arguments: { path: "new.txt", content: "hi\n" },
+        },
       ],
     },
     { text: "done" },
@@ -90,9 +99,17 @@ test("agent loop does not stop at the old 40-iteration cap", async () => {
   }));
   responses.push({ text: "done" } as any);
   const provider = new FakeProvider(responses as any);
-  const runtime = new AgentRuntime({ provider, workspace: dir, tools: [readTool] });
+  const runtime = new AgentRuntime({
+    provider,
+    workspace: dir,
+    tools: [readTool],
+  });
   const session = new InMemorySession("s1", dir);
-  const result = await runtime.runAgentTurn("go", session, new AbortController().signal);
+  const result = await runtime.runAgentTurn(
+    "go",
+    session,
+    new AbortController().signal,
+  );
   assert.equal(result, "done");
 });
 
@@ -108,7 +125,11 @@ test("agent loop stops when session token budget is exceeded", async () => {
     maxTokensPerSession: 50,
   });
   const session = new InMemorySession("s1", dir);
-  const result = await runtime.runAgentTurn("go", session, new AbortController().signal);
+  const result = await runtime.runAgentTurn(
+    "go",
+    session,
+    new AbortController().signal,
+  );
   assert.equal(result, "TOKEN_BUDGET_REACHED");
 });
 
@@ -127,7 +148,15 @@ test("mutating turn creates a checkpoint and records session metadata", async ()
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   gitInit(dir);
   const provider = new FakeProvider([
-    { toolCalls: [{ id: "w1", name: "write", arguments: { path: "new.txt", content: "hi\n" } }] },
+    {
+      toolCalls: [
+        {
+          id: "w1",
+          name: "write",
+          arguments: { path: "new.txt", content: "hi\n" },
+        },
+      ],
+    },
     { text: "done" },
   ]);
   const runtime = new AgentRuntime({
@@ -139,7 +168,8 @@ test("mutating turn creates a checkpoint and records session metadata", async ()
   });
   const session = new InMemorySession("s1", dir);
   await runtime.runAgentTurn("go", session, new AbortController().signal);
-  const { CheckpointStore } = await import("../../dist/runtime/checkpoint-store.js");
+  const { CheckpointStore } =
+    await import("../../dist/runtime/checkpoint-store.js");
   const store = new CheckpointStore(dir, "s1");
   assert.ok(store.list().length >= 1, "checkpoint expected on disk");
 });
@@ -159,7 +189,8 @@ test("read-only turn creates no checkpoint", async () => {
   });
   const session = new InMemorySession("s1", dir);
   await runtime.runAgentTurn("go", session, new AbortController().signal);
-  const { CheckpointStore } = await import("../../dist/runtime/checkpoint-store.js");
+  const { CheckpointStore } =
+    await import("../../dist/runtime/checkpoint-store.js");
   const store = new CheckpointStore(dir, "s1");
   assert.equal(store.list().length, 0);
 });
@@ -168,7 +199,15 @@ test("checkpointing disabled creates no checkpoint", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   gitInit(dir);
   const provider = new FakeProvider([
-    { toolCalls: [{ id: "w1", name: "write", arguments: { path: "new.txt", content: "hi\n" } }] },
+    {
+      toolCalls: [
+        {
+          id: "w1",
+          name: "write",
+          arguments: { path: "new.txt", content: "hi\n" },
+        },
+      ],
+    },
     { text: "done" },
   ]);
   const runtime = new AgentRuntime({
@@ -180,7 +219,8 @@ test("checkpointing disabled creates no checkpoint", async () => {
   });
   const session = new InMemorySession("s1", dir);
   await runtime.runAgentTurn("go", session, new AbortController().signal);
-  const { CheckpointStore } = await import("../../dist/runtime/checkpoint-store.js");
+  const { CheckpointStore } =
+    await import("../../dist/runtime/checkpoint-store.js");
   const store = new CheckpointStore(dir, "s1");
   assert.equal(store.list().length, 0);
 });
@@ -189,10 +229,19 @@ test("checkpoint capture failure does not block the turn", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   gitInit(dir);
   // force a too-large checkpoint by tiny cap
-  const { CheckpointStore } = await import("../../dist/runtime/checkpoint-store.js");
+  const { CheckpointStore } =
+    await import("../../dist/runtime/checkpoint-store.js");
   const store = new CheckpointStore(dir, "s1", { maxCheckpointBytes: 1 });
   const provider = new FakeProvider([
-    { toolCalls: [{ id: "w1", name: "write", arguments: { path: "new.txt", content: "hi\n" } }] },
+    {
+      toolCalls: [
+        {
+          id: "w1",
+          name: "write",
+          arguments: { path: "new.txt", content: "hi\n" },
+        },
+      ],
+    },
     { text: "done" },
   ]);
   const runtime = new AgentRuntime({
@@ -204,14 +253,26 @@ test("checkpoint capture failure does not block the turn", async () => {
     checkpointStore: store,
   });
   const session = new InMemorySession("s1", dir);
-  const result = await runtime.runAgentTurn("go", session, new AbortController().signal);
+  const result = await runtime.runAgentTurn(
+    "go",
+    session,
+    new AbortController().signal,
+  );
   assert.equal(result, "done");
 });
 
 test("non-git workspace warns and continues", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-")); // not git
   const provider = new FakeProvider([
-    { toolCalls: [{ id: "w1", name: "write", arguments: { path: "new.txt", content: "hi\n" } }] },
+    {
+      toolCalls: [
+        {
+          id: "w1",
+          name: "write",
+          arguments: { path: "new.txt", content: "hi\n" },
+        },
+      ],
+    },
     { text: "done" },
   ]);
   const events: any[] = [];
@@ -224,7 +285,11 @@ test("non-git workspace warns and continues", async () => {
     onEvent: (e) => events.push(e),
   });
   const session = new InMemorySession("s1", dir);
-  const result = await runtime.runAgentTurn("go", session, new AbortController().signal);
+  const result = await runtime.runAgentTurn(
+    "go",
+    session,
+    new AbortController().signal,
+  );
   assert.equal(result, "done");
   assert.ok(events.some((e) => e.type === "checkpoint_created"));
 });

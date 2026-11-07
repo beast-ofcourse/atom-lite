@@ -9,7 +9,11 @@ function tempDir(): string {
   return mkdtempSync(join(tmpdir(), "atom-lite-pi-discovery-"));
 }
 
-function piExtension(dir: string, name: string, body = "export default () => {};\n") {
+function piExtension(
+  dir: string,
+  name: string,
+  body = "export default () => {};\n",
+) {
   mkdirSync(join(dir, ".pi", "extensions"), { recursive: true });
   writeFileSync(join(dir, ".pi", "extensions", name), body);
 }
@@ -67,8 +71,14 @@ test("parses Pi package manifests and their entrypoints", () => {
         pi: { extensions: ["./src/one.ts", "./src/two.ts"] },
       }),
     );
-    writeFileSync(join(packageDir, "src", "one.ts"), "export default () => {};\n");
-    writeFileSync(join(packageDir, "src", "two.ts"), "export default () => {};\n");
+    writeFileSync(
+      join(packageDir, "src", "one.ts"),
+      "export default () => {};\n",
+    );
+    writeFileSync(
+      join(packageDir, "src", "two.ts"),
+      "export default () => {};\n",
+    );
 
     const found = discoverExtensions({ userDir: join(dir, "node_modules") });
     assert.equal(found.length, 2);
@@ -87,7 +97,10 @@ test("resolves index files in Pi order: ts, js, mjs", () => {
   try {
     const extensionDir = join(dir, "entry-order");
     mkdirSync(extensionDir);
-    writeFileSync(join(extensionDir, "index.mjs"), "export default () => {};\n");
+    writeFileSync(
+      join(extensionDir, "index.mjs"),
+      "export default () => {};\n",
+    );
     writeFileSync(join(extensionDir, "index.js"), "export default () => {};\n");
     writeFileSync(join(extensionDir, "index.ts"), "export default () => {};\n");
 
@@ -108,7 +121,10 @@ test("reads extension paths from global and project Pi settings", () => {
       join(agentDir, "settings.json"),
       JSON.stringify({ extensions: ["./global-ext.ts"] }),
     );
-    writeFileSync(join(agentDir, "global-ext.ts"), "export default () => {};\n");
+    writeFileSync(
+      join(agentDir, "global-ext.ts"),
+      "export default () => {};\n",
+    );
 
     const projectDir = join(dir, "project");
     mkdirSync(join(projectDir, ".pi"), { recursive: true });
@@ -116,7 +132,10 @@ test("reads extension paths from global and project Pi settings", () => {
       join(projectDir, ".pi", "settings.json"),
       JSON.stringify({ extensions: ["../project-ext.ts"] }),
     );
-    writeFileSync(join(projectDir, "project-ext.ts"), "export default () => {};\n");
+    writeFileSync(
+      join(projectDir, "project-ext.ts"),
+      "export default () => {};\n",
+    );
 
     const found = discoverExtensions({ cwd: projectDir, agentDir });
     assert.equal(found.length, 2);

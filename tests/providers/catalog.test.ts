@@ -18,7 +18,14 @@ import { filterPickerItems } from "../../dist/cli/picker.js";
 
 test("catalog includes hosted and local provider presets", () => {
   const ids = PROVIDER_PRESETS.map((p) => p.id);
-  for (const id of ["kilo", "openai", "anthropic", "google", "openrouter", "ollama"]) {
+  for (const id of [
+    "kilo",
+    "openai",
+    "anthropic",
+    "google",
+    "openrouter",
+    "ollama",
+  ]) {
     assert.ok(ids.includes(id), `missing preset ${id}`);
   }
   assert.equal(getPreset("anthropic")?.type, "openai-compatible");
@@ -58,9 +65,21 @@ test("isLikelyChatModel rejects embeddings and audio models", () => {
 
 test("filterPickerItems matches via fuzzy search across provider and model", () => {
   const items = [
-    { value: "openai\u0000gpt-4o-mini", label: "gpt-4o-mini", description: "OpenAI" },
-    { value: "anthropic\u0000claude-sonnet-4", label: "claude-sonnet-4", description: "Anthropic" },
-    { value: "google\u0000gemini-2.5-flash", label: "gemini-2.5-flash", description: "Google Gemini" },
+    {
+      value: "openai\u0000gpt-4o-mini",
+      label: "gpt-4o-mini",
+      description: "OpenAI",
+    },
+    {
+      value: "anthropic\u0000claude-sonnet-4",
+      label: "claude-sonnet-4",
+      description: "Anthropic",
+    },
+    {
+      value: "google\u0000gemini-2.5-flash",
+      label: "gemini-2.5-flash",
+      description: "Google Gemini",
+    },
   ];
   assert.deepEqual(
     filterPickerItems(items, "claude").map((i) => i.label),
@@ -106,7 +125,11 @@ test("probeApiKey accepts a valid key and returns chat models", async () => {
       assert.equal(req.url, "/v1/models");
       assert.equal(req.headers.authorization, "Bearer good-key");
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ data: [{ id: "test-model" }, { id: "text-embedding-3-small" }] }));
+      res.end(
+        JSON.stringify({
+          data: [{ id: "test-model" }, { id: "text-embedding-3-small" }],
+        }),
+      );
     },
     async (baseUrl) => {
       const result = await probeApiKey(localPreset(baseUrl), "good-key", 2000);

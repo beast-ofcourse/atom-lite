@@ -55,7 +55,9 @@ class FakeTransport {
           jsonrpc: "2.0",
           id: msg.id,
           result: {
-            content: [{ type: "text", text: `echo:${msg.params.arguments.text}` }],
+            content: [
+              { type: "text", text: `echo:${msg.params.arguments.text}` },
+            ],
             isError: false,
           },
         }),
@@ -172,7 +174,10 @@ test("abort signal cancels an in-flight request", async () => {
   const client = new McpClient(transport);
   await client.connect({ startupTimeoutMs: 1000 });
   const controller = new AbortController();
-  const promise = client.listTools({ timeoutMs: 10000, signal: controller.signal });
+  const promise = client.listTools({
+    timeoutMs: 10000,
+    signal: controller.signal,
+  });
   queueMicrotask(() => controller.abort());
   await assert.rejects(
     () => promise,

@@ -166,7 +166,10 @@ export class BackgroundTaskManager {
         if (idx >= 0) t.waiters.splice(idx, 1);
         resolve(task);
       };
-      const timer = setTimeout(() => finish(this.get(id)), Math.max(0, timeoutMs));
+      const timer = setTimeout(
+        () => finish(this.get(id)),
+        Math.max(0, timeoutMs),
+      );
       const waiter = (task: BackgroundTask) => finish(task);
       const onAbort = () => finish(this.get(id));
       if (signal) {

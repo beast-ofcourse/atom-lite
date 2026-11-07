@@ -13,6 +13,7 @@ commands, providers, models, widgets, and event handlers into Atom-lite's own
 runtime.
 
 Reference docs:
+
 - [docs/extensions.md](https://github.com/beast-ofcourse/atom-lite/blob/master/docs/extensions.md) — discovery, trust, compatibility tiers, diagnostics.
 - [docs/adr/0011-pi-extensions-in-process.md](https://github.com/beast-ofcourse/atom-lite/blob/master/docs/adr/0011-pi-extensions-in-process.md) — architecture.
 - [src/extensions/types.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/types.ts) — full `ExtensionAPI` + registries.
@@ -29,7 +30,11 @@ export default function (pi: any) {
     name: "greet",
     label: "Greet",
     description: "Return a greeting for a name.",
-    parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+    parameters: {
+      type: "object",
+      properties: { name: { type: "string" } },
+      required: ["name"],
+    },
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       return { content: [{ type: "text", text: `Hello, ${params.name}!` }] };
     },
@@ -60,6 +65,7 @@ atom-lite -e ./my-ext.ts
 ## Discovery
 
 Extensions are discovered from:
+
 - CLI paths: `-e` / `--extension PATH`.
 - Atom-lite user/project extension directories.
 - Pi discovery locations and `settings.json` / `package.json` `pi.extensions` manifests.
@@ -73,15 +79,19 @@ decisions are stored in user config. Check trust with `pi.isProjectTrusted()`.
 Both forms are accepted (migration-friendly):
 
 ```ts
-export default function (pi) { /* ... */ }
-export async function activate(pi) { /* ... */ }
+export default function (pi) {
+  /* ... */
+}
+export async function activate(pi) {
+  /* ... */
+}
 ```
 
 Pi host modules are aliased to Atom-lite's own copies, so use Pi-style imports:
 
 ```ts
-import { Type } from "@sinclair/typebox";          // or "typebox"
-import { Text } from "@earendil-works/pi-tui";     // or "pi-tui"
+import { Type } from "@sinclair/typebox"; // or "typebox"
+import { Text } from "@earendil-works/pi-tui"; // or "pi-tui"
 ```
 
 Legacy `@mariozechner/*` specifiers also resolve. TypeScript loads without a
@@ -94,15 +104,19 @@ pi.registerTool({
   name: "my_tool",
   label: "My Tool",
   description: "What the LLM sees.",
-  parameters: { /* JSON Schema / TypeBox */ },
+  parameters: {/* JSON Schema / TypeBox */},
   async execute(toolCallId, params, signal, onUpdate, ctx) {
     // stream partial output:
     onUpdate?.({ content: [{ type: "text", text: "partial..." }] });
-    return { content: [{ type: "text", text: "final result" }], details: { foo: 1 } };
+    return {
+      content: [{ type: "text", text: "final result" }],
+      details: { foo: 1 },
+    };
   },
   // optional custom rendering (Tier 2):
   renderCall: (args, theme, context) => new Text(`call ${args}`),
-  renderResult: (result, options, theme, context) => new Text(result.content[0]?.text ?? ""),
+  renderResult: (result, options, theme, context) =>
+    new Text(result.content[0]?.text ?? ""),
 });
 pi.unregisterTool("my_tool");
 pi.setActiveTools(["my_tool"]);
@@ -130,7 +144,9 @@ Commands become `/mycmd` in the palette and support autocomplete.
 ## Events
 
 ```ts
-const off = pi.on("assistant_delta", async (event, ctx) => { /* ... */ });
+const off = pi.on("assistant_delta", async (event, ctx) => {
+  /* ... */
+});
 pi.off("assistant_delta", handler);
 ```
 
@@ -163,8 +179,8 @@ Dialogs: `pi.select`, `pi.confirm`, `pi.input` (shown above).
 ```ts
 pi.appendEntry("custom_type", { foo: 1 });
 const entries = pi.getSessionEntries({ type: "custom_type" });
-pi.getSessionManager();   // read model
-pi.getSession();          // { id }
+pi.getSessionManager(); // read model
+pi.getSession(); // { id }
 pi.getWorkspace();
 ```
 
@@ -189,10 +205,13 @@ pi.log("debug message");
 ## Shortcuts, flags, autocomplete
 
 ```ts
-pi.registerShortcut("ctrl+shift+x", { description: "do thing", handler: async (ctx) => {} });
+pi.registerShortcut("ctrl+shift+x", {
+  description: "do thing",
+  handler: async (ctx) => {},
+});
 pi.registerFlag("myflag", { type: "boolean", default: false });
 const v = pi.getFlag("myflag");
-pi.addAutocompleteProvider((tui, theme) => ({ /* ... */ }));
+pi.addAutocompleteProvider((tui, theme) => ({/* ... */}));
 ```
 
 ## Renderers (Tier 2)
@@ -220,6 +239,7 @@ Reduced-compat features (OAuth, `streamSimple`, classifiers, image generation,
 ## Diagnostics
 
 Inside atom-lite:
+
 - `/extensions` — list discovered extensions + load status.
 - `/extensions doctor` — per-extension tools/commands/errors.
 

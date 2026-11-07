@@ -41,10 +41,7 @@ export function resolveRequestId(requestId?: string): string {
 }
 
 /** Apply `X-Request-ID` case-insensitively and return the resolved id. */
-export function applyRequestId(
-  headers: HeaderMap,
-  requestId?: string,
-): string {
+export function applyRequestId(headers: HeaderMap, requestId?: string): string {
   const id = resolveRequestId(requestId);
   setHeader(headers, "X-Request-ID", id);
   return id;

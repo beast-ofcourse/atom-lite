@@ -59,7 +59,7 @@ test("resolves host aliases inside extension code", async () => {
       [
         'import { Text } from "pi-tui";',
         'import { Type } from "typebox";',
-        'export default (api:any) => {',
+        "export default (api:any) => {",
         '  api.registerTool({ name: "alias", label: "a", description: "d", parameters: Type.Object({ n: Type.Number() }), execute: async () => new Text("ok") });',
         "};",
         "",
@@ -104,7 +104,10 @@ test("isolates factory failures and continues", async () => {
   const { dir, agentDir, cleanup } = setup();
   try {
     const extDir = join(dir, "ext");
-    writeFileSync(join(extDir, "bad.ts"), "export default () => { throw new Error('boom'); };\n");
+    writeFileSync(
+      join(extDir, "bad.ts"),
+      "export default () => { throw new Error('boom'); };\n",
+    );
     writeFileSync(
       join(extDir, "good.ts"),
       "export default (api:any) => { api.registerTool({ name:'good', label:'g', description:'d', execute: async()=>1 }); };\n",
@@ -127,11 +130,17 @@ test("cache-busted reload observes edits", async () => {
   try {
     const extDir = join(dir, "ext");
     const file = join(extDir, "reload.ts");
-    writeFileSync(file, "export default (api:any) => { api.registerTool({ name:'v1', label:'v', description:'d', execute: async()=>1 }); };\n");
+    writeFileSync(
+      file,
+      "export default (api:any) => { api.registerTool({ name:'v1', label:'v', description:'d', execute: async()=>1 }); };\n",
+    );
     const loader = new ExtensionLoader({ userDir: extDir, agentDir });
     let loaded = await loader.loadAll();
     assert.ok(loaded[0].registries.tools.has("v1"));
-    writeFileSync(file, "export default (api:any) => { api.registerTool({ name:'v2', label:'v', description:'d', execute: async()=>2 }); };\n");
+    writeFileSync(
+      file,
+      "export default (api:any) => { api.registerTool({ name:'v2', label:'v', description:'d', execute: async()=>2 }); };\n",
+    );
     loaded = await loader.loadAll();
     assert.ok(loaded[0].registries.tools.has("v2"));
     assert.ok(!loaded[0].registries.tools.has("v1"));

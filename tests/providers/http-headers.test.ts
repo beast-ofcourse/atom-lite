@@ -8,7 +8,9 @@ import {
 } from "../../dist/providers/http-headers.js";
 
 test("setHeader replaces a differently-cased existing key", () => {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
   setHeader(headers, "content-type", "text/plain");
   assert.deepEqual(Object.keys(headers), ["content-type"]);
   assert.equal(headers["content-type"], "text/plain");

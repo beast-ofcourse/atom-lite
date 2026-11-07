@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { namespacedToolName, sanitizeNameSegment } from "../../dist/mcp/manager.js";
+import {
+  namespacedToolName,
+  sanitizeNameSegment,
+} from "../../dist/mcp/manager.js";
 
 test("sanitizeNameSegment replaces invalid chars", () => {
   assert.equal(sanitizeNameSegment("a b/c"), "a_b_c");

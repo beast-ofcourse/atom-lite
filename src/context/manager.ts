@@ -207,7 +207,11 @@ export class ContextManager {
       this.opts.userInstructionsPath ?? join(userConfigDir(), "AGENTS.md");
     const instructionSignature =
       `${workspace}|${this.opts.maxProjectInstructionBytes}|` +
-      statSignature([userPath, join(workspace, "AGENTS.md"), join(workspace, "CLAUDE.md")]);
+      statSignature([
+        userPath,
+        join(workspace, "AGENTS.md"),
+        join(workspace, "CLAUDE.md"),
+      ]);
     let instructions: string[];
     if (this.instructionCache?.signature === instructionSignature) {
       instructions = this.instructionCache.text;
@@ -324,10 +328,9 @@ export class ContextManager {
     this.lastCompactionCoveredCount = coveredCount;
     this.compactedThisBuild = true;
     this.lastReportedUsage = undefined;
-    this.lastBuildTokens = recent.reduce(
-      (s, m) => s + estimateMessageTokens(m),
-      0,
-    ) + this.toolTokenOverhead;
+    this.lastBuildTokens =
+      recent.reduce((s, m) => s + estimateMessageTokens(m), 0) +
+      this.toolTokenOverhead;
 
     const compacted: Message[] = [
       { role: "system", content: systemPrompt },
@@ -338,10 +341,9 @@ export class ContextManager {
       },
       ...recent,
     ];
-    this.lastBuildTokens = compacted.reduce(
-      (s, m) => s + estimateMessageTokens(m),
-      0,
-    ) + this.toolTokenOverhead;
+    this.lastBuildTokens =
+      compacted.reduce((s, m) => s + estimateMessageTokens(m), 0) +
+      this.toolTokenOverhead;
     return compacted;
   }
 }

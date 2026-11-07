@@ -43,7 +43,11 @@ test("transcript reset clears history and pruning state", () => {
 
 test("transcript prunes repeatedly and updates the marker", () => {
   const t = new Transcript();
-  for (let i = 0; i < TRANSCRIPT_MAX_CHILDREN + TRANSCRIPT_PRUNE_COUNT + 200; i++) {
+  for (
+    let i = 0;
+    i < TRANSCRIPT_MAX_CHILDREN + TRANSCRIPT_PRUNE_COUNT + 200;
+    i++
+  ) {
     t.add(new Text(`line ${i}`));
   }
   assert.ok(t.hiddenCount > TRANSCRIPT_PRUNE_COUNT);

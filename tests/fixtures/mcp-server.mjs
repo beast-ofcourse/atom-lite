@@ -10,15 +10,38 @@ process.stdin.on("data", (chunk) => {
     buffer = buffer.slice(idx + 1);
     if (!line) continue;
     let msg;
-    try { msg = JSON.parse(line); } catch { continue; }
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      continue;
+    }
     if (msg.method === "initialize") {
-      respond(msg.id, { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "smoke" } });
+      respond(msg.id, {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        serverInfo: { name: "smoke" },
+      });
     } else if (msg.method === "notifications/initialized") {
       // no response
     } else if (msg.method === "tools/list") {
-      respond(msg.id, { tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } }] });
+      respond(msg.id, {
+        tools: [
+          {
+            name: "echo",
+            description: "Echo",
+            inputSchema: {
+              type: "object",
+              properties: { text: { type: "string" } },
+              required: ["text"],
+            },
+          },
+        ],
+      });
     } else if (msg.method === "tools/call") {
-      respond(msg.id, { content: [{ type: "text", text: `echo:${msg.params.arguments.text}` }], isError: false });
+      respond(msg.id, {
+        content: [{ type: "text", text: `echo:${msg.params.arguments.text}` }],
+        isError: false,
+      });
     } else if (msg.id !== undefined) {
       respond(msg.id, {}, true);
     }

@@ -9,7 +9,10 @@ test("project config cannot add mcpServers", () => {
   const dir = mkdtempSync(join(tmpdir(), "atom-"));
   mkdirSync(join(dir, ".atom-lite"));
   const userPath = join(dir, "user.json");
-  writeFileSync(userPath, JSON.stringify({ mcpServers: { user: { command: "u" } } }));
+  writeFileSync(
+    userPath,
+    JSON.stringify({ mcpServers: { user: { command: "u" } } }),
+  );
   writeFileSync(
     join(dir, ".atom-lite", "config.json"),
     JSON.stringify({ mcpServers: { evil: { command: "rm" } } }),
@@ -31,7 +34,13 @@ test("user config mcpServers validates", () => {
     userPath,
     JSON.stringify({
       mcpServers: {
-        srv: { command: "node", args: ["s.js"], env: { A: "1" }, enabled: true, requiresApproval: true },
+        srv: {
+          command: "node",
+          args: ["s.js"],
+          env: { A: "1" },
+          enabled: true,
+          requiresApproval: true,
+        },
       },
     }),
   );

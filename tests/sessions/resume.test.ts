@@ -10,7 +10,9 @@ import {
   sessionSelectionFromEvents,
 } from "../../dist/sessions/history.js";
 
-async function withStore(run: (store: JsonlSessionStore) => void | Promise<void>): Promise<void> {
+async function withStore(
+  run: (store: JsonlSessionStore) => void | Promise<void>,
+): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), "atom-lite-sessions-"));
   try {
     await run(new JsonlSessionStore(dir));
@@ -21,7 +23,11 @@ async function withStore(run: (store: JsonlSessionStore) => void | Promise<void>
 
 test("resuming restores retained messages and the event log", async () => {
   await withStore(async (store) => {
-    const created = store.create({ workspace: "/w", provider: "fake", id: "s1" });
+    const created = store.create({
+      workspace: "/w",
+      provider: "fake",
+      id: "s1",
+    });
     created.appendMessage({
       role: "user",
       content: [{ type: "text", text: "hello" }],
@@ -57,7 +63,11 @@ test("resuming restores retained messages and the event log", async () => {
 
 test("resuming preserves system messages", async () => {
   await withStore(async (store) => {
-    const created = store.create({ workspace: "/w", provider: "fake", id: "sys1" });
+    const created = store.create({
+      workspace: "/w",
+      provider: "fake",
+      id: "sys1",
+    });
     created.appendMessage({ role: "system", content: "system note" });
     await created.flush();
 
@@ -71,7 +81,11 @@ test("resuming preserves system messages", async () => {
 
 test("session index derives titles, message counts, and search text", async () => {
   await withStore(async (store) => {
-    const created = store.create({ workspace: "/w", provider: "fake", id: "s1" });
+    const created = store.create({
+      workspace: "/w",
+      provider: "fake",
+      id: "s1",
+    });
     created.appendMessage({
       role: "user",
       content: [{ type: "text", text: "first user message" }],

@@ -1,2 +1,4 @@
-function oldName() { return "newName works"; }
+function oldName() {
+  return "newName works";
+}
 module.exports = { oldName };

@@ -85,7 +85,10 @@ export class OllamaAdapter implements ProviderAdapter {
   }
 
   private buildHeaders(requestId?: string): Record<string, string> {
-    const h = mergeHeaders({ "Content-Type": "application/json" }, this.headers);
+    const h = mergeHeaders(
+      { "Content-Type": "application/json" },
+      this.headers,
+    );
     applyRequestId(h, requestId);
     return h;
   }
@@ -333,7 +336,7 @@ export class OllamaAdapter implements ProviderAdapter {
       throw new Error(`PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`);
     }
     if (!res || !res.ok || !res.body) {
-      const text = await res?.text().catch(() => "") ?? "";
+      const text = (await res?.text().catch(() => "")) ?? "";
       throw new Error(
         res
           ? `PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`

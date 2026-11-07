@@ -5,10 +5,7 @@ import {
   defaultUserConfigPath,
   userConfigDir,
 } from "../config/paths.js";
-import {
-  saveProviderSelection,
-  saveTheme,
-} from "../config/write.js";
+import { saveProviderSelection, saveTheme } from "../config/write.js";
 import { resolveApiKey, saveApiKey } from "../config/credentials.js";
 import { join } from "node:path";
 import { writeFileSync, existsSync } from "node:fs";
@@ -320,7 +317,9 @@ export async function run(args: string[]): Promise<void> {
           ? (cfg.models[0].id ?? cfg.models[0].name ?? "default")
           : "default";
       const apiKey = resolveExtensionApiKey(cfg.apiKey);
-      const headers = { ...(cfg.headers as Record<string, string> | undefined) };
+      const headers = {
+        ...(cfg.headers as Record<string, string> | undefined),
+      };
       if (cfg.authHeader && apiKey) {
         setHeader(headers, "Authorization", `Bearer ${apiKey}`);
       }
