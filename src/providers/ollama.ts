@@ -293,22 +293,52 @@ export class OllamaAdapter implements ProviderAdapter {
     const url = `${this.baseUrl}/api/chat`;
     const body = this.buildBody(request, true);
     const requestId = resolveRequestId(request.requestId);
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: this.buildHeaders(requestId),
-        body: JSON.stringify(body),
-        signal: request.signal,
-      });
-    } catch (err) {
-      throw new Error(
-        `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-    if (!res.ok || !res.body) {
+    let res: Response | undefined;
+    let lastErr: Error | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: this.buildHeaders(requestId),
+          body: JSON.stringify(body),
+          signal: request.signal,
+        });
+      } catch (err) {
+        lastErr = new Error(
+          `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        if (attempt < 2) {
+          await delay(200 * (attempt + 1), request.signal);
+          continue;
+        }
+        throw lastErr;
+      }
+      if (res.ok) break;
       const text = await res.text().catch(() => "");
+      if (res.status === 401 || res.status === 403) {
+        throw new Error(`PROVIDER_AUTH_FAILED: ${text}`);
+      }
+      if (isRetryableStatus(res.status)) {
+        lastErr = new Error(
+          res.status === 429
+            ? `PROVIDER_RATE_LIMITED: ${text}`
+            : `PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`,
+        );
+        if (attempt < 2) {
+          await delay(retryDelayMs(res, attempt, 500), request.signal);
+          continue;
+        }
+        throw lastErr;
+      }
       throw new Error(`PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`);
+    }
+    if (!res || !res.ok || !res.body) {
+      const text = await res?.text().catch(() => "") ?? "";
+      throw new Error(
+        res
+          ? `PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`
+          : "PROVIDER_INVALID_RESPONSE",
+      );
     }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
