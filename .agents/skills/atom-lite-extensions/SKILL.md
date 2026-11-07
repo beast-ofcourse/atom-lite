@@ -150,17 +150,18 @@ const off = pi.on("assistant_delta", async (event, ctx) => {
 pi.off("assistant_delta", handler);
 ```
 
-Common events: `tool_call`, `tool_result`, `assistant_delta`, `assistant_text`,
-`thinking_delta`, `agent_start`, `agent_end`, `turn_start`, `turn_end`,
-`context_usage`, `model_switched`, `session_start`. Tier 3 events
-(session tree, forks) fail loudly.
+Common events (AtomEvent): `extension_load`, `extension_activate`,
+`extension_unload`, `extension_error`, `session_start`, `session_end`,
+`turn_start`, `turn_end`, `tool_call`, `tool_result`, `message`,
+`message_start`, `message_end`, `context_build`, `config_change`.
+Tier 3 events (session tree, forks) fail loudly.
 
 ## UI
 
 ```ts
 pi.ui.notify("hello", "info");          // info | warning | error
 pi.setStatus("myext", "status text");   // undefined clears
-pi.registerWidget("above", { location: "aboveEditor", render: () => ["line1"] });
+pi.registerWidget("above", { id: "above", location: "aboveInput", render: (w) => ["line1"] });
 pi.setWidget("key", ["line"], { placement: "aboveEditor" });
 pi.setFooter((tui, theme, data) => /* component */);
 pi.setHeader((tui, theme) => /* component */);

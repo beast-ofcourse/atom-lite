@@ -75,6 +75,67 @@ Some Pi features are accepted but reduced:
 - Provider registration maps onto Atom-lite's OpenAI-compatible provider
   factory.
 
+## ExtensionAPI reference
+
+The `pi` object passed to an extension is an `ExtensionAPI`. Full surface:
+
+**Identity / context**
+- `id` — extension id
+- `ui` — `ExtensionUIContext` (see UI below)
+- `getWorkspace()` → string
+- `getSession()` → `{ id }`
+- `getSessionManager()` → any
+- `isProjectTrusted()` → boolean
+
+**Tools**
+- `registerTool(tool)`, `unregisterTool(name)`
+- `setActiveTools(names)`, `getActiveTools()`, `getAllTools()`
+
+**Commands**
+- `registerCommand(command)`, `unregisterCommand(name)`
+
+**Events** (events are `AtomEvent` values: `extension_load`, `extension_activate`, `extension_unload`, `extension_error`, `session_start`, `session_end`, `turn_start`, `turn_end`, `tool_call`, `tool_result`, `message`, `message_start`, `message_end`, `context_build`, `config_change`)
+- `on(event, handler)` → unsubscribe fn
+- `off(event, handler)`
+
+**Session entries**
+- `appendEntry(type, data)`
+- `getSessionEntries(filter?)`
+
+**Status / notify**
+- `setStatus(part, value)`
+- `notify(message, level?)` — level: `"info" | "warning" | "error"`
+
+**Widgets**
+- `registerWidget(location, widget)` — location: `"aboveInput" | "belowInput" | "footer"`
+- `unregisterWidget(id)`
+- `setWidget(key, content, options?)` — placement: `"aboveEditor" | "belowEditor"`
+
+**Renderers / transformers**
+- `registerToolRenderer(resolver)`, `registerMessageRenderer(customType, renderer)`, `registerEntryRenderer(customType, renderer)`, `registerMarkdownTransformer(transformer)`
+
+**Shortcuts / flags / autocomplete**
+- `registerShortcut(shortcut, options)`, `registerFlag(name, options)`, `getFlag(name)`, `addAutocompleteProvider(factory)`
+
+**UI chrome**
+- `setFooter(factory?)`, `setHeader(factory?)`, `setTitle(title)`
+- `setWorkingMessage(message?)`, `setWorkingVisible(visible)`, `setWorkingIndicator(options?)`, `setHiddenThinkingLabel(label?)`
+- `getToolsExpanded()`, `setToolsExpanded(expanded)`
+
+**Dialogs**
+- `select(title, options)` → `Promise<string | undefined>`
+- `confirm(title, message)` → `Promise<boolean>`
+- `input(title, placeholder?)` → `Promise<string | undefined>`
+
+**Providers / models**
+- `registerProvider(provider)`, `unregisterProvider(name)`, `registerModel(model)`
+
+**Exec / logging**
+- `exec(command, args?, options?)` → `Promise<ExecResult>`
+- `log(message)`
+
+**UI context (`pi.ui`)** — also exposes: `editor`, `onTerminalInput`, `custom`, `pasteToEditor`, `setEditorText`, `getEditorText`, `getTheme`, `setTheme`.
+
 ## Diagnostics
 
 Use `/extensions` to list discovered extensions and `/extensions doctor` for

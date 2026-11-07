@@ -28,6 +28,8 @@ export class UserBox implements Component {
       }
     }
     if (lines.length === 0) lines.push(fill(""));
+    // trailing blank line for breathing room before agent reply
+    lines.push("");
     return lines;
   }
 }

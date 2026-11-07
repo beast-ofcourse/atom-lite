@@ -26,10 +26,18 @@ export class TurnRecorder {
         arguments: Record<string, unknown>;
       }>;
       usage?: { input?: number; output?: number };
+      metadata?: Record<string, unknown>;
     },
     streamedText: string,
   ): Promise<string> {
     let message: Message = response.message;
+    if (
+      message.role === "assistant" &&
+      !message.thinking &&
+      response?.metadata?.thinking
+    ) {
+      (message as any).thinking = response.metadata.thinking;
+    }
     void this.extensionDispatch?.("message_start", {
       type: "message_start",
       message,
@@ -41,12 +49,21 @@ export class TurnRecorder {
     const replacement = Array.isArray(results)
       ? results.find((x: any) => x && x.message)?.message
       : (results as any)?.message;
+    const originalThinking =
+      message.role === "assistant" ? (message as any).thinking : undefined;
     if (
       replacement &&
       typeof replacement === "object" &&
       (replacement as any).role === message.role
     ) {
       message = replacement as Message;
+      if (
+        message.role === "assistant" &&
+        !message.thinking &&
+        originalThinking
+      ) {
+        (message as any).thinking = originalThinking;
+      }
     }
     this.session.appendMessage(message);
     const text =

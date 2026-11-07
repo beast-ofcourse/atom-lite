@@ -1683,6 +1683,8 @@ export async function run(args: string[]): Promise<void> {
     transcript.reset();
     // Drop stale references so toggles only affect the resumed transcript.
     toolBoxes.length = 0;
+    thinkingText = null;
+    thinkingBuffer = "";
     banner.setTheme(theme);
     transcript.add(banner);
     transcript.add(new Spacer(1));
@@ -1725,6 +1727,13 @@ export async function run(args: string[]): Promise<void> {
       }
 
       if (message.role === "assistant") {
+        const thinking = String((message as any).thinking ?? "").trim();
+        if (thinking && showThinking) {
+          transcript.add(new Spacer(1));
+          const thinkingBlock = new ThinkingBlock();
+          thinkingBlock.buffer = thinking;
+          transcript.add(thinkingBlock);
+        }
         const text = textOf(message.content).trim();
         if (text) {
           transcript.add(new Markdown(text, 0, 0, markdownThemeFor(theme)));

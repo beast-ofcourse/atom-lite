@@ -15,6 +15,7 @@ export type Message =
       content?: ContentPart[];
       toolCalls?: ToolCall[];
       providerState?: unknown;
+      thinking?: string;
     }
   | {
       role: "tool";

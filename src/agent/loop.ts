@@ -407,6 +407,7 @@ export class AgentRuntime {
 
         let response: any;
         let streamedText = "";
+        let thinkingBuffer = "";
         await this.extensionDispatch?.("before_provider_request", {
           type: "before_provider_request",
           messages,
@@ -422,6 +423,7 @@ export class AgentRuntime {
           requestId,
         })) {
           if (ev.type === "thinking_delta") {
+            thinkingBuffer += ev.text;
             this.onEvent?.({ type: "thinking_delta", text: ev.text });
           } else if (ev.type === "assistant_delta") {
             streamedText += ev.text;
@@ -432,6 +434,14 @@ export class AgentRuntime {
           } else if (ev.type === "final") {
             response = ev.response;
             streamedText = ev.streamedText;
+            if (thinkingBuffer) {
+              if (response?.message && !response.message.thinking) response.message.thinking = thinkingBuffer;
+              if (!response?.metadata?.thinking) {
+                response.metadata = { ...(response?.metadata ?? {}), thinking: thinkingBuffer };
+              }
+            } else if (response?.metadata?.thinking && response?.message && !response.message.thinking) {
+              response.message.thinking = response.metadata.thinking;
+            }
           }
         }
 
