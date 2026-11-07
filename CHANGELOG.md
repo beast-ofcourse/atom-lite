@@ -5,6 +5,46 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-11-07
+
+### Added
+
+- TUI user messages now render in a distinct boxed panel (`UserBox`) for clear separation from tool panels.
+- Four new color themes: dracula, monokai, nord, solarized.
+- Release workflow skill (`.agents/skills/release-workflow/`) documenting the full ship procedure.
+
+### Changed
+
+- Diff view header now shows bold path with colored `+N`/`-N` counts; hunk headers bold cyan; context lines gray; added/removed lines get background tints; wrapped continuations indent for alignment.
+- Diff view stats precomputed once; `render()` memoized by width.
+- ToolBox reuses a single `DiffView` instance instead of allocating per frame.
+- Stream text invalidation throttled to 50 ms during streaming.
+- Thinking block render cached by buffer + width.
+- Tool executor defaults unclassified path-bearing tools to a write lock to avoid concurrent writes.
+- Tool executor slot acquisition now honors abort signals (queued tasks release on abort).
+- Glob runs asynchronously via async spawn.
+- JSON-aware secret redaction; security tests added.
+- CLAUDE.md loaded as project instructions; context instruction cache scoped by workspace.
+- Agent loop dead code removed from `loop.ts` and `model-turn.ts`.
+- README, SECURITY, configuration docs, and ADRs refreshed.
+
+### Fixed
+
+- Bash process tree termination on timeout/abort.
+- Glob exit codes handled correctly.
+- CLI help and callback arity issues.
+- Extension discovery/loader and MCP manager robustness.
+
+### Performance
+
+- Mermaid rendering cached and deferred to seal/finalize; TUI no longer lags on streaming deltas.
+- Checkpoint creation skips oversized files instead of aborting; default budget raised to 100 MB.
+
+### Docs
+
+- Added `lsp` configuration reference and system-prompt note on enabling LSP.
+- Added `release-workflow` skill; referenced in AGENTS.md.
+
 ## [0.9.3] - 2026-11-07
 
 ### Added
