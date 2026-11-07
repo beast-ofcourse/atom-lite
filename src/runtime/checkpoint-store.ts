@@ -58,7 +58,7 @@ export interface CheckpointDiffEntry {
   status: "added" | "modified" | "deleted";
 }
 
-const DEFAULT_MAX_BYTES = 50 * 1024 * 1024;
+const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
 const DEFAULT_MAX_COUNT = 20;
 
 export class CheckpointStore {
@@ -336,7 +336,6 @@ export class CheckpointStore {
     const skipped: CheckpointSkipped[] = [];
     const captured: string[] = [];
     let bytes = 0;
-    let tooLarge = false;
 
     const files = this.listWorkspaceFiles();
     // first pass: compute sizes
@@ -369,16 +368,11 @@ export class CheckpointStore {
         continue;
       }
       if (bytes + st.size > this.maxBytes) {
-        tooLarge = true;
-        break;
+        skipped.push({ path: rel, reason: "too_large" });
+        continue;
       }
       bytes += st.size;
       toCopy.push({ rel, size: st.size });
-    }
-
-    if (tooLarge) {
-      rmSync(dir, { recursive: true, force: true });
-      throw new Error("CHECKPOINT_TOO_LARGE");
     }
 
     for (const { rel } of toCopy) {
