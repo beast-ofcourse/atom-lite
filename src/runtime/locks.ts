@@ -164,20 +164,38 @@ export class LockManager {
 
   async acquireRead(key: string, signal?: AbortSignal): Promise<Release> {
     const g = await this.global.acquire("read", signal);
-    const f = await this.getLock(key).acquire("read", signal);
-    return () => {
-      f();
-      g();
-    };
+    try {
+      const f = await this.getLock(key).acquire("read", signal);
+      return () => {
+        f();
+        g();
+      };
+    } catch (err) {
+      try {
+        g();
+      } catch {
+        // Ignore release errors.
+      }
+      throw err;
+    }
   }
 
   async acquireWrite(key: string, signal?: AbortSignal): Promise<Release> {
     const g = await this.global.acquire("read", signal);
-    const f = await this.getLock(key).acquire("write", signal);
-    return () => {
-      f();
-      g();
-    };
+    try {
+      const f = await this.getLock(key).acquire("write", signal);
+      return () => {
+        f();
+        g();
+      };
+    } catch (err) {
+      try {
+        g();
+      } catch {
+        // Ignore release errors.
+      }
+      throw err;
+    }
   }
 
   async acquireGlobal(signal?: AbortSignal): Promise<Release> {
