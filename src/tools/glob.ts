@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import * as fs from "node:fs";
 import { resolve, relative } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { isWithinWorkspace } from "../security/paths.js";
 import type { Tool, ToolContext, ToolResult } from "./types.js";
 import type { ToolCall } from "../types.js";
@@ -69,11 +69,61 @@ export const globTool: Tool = {
     }
 
     // Try ripgrep --files for speed.
-    const res = spawnSync("rg", ["--hidden", "--files", "-g", pattern, root], {
-      encoding: "utf8",
-      maxBuffer: 10 * 1024 * 1024,
-      timeout: 30000,
+    const rgResult = await new Promise<{
+      stdout: string;
+      stderr: string;
+      error?: Error;
+    }>((resolvePromise) => {
+      const child = spawn("rg", ["--hidden", "--files", "-g", pattern, root], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stdout = "";
+      let stderr = "";
+      let killed = false;
+      let settled = false;
+      const timer = setTimeout(() => {
+        killed = true;
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // ignore
+        }
+      }, 30000);
+      child.stdout?.setEncoding("utf8");
+      child.stderr?.setEncoding("utf8");
+      child.stdout?.on("data", (c: string) => {
+        if (stdout.length < 10 * 1024 * 1024) stdout += c;
+      });
+      child.stderr?.on("data", (c: string) => {
+        if (stderr.length < 1024 * 1024) stderr += c;
+      });
+      child.on("error", (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolvePromise({ stdout, stderr, error: err });
+      });
+      child.on("close", () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (killed) {
+          resolvePromise({
+            stdout,
+            stderr,
+            error: new Error("rg timed out"),
+          });
+        } else {
+          resolvePromise({ stdout, stderr });
+        }
+      });
     });
+
+    const res = {
+      stdout: rgResult.stdout,
+      stderr: rgResult.stderr,
+      error: rgResult.error,
+    };
 
     let matches: string[];
     if (res.error) {
