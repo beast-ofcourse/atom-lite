@@ -95,6 +95,21 @@ test("bash runs command and returns output", async () => {
   assert.match(r.content, /exit_code: 0/);
 });
 
+test("bash warns about shell-based file editing", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  writeFileSync(join(dir, "a.txt"), "one\ntwo\n");
+  const r = await bashTool.execute(
+    {
+      id: "1",
+      name: "bash",
+      arguments: { command: "sed -i 's/one/ONE/' a.txt" },
+    },
+    ctx(dir),
+  );
+  assert.match(r.content, /cwd:/);
+  assert.match(r.content, /shell-based file editing detected/);
+});
+
 test("path escape rejected", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   const r = await readTool.execute(

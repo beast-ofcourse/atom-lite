@@ -85,3 +85,10 @@ test("todo without a store is unavailable", async () => {
   assert.equal(r.isError, true);
   assert.match(r.content, /TODO_STORE_UNAVAILABLE/);
 });
+
+test("contains compares the full task text, not a prefix", () => {
+  const store = new TodoStore();
+  store.add({ content: "fix the failing auth test" });
+  assert.equal(store.contains("fix the failing auth test"), true);
+  assert.equal(store.contains("fix the failing auth test and the UI layer"), false);
+});

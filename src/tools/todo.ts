@@ -1,14 +1,9 @@
 import { z } from "zod";
 import type { Tool, ToolContext, ToolResult } from "./types.js";
 import type { ToolCall } from "../types.js";
-import type { TodoStatus } from "../runtime/todos.js";
+import { TODO_STATUSES, type TodoStatus } from "../runtime/todos.js";
 
-const StatusSchema = z.enum([
-  "pending",
-  "in_progress",
-  "completed",
-  "cancelled",
-]);
+const StatusSchema = z.enum(TODO_STATUSES);
 
 const TodoInputSchema = z
   .object({
@@ -45,7 +40,7 @@ export const todoTool: Tool = {
   definition: {
     name: "todo",
     description:
-      "Maintain the session task ledger. Use action 'write' to replace the list, 'update' to change one item, and 'read' to inspect it. Record every distinct user request, keep statuses current, and mark a task completed only after its verification passes.",
+      "Maintain the session task ledger: 'write' replaces the list, 'update' changes one item, and 'read' inspects it. Keep statuses current and mark a task completed only after its verification passes.",
     parameters: {
       type: "object",
       properties: {
@@ -63,7 +58,7 @@ export const todoTool: Tool = {
               content: { type: "string" },
               status: {
                 type: "string",
-                enum: ["pending", "in_progress", "completed", "cancelled"],
+                enum: [...TODO_STATUSES],
               },
               verification: { type: "string" },
             },
@@ -75,7 +70,7 @@ export const todoTool: Tool = {
         content: { type: "string" },
         status: {
           type: "string",
-          enum: ["pending", "in_progress", "completed", "cancelled"],
+          enum: [...TODO_STATUSES],
         },
         verification: { type: "string" },
       },

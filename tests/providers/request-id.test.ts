@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { OpenAICompatibleAdapter } from "../../dist/providers/openai-compatible.js";
+import { OllamaAdapter } from "../../dist/providers/ollama.js";
+import { GeminiAdapter } from "../../dist/providers/gemini.js";
 
 async function withServer(handler: (req: any, res: any) => void, fn: (port: number) => Promise<void>) {
   const server = createServer(handler);
@@ -51,6 +53,65 @@ test("generated requestId is non-empty and returned", async () => {
     });
     const r = await adapter.generate({ model: "m", messages: [userMessage] });
     assert.ok(typeof r.requestId === "string" && r.requestId.length > 0);
+  });
+});
+
+test("Ollama stream propagates the request id", async () => {
+  let seen: string | undefined;
+  await withServer((req, res) => {
+    seen = req.headers["x-request-id"];
+    res.writeHead(200, { "content-type": "application/x-ndjson" });
+    res.end(
+      JSON.stringify({ message: { content: "ok" }, done: true }) + "\n",
+    );
+  }, async (port) => {
+    const adapter = new OllamaAdapter({
+      id: "t",
+      baseUrl: `http://127.0.0.1:${port}`,
+      model: "m",
+    });
+    let doneResponse: any;
+    for await (const event of adapter.stream({
+      model: "m",
+      messages: [userMessage],
+      requestId: "rid-ollama-stream",
+    })) {
+      if (event.type === "done") doneResponse = event.response;
+    }
+    assert.equal(seen, "rid-ollama-stream");
+    assert.equal(doneResponse.requestId, "rid-ollama-stream");
+  });
+});
+
+test("Gemini stream propagates the request id", async () => {
+  let seen: string | undefined;
+  await withServer((req, res) => {
+    seen = req.headers["x-request-id"];
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        candidates: [
+          { content: { parts: [{ text: "ok" }] }, finishReason: "STOP" },
+        ],
+      }),
+    );
+  }, async (port) => {
+    const adapter = new GeminiAdapter({
+      id: "t",
+      baseUrl: `http://127.0.0.1:${port}`,
+      model: "m",
+      apiKey: "key",
+    });
+    let doneResponse: any;
+    for await (const event of adapter.stream({
+      model: "m",
+      messages: [userMessage],
+      requestId: "rid-gemini-stream",
+    })) {
+      if (event.type === "done") doneResponse = event.response;
+    }
+    assert.equal(seen, "rid-gemini-stream");
+    assert.equal(doneResponse.requestId, "rid-gemini-stream");
   });
 });
 

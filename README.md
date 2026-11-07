@@ -19,7 +19,7 @@ Atom-lite is a local-first, model-agnostic coding agent built on a deliberately 
 
 Most coding agents accumulate tools, sub-agents, and orchestration until the harness becomes the product. Atom-lite takes the opposite stance:
 
-- **Small core, strong primitives.** Provider interface, session model, one agent loop, nine tools, scheduler/executor, context management, config, and CLI.
+- **Small core, strong primitives.** Provider interface, session model, one agent loop, ten tools, scheduler/executor, context management, config, and CLI.
 - **The model decides; the runtime enforces.** The model chooses tools and next steps; the runtime validates arguments, enforces workspace boundaries, applies approval rules, schedules calls safely, and returns accurate results. No hard-coded workflow.
 - **Thin harness, not weak engineering.** Streaming failures, concurrent file access, shell timeouts, large outputs, context exhaustion, and session recovery are handled as the reliability layer.
 
@@ -31,7 +31,7 @@ Most coding agents accumulate tools, sub-agents, and orchestration until the har
 - **Durable sessions** — append-only JSONL event logs, resumable across restarts, grouped by workspace.
 - **Context management** — token estimation and compaction before the budget is exceeded, full transcript retained.
 - **Live context meter** — `tokens: 4.5k/256k` against the model's real window, resolved from provider metadata with fallbacks.
-- **Autonomy modes** — `plan` (read/web only) and `yolo` (all tools), toggled with Tab; default `yolo`.
+- **Autonomy modes** — `plan` (read/web plus the session task ledger) and `yolo` (all tools), toggled with Tab; default `yolo`.
 - **Hash guards** — `expected_hash` rejects stale `write`/`edit` when a file changed since read.
 - **Provider-agnostic** — Ollama, Gemini, and any OpenAI-compatible endpoint (LM Studio, llama.cpp, Kilo, OpenAI, Anthropic, OpenRouter, Groq, Mistral, xAI, …).
 - **Interactive pickers** — `/provider` adds a provider and stores its key securely; `/model` fuzzy-searches every configured provider's models.
@@ -119,7 +119,7 @@ In the TUI, type `/help` for every command grouped by category, or press `ctrl+p
 
 ## Tools
 
-Nine built-in tools — the four core tools from [ADR 0001](./docs/adr/0001-four-built-in-tools-only.md), file search, network tools from [ADR 0006](./docs/adr/0006-expanded-toolset.md), plus `task` for background work from [ADR 0013](./docs/adr/0013-advanced-tool-features.md):
+Ten built-in tools — the four core tools from [ADR 0001](./docs/adr/0001-four-built-in-tools-only.md), file search, network tools from [ADR 0006](./docs/adr/0006-expanded-toolset.md), `task` for background work from [ADR 0013](./docs/adr/0013-advanced-tool-features.md), and the session task ledger from [ADR 0016](./docs/adr/0016-session-task-ledger.md):
 
 | Tool | Purpose |
 | --- | --- |
@@ -132,6 +132,7 @@ Nine built-in tools — the four core tools from [ADR 0001](./docs/adr/0001-four
 | `webfetch` | Fetch a URL and convert HTML to markdown |
 | `websearch` | Search the web and return ranked results |
 | `task` | Query or control a background bash task |
+| `todo` | Maintain the session task ledger |
 
 Tests, Git, builds, formatters, and package managers are available through `bash`.
 
@@ -156,7 +157,7 @@ The selected provider/model is persisted to user config, so the next session sta
 ## Safety & security
 
 - **Workspace boundary** — `read`/`write`/`edit` resolve paths against the workspace and reject escapes. Shell commands are not constrained by this boundary, so `bash` runs as a global exclusive barrier.
-- **Autonomy modes** — `plan` allows read/web tools only; `yolo` allows all tools. Default `yolo`. Toggle with Tab or set `runtime.mode`.
+- **Autonomy modes** — `plan` allows read/web tools plus the session task ledger; `yolo` allows all tools. Default `yolo`. Toggle with Tab or set `runtime.mode`.
 - **Hash guards** — prevent stale overwrites when a file changed since it was read.
 - **Sandboxing flags** — reported per command; see `src/security/`.
 - **No secrets in config** — interactive setup stores API keys in `~/.config/atom-lite/credentials.json` (`0600`); environment variables take precedence.

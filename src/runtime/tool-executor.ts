@@ -8,18 +8,16 @@ import { isToolAllowed } from "./modes.js";
 function resourceKey(call: ToolCall, workspace: string): string {
   const args = call.arguments ?? {};
   if (call.name === "bash") return "__bash__";
-  if (call.name === "todo") return "__todo__";
   const p = (args as any).path ?? (args as any).cwd ?? "";
   const key = String(p);
   return key === "" ? "" : resolve(workspace, key);
 }
 
 function isMutation(call: ToolCall): boolean {
-  return (
-    call.name === "write" ||
-    call.name === "edit" ||
-    call.name === "todo"
-  );
+  // Workspace mutations. The todo ledger is session state, not workspace
+  // state: it is serialized by its own lock key below and never triggers a
+  // checkpoint.
+  return call.name === "write" || call.name === "edit";
 }
 
 function isBash(call: ToolCall): boolean {
@@ -73,6 +71,11 @@ export class ToolExecutor {
       }
       if (isRemote(call)) {
         return () => {};
+      }
+      if (call.name === "todo") {
+        // Serialize ledger writes without classifying them as workspace
+        // mutations (no checkpoint, allowed in plan mode).
+        return lm.acquireWrite("__todo__", signal);
       }
       const key = resourceKey(call, ctx.workspace);
       if (key === "") return () => {};

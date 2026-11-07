@@ -30,6 +30,9 @@ export class ContextManager {
   private skillCache?: { workspace: string; signature: string; index: string };
   private modelContextWindow: number | undefined;
   private compactedThisBuild = false;
+  private toolTokenOverhead = 0;
+  private lastReportedUsage: number | undefined;
+  private lastBuildTokens = 0;
   private forceCompact = false;
   private buildCount = 0;
   private sessionMemory: string | null = null;
@@ -50,6 +53,19 @@ export class ContextManager {
 
   setModelContextWindow(window: number | undefined): void {
     this.modelContextWindow = window;
+  }
+
+  setToolTokenOverhead(overhead: number): void {
+    if (typeof overhead === "number" && overhead >= 0)
+      this.toolTokenOverhead = Math.floor(overhead);
+  }
+
+  noteUsage(used: number): void {
+    if (typeof used === "number" && used > 0) this.lastReportedUsage = used;
+  }
+
+  getLastBuildTokens(): number {
+    return this.lastBuildTokens;
   }
 
   consumeCompaction(): boolean {
@@ -100,7 +116,7 @@ export class ContextManager {
     history: Message[],
     focus?: string,
   ): Promise<string | null> {
-    const keep = Math.min(6, history.length);
+    const keep = Math.min(6, Math.max(1, history.length - 1));
     const older = history.slice(0, history.length - keep);
     if (older.length === 0) return null;
     const summary = await this.summarize(older, focus);
@@ -113,6 +129,14 @@ export class ContextManager {
   }
 
   private budget(): number {
+    // If no window has been resolved yet, do not compact prematurely on the
+    // 128K default; wait for the real (possibly 1M) window to arrive.
+    if (
+      this.opts.maxInputTokens === null &&
+      this.modelContextWindow === undefined
+    ) {
+      return 10_000_000;
+    }
     const max =
       this.opts.maxInputTokens ?? this.modelContextWindow ?? DEFAULT_MAX_INPUT;
     return Math.max(1000, max - this.opts.reserveOutputTokens);
@@ -123,6 +147,22 @@ export class ContextManager {
   }
 
   private async summarize(older: Message[], focus?: string): Promise<string> {
+    // Bound the summarizer input so a huge history cannot make the
+    // summarization request itself exceed the model window.
+    const capChars = Math.max(4000, Math.floor(this.budget() * 4 * 0.6));
+    const clipped = older.map((m) => {
+      try {
+        const json = JSON.stringify(m);
+        if (json.length <= 2000) return m;
+        return { role: (m as any).role, content: "[truncated]" } as any;
+      } catch {
+        return m;
+      }
+    });
+    let serialized = JSON.stringify(clipped);
+    if (serialized.length > capChars) {
+      serialized = serialized.slice(0, capChars) + "...[truncated]";
+    }
     let summaryText = "";
     try {
       const focusLine = focus ? `\nFocus the summary on: ${focus}` : "";
@@ -137,7 +177,7 @@ export class ContextManager {
           },
           {
             role: "user" as const,
-            content: [{ type: "text" as const, text: JSON.stringify(older) }],
+            content: [{ type: "text" as const, text: serialized }],
           },
         ],
         tools: [],
@@ -232,18 +272,45 @@ export class ContextManager {
     }
     messages.push(...workingHistory);
 
-    const total = messages.reduce((s, m) => s + estimateMessageTokens(m), 0);
-    const overThreshold = total > this.threshold() && workingHistory.length > 6;
+    const total =
+      messages.reduce((s, m) => s + estimateMessageTokens(m), 0) +
+      this.toolTokenOverhead;
+    const threshold = this.threshold();
+    const pressureFromEstimate = total > threshold;
+    const pressureFromUsage =
+      this.lastReportedUsage !== undefined &&
+      this.lastReportedUsage > threshold;
+    const overThreshold =
+      (pressureFromEstimate || pressureFromUsage) && workingHistory.length > 1;
 
     if (!this.forceCompact && !periodic && !overThreshold) {
+      this.lastBuildTokens = total;
       return messages;
     }
     this.forceCompact = false;
 
-    const keep = Math.min(6, workingHistory.length);
+    // Keep as many recent messages as fit in ~40% of the budget so a single
+    // huge tool result cannot force an uncompactable tail.
+    const budget = this.budget();
+    const recentCap = Math.floor(budget * 0.4);
+    const maxKeep = Math.max(1, Math.min(6, workingHistory.length - 1));
+    let keep = 0;
+    let acc = 0;
+    for (let i = workingHistory.length - 1; i >= 0; i--) {
+      const cost = estimateMessageTokens(workingHistory[i]);
+      if (keep > 0 && acc + cost > recentCap) break;
+      acc += cost;
+      keep++;
+      if (keep >= maxKeep) break;
+    }
+    if (keep < 1) keep = 1;
     const recent = workingHistory.slice(-keep);
     const older = workingHistory.slice(0, workingHistory.length - keep);
-    if (older.length === 0) return messages;
+    if (older.length === 0) {
+      this.forceCompact = false;
+      this.lastBuildTokens = total;
+      return messages;
+    }
 
     const summary = await this.summarize(older);
     const coveredCount = this.sessionMemoryCount + older.length;
@@ -252,6 +319,11 @@ export class ContextManager {
     this.sessionMemoryCount = coveredCount;
     this.lastCompactionCoveredCount = coveredCount;
     this.compactedThisBuild = true;
+    this.lastReportedUsage = undefined;
+    this.lastBuildTokens = recent.reduce(
+      (s, m) => s + estimateMessageTokens(m),
+      0,
+    ) + this.toolTokenOverhead;
 
     const compacted: Message[] = [
       { role: "system", content: systemPrompt },
@@ -262,6 +334,10 @@ export class ContextManager {
       },
       ...recent,
     ];
+    this.lastBuildTokens = compacted.reduce(
+      (s, m) => s + estimateMessageTokens(m),
+      0,
+    ) + this.toolTokenOverhead;
     return compacted;
   }
 }

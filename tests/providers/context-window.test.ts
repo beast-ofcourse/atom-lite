@@ -45,7 +45,7 @@ test("formatContextUsage shows used over window and unknown values honestly", ()
   assert.equal(formatContextUsage(1234, 1_000_000), "1.2k/1M");
   assert.equal(formatContextUsage(0, 256_000), "0/256k");
   assert.equal(formatContextUsage(undefined, 256_000), "?/256k");
-  assert.equal(formatContextUsage(1234, undefined), "1.2k");
+  assert.equal(formatContextUsage(1234, undefined), "1.2k/?");
   assert.equal(formatContextUsage(undefined, undefined), "?");
 });
 

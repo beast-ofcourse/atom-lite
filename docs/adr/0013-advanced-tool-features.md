@@ -18,6 +18,6 @@ Long-running commands block the agent turn; image files cannot reach vision-capa
 
 ## Consequences
 
-- The built-in tool count increases to nine.
+- The built-in tool count increases to nine (ten after [ADR 0016](./0016-session-task-ledger.md) adds the `todo` ledger tool).
 - Background tasks are not persisted across sessions.
 - Image token estimation is skipped (risk of context overflow on many large images).

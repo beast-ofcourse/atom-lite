@@ -1,4 +1,5 @@
-/** Tools disabled in plan mode. */
+/** Tools disabled in plan mode. The todo ledger only changes session state,
+ * not the workspace, so it stays available in plan mode. */
 export const PLAN_BLOCKED_TOOLS = new Set(["write", "edit", "bash"]);
 
 export function isToolAllowed(

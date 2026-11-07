@@ -31,3 +31,9 @@ compaction also dropped details needed across long sessions.
   optional token budgets.
 - Existing `approvalMode` config migrates to `mode` (trusted → yolo,
   otherwise plan).
+
+## Amendment (2026-11-07)
+
+The `todo` tool (ADR 0016) only mutates session state, never the workspace, so
+it remains available in `plan` mode alongside read/web tools. `plan` continues
+to block `write`, `edit`, and `bash` at execution time.

@@ -14,9 +14,19 @@ export function contextWindowFromModelEntry(
     e.contextWindow,
     e.max_context_length,
     e.max_context_window,
+    e.max_model_len,
+    e.max_input_tokens,
+    e.input_token_limit,
+    e.max_context_window_tokens,
+    e.n_ctx,
+    e.max_seq_len,
     e.limits?.context,
+    e.limits?.max_input_tokens,
+    e.limits?.max_context_length,
     e.top_provider?.context_length,
     e.top_provider?.context_window,
+    e.top_provider?.max_context_length,
+    e.architecture?.context_length,
   ];
   for (const value of candidates) {
     if (typeof value === "number" && Number.isFinite(value) && value > 0) {
@@ -34,17 +44,24 @@ export function contextWindowFromModelEntry(
 const KNOWN_WINDOWS: Array<[RegExp, number]> = [
   [/gpt-4\.1/, 1_047_576],
   [/gpt-4o|gpt-4-turbo|gpt-4-0125|gpt-4-1106/, 128_000],
-  [/o3|o4-mini/, 200_000],
-  [/gpt-3\.5/, 16_385],
+  [/gpt-6|gpt-5/, 1_050_000],
+  [/o1|o3|o4/, 200_000],
   [/claude/, 200_000],
   [/gemini-1\.5-pro/, 2_097_152],
-  [/gemini-1\.5|gemini-2/, 1_048_576],
+  [/gemini-1\.5|gemini-2|gemini-3|gemma/, 1_048_576],
   [/grok/, 131_072],
   [/codestral/, 256_000],
   [/mistral-large/, 128_000],
-  [/llama-3|llama3|llama-4|mixtral|deepseek|qwen/, 131_072],
-  [/kilo-auto\/free/, 256_000],
+  [/deepseek-v4|deepseek-r1|deepseek-v3/, 1_048_576],
+  [/deepseek/, 131_072],
+  [/qwen3|qwen2\.5/, 131_072],
+  [/qwen/, 32_768],
+  [/llama-4/, 1_048_576],
+  [/llama-3\.3|llama-3\.2|llama-3\.1/, 131_072],
+  [/llama-3/, 8_192],
   [/kilo-auto\/efficient/, 1_000_000],
+  [/kilo-auto\/free/, 256_000],
+  [/reflection\/beam-free/, 1_048_576],
 ];
 
 /** Compact token count used by the status line: 999, 1.2k, 256k, 1M. */
@@ -80,7 +97,10 @@ export function formatContextUsage(
       : used === 0
         ? "0"
         : "?";
-  if (window === undefined || window <= 0) return usedText;
+  if (window === undefined || window <= 0) {
+    if (used === undefined) return "?";
+    return `${usedText}/?`;
+  }
   return `${usedText}/${formatTokenCount(window)}`;
 }
 

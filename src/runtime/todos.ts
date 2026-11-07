@@ -1,8 +1,11 @@
-export type TodoStatus =
-  | "pending"
-  | "in_progress"
-  | "completed"
-  | "cancelled";
+export const TODO_STATUSES = [
+  "pending",
+  "in_progress",
+  "completed",
+  "cancelled",
+] as const;
+
+export type TodoStatus = (typeof TODO_STATUSES)[number];
 
 export interface TodoItem {
   id: string;
@@ -19,12 +22,7 @@ export interface TodoInput {
   verification?: string;
 }
 
-const STATUSES: ReadonlySet<TodoStatus> = new Set([
-  "pending",
-  "in_progress",
-  "completed",
-  "cancelled",
-]);
+const STATUSES: ReadonlySet<TodoStatus> = new Set(TODO_STATUSES);
 
 function normalizeStatus(value: unknown): TodoStatus {
   return typeof value === "string" && STATUSES.has(value as TodoStatus)
@@ -113,11 +111,12 @@ export class TodoStore {
   }
 
   contains(content: string): boolean {
-    const needle = normalizeContent(content).slice(0, 80).toLowerCase();
+    // Compare the full normalized text: prefix-only matching would treat two
+    // distinct tasks with a shared opening as duplicates.
+    const needle = normalizeContent(content).toLowerCase();
     if (!needle) return false;
     return this.items.some(
-      (item) =>
-        normalizeContent(item.content).slice(0, 80).toLowerCase() === needle,
+      (item) => normalizeContent(item.content).toLowerCase() === needle,
     );
   }
 

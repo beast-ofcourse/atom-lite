@@ -57,6 +57,7 @@ export type AgentEvent =
       pending: number;
       todos: import("../runtime/todos.js").TodoItem[];
     }
+  | { type: "request_id"; requestId: string }
   | { type: "error"; message: string };
 
 export interface AgentRuntimeOptions {

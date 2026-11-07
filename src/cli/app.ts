@@ -379,7 +379,7 @@ export async function run(args: string[]): Promise<void> {
     maxProjectInstructionBytes: config.context.maxProjectInstructionBytes,
     compactEveryNTurns: config.context.compactEveryNTurns ?? 0,
     provider,
-    model: modelOverride ?? "default",
+    model: modelOverride ?? provider.model ?? "default",
     userInstructionsPath: undefined,
   });
 
@@ -398,7 +398,7 @@ export async function run(args: string[]): Promise<void> {
 
   const runtime = new AgentRuntime({
     provider,
-    model: modelOverride,
+    model: modelOverride ?? provider.model,
     workspace: process.cwd(),
     tools: allTools,
     approvals,
@@ -1033,11 +1033,15 @@ export async function run(args: string[]): Promise<void> {
     const model = currentModelLabel();
     const pcfg = profileConfig(profile);
     const configuredWindow = pcfg?.contextWindow;
-    const window =
+    const staticWindow = knownContextWindow(model);
+    // Prefer the largest known value so a stale 256K guess never masks a 1M
+    // model: config (if explicit) is a floor, static table and live metadata
+    // can only raise it.
+    const initialWindow =
       typeof configuredWindow === "number" && configuredWindow > 0
-        ? configuredWindow
-        : knownContextWindow(model);
-    runtime.setContextWindow(window);
+        ? Math.max(configuredWindow, staticWindow ?? 0) || configuredWindow
+        : staticWindow;
+    runtime.setContextWindow(initialWindow);
     // Config override for vision takes precedence over provider metadata.
     if (typeof pcfg?.supportsVision === "boolean") {
       runtime.setSupportsVision(pcfg.supportsVision);
@@ -1054,13 +1058,18 @@ export async function run(args: string[]): Promise<void> {
       .then((info: any) => {
         if (provider.id !== profile || currentModelLabel() !== model) return;
         const resolved = info?.contextWindow;
-        if (
-          typeof resolved === "number" &&
-          resolved > 0 &&
-          typeof configuredWindow !== "number"
-        ) {
-          runtime.setContextWindow(resolved);
-          updateStatus();
+        if (typeof resolved === "number" && resolved > 0) {
+          const current = runtime.getContextUsage().window;
+          const floor =
+            typeof configuredWindow === "number" && configuredWindow > 0
+              ? configuredWindow
+              : (staticWindow ?? 0);
+          // Live metadata may only raise the window; never downgrade below
+          // the configured/static floor.
+          if (current === undefined || resolved > (current ?? 0)) {
+            runtime.setContextWindow(Math.max(floor, resolved));
+            updateStatus();
+          }
         }
         if (
           typeof pcfg?.supportsVision !== "boolean" &&

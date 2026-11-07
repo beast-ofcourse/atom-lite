@@ -79,7 +79,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     return {
       id: this.model,
       contextWindow:
-        contextWindowFromModelEntry(entry) ?? this.contextWindowOverride,
+        this.contextWindowOverride ?? contextWindowFromModelEntry(entry),
       supportsTools: true,
       supportsStreaming: true,
       supportsVision:

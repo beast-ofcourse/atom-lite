@@ -1,6 +1,7 @@
 import type { AgentRuntimeOptions, ContextUsage } from "./types.js";
 import { DEFAULT_LIMITS } from "../types.js";
 import type { Message, ModelRequest, AgentLimits } from "../types.js";
+import { randomUUID } from "node:crypto";
 import { executeToolBatch } from "../runtime/scheduler.js";
 import { touchFile as touchLspFile, getDiagnostics as getLspDiagnostics } from "../lsp/index.js";
 import { ContextManager } from "../context/manager.js";
@@ -41,10 +42,12 @@ export class AgentRuntime {
   private turnCheckpointId: string | null = null;
   private turnCheckpointStore: CheckpointStore | null = null;
   private turnIndex = 0;
+  private todoStoreInjected: boolean;
+  private todoTouchedThisTurn = false;
 
   constructor(options: AgentRuntimeOptions) {
     this.provider = options.provider;
-    this.model = options.model ?? "default";
+    this.model = options.model ?? options.provider.model ?? "default";
     this.workspace = options.workspace ?? process.cwd();
     this.approvals = options.approvals;
     this.mode = options.mode ?? "yolo";
@@ -64,9 +67,10 @@ export class AgentRuntime {
         compactAtPercent: 85,
         maxProjectInstructionBytes: 30000,
         provider: options.provider,
-        model: options.model ?? "default",
+        model: options.model ?? options.provider.model ?? "default",
       });
     this.toolMap = new Map(options.tools.map((t) => [t.definition.name, t]));
+    this.refreshToolTokenOverhead();
     this.limits = { ...DEFAULT_LIMITS, ...(options.limits ?? {}) };
     this.extensionDispatch = options.extensionDispatch;
     this.steeringQueue = options.steeringQueue;
@@ -76,6 +80,7 @@ export class AgentRuntime {
     this.backgroundTasks =
       options.backgroundTasks ?? new BackgroundTaskManager();
     this.todoStore = options.todoStore ?? new TodoStore();
+    this.todoStoreInjected = options.todoStore !== undefined;
     this.checkpointingEnabled = options.checkpointingEnabled ?? true;
     this.checkpointStoreOverride = options.checkpointStore;
     this.contextManager.setModelContextWindow(options.contextWindow);
@@ -189,19 +194,40 @@ export class AgentRuntime {
   setTools(tools: AgentRuntimeOptions["tools"]): void {
     this.tools = tools;
     this.toolMap = new Map(tools.map((t) => [t.definition.name, t]));
+    this.refreshToolTokenOverhead();
+  }
+
+  private refreshToolTokenOverhead(): void {
+    const overhead = (this.tools ?? []).reduce((sum, tool: any) => {
+      try {
+        return sum + Math.ceil(JSON.stringify(tool.definition ?? tool).length / 4);
+      } catch {
+        return sum;
+      }
+    }, 0);
+    this.contextManager.setToolTokenOverhead?.(overhead);
   }
 
   getEffort(): string {
     return this.effort;
   }
 
-  private restoreTodos(session: any): void {
-    const events = (session as any).events;
+  private restoreTodos(session: object): void {
+    const events = (session as { events?: unknown[] }).events;
     if (!Array.isArray(events)) return;
     const latest = [...events]
       .reverse()
-      .find((event: any) => event?.type === "todos_updated");
-    if (latest) this.todoStore = TodoStore.fromJSON(latest.todos);
+      .find((event: any) => event?.type === "todos_updated") as
+      | { todos?: unknown }
+      | undefined;
+    if (!latest) return;
+    if (this.todoStoreInjected) {
+      // Keep the caller-supplied store (and its identity) while seeding it
+      // from the resumed session.
+      this.todoStore.replace(Array.isArray(latest.todos) ? latest.todos : []);
+      return;
+    }
+    this.todoStore = TodoStore.fromJSON(latest.todos);
   }
 
   private persistTodos(session: { appendEvent?(partial: any): any }): void {
@@ -213,8 +239,22 @@ export class AgentRuntime {
   }
 
   private isContinuation(text: string): boolean {
-    return /^(continue|proceed|go on|keep going|yes|yep|ok|okay|sure|do it|thanks|thank you|\?\?continue)\b/i.test(
+    // Match the whole message, not just its opening: "ok now fix the failing
+    // test" is a new task, while "ok" is a continuation.
+    return /^(please\s+)?(continue|proceed|go on|keep going|yes|yep|ok|okay|sure|do it|thanks|thank you|\?\?continue)(\s+please)?[.!]*$/i.test(
       text.trim(),
+    );
+  }
+
+  private isQuestion(text: string): boolean {
+    // Requests phrased as questions ("can you fix…") are tasks; genuine
+    // questions start with a wh-word or auxiliary.
+    if (/^(can|could|would|will)\s+you\b/i.test(text)) return false;
+    return (
+      /\?\s*$/.test(text) &&
+      /^(what|why|how|when|where|who|which|is|are|was|were|do|does|did|can|could|should|would|will)\b/i.test(
+        text,
+      )
     );
   }
 
@@ -229,7 +269,7 @@ export class AgentRuntime {
   ): void {
     if (!this.toolMap.has("todo")) return;
     const text = input.replace(/\s+/g, " ").trim();
-    if (!text || this.isContinuation(text)) return;
+    if (!text || this.isContinuation(text) || this.isQuestion(text)) return;
     if (this.todoStore.contains(text)) return;
     this.todoStore.add({ content: text.slice(0, 200), status: "pending" });
     this.persistTodos(session);
@@ -275,6 +315,19 @@ export class AgentRuntime {
     this.restoreTodos(session);
 
     this.turnIndex += 1;
+    // Resolve a per-turn correlation id once and reuse it for every model
+    // call in the turn. Persisting it makes the request traceable after the
+    // fact (session log + event consumers).
+    const requestId = (options?.requestId ?? "").trim() || randomUUID();
+    if (typeof (session as any).appendEvent === "function") {
+      (session as any).appendEvent({
+        type: "model_request_id",
+        requestId,
+        turn: this.turnIndex,
+      });
+    }
+    this.onEvent?.({ type: "request_id", requestId });
+    this.todoTouchedThisTurn = false;
     this.injectCompletedBackgroundTasks(session);
     this.turnCheckpointed = false;
     this.turnCheckpointId = null;
@@ -288,7 +341,8 @@ export class AgentRuntime {
 
     await this.extensionDispatch?.("turn_start", { type: "turn_start" });
     let forceContinue = false;
-    let completionNudged = false;
+    let completionNudges = 0;
+    const maxCompletionNudges = 3;
     const start = Date.now();
 
     while (true) {
@@ -313,16 +367,20 @@ export class AgentRuntime {
       );
       this.injectTodoLedger(
         messages,
-        completionNudged && this.todoStore.openCount() > 0,
+        completionNudges > 0 && this.todoStore.openCount() > 0,
       );
       await this.extensionDispatch?.("context_build", {
         type: "context_build",
         messages,
       });
       if (this.contextManager.consumeCompaction()) {
-        // Peers treat usage as unknown after compaction until the next
-        // assistant response reports fresh numbers.
-        this.contextUsed = undefined;
+        // Prefer an estimate over "unknown" so the TUI keeps showing a
+        // number; the next assistant response replaces it with real usage.
+        const estimate = this.contextManager.getLastBuildTokens?.();
+        this.contextUsed =
+          typeof estimate === "number" && estimate > 0
+            ? estimate
+            : this.contextUsed;
         this.emitContextUsage();
         const summary = this.contextManager.consumeCompactionSummary();
         const coveredCount =
@@ -350,7 +408,7 @@ export class AgentRuntime {
         tools: this.tools.map((t) => t.definition),
         effort: this.effort,
         signal,
-        requestId: options?.requestId,
+        requestId,
       })) {
         if (ev.type === "thinking_delta") {
           this.onEvent?.({ type: "thinking_delta", text: ev.text });
@@ -384,6 +442,14 @@ export class AgentRuntime {
           // current context occupancy (not a cumulative session total).
           this.contextUsed = used;
           this.emitContextUsage();
+          this.contextManager.noteUsage?.(used);
+          const inputTokens = response.usage?.input ?? used;
+          if (
+            this.contextWindow !== undefined &&
+            inputTokens > this.contextWindow
+          ) {
+            this.setContextWindow(inputTokens);
+          }
         }
         const turnTokens = used > 0 ? used : 0;
         if (
@@ -442,14 +508,16 @@ export class AgentRuntime {
           forceContinue = true;
           continue;
         }
-        // Task ledger completion gate: do not settle while assigned tasks
-        // are still open; nudge the model once to update or continue.
+        // Task ledger completion gate: only gate when the model actually
+        // touched the ledger this turn, and nudge a bounded number of times
+        // so an unresolvable item cannot loop forever.
         if (
           this.toolMap.has("todo") &&
-          !completionNudged &&
+          this.todoTouchedThisTurn &&
+          completionNudges < maxCompletionNudges &&
           this.todoStore.openCount() > 0
         ) {
-          completionNudged = true;
+          completionNudges += 1;
           this.onEvent?.({
             type: "task_ledger_open",
             pending: this.todoStore.openCount(),
@@ -674,6 +742,7 @@ export class AgentRuntime {
         execResults.some((result: any) => result?.name === "todo") &&
         this.toolMap.has("todo")
       ) {
+        this.todoTouchedThisTurn = true;
         this.persistTodos(session);
       }
 

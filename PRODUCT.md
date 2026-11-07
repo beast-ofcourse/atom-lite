@@ -1,7 +1,5 @@
 # Product
 
-<!-- impeccable:product-schema 1 -->
-
 ## Platform
 
 web
@@ -11,8 +9,7 @@ web
 
 ## Users
 
-*(inferred, unconfirmed — the init interview was dismissed, so this comes from the
-repository's README, ADRs, and positioning.)*
+*(Derived from the repository's README, ADRs, and positioning.)*
 
 Developers and agent builders who run coding agents from a terminal and want a
 small, readable, hackable harness instead of a large orchestration product.
@@ -36,7 +33,7 @@ telemetry, or control plane, and without the harness becoming the product.
 The mechanism a neighboring coding agent could not truthfully copy: **a
 deliberately tiny core that gains surface area through Pi-compatible
 extensions.** Atom-lite ships one agent loop, one conversation, one registry,
-and nine built-in tools, then extends through unmodified Pi extensions (tools,
+and ten built-in tools, then extends through unmodified Pi extensions (tools,
 commands, events), MCP servers, and skills. Providers are interchangeable
 adapters (OpenAI-compatible, Ollama, Gemini), so the model is a choice rather
 than a lock-in.
@@ -52,7 +49,8 @@ than a lock-in.
   `~/.config/atom-lite/credentials.json` (0600) or environment variables.
 - Sessions are append-only JSONL event logs, grouped by workspace and resumable.
 - Modes are `plan` (blocks write/edit/bash) and `yolo`, with optional
-  per-session and per-turn token budgets.
+  per-session and per-turn token budgets. The session task ledger stays
+  available in both modes because it does not mutate the workspace.
 - Extensions, MCP servers, and skills are discovered from the project and user
   directories; project extensions require explicit trust.
 - Documentation and architectural decisions are Markdown in the repository
@@ -102,12 +100,12 @@ than a lock-in.
   sessions, commands, development, and architecture.
 - `docs/README.md`, `docs/configuration.md`, `docs/extensions.md` — supporting
   reference docs.
-- `docs/adr/0001`–`0013` — architectural decisions, including four-tools-only,
+- `docs/adr/0001`–`0016` — architectural decisions, including four-tools-only,
   single agent loop, bash barrier, local-first, pi-tui, expanded toolset, MCP,
-  session search, deepened loop, Pi extensions, autonomy primitives, and
-  advanced tool features.
+  session search, deepened loop, Pi extensions, autonomy primitives, advanced
+  tool features, checkpoints, the eval harness, and the session task ledger.
 - `tests/` — behavioral test suite; `scripts/bench.mjs` — non-gating benchmark.
-- `CHANGELOG.md` — release history through 0.6.2.
+- `CHANGELOG.md` — release history through 0.9.0.
 - **Absences future work must not fabricate:** no customer testimonials, case
   studies, press coverage, pricing page, hosted service, or user-count claims
   exist in the repository.
