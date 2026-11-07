@@ -126,12 +126,14 @@ test("diff reports added, modified, deleted", () => {
   assert.equal(byPath["add.txt"], "added");
 });
 
-test("byte cap throws CHECKPOINT_TOO_LARGE", () => {
+test("byte cap skips oversized files", () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   gitInit(dir);
   track(dir, { "big.txt": "x".repeat(1000) });
   const store = new CheckpointStore(dir, "s1", { maxCheckpointBytes: 10 });
-  assert.throws(() => store.create(1), /CHECKPOINT_TOO_LARGE/);
+  const m = store.create(1);
+  assert.ok(m);
+  assert.ok(m.skipped.some((s) => s.path === "big.txt" && s.reason === "too_large"));
 });
 
 test("count cap prunes oldest", () => {

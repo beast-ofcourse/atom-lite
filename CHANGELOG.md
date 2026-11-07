@@ -5,6 +5,22 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2026-11-07
+
+### Added
+- TUI renders Mermaid diagrams as Unicode box-drawing art (via `grok-mermaid`), in both streamed and sealed transcript chunks.
+
+### Changed
+- Checkpoint creation skips files that exceed the byte budget instead of aborting the whole checkpoint; default budget raised to 100 MB.
+- Mermaid rendering is cached and deferred to seal/finalize to keep the TUI responsive.
+
+### Fixed
+- TUI no longer lags on every streaming delta from per-chunk Mermaid rendering.
+- `CHECKPOINT_TOO_LARGE` no longer aborts checkpoint creation for large workspaces.
+
+### Docs
+- Added `lsp` configuration reference and a system-prompt note on enabling LSP.
+
 ## [0.9.2] - 2026-11-07
 
 ### Added
