@@ -4,6 +4,7 @@ import type {
   McpRemoteTool,
   McpTransport,
 } from "./types.js";
+import type { JsonValue } from "../types.js";
 
 import { VERSION } from "../version.js";
 
@@ -136,12 +137,12 @@ export class McpClient {
     return this.protocolVersion;
   }
 
-  get serverInfoValue(): unknown {
-    return this.serverInfo;
+  get serverInfoValue(): JsonValue | undefined {
+    return this.serverInfo as JsonValue | undefined;
   }
 
-  get capabilitiesValue(): unknown {
-    return this.capabilities;
+  get capabilitiesValue(): JsonValue | undefined {
+    return this.capabilities as JsonValue | undefined;
   }
 
   get lastError(): Error | undefined {

@@ -1,3 +1,4 @@
+import type { JsonValue } from "../types.js";
 // Token budget helpers. Heuristic estimation: ~4 chars per token.
 
 export function estimateTokens(text: string): number {
@@ -13,7 +14,7 @@ export function estimateMessageTokens(message: unknown): number {
   }
 }
 
-function stripImages(value: unknown): unknown {
+function stripImages(value: unknown): JsonValue {
   if (Array.isArray(value)) {
     return value
       .map((v) => stripImages(v))
@@ -22,12 +23,12 @@ function stripImages(value: unknown): unknown {
       );
   }
   if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
+    const out: Record<string, JsonValue> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       if (k === "images") continue;
       out[k] = stripImages(v);
     }
     return out;
   }
-  return value;
+  return value as JsonValue;
 }

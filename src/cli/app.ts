@@ -651,26 +651,13 @@ export async function run(args: string[]): Promise<void> {
     originalHandleInput(data);
   };
 
-  const jumpToBottomLabel = "↓ bottom";
-  const jumpToBottomView = {
-    render(width: number): string[] {
-      const label = output.isFollowingEnd
-        ? theme.tokens.dim(jumpToBottomLabel)
-        : theme.tokens.accent(jumpToBottomLabel);
-      const pad = Math.max(0, width - visibleWidth(jumpToBottomLabel));
-      return [" ".repeat(pad) + label];
-    },
-    invalidate(): void {},
-  };
-
   const root = new VStack([]);
-  // Keep fixed chrome (spacer, input, jump-to-bottom, status, header, dropdown)
+  // Keep fixed chrome (spacer, input, status, header, dropdown)
   // from being collapsed when the transcript grows; only the output region may
   // shrink.
   root.addChild(output, { grow: 1, shrink: 1, minSize: 0 });
   root.addChild(new Spacer(1), { grow: 0, shrink: 0, minSize: 1 });
   root.addChild(input, { grow: 0, shrink: 0 });
-  root.addChild(jumpToBottomView, { grow: 0, shrink: 0, minSize: 1 });
   root.addChild(statusBar, { grow: 0, shrink: 0 });
   // folder:branch info below the status line, dimmed
   root.addChild(header, { grow: 0, shrink: 0 });
@@ -678,15 +665,6 @@ export async function run(args: string[]): Promise<void> {
   root.addChild(dropdownContainer, { grow: 0, shrink: 0 });
   tui.setLayoutRoot(root);
 
-  function jumpToBottomRow(): number {
-    const width = terminal.columns;
-    const outputHeight = Math.max(
-      1,
-      output.viewportHeight || output.render(width).length,
-    );
-    const inputHeight = Math.max(1, input.render(width).length);
-    return outputHeight + 1 + inputHeight;
-  }
   tui.setFocus(input);
 
   if (!noColor) {
@@ -2269,15 +2247,6 @@ export async function run(args: string[]): Promise<void> {
     // Let the alt-screen TUI own wheel scrolling; only intercept clicks.
     if (event.type === "wheel") return undefined;
     if (!mouseEnabled) return { consume: true };
-    if (
-      event.type === "press" &&
-      event.button === "left" &&
-      event.y === jumpToBottomRow()
-    ) {
-      output.scrollToEnd();
-      tui.requestRender();
-      return { consume: true };
-    }
     handleMouseEvent(event, {
       isModalOpen: () => uiModalOpen,
       scrollBy: (lines) => output.scrollBy(lines),

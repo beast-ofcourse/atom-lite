@@ -43,11 +43,12 @@ export interface DiscoverExtensionsOptions {
   deniedProjects?: string[];
 }
 
+import type { JsonValue } from "../types.js";
 const EXTENSION_EXTENSIONS = new Set([".ts", ".js", ".mjs"]);
 
-function readJson(path: string): unknown {
+function readJson(path: string): JsonValue | undefined {
   try {
-    return JSON.parse(readFileSync(path, "utf8"));
+    return JSON.parse(readFileSync(path, "utf8")) as JsonValue;
   } catch {
     return undefined;
   }

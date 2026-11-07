@@ -5,7 +5,6 @@ import type { ProviderAdapter } from "../providers/types.js";
 import type { Tool } from "../tools/types.js";
 import type { ApprovalContext } from "../runtime/approvals.js";
 import type { ContextManager } from "../context/manager.js";
-import type { ToolCall } from "../types.js";
 
 export type AgentEvent =
   | { type: "assistant_delta"; text: string }

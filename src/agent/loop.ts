@@ -847,7 +847,7 @@ export class AgentRuntime {
           return text;
         }
       }
-
+      // The while(true) loop always returns or throws from inside; this line is unreachable but satisfies the return type.
       return "TASK_BUDGET_REACHED";
     } finally {
       try {

@@ -240,6 +240,7 @@ export class McpManager {
         record.client = undefined;
         record.transport = undefined;
         await client?.close().catch(() => {});
+        return undefined;
       }),
     );
   }
