@@ -13,11 +13,11 @@ commands, providers, models, widgets, and event handlers into Atom-lite's own
 runtime.
 
 Reference docs:
-- `docs/extensions.md` — discovery, trust, compatibility tiers, diagnostics.
-- `docs/adr/0011-pi-extensions-in-process.md` — architecture.
-- `src/extensions/types.ts` — full `ExtensionAPI` + registries.
-- `src/extensions/api.ts` — runtime implementation.
-- `tests/extensions/` — conformance fixtures.
+- [docs/extensions.md](https://github.com/beast-ofcourse/atom-lite/blob/master/docs/extensions.md) — discovery, trust, compatibility tiers, diagnostics.
+- [docs/adr/0011-pi-extensions-in-process.md](https://github.com/beast-ofcourse/atom-lite/blob/master/docs/adr/0011-pi-extensions-in-process.md) — architecture.
+- [src/extensions/types.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/types.ts) — full `ExtensionAPI` + registries.
+- [src/extensions/api.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/api.ts) — runtime implementation.
+- [tests/extensions/](https://github.com/beast-ofcourse/atom-lite/tree/master/tests/extensions) — conformance fixtures.
 - Run `/extensions` and `/extensions doctor` inside atom-lite for live diagnostics.
 
 ## Minimal extension
@@ -233,8 +233,8 @@ Inside atom-lite:
 
 ## Links
 
-- Docs: `docs/extensions.md`
-- ADR: `docs/adr/0011-pi-extensions-in-process.md`
-- Types: `src/extensions/types.ts`
-- Runtime: `src/extensions/`
+- Docs: [docs/extensions.md](https://github.com/beast-ofcourse/atom-lite/blob/master/docs/extensions.md)
+- ADR: [docs/adr/0011-pi-extensions-in-process.md](https://github.com/beast-ofcourse/atom-lite/blob/master/docs/adr/0011-pi-extensions-in-process.md)
+- Types: [src/extensions/types.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/types.ts)
+- Runtime: [src/extensions/](https://github.com/beast-ofcourse/atom-lite/tree/master/src/extensions)
 - Pi extension API reference (installed): `~/.pi/agent/install/releases/1.4.0/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts`
