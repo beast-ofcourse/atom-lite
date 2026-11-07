@@ -400,7 +400,12 @@ export class JsonlSessionStore {
       const started = events.find((e) => e.type === "session_started") as any;
       const ws = started?.workspace ?? "";
       if (workspace && ws && ws !== workspace) continue;
-      const stat = statSync(filePath);
+      let stat;
+      try {
+        stat = statSync(filePath);
+      } catch {
+        continue;
+      }
       out.push({
         id,
         workspace: ws || workspace || "",
