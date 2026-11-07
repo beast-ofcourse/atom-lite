@@ -1,6 +1,6 @@
 {
   "name": "atom-lite",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Local-first, model-agnostic coding agent for the terminal",
   "keywords": [
     "ai",

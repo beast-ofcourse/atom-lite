@@ -5,6 +5,21 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-11-07
+
+### Added
+- Session task ledger (`todo` tool) with completion gate, request-id tracking, and resume persistence.
+- `/new` command (replacing `/clear`) creates a fresh session and resets token usage to 0.
+
+### Changed
+- Context window resolution now prefers live provider metadata and never downgrades below configured/static values; 1M models display correctly.
+- Auto-compaction at 85% now also triggers on real provider usage, counts tool schema overhead, and uses adaptive recent-message retention.
+
+### Fixed
+- Compaction no longer silently no-ops on small histories.
+- `formatContextUsage` shows `?` for an unknown window instead of a bare used count.
+- Injected `TodoStore` identity is preserved across session resume.
+
 ## [0.9.0] - 2026-11-06
 
 ### Added
