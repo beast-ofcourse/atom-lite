@@ -1,7 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, symlinkSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  existsSync,
+  readFileSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CheckpointStore } from "../../dist/runtime/checkpoint-store.js";
@@ -46,7 +54,11 @@ test("captures tracked and untracked non-ignored files, excludes ignored", () =>
   writeFileSync(join(dir, "ignored.txt"), "x");
   const store = new CheckpointStore(dir, "s1");
   const m = store.create(1);
-  assert.deepEqual(m.files.sort(), [".gitignore", "tracked.txt", "untracked.txt"]);
+  assert.deepEqual(m.files.sort(), [
+    ".gitignore",
+    "tracked.txt",
+    "untracked.txt",
+  ]);
   assert.ok(!m.files.includes("ignored.txt"));
   assert.equal(m.empty, false);
 });
@@ -58,7 +70,9 @@ test("records deleted tracked files as skipped", () => {
   rmSync(join(dir, "gone.txt"));
   const store = new CheckpointStore(dir, "s1");
   const m = store.create(1);
-  assert.ok(m.skipped.some((s) => s.path === "gone.txt" && s.reason === "deleted"));
+  assert.ok(
+    m.skipped.some((s) => s.path === "gone.txt" && s.reason === "deleted"),
+  );
 });
 
 test("skips symlinks", () => {
@@ -69,7 +83,9 @@ test("skips symlinks", () => {
   execFileSync("git", ["add", "-A"], { cwd: dir });
   const store = new CheckpointStore(dir, "s1");
   const m = store.create(1);
-  assert.ok(m.skipped.some((s) => s.path === "link.txt" && s.reason === "symlink"));
+  assert.ok(
+    m.skipped.some((s) => s.path === "link.txt" && s.reason === "symlink"),
+  );
 });
 
 test("restore recreates deleted files and removes created ones", () => {
@@ -133,7 +149,9 @@ test("byte cap skips oversized files", () => {
   const store = new CheckpointStore(dir, "s1", { maxCheckpointBytes: 10 });
   const m = store.create(1);
   assert.ok(m);
-  assert.ok(m.skipped.some((s) => s.path === "big.txt" && s.reason === "too_large"));
+  assert.ok(
+    m.skipped.some((s) => s.path === "big.txt" && s.reason === "too_large"),
+  );
 });
 
 test("count cap prunes oldest", () => {

@@ -5,11 +5,7 @@ import {
   defaultUserConfigPath,
   userConfigDir,
 } from "../config/paths.js";
-import {
-  saveProviderModel,
-  saveProviderSelection,
-  saveTheme,
-} from "../config/write.js";
+import { saveProviderSelection, saveTheme } from "../config/write.js";
 import { resolveApiKey, saveApiKey } from "../config/credentials.js";
 import { join } from "node:path";
 import { writeFileSync, existsSync } from "node:fs";
@@ -59,7 +55,6 @@ import {
 } from "../sessions/search.js";
 import {
   providerSwitchNotice,
-  sessionHistoryLines,
   sessionSelectionFromEvents,
 } from "../sessions/history.js";
 import {
@@ -106,13 +101,6 @@ import {
 import { ContextManager } from "../context/manager.js";
 import {
   ProcessTerminal,
-  TuiAltScreen,
-  Text,
-  Input,
-  Container,
-  Spacer,
-  VStack,
-  ScrollView,
   isKeyRelease,
   isKeyRepeat,
   Key,
@@ -124,7 +112,6 @@ export async function run(args: string[]): Promise<void> {
   let providerOverride: string | undefined;
   let modelOverride: string | undefined;
   let jsonMode = false;
-  let debug = false;
   let showVersion = false;
   let sessionOverride: string | undefined;
   let themeOverride: string | undefined;
@@ -141,7 +128,6 @@ export async function run(args: string[]): Promise<void> {
     } else if (a === "--provider") providerOverride = args[++i];
     else if (a === "--model") modelOverride = args[++i];
     else if (a === "--json") jsonMode = true;
-    else if (a === "--debug") debug = true;
     else if (a === "--version") showVersion = true;
     else if (a === "--continue") positional.push("__continue__");
     else if (a === "--session") sessionOverride = args[++i];
@@ -152,7 +138,7 @@ export async function run(args: string[]): Promise<void> {
     else if (a === "--no-tools") positional.push("__notools__");
     else if (a === "--help") {
       process.stdout.write(
-        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json] [--debug] [--theme NAME] [--no-color] [-e PATH] [--version] [--help]\n",
+        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json] [--theme NAME] [--no-color] [-e PATH] [--version] [--help]\n",
       );
       return;
     } else if (a.startsWith("--")) {
@@ -331,7 +317,9 @@ export async function run(args: string[]): Promise<void> {
           ? (cfg.models[0].id ?? cfg.models[0].name ?? "default")
           : "default";
       const apiKey = resolveExtensionApiKey(cfg.apiKey);
-      const headers = { ...(cfg.headers as Record<string, string> | undefined) };
+      const headers = {
+        ...(cfg.headers as Record<string, string> | undefined),
+      };
       if (cfg.authHeader && apiKey) {
         setHeader(headers, "Authorization", `Bearer ${apiKey}`);
       }
@@ -471,15 +459,12 @@ export async function run(args: string[]): Promise<void> {
   const {
     TuiAltScreen,
     Text,
-    Input,
     Editor,
     Container,
     Spacer,
     ScrollView,
     VStack,
-    Loader,
     Markdown,
-    Box,
     visibleWidth,
   } = await import("@earendil-works/pi-tui");
 
@@ -742,8 +727,6 @@ export async function run(args: string[]): Promise<void> {
   let showThinking = config.ui.showThinking;
   let expandTools = false;
   let uiModalOpen = false;
-  const inputHistory: string[] = [];
-  let historyIndex = -1;
   let closeActiveOverlay: (() => void) | undefined;
   const toolBoxes: ToolBox[] = [];
 
@@ -834,13 +817,6 @@ export async function run(args: string[]): Promise<void> {
     dropdownContainer.addChild(prompt);
     tui.setFocus(prompt);
     tui.requestRender();
-  }
-
-  function thinkingBody(): string {
-    return thinkingBuffer
-      .split("\n")
-      .map((line) => theme.tokens.dim(`│ ${line}`))
-      .join("\n");
   }
 
   function finalizeText(): void {
@@ -2144,7 +2120,7 @@ export async function run(args: string[]): Promise<void> {
     if (expandTools !== expanded) toggleTools();
   };
 
-  extensionUICallbacks.select = (title, options, opts) =>
+  extensionUICallbacks.select = (title, options, _opts) =>
     new Promise((resolve) => {
       if (!interactive) {
         resolve(undefined);
@@ -2182,7 +2158,7 @@ export async function run(args: string[]): Promise<void> {
       tui.requestRender();
     });
 
-  extensionUICallbacks.confirm = (title, message, opts) =>
+  extensionUICallbacks.confirm = (title, message, _opts) =>
     new Promise((resolve) => {
       if (!interactive) {
         resolve(false);
@@ -2220,7 +2196,7 @@ export async function run(args: string[]): Promise<void> {
       tui.requestRender();
     });
 
-  extensionUICallbacks.input = (title, placeholder, opts) =>
+  extensionUICallbacks.input = (title, _placeholder, _opts) =>
     new Promise((resolve) => {
       if (!interactive) {
         resolve(undefined);

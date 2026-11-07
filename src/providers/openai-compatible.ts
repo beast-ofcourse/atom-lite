@@ -98,7 +98,10 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
   }
 
   private buildHeaders(requestId?: string): Record<string, string> {
-    const h = mergeHeaders({ "Content-Type": "application/json" }, this.headers);
+    const h = mergeHeaders(
+      { "Content-Type": "application/json" },
+      this.headers,
+    );
     // A resolved API key wins over a caller-supplied Authorization header,
     // matching the adapter's established precedence.
     if (this.apiKey) {
@@ -123,7 +126,10 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
           `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
         );
         if (attempt < maxAttempts - 1) {
-          await delay(200 * (attempt + 1), init.signal as AbortSignal | undefined);
+          await delay(
+            200 * (attempt + 1),
+            init.signal as AbortSignal | undefined,
+          );
           continue;
         }
         throw lastErr;
@@ -139,7 +145,10 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
             : `PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`,
         );
         if (attempt < maxAttempts - 1) {
-          await delay(retryDelayMs(res, attempt, 500), init.signal as AbortSignal | undefined);
+          await delay(
+            retryDelayMs(res, attempt, 500),
+            init.signal as AbortSignal | undefined,
+          );
           continue;
         }
         throw lastErr;

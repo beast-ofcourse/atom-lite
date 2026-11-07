@@ -160,7 +160,9 @@ export class GeminiAdapter implements ProviderAdapter {
       id: this.model,
       contextWindow:
         this.contextWindowOverride ??
-        (typeof limit === "number" && limit > 0 ? Math.floor(limit) : undefined),
+        (typeof limit === "number" && limit > 0
+          ? Math.floor(limit)
+          : undefined),
       supportsTools: true,
       supportsStreaming: true,
       supportsVision:

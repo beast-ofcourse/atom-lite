@@ -62,12 +62,20 @@ test("knownContextWindow covers common hosted model families", () => {
 });
 
 test("contextWindowFromModelEntry reads common gateway metadata shapes", () => {
-  assert.equal(contextWindowFromModelEntry({ context_length: 256_000 }), 256_000);
   assert.equal(
-    contextWindowFromModelEntry({ top_provider: { context_length: 1_000_000 } }),
+    contextWindowFromModelEntry({ context_length: 256_000 }),
+    256_000,
+  );
+  assert.equal(
+    contextWindowFromModelEntry({
+      top_provider: { context_length: 1_000_000 },
+    }),
     1_000_000,
   );
-  assert.equal(contextWindowFromModelEntry({ limits: { context: 128_000 } }), 128_000);
+  assert.equal(
+    contextWindowFromModelEntry({ limits: { context: 128_000 } }),
+    128_000,
+  );
   assert.equal(contextWindowFromModelEntry({ context_window: 65_536 }), 65_536);
   assert.equal(contextWindowFromModelEntry({}), undefined);
   assert.equal(contextWindowFromModelEntry(null), undefined);
@@ -123,7 +131,6 @@ test("Gemini adapter resolves inputTokenLimit for the selected model", async () 
   );
 });
 
-
 test("knownVisionModel recognizes common vision families", () => {
   assert.equal(knownVisionModel("gpt-4o"), true);
   assert.equal(knownVisionModel("claude-sonnet-4-20250514"), true);
@@ -134,8 +141,14 @@ test("knownVisionModel recognizes common vision families", () => {
 });
 
 test("supportsVisionFromModelEntry reads capability metadata", () => {
-  assert.equal(supportsVisionFromModelEntry({ capabilities: ["vision", "text"] }), true);
-  assert.equal(supportsVisionFromModelEntry({ modalities: ["text", "image"] }), true);
+  assert.equal(
+    supportsVisionFromModelEntry({ capabilities: ["vision", "text"] }),
+    true,
+  );
+  assert.equal(
+    supportsVisionFromModelEntry({ modalities: ["text", "image"] }),
+    true,
+  );
   assert.equal(supportsVisionFromModelEntry({ supports_vision: true }), true);
   assert.equal(supportsVisionFromModelEntry({}), undefined);
   assert.equal(supportsVisionFromModelEntry(null), undefined);
@@ -147,12 +160,22 @@ test("OpenAI-compatible adapter reports vision from metadata", async () => {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(
         JSON.stringify({
-          data: [{ id: "test-model", context_length: 256_000, capabilities: ["vision"] }],
+          data: [
+            {
+              id: "test-model",
+              context_length: 256_000,
+              capabilities: ["vision"],
+            },
+          ],
         }),
       );
     },
     async (baseUrl) => {
-      const adapter = new OpenAICompatibleAdapter({ id: "test", baseUrl, model: "test-model" });
+      const adapter = new OpenAICompatibleAdapter({
+        id: "test",
+        baseUrl,
+        model: "test-model",
+      });
       const info = await adapter.getModelInfo();
       assert.equal(info?.supportsVision, true);
     },
@@ -163,10 +186,19 @@ test("OpenAI-compatible adapter honors config override", async () => {
   await withServer(
     (_req, res) => {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ data: [{ id: "test-model", capabilities: ["vision"] }] }));
+      res.end(
+        JSON.stringify({
+          data: [{ id: "test-model", capabilities: ["vision"] }],
+        }),
+      );
     },
     async (baseUrl) => {
-      const adapter = new OpenAICompatibleAdapter({ id: "test", baseUrl, model: "test-model", supportsVision: false });
+      const adapter = new OpenAICompatibleAdapter({
+        id: "test",
+        baseUrl,
+        model: "test-model",
+        supportsVision: false,
+      });
       const info = await adapter.getModelInfo();
       assert.equal(info?.supportsVision, false);
     },
@@ -177,10 +209,21 @@ test("Gemini adapter reports vision support", async () => {
   await withServer(
     (_req, res) => {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ models: [{ name: "models/gemini-2.5-flash", inputTokenLimit: 1_048_576 }] }));
+      res.end(
+        JSON.stringify({
+          models: [
+            { name: "models/gemini-2.5-flash", inputTokenLimit: 1_048_576 },
+          ],
+        }),
+      );
     },
     async (baseUrl) => {
-      const adapter = new GeminiAdapter({ id: "google", baseUrl, model: "gemini-2.5-flash", apiKey: "test-key" });
+      const adapter = new GeminiAdapter({
+        id: "google",
+        baseUrl,
+        model: "gemini-2.5-flash",
+        apiKey: "test-key",
+      });
       const info = await adapter.getModelInfo();
       assert.equal(info?.supportsVision, true);
     },

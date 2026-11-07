@@ -255,7 +255,6 @@ export class CheckpointStore {
     return out.sort();
   }
 
-
   private isSymlink(rel: string): boolean {
     try {
       return lstatSync(join(this.workspace, rel)).isSymbolicLink();

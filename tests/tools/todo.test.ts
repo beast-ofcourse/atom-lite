@@ -34,7 +34,11 @@ test("todo write creates items with auto ids", async () => {
         action: "write",
         todos: [
           { content: "task A", status: "pending" },
-          { content: "task B", status: "completed", verification: "tests pass" },
+          {
+            content: "task B",
+            status: "completed",
+            verification: "tests pass",
+          },
         ],
       },
     },
@@ -56,7 +60,12 @@ test("todo update changes status and content", async () => {
     {
       id: "2",
       name: "todo",
-      arguments: { action: "update", id: "T1", status: "completed", verification: "ok" },
+      arguments: {
+        action: "update",
+        id: "T1",
+        status: "completed",
+        verification: "ok",
+      },
     },
     c,
   );
@@ -69,7 +78,11 @@ test("todo update changes status and content", async () => {
 test("todo update on a missing id fails", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   const r = await todoTool.execute(
-    { id: "1", name: "todo", arguments: { action: "update", id: "nope", status: "completed" } },
+    {
+      id: "1",
+      name: "todo",
+      arguments: { action: "update", id: "nope", status: "completed" },
+    },
     ctx(dir),
   );
   assert.equal(r.isError, true);
@@ -90,5 +103,8 @@ test("contains compares the full task text, not a prefix", () => {
   const store = new TodoStore();
   store.add({ content: "fix the failing auth test" });
   assert.equal(store.contains("fix the failing auth test"), true);
-  assert.equal(store.contains("fix the failing auth test and the UI layer"), false);
+  assert.equal(
+    store.contains("fix the failing auth test and the UI layer"),
+    false,
+  );
 });

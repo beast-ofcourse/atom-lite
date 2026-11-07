@@ -149,7 +149,11 @@ test("read offset/limit slices lines without changing numbering", async () => {
   ];
   for (const [offset, limit, expected] of cases) {
     const r = await readTool.execute(
-      { id: "1", name: "read", arguments: { path: "range.txt", offset, limit } },
+      {
+        id: "1",
+        name: "read",
+        arguments: { path: "range.txt", offset, limit },
+      },
       ctx(dir),
     );
     assert.ok(r.content.endsWith(expected), `${offset}/${limit}: ${r.content}`);
@@ -160,7 +164,11 @@ test("read handles CRLF ranges", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   writeFileSync(join(dir, "crlf.txt"), "a\r\nb\r\nc\r\n");
   const r = await readTool.execute(
-    { id: "1", name: "read", arguments: { path: "crlf.txt", offset: 2, limit: 1 } },
+    {
+      id: "1",
+      name: "read",
+      arguments: { path: "crlf.txt", offset: 2, limit: 1 },
+    },
     ctx(dir),
   );
   assert.match(r.content, /2: b$/);
@@ -172,7 +180,11 @@ test("bash streams stdout and stderr while running", async () => {
   const chunks: Array<{ stream: string; text: string }> = [];
   const c = {
     ...ctx(dir),
-    onToolOutput: (_call: unknown, stream: "stdout" | "stderr", text: string) => {
+    onToolOutput: (
+      _call: unknown,
+      stream: "stdout" | "stderr",
+      text: string,
+    ) => {
       chunks.push({ stream, text });
     },
   };
@@ -185,14 +197,22 @@ test("bash streams stdout and stderr while running", async () => {
     c,
   );
   assert.match(r.content, /out/);
-  assert.ok(chunks.some((c) => c.stream === "stdout" && c.text.includes("out")));
-  assert.ok(chunks.some((c) => c.stream === "stderr" && c.text.includes("err")));
+  assert.ok(
+    chunks.some((c) => c.stream === "stdout" && c.text.includes("out")),
+  );
+  assert.ok(
+    chunks.some((c) => c.stream === "stderr" && c.text.includes("err")),
+  );
 });
 
 test("write and edit attach pre-computed diffs to the result", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   const created = await writeTool.execute(
-    { id: "1", name: "write", arguments: { path: "new.txt", content: "one\ntwo\n" } },
+    {
+      id: "1",
+      name: "write",
+      arguments: { path: "new.txt", content: "one\ntwo\n" },
+    },
     ctx(dir),
   );
   assert.deepEqual(created.diff, ["+ one", "+ two"]);
@@ -209,16 +229,26 @@ test("write and edit attach pre-computed diffs to the result", async () => {
   assert.ok(edited.diff?.includes("+ ONE"));
 });
 
-
 test("edit inserts replacement text literally", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   writeFileSync(join(dir, "a.txt"), "x $& $1 $$ $' `y`");
   const res = await editTool.execute(
-    { id: "1", name: "edit", arguments: { path: "a.txt", old_string: "x $& $1 $$ $' `y`", new_string: "replaced $& $1 $$ $' `y`" } },
+    {
+      id: "1",
+      name: "edit",
+      arguments: {
+        path: "a.txt",
+        old_string: "x $& $1 $$ $' `y`",
+        new_string: "replaced $& $1 $$ $' `y`",
+      },
+    },
     ctx(dir),
   );
   assert.ok(!res.isError);
-  assert.equal(readFileSync(join(dir, "a.txt"), "utf8"), "replaced $& $1 $$ $' `y`");
+  assert.equal(
+    readFileSync(join(dir, "a.txt"), "utf8"),
+    "replaced $& $1 $$ $' `y`",
+  );
 });
 
 test("read returns image data for vision-capable models", async () => {
@@ -227,7 +257,11 @@ test("read returns image data for vision-capable models", async () => {
   writeFileSync(join(dir, "pic.png"), png);
   const r = await readTool.execute(
     { id: "i1", name: "read", arguments: { path: "pic.png" } },
-    { workspace: dir, signal: new AbortController().signal, supportsVision: true } as any,
+    {
+      workspace: dir,
+      signal: new AbortController().signal,
+      supportsVision: true,
+    } as any,
   );
   assert.equal(r.isError, undefined);
   assert.ok(r.images && r.images.length === 1);
@@ -240,7 +274,11 @@ test("read rejects images for non-vision models", async () => {
   writeFileSync(join(dir, "pic.png"), png);
   const r = await readTool.execute(
     { id: "i2", name: "read", arguments: { path: "pic.png" } },
-    { workspace: dir, signal: new AbortController().signal, supportsVision: false } as any,
+    {
+      workspace: dir,
+      signal: new AbortController().signal,
+      supportsVision: false,
+    } as any,
   );
   assert.equal(r.isError, true);
   assert.match(r.content, /vision not supported/);
@@ -252,7 +290,11 @@ test("read rejects oversized images with FILE_TOO_LARGE", async () => {
   writeFileSync(join(dir, "big.png"), big);
   const r = await readTool.execute(
     { id: "i3", name: "read", arguments: { path: "big.png" } },
-    { workspace: dir, signal: new AbortController().signal, supportsVision: true } as any,
+    {
+      workspace: dir,
+      signal: new AbortController().signal,
+      supportsVision: true,
+    } as any,
   );
   assert.equal(r.isError, true);
   assert.match(r.content, /FILE_TOO_LARGE/);

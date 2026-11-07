@@ -73,7 +73,11 @@ test("runtime injects the task ledger after a todo write", async () => {
     tools: [todoTool],
     mode: "yolo",
   });
-  await runtime.runAgentTurn("do task A", session, new AbortController().signal);
+  await runtime.runAgentTurn(
+    "do task A",
+    session,
+    new AbortController().signal,
+  );
   assert.ok(provider.requests.length >= 2);
   const second = provider.requests[1].messages
     .map((m: any) =>

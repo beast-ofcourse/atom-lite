@@ -83,10 +83,10 @@ Precedence (low → high): defaults → user config → project config (non-secr
 
 Secrets live in `~/.config/atom-lite/credentials.json` (`0600`). Environment variables named by a provider's `apiKeyEnv` take precedence over the stored key. Secrets are never written to project config or session files.
 
-| Variable | Effect |
-| --- | --- |
+| Variable             | Effect                        |
+| -------------------- | ----------------------------- |
 | `ATOM_LITE_PROVIDER` | Default provider profile name |
-| `ATOM_LITE_MODE` | `plan` / `yolo` |
+| `ATOM_LITE_MODE`     | `plan` / `yolo`               |
 
 See [`docs/configuration.md`](./docs/configuration.md) for every field, default, and precedence rule.
 
@@ -95,21 +95,21 @@ See [`docs/configuration.md`](./docs/configuration.md) for every field, default,
 ```
 atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
           [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json]
-          [--debug] [--theme NAME] [--no-color] [--version] [--help]
+          [--theme NAME] [--no-color] [--version] [--help]
 ```
 
-| Flag | Description |
-| --- | --- |
-| `task` | One-shot task; agent runs it and exits |
-| `--provider NAME` | Select a provider profile |
-| `--model MODEL` | Override the model for this run |
-| `--continue` | Resume the most recent session in this workspace |
-| `--session ID` | Resume a specific session |
-| `--list-sessions` | Print the session index and exit |
-| `--search-sessions QUERY` | Print matching sessions with snippets and exit |
-| `--no-tools` | Disable all tools (model-only chat) |
-| `--json` | Non-interactive JSON output |
-| `--debug` | Debug logging |
+| Flag                      | Description                                      |
+| ------------------------- | ------------------------------------------------ |
+| `task`                    | One-shot task; agent runs it and exits           |
+| `--provider NAME`         | Select a provider profile                        |
+| `--model MODEL`           | Override the model for this run                  |
+| `--continue`              | Resume the most recent session in this workspace |
+| `--session ID`            | Resume a specific session                        |
+| `--list-sessions`         | Print the session index and exit                 |
+| `--search-sessions QUERY` | Print matching sessions with snippets and exit   |
+| `--no-tools`              | Disable all tools (model-only chat)              |
+| `--json`                  | Non-interactive JSON output                      |
+
 | `--theme NAME` | Use `auto`, `dark`, `light`, or `ansi` for this run |
 | `--no-color` | Force the no-colour theme |
 | `--version` | Print version |
@@ -121,28 +121,28 @@ In the TUI, type `/help` for every command grouped by category, or press `ctrl+p
 
 Ten built-in tools — the four core tools from [ADR 0001](./docs/adr/0001-four-built-in-tools-only.md), file search, network tools from [ADR 0006](./docs/adr/0006-expanded-toolset.md), `task` for background work from [ADR 0013](./docs/adr/0013-advanced-tool-features.md), and the session task ledger from [ADR 0016](./docs/adr/0016-session-task-ledger.md):
 
-| Tool | Purpose |
-| --- | --- |
-| `read` | Inspect files (with optional line ranges) |
-| `write` | Create or replace files safely (hash-guarded) |
-| `edit` | Precise find-and-replace edits (hash-guarded) |
-| `bash` | Execute shell commands (global exclusive barrier by default) |
-| `grep` | Search file contents by regex (ripgrep-backed, falls back to JS) |
-| `glob` | Find files matching a glob pattern |
-| `webfetch` | Fetch a URL and convert HTML to markdown |
-| `websearch` | Search the web and return ranked results |
-| `task` | Query or control a background bash task |
-| `todo` | Maintain the session task ledger |
+| Tool        | Purpose                                                          |
+| ----------- | ---------------------------------------------------------------- |
+| `read`      | Inspect files (with optional line ranges)                        |
+| `write`     | Create or replace files safely (hash-guarded)                    |
+| `edit`      | Precise find-and-replace edits (hash-guarded)                    |
+| `bash`      | Execute shell commands (global exclusive barrier by default)     |
+| `grep`      | Search file contents by regex (ripgrep-backed, falls back to JS) |
+| `glob`      | Find files matching a glob pattern                               |
+| `webfetch`  | Fetch a URL and convert HTML to markdown                         |
+| `websearch` | Search the web and return ranked results                         |
+| `task`      | Query or control a background bash task                          |
+| `todo`      | Maintain the session task ledger                                 |
 
 Tests, Git, builds, formatters, and package managers are available through `bash`.
 
 ## Providers
 
-| Type | Adapter | Notes |
-| --- | --- | --- |
+| Type                | Adapter                   | Notes                                                                   |
+| ------------------- | ------------------------- | ----------------------------------------------------------------------- |
 | `openai-compatible` | `OpenAICompatibleAdapter` | LM Studio, llama.cpp/llama-server, Kilo, and other compatible endpoints |
-| `ollama` | `OllamaAdapter` | Native Ollama chat API |
-| `gemini` | `GeminiAdapter` | Official Gemini API |
+| `ollama`            | `OllamaAdapter`           | Native Ollama chat API                                                  |
+| `gemini`            | `GeminiAdapter`           | Official Gemini API                                                     |
 
 Provider profiles are named combinations of endpoint, model, auth source, and options. Switching profiles mid-tool-exchange is disallowed.
 
@@ -167,27 +167,27 @@ The selected provider/model is persisted to user config, so the next session sta
 
 Type `/help` for the grouped list, or press `ctrl+p` for the fuzzy command palette. Common commands:
 
-| Command | Description |
-| --- | --- |
-| `/model [model]` | Show or switch the active model |
-| `/provider [profile]` | Show or switch the active provider |
-| `/effort [low\|medium\|high]` | Set reasoning effort |
-| `/rename [rename <title>]` | Show or rename the current session |
-| `/sessions [all]` | Search and resume a session |
-| `/search <query>` | Search sessions by title or content |
-| `/export [path]` | Export the session transcript |
-| `/mcp [reconnect [server]]` | Inspect or reconnect MCP servers |
-| `/extensions` | List discovered extensions and load status |
-| `/compact` | Compact older context |
-| `/clear` | Clear the transcript view |
-| `/undo` | Restore workspace to a checkpoint |
-| `/diff` | Show changes since the last checkpoint |
-| `/approval` | Show approval mode (legacy) |
-| `/doctor` | Run diagnostics |
-| `/thinking` | Toggle thinking display |
-| `/theme [auto\|dark\|light\|ansi]` | Switch theme |
-| `/skills`, `/skill <name>` | List or load a skill |
-| `/exit` | Exit the TUI |
+| Command                            | Description                                |
+| ---------------------------------- | ------------------------------------------ |
+| `/model [model]`                   | Show or switch the active model            |
+| `/provider [profile]`              | Show or switch the active provider         |
+| `/effort [low\|medium\|high]`      | Set reasoning effort                       |
+| `/rename [rename <title>]`         | Show or rename the current session         |
+| `/sessions [all]`                  | Search and resume a session                |
+| `/search <query>`                  | Search sessions by title or content        |
+| `/export [path]`                   | Export the session transcript              |
+| `/mcp [reconnect [server]]`        | Inspect or reconnect MCP servers           |
+| `/extensions`                      | List discovered extensions and load status |
+| `/compact`                         | Compact older context                      |
+| `/clear`                           | Clear the transcript view                  |
+| `/undo`                            | Restore workspace to a checkpoint          |
+| `/diff`                            | Show changes since the last checkpoint     |
+| `/approval`                        | Show approval mode (legacy)                |
+| `/doctor`                          | Run diagnostics                            |
+| `/thinking`                        | Toggle thinking display                    |
+| `/theme [auto\|dark\|light\|ansi]` | Switch theme                               |
+| `/skills`, `/skill <name>`         | List or load a skill                       |
+| `/exit`                            | Exit the TUI                               |
 
 ## Sessions
 

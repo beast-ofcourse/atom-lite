@@ -76,7 +76,9 @@ test("screen rows map to the tail of the rendered document", () => {
   });
 });
 
-function harness(overrides: Partial<Parameters<typeof handleMouseEvent>[1]> = {}) {
+function harness(
+  overrides: Partial<Parameters<typeof handleMouseEvent>[1]> = {},
+) {
   const calls: string[] = [];
   const handlers = {
     isModalOpen: () => false,
@@ -128,14 +130,14 @@ test("left click toggles a tool box and otherwise focuses the input", () => {
 test("mouse events are ignored while a modal is open", () => {
   const { calls, handlers } = harness({ isModalOpen: () => true });
   assert.equal(
-    handleMouseEvent(
-      { type: "press", button: "left", x: 0, y: 4 },
-      handlers,
-    ),
+    handleMouseEvent({ type: "press", button: "left", x: 0, y: 4 }, handlers),
     true,
   );
   assert.equal(
-    handleMouseEvent({ type: "wheel", direction: "down", x: 0, y: 0 }, handlers),
+    handleMouseEvent(
+      { type: "wheel", direction: "down", x: 0, y: 0 },
+      handlers,
+    ),
     true,
   );
   assert.deepEqual(calls, []);

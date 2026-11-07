@@ -6,5 +6,8 @@ try {
   console.error("did not terminate or errored: " + (e.message || e));
   process.exit(1);
 }
-if (!out.split("\n").includes("done")) { console.error("expected 'done' in output, got: " + out); process.exit(1); }
+if (!out.split("\n").includes("done")) {
+  console.error("expected 'done' in output, got: " + out);
+  process.exit(1);
+}
 console.log("ok");

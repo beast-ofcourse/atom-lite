@@ -1,6 +1,6 @@
 export function redactSecrets(text: string): string {
   return text.replace(
-    /((?:api[_-]?key|token|secret|password|authorization)\s*[:=]\s*)\S+/gi,
-    "$1[REDACTED]",
+    /((?<!\w)['"]?(?:api[_-]?key|token|secret|password|authorization)['"]?(?!\w)\s*[:=]\s*)(?:(['"])(.*?)\2|\S+(?:[ \t]+\S+)*)/gi,
+    "$1$2[REDACTED]$2",
   );
 }

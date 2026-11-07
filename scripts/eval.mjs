@@ -21,7 +21,9 @@ const config = loadConfig();
 const provider = createProvider(config, values.provider, values.model);
 const report = await runEval({
   provider,
-  model: values.model ?? config.providers?.[values.provider ?? config.defaultProvider]?.model,
+  model:
+    values.model ??
+    config.providers?.[values.provider ?? config.defaultProvider]?.model,
   tasksDir: values["tasks-dir"],
   taskFilter: values.task,
   outDir: values.out,

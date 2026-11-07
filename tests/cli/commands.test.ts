@@ -252,7 +252,8 @@ test("/diff reports no changes when at checkpoint", async () => {
   writeFileSync(join(dir, "a.txt"), "a");
   execFileSync("git", ["add", "-A"], { cwd: dir });
   execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: dir });
-  const { CheckpointStore } = await import("../../dist/runtime/checkpoint-store.js");
+  const { CheckpointStore } =
+    await import("../../dist/runtime/checkpoint-store.js");
   const store = new CheckpointStore(dir, "s1");
   store.create(1);
   const { ctx, lines } = fakeContext();

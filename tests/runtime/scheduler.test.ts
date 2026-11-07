@@ -153,10 +153,12 @@ test("parallel bash barrier still excludes file operations", async () => {
   const secondBash = await lm.acquireGlobalBarrier(signal);
 
   let fileAcquired = false;
-  const fileLock = lm.acquireWrite("/tmp/atom-lite-lock-test", signal).then((release) => {
-    fileAcquired = true;
-    return release;
-  });
+  const fileLock = lm
+    .acquireWrite("/tmp/atom-lite-lock-test", signal)
+    .then((release) => {
+      fileAcquired = true;
+      return release;
+    });
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(fileAcquired, false);
 
@@ -172,7 +174,11 @@ test("plan mode blocks write/edit/bash with a tool-disabled result", async () =>
   writeFileSync(join(dir, "x.txt"), "hello");
   const calls = [
     { id: "w", name: "write", arguments: { path: "y.txt", content: "hi" } },
-    { id: "e", name: "edit", arguments: { path: "x.txt", old_string: "hello", new_string: "world" } },
+    {
+      id: "e",
+      name: "edit",
+      arguments: { path: "x.txt", old_string: "hello", new_string: "world" },
+    },
     { id: "b", name: "bash", arguments: { command: "echo hi" } },
     { id: "r", name: "read", arguments: { path: "x.txt" } },
   ];

@@ -9,7 +9,7 @@ web
 
 ## Users
 
-*(Derived from the repository's README, ADRs, and positioning.)*
+_(Derived from the repository's README, ADRs, and positioning.)_
 
 Developers and agent builders who run coding agents from a terminal and want a
 small, readable, hackable harness instead of a large orchestration product.

@@ -24,7 +24,9 @@ function manager(dir: string): ContextManager {
 
 function text(messages: any[]): string {
   return messages
-    .map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)))
+    .map((m) =>
+      typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+    )
     .join("\n");
 }
 
@@ -53,10 +55,16 @@ test("skill index is cached and invalidated by mtime", async () => {
   const skillFile = join(skillDir, "SKILL.md");
   const cm = manager(dir);
 
-  writeFileSync(skillFile, "---\nname: demo\ndescription: alpha skill\n---\nbody\n");
+  writeFileSync(
+    skillFile,
+    "---\nname: demo\ndescription: alpha skill\n---\nbody\n",
+  );
   assert.match(text(await cm.build(dir, [])), /demo: alpha skill/);
 
-  writeFileSync(skillFile, "---\nname: demo\ndescription: beta skill\n---\nbody\n");
+  writeFileSync(
+    skillFile,
+    "---\nname: demo\ndescription: beta skill\n---\nbody\n",
+  );
   touchFuture(skillFile);
   assert.match(text(await cm.build(dir, [])), /demo: beta skill/);
 });

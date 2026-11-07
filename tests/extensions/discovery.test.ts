@@ -19,10 +19,7 @@ test("discovers top-level js and mjs files", () => {
     writeFileSync(join(dir, "beta.mjs"), "export default () => {};\n");
     writeFileSync(join(dir, "ignored.txt"), "nope");
     const found = discoverExtensions({ userDir: dir });
-    assert.deepEqual(
-      found.map((entry) => entry.id).sort(),
-      ["alpha", "beta"],
-    );
+    assert.deepEqual(found.map((entry) => entry.id).sort(), ["alpha", "beta"]);
     assert.ok(found.every((entry) => entry.errors.length === 0));
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -61,17 +58,22 @@ test("discovers packaged extensions from package.json", () => {
         },
       }),
     );
-    writeFileSync(join(packageDir, "src", "index.js"), "export default () => {};\n");
-    writeFileSync(join(packageDir, "src", "extra.mjs"), "export default () => {};\n");
+    writeFileSync(
+      join(packageDir, "src", "index.js"),
+      "export default () => {};\n",
+    );
+    writeFileSync(
+      join(packageDir, "src", "extra.mjs"),
+      "export default () => {};\n",
+    );
 
     const found = discoverExtensions({ userDir: dir });
     assert.equal(found.length, 2);
-    assert.ok(found.every((entry) => entry.manifest?.name === "example-extension"));
-    assert.ok(found.every((entry) => entry.manifest?.version === "1.2.3"));
-    assert.deepEqual(
-      found[0].manifest?.capabilities,
-      ["tools", "commands"],
+    assert.ok(
+      found.every((entry) => entry.manifest?.name === "example-extension"),
     );
+    assert.ok(found.every((entry) => entry.manifest?.version === "1.2.3"));
+    assert.deepEqual(found[0].manifest?.capabilities, ["tools", "commands"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
