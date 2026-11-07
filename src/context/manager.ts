@@ -207,7 +207,7 @@ export class ContextManager {
       this.opts.userInstructionsPath ?? join(userConfigDir(), "AGENTS.md");
     const instructionSignature =
       `${workspace}|${this.opts.maxProjectInstructionBytes}|` +
-      statSignature([userPath, join(workspace, "AGENTS.md")]);
+      statSignature([userPath, join(workspace, "AGENTS.md"), join(workspace, "CLAUDE.md")]);
     let instructions: string[];
     if (this.instructionCache?.signature === instructionSignature) {
       instructions = this.instructionCache.text;

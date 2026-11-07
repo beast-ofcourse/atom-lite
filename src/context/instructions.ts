@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, existsSync, statSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 
 /** Cheap change detector for a set of files (mtime + size). */
@@ -21,14 +21,24 @@ export function loadProjectInstructions(
   userInstructionsPath?: string,
 ): string[] {
   const out: string[] = [];
-  if (userInstructionsPath && existsSync(userInstructionsPath)) {
-    const buf = readFileSync(userInstructionsPath);
+  const seen = new Set<string>();
+  const pushFile = (p: string): void => {
+    if (!existsSync(p)) return;
+    // Dedup by resolved path so the same file isn't loaded twice
+    // (e.g. when CLAUDE.md and AGENTS.md resolve to the same path).
+    let key = p;
+    try {
+      key = realpathSync(p);
+    } catch {
+      key = p;
+    }
+    if (seen.has(key)) return;
+    seen.add(key);
+    const buf = readFileSync(p);
     out.push(buf.subarray(0, maxBytes).toString("utf8"));
-  }
-  const projectPath = join(workspace, "AGENTS.md");
-  if (existsSync(projectPath)) {
-    const buf = readFileSync(projectPath);
-    out.push(buf.subarray(0, maxBytes).toString("utf8"));
-  }
+  };
+  if (userInstructionsPath) pushFile(userInstructionsPath);
+  pushFile(join(workspace, "AGENTS.md"));
+  pushFile(join(workspace, "CLAUDE.md"));
   return out;
 }
