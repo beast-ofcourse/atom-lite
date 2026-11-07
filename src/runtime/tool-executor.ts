@@ -39,7 +39,7 @@ export class ToolExecutor {
   private bashConcurrency: "serial" | "parallel";
 
   constructor(options: ToolExecutorOptions = {}) {
-    this.maxParallel = options.maxParallelToolCalls ?? 4;
+    this.maxParallel = Math.max(1, options.maxParallelToolCalls ?? 4);
     this.bashConcurrency = options.bashConcurrency ?? "serial";
   }
 
