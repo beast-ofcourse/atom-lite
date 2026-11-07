@@ -165,6 +165,46 @@ listed here. User, global, and CLI extensions load without this setting.
 | `COLORFGBG`             | Falls back to this value to detect a light or dark background. |
 | Any name in `apiKeyEnv` | Supplies that provider's API key.                              |
 
+
+## `lsp`
+
+Optional, off by default. When enabled, Atom-lite lazily spawns language servers
+per workspace root and exposes `lsp_diagnostics`, `lsp_definition`,
+`lsp_references`, and `lsp_symbols` tools. Built-in presets activate
+automatically when their server binary is installed (TypeScript/JavaScript,
+Python via pyright, Go, Rust).
+
+| Key        | Type    | Default | Description                                                |
+| ---------- | ------- | ------- | ---------------------------------------------------------- |
+| `enabled`  | boolean | `false` | Turn LSP on.                                               |
+| `servers`  | object  | `{}`    | Custom or override server definitions (same fields as below). |
+
+Each entry in `servers`:
+
+| Key             | Type              | Default | Description                                                  |
+| --------------- | ----------------- | ------- | ------------------------------------------------------------ |
+| `command`       | string            | required | Executable to launch.                                       |
+| `args`          | string[]          | `[]`    | Arguments (for example `["--stdio"]`).                       |
+| `extensions`    | string[]          | `[]`    | File extensions handled by this server.                      |
+| `rootMarkers`   | string[]          | `[]`    | Files that identify a project root (for example `package.json`). |
+| `initialization`| object            | `{}`    | LSP `initializationOptions`.                                |
+| `disabled`      | boolean           | `false` | Disable a built-in preset by id (for example `typescript`).  |
+
+To enable LSP, set in user or project config:
+
+```json
+{ "lsp": { "enabled": true } }
+```
+
+Then install at least one language server, for example:
+
+```bash
+npm install -g typescript-language-server typescript
+```
+
+LSP tools appear only when `lsp.enabled` is true. No server is started until a
+relevant file is touched.
+
 ## Example
 
 ```json
