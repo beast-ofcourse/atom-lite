@@ -62,6 +62,16 @@ export function messageToEvent(
       message,
     };
   }
+  if (message.role === "system") {
+    return {
+      type: "system_message",
+      timestamp,
+      sessionId,
+      seq,
+      message,
+      content: message.content,
+    };
+  }
   if (message.role === "tool") {
     return {
       type: "tool_result",
@@ -86,6 +96,16 @@ export function eventToMessage(event: SessionEvent): Message | null {
     return {
       role: "user",
       content: [{ type: "text", text: String(event.content ?? "") }],
+    };
+  }
+  if (event.type === "system_message") {
+    if (event.message && typeof event.message === "object") {
+      const m = event.message as Message;
+      if (m.role === "system") return m;
+    }
+    return {
+      role: "system",
+      content: String(event.content ?? ""),
     };
   }
   if (event.type === "assistant_message") {

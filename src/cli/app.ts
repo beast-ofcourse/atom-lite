@@ -193,12 +193,10 @@ export async function run(args: string[]): Promise<void> {
   };
   process.on("exit", shutdownLspOnce);
   process.on("SIGINT", () => {
-    shutdownLspOnce();
-    process.exit(0);
+    void shutdownLsp().finally(() => process.exit(0));
   });
   process.on("SIGTERM", () => {
-    shutdownLspOnce();
-    process.exit(0);
+    void shutdownLsp().finally(() => process.exit(0));
   });
   const initialProfile = providerOverride ?? config.defaultProvider;
   if (!(config.providers as Record<string, unknown>)[initialProfile]) {
@@ -1587,6 +1585,11 @@ export async function run(args: string[]): Promise<void> {
     session.appendMessage({ role: "system", content });
     if (typeof (session as any).appendEvent === "function") {
       session.appendEvent({ type: "skill_loaded", name });
+    }
+    try {
+      await (session as any).flush?.();
+    } catch {
+      // Best effort.
     }
     appendLine(`Loaded skill: ${name}`, theme.tokens.dim);
     if (extra) {

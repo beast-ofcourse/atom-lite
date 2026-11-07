@@ -2,6 +2,7 @@ import type { AgentRuntimeOptions, ContextUsage } from "./types.js";
 import { DEFAULT_LIMITS } from "../types.js";
 import type { Message, ModelRequest, AgentLimits } from "../types.js";
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import { executeToolBatch } from "../runtime/scheduler.js";
 import { touchFile as touchLspFile, getDiagnostics as getLspDiagnostics } from "../lsp/index.js";
 import { ContextManager } from "../context/manager.js";
@@ -353,6 +354,7 @@ export class AgentRuntime {
     const maxCompletionNudges = 3;
     const start = Date.now();
 
+    try {
     while (true) {
       forceContinue = false;
       // Drain any steering messages into the session before the next model turn.
@@ -734,7 +736,7 @@ export class AgentRuntime {
       for (const call of execCalls) {
         const pathArg = (call as any)?.arguments?.path;
         if (typeof pathArg === "string") {
-          void touchLspFile(pathArg).catch(() => {});
+          void touchLspFile(path.resolve(this.workspace, pathArg)).catch(() => {});
         }
       }
       const execResults = await executeToolBatch(
@@ -762,7 +764,9 @@ export class AgentRuntime {
           typeof (call as any).arguments?.path === "string"
         ) {
           try {
-            const diags = await getLspDiagnostics((call as any).arguments.path);
+            const diags = await getLspDiagnostics(
+              path.resolve(this.workspace, (call as any).arguments.path),
+            );
             const messages = [...diags.values()].flat().map((d: any) => d.message);
             if (messages.length > 0) {
               r.content = `${r.content}\nLSP diagnostics:\n${messages.join("\n")}`;
@@ -837,5 +841,12 @@ export class AgentRuntime {
     }
 
     return "TASK_BUDGET_REACHED";
+    } finally {
+      try {
+        await (session as any).flush?.();
+      } catch {
+        // Best-effort durability; never fail the turn on flush errors.
+      }
+    }
   }
 }

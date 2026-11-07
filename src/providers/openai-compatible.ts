@@ -123,7 +123,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
           `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
         );
         if (attempt < maxAttempts - 1) {
-          await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+          await delay(200 * (attempt + 1), init.signal as AbortSignal | undefined);
           continue;
         }
         throw lastErr;
@@ -296,7 +296,11 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         }
       }
     } catch (err) {
-      if (err instanceof Error && err.message.startsWith("PROVIDER_"))
+      if (
+        err instanceof Error &&
+        (err.message.startsWith("PROVIDER_") ||
+          err.message === "USER_CANCELLED")
+      )
         throw err;
       throw new Error(
         `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,

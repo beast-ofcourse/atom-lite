@@ -23,15 +23,25 @@ export function isRetryableStatus(status: number): boolean {
 }
 
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
+  return new Promise<void>((resolve, reject) => {
     if (signal?.aborted) {
-      resolve();
+      reject(new Error("USER_CANCELLED"));
       return;
     }
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => {
-      clearTimeout(timer);
+    const timer = setTimeout(() => {
+      cleanup();
       resolve();
-    }, { once: true });
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      cleanup();
+      reject(new Error("USER_CANCELLED"));
+    };
+    const cleanup = () => {
+      signal?.removeEventListener("abort", onAbort);
+    };
+    if (signal) {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
   });
 }

@@ -55,6 +55,20 @@ test("resuming restores retained messages and the event log", async () => {
   });
 });
 
+test("resuming preserves system messages", async () => {
+  await withStore(async (store) => {
+    const created = store.create({ workspace: "/w", provider: "fake", id: "sys1" });
+    created.appendMessage({ role: "system", content: "system note" });
+    await created.flush();
+
+    const resumed = store.resume("sys1");
+    assert.ok(resumed);
+    assert.equal(resumed.messages.length, 1);
+    assert.equal(resumed.messages[0].role, "system");
+    assert.equal(resumed.messages[0].content, "system note");
+  });
+});
+
 test("session index derives titles, message counts, and search text", async () => {
   await withStore(async (store) => {
     const created = store.create({ workspace: "/w", provider: "fake", id: "s1" });
