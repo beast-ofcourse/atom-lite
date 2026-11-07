@@ -1,5 +1,6 @@
 import { Markdown, type MarkdownTheme } from "@earendil-works/pi-tui";
 import type { Transcript } from "./transcript.js";
+import { renderMermaidBlocks } from "./mermaid.js";
 
 /** Lines kept live while streaming; older lines are sealed into cached Markdown. */
 export const STREAM_LIVE_LINES = 200;
@@ -45,15 +46,22 @@ export class StreamText {
       const sealed = lines.slice(0, lines.length - keepCount).join("\n");
       this.buffer = lines.slice(-keepCount).join("\n");
       if (this.live) this.transcript.container.removeChild(this.live);
-      this.transcript.add(new Markdown(sealed, 0, 0, this.markdownTheme));
-      this.live = new Markdown(this.buffer, 0, 0, this.markdownTheme);
+      this.transcript.add(
+        new Markdown(renderMermaidBlocks(sealed), 0, 0, this.markdownTheme),
+      );
+      this.live = new Markdown(
+        renderMermaidBlocks(this.buffer),
+        0,
+        0,
+        this.markdownTheme,
+      );
       this.transcript.add(this.live);
     } else {
       if (!this.live) {
         this.live = new Markdown("", 0, 0, this.markdownTheme);
         this.transcript.add(this.live);
       }
-      this.live.setText(this.buffer);
+      this.live.setText(renderMermaidBlocks(this.buffer));
       this.transcript.invalidate();
     }
   }
