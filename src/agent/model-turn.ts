@@ -1,4 +1,4 @@
-import type { Message, ModelRequest } from "../types.js";
+import type { Message, ModelRequest, ToolCall } from "../types.js";
 import type { ProviderAdapter } from "../providers/types.js";
 
 export interface ModelTurnRequest {
@@ -20,7 +20,7 @@ export type ModelTurnEvent =
       type: "final";
       response: {
         message: Message;
-        toolCalls?: ModelRequest extends { tools: infer T } ? unknown : unknown;
+        toolCalls?: ToolCall[];
         usage?: { input?: number; output?: number };
       };
       streamedText: string;
