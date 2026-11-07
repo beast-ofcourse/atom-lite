@@ -7,6 +7,7 @@ import { ContextManager } from "../context/manager.js";
 import { DEFAULT_SYSTEM_PROMPT } from "./system-prompt.js";
 import { BackgroundTaskManager } from "../runtime/background-tasks.js";
 import { CheckpointStore } from "../runtime/checkpoint-store.js";
+import { TodoStore } from "../runtime/todos.js";
 import { runModelTurn } from "./model-turn.js";
 import { TurnRecorder } from "./turn-recorder.js";
 
@@ -33,6 +34,7 @@ export class AgentRuntime {
   private contextUsed: number | undefined;
   private supportsVision: boolean | undefined;
   private backgroundTasks: BackgroundTaskManager;
+  private todoStore: TodoStore;
   private checkpointingEnabled: boolean;
   private checkpointStoreOverride: CheckpointStore | undefined;
   private turnCheckpointed = false;
@@ -73,6 +75,7 @@ export class AgentRuntime {
     this.supportsVision = options.supportsVision;
     this.backgroundTasks =
       options.backgroundTasks ?? new BackgroundTaskManager();
+    this.todoStore = options.todoStore ?? new TodoStore();
     this.checkpointingEnabled = options.checkpointingEnabled ?? true;
     this.checkpointStoreOverride = options.checkpointStore;
     this.contextManager.setModelContextWindow(options.contextWindow);
@@ -192,6 +195,60 @@ export class AgentRuntime {
     return this.effort;
   }
 
+  private restoreTodos(session: any): void {
+    const events = (session as any).events;
+    if (!Array.isArray(events)) return;
+    const latest = [...events]
+      .reverse()
+      .find((event: any) => event?.type === "todos_updated");
+    if (latest) this.todoStore = TodoStore.fromJSON(latest.todos);
+  }
+
+  private persistTodos(session: { appendEvent?(partial: any): any }): void {
+    if (typeof session.appendEvent !== "function") return;
+    session.appendEvent({
+      type: "todos_updated",
+      todos: this.todoStore.toJSON(),
+    });
+  }
+
+  private isContinuation(text: string): boolean {
+    return /^(continue|proceed|go on|keep going|yes|yep|ok|okay|sure|do it|thanks|thank you|\?\?continue)\b/i.test(
+      text.trim(),
+    );
+  }
+
+  /**
+   * Capture each distinct user request in the ledger. This is deliberately
+   * independent of the model: a new task cannot disappear just because the
+   * model was still finishing the previous one.
+   */
+  private captureUserTask(
+    input: string,
+    session: { appendEvent?(partial: any): any },
+  ): void {
+    if (!this.toolMap.has("todo")) return;
+    const text = input.replace(/\s+/g, " ").trim();
+    if (!text || this.isContinuation(text)) return;
+    if (this.todoStore.contains(text)) return;
+    this.todoStore.add({ content: text.slice(0, 200), status: "pending" });
+    this.persistTodos(session);
+  }
+
+  private injectTodoLedger(
+    messages: Message[],
+    completionCheck: boolean,
+  ): void {
+    const ledger = this.todoStore.renderForPrompt({ completionCheck });
+    if (!ledger) return;
+    // Keep the ledger next to the system prompt, before compacted history.
+    let index = 0;
+    while (index < messages.length && messages[index].role === "system") {
+      index++;
+    }
+    messages.splice(index, 0, { role: "system", content: ledger });
+  }
+
   async runAgentTurn(
     input: string,
     session: {
@@ -200,6 +257,7 @@ export class AgentRuntime {
       appendEvent?(partial: any): any;
     },
     signal: AbortSignal,
+    options?: { requestId?: string },
   ): Promise<string> {
     // Restore any persisted session memory for resumed sessions.
     const events = (session as any).events;
@@ -214,12 +272,14 @@ export class AgentRuntime {
           : undefined,
       );
     }
+    this.restoreTodos(session);
 
     this.turnIndex += 1;
     this.injectCompletedBackgroundTasks(session);
     this.turnCheckpointed = false;
     this.turnCheckpointId = null;
     this.turnCheckpointStore = null;
+    this.captureUserTask(input, session);
 
     session.appendMessage({
       role: "user",
@@ -228,6 +288,7 @@ export class AgentRuntime {
 
     await this.extensionDispatch?.("turn_start", { type: "turn_start" });
     let forceContinue = false;
+    let completionNudged = false;
     const start = Date.now();
 
     while (true) {
@@ -249,6 +310,10 @@ export class AgentRuntime {
       const messages = await this.contextManager.build(
         this.workspace,
         session.messages,
+      );
+      this.injectTodoLedger(
+        messages,
+        completionNudged && this.todoStore.openCount() > 0,
       );
       await this.extensionDispatch?.("context_build", {
         type: "context_build",
@@ -285,6 +350,7 @@ export class AgentRuntime {
         tools: this.tools.map((t) => t.definition),
         effort: this.effort,
         signal,
+        requestId: options?.requestId,
       })) {
         if (ev.type === "thinking_delta") {
           this.onEvent?.({ type: "thinking_delta", text: ev.text });
@@ -376,6 +442,21 @@ export class AgentRuntime {
           forceContinue = true;
           continue;
         }
+        // Task ledger completion gate: do not settle while assigned tasks
+        // are still open; nudge the model once to update or continue.
+        if (
+          this.toolMap.has("todo") &&
+          !completionNudged &&
+          this.todoStore.openCount() > 0
+        ) {
+          completionNudged = true;
+          this.onEvent?.({
+            type: "task_ledger_open",
+            pending: this.todoStore.openCount(),
+            todos: this.todoStore.list(),
+          });
+          continue;
+        }
         // Discard a checkpoint that produced no changes.
         if (this.turnCheckpointId && this.turnCheckpointStore) {
           try {
@@ -427,6 +508,7 @@ export class AgentRuntime {
         mode: this.mode,
         supportsVision: this.supportsVision,
         backgroundTasks: this.backgroundTasks,
+        todos: this.todoStore,
         signal,
         maxBashTimeMs: this.limits.maxBashTimeMs,
         maxToolOutputBytes: this.limits.maxToolOutputBytes,
@@ -522,6 +604,7 @@ export class AgentRuntime {
         "webfetch",
         "websearch",
         "task",
+        "todo",
       ]);
       const hasMutating = toolCalls.some(
         (c: any) => !blocked.has(c.id) && !readOnly.has(c.name),
@@ -587,6 +670,12 @@ export class AgentRuntime {
         undefined,
         this.bashConcurrency,
       );
+      if (
+        execResults.some((result: any) => result?.name === "todo") &&
+        this.toolMap.has("todo")
+      ) {
+        this.persistTodos(session);
+      }
 
       for (const r of execResults) {
         const call = toolCalls.find((c: any) => c.id === r.toolCallId);

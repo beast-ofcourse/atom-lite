@@ -17,3 +17,5 @@ export { GeminiAdapter } from "./providers/gemini.js";
 export { InMemoryToolRegistry } from "./tools/registry.js";
 export * from "./mcp/index.js";
 export * from "./types.js";
+export { TodoStore } from "./runtime/todos.js";
+export type { TodoItem, TodoInput } from "./runtime/todos.js";

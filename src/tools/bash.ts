@@ -19,7 +19,7 @@ export const bashTool: Tool = {
   definition: {
     name: "bash",
     description:
-      "Execute a shell command and return its output. Set background:true to run asynchronously.",
+      "Execute a shell command in the workspace (or the optional cwd) and return its output. Set background:true to run asynchronously. Commands run in the workspace root unless cwd is provided; a previous cd does not persist between calls.",
     parameters: {
       type: "object",
       properties: {
@@ -204,6 +204,16 @@ export const bashTool: Tool = {
         if (killedByAbort) parts.push("cancelled: true");
         if (truncated) parts.push("OUTPUT_TRUNCATED");
         parts.push(`duration_ms: ${duration}`);
+        parts.push(`cwd: ${workdir}`);
+        if (
+          /(^|\s)(sed\s+-i|perl\s+-[a-z]*i|python[0-9.]*\s+-\s*<<|cat\s*>\s*\S+\.(ts|js|tsx|jsx|py|go|rs|md))/i.test(
+            command,
+          )
+        ) {
+          parts.push(
+            "warning: shell-based file editing detected; prefer the edit/write tools for hash-guarded, diffable changes",
+          );
+        }
         if (stdout) parts.push(`stdout:\n${stdout}`);
         if (stderr) parts.push(`stderr:\n${stderr}`);
         const failed = code !== 0 || timedOut || killedByAbort;

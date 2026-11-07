@@ -8,13 +8,18 @@ import { isToolAllowed } from "./modes.js";
 function resourceKey(call: ToolCall, workspace: string): string {
   const args = call.arguments ?? {};
   if (call.name === "bash") return "__bash__";
+  if (call.name === "todo") return "__todo__";
   const p = (args as any).path ?? (args as any).cwd ?? "";
   const key = String(p);
   return key === "" ? "" : resolve(workspace, key);
 }
 
 function isMutation(call: ToolCall): boolean {
-  return call.name === "write" || call.name === "edit";
+  return (
+    call.name === "write" ||
+    call.name === "edit" ||
+    call.name === "todo"
+  );
 }
 
 function isBash(call: ToolCall): boolean {

@@ -1,6 +1,7 @@
 import type { Config } from "../config/schema.js";
 import { loadCredentials } from "../config/credentials.js";
 import { createProvider } from "./factory.js";
+import { mergeHeaders, type HeaderMap } from "./http-headers.js";
 
 export type ProviderType = "openai-compatible" | "ollama" | "gemini";
 
@@ -206,11 +207,12 @@ export function materializeProviderConfig(
     apiKeyEnv: preset.keyEnv ?? null,
   };
   if (preset.baseUrl) out.baseUrl = existing?.baseUrl ?? preset.baseUrl;
-  if (preset.headers)
-    out.headers = {
-      ...preset.headers,
-      ...((existing?.headers as object) ?? {}),
-    };
+  if (preset.headers) {
+    out.headers = mergeHeaders(
+      preset.headers,
+      (existing?.headers as HeaderMap | undefined) ?? undefined,
+    );
+  }
   return out;
 }
 
@@ -343,10 +345,10 @@ export async function probeApiKey(
 
     const base = (preset.baseUrl ?? "").replace(/\/$/, "");
     const res = await fetch(`${base}/models`, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        ...(preset.headers ?? {}),
-      },
+      headers: mergeHeaders(
+        { Authorization: `Bearer ${apiKey}` },
+        preset.headers,
+      ),
       signal: controller.signal,
     });
     if (res.status === 401 || res.status === 403) {

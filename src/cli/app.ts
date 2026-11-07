@@ -79,6 +79,7 @@ import {
   grepTool,
   globTool,
   taskTool,
+  todoTool,
   lspDiagnosticsTool,
   lspDefinitionTool,
   lspReferencesTool,
@@ -91,6 +92,7 @@ import {
   createMcpTools,
 } from "../mcp/index.js";
 import { createProvider } from "../providers/factory.js";
+import { setHeader } from "../providers/http-headers.js";
 import {
   availableProviderNames,
   getPreset,
@@ -221,6 +223,7 @@ export async function run(args: string[]): Promise<void> {
         grepTool,
         globTool,
         taskTool,
+        todoTool,
         ...(config.lsp?.enabled
           ? [
               lspDiagnosticsTool,
@@ -330,8 +333,10 @@ export async function run(args: string[]): Promise<void> {
           ? (cfg.models[0].id ?? cfg.models[0].name ?? "default")
           : "default";
       const apiKey = resolveExtensionApiKey(cfg.apiKey);
-      const headers = { ...(cfg.headers ?? {}) };
-      if (cfg.authHeader && apiKey) headers.Authorization = `Bearer ${apiKey}`;
+      const headers = { ...(cfg.headers as Record<string, string> | undefined) };
+      if (cfg.authHeader && apiKey) {
+        setHeader(headers, "Authorization", `Bearer ${apiKey}`);
+      }
       (config.providers as Record<string, any>)[name] = {
         type: "openai-compatible",
         baseUrl: cfg.baseUrl,
@@ -2034,9 +2039,12 @@ export async function run(args: string[]): Promise<void> {
             ? (cfg.models[0].id ?? cfg.models[0].name ?? "default")
             : "default";
         const apiKey = resolveExtensionApiKey(cfg.apiKey);
-        const headers = { ...(cfg.headers ?? {}) };
-        if (cfg.authHeader && apiKey)
-          headers.Authorization = `Bearer ${apiKey}`;
+        const headers = {
+          ...(cfg.headers as Record<string, string> | undefined),
+        };
+        if (cfg.authHeader && apiKey) {
+          setHeader(headers, "Authorization", `Bearer ${apiKey}`);
+        }
         (config.providers as Record<string, any>)[name] = {
           type: "openai-compatible",
           baseUrl: cfg.baseUrl,
@@ -2394,6 +2402,12 @@ export async function run(args: string[]): Promise<void> {
     } else if (e.type === "checkpoint_unavailable") {
       appendLine(
         `checkpoint unavailable: ${e.reason ?? "not a git repository"}`,
+        theme.tokens.warning,
+      );
+      tui.requestRender();
+    } else if (e.type === "task_ledger_open") {
+      appendLine(
+        `task ledger: ${e.pending} open item(s) remain`,
         theme.tokens.warning,
       );
       tui.requestRender();

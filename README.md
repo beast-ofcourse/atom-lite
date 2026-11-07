@@ -11,7 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-Atom-lite is a local-first, model-agnostic coding agent built on a deliberately small harness: one agent loop, nine built-in tools, a conflict-aware scheduler, durable JSONL sessions, and explicit safety boundaries. It runs against local or hosted providers through interchangeable adapters — no cloud account, telemetry, or control plane required.
+Atom-lite is a local-first, model-agnostic coding agent built on a deliberately small harness: one agent loop, ten built-in tools, a conflict-aware scheduler, durable JSONL sessions, and explicit safety boundaries. It runs against local or hosted providers through interchangeable adapters — no cloud account, telemetry, or control plane required.
 
 > Documentation index: [`docs/README.md`](./docs/README.md). Architectural decisions: [`docs/adr/`](./docs/adr/).
 
@@ -25,7 +25,7 @@ Most coding agents accumulate tools, sub-agents, and orchestration until the har
 
 ## Features
 
-- **Nine built-in tools** — `read`, `write`, `edit`, `bash`, `grep`, `glob`, `webfetch`, `websearch`, `task`. Background tasks run via `bash` with `background:true` and are managed through `task`. Everything else (tests, git, builds) runs through `bash`.
+- **Ten built-in tools** — `read`, `write`, `edit`, `bash`, `grep`, `glob`, `webfetch`, `websearch`, `task`, `todo`. Background tasks run via `bash` with `background:true` and are managed through `task`. The `todo` tool maintains the session task ledger. Everything else (tests, git, builds) runs through `bash`.
 - **Single agent loop** — one agent, one conversation, one registry, one control loop. Parallelism lives inside a tool-call batch.
 - **Conflict-aware scheduler** — per-file read/write locks and a global bash barrier.
 - **Durable sessions** — append-only JSONL event logs, resumable across restarts, grouped by workspace.

@@ -10,6 +10,11 @@ import type { ProviderAdapter } from "./types.js";
 import { parseArgs } from "./tool-calls.js";
 import { knownVisionModel } from "./context-window.js";
 import { isRetryableStatus, retryDelayMs, delay } from "./retry.js";
+import {
+  applyRequestId,
+  mergeHeaders,
+  resolveRequestId,
+} from "./http-headers.js";
 
 export interface GeminiConfig {
   id: string;
@@ -93,6 +98,7 @@ export class GeminiAdapter implements ProviderAdapter {
   public model: string;
   private apiKey: string | null;
   private baseUrl: string;
+  private headers: Record<string, string>;
   private contextWindowOverride: number | undefined;
   private supportsVisionOverride: boolean | undefined;
   private modelList?: Promise<any[]>;
@@ -104,8 +110,18 @@ export class GeminiAdapter implements ProviderAdapter {
     this.baseUrl = (
       config.baseUrl ?? "https://generativelanguage.googleapis.com"
     ).replace(/\/$/, "");
+    this.headers = config.headers ?? {};
     this.contextWindowOverride = config.contextWindow;
     this.supportsVisionOverride = config.supportsVision;
+  }
+
+  private buildHeaders(requestId?: string): Record<string, string> {
+    const headers = mergeHeaders(
+      { "Content-Type": "application/json" },
+      this.headers,
+    );
+    applyRequestId(headers, requestId);
+    return headers;
   }
 
   private fetchModelList(): Promise<any[]> {
@@ -114,6 +130,7 @@ export class GeminiAdapter implements ProviderAdapter {
       this.modelList = (async () => {
         const res = await fetch(
           `${this.baseUrl}/v1beta/models?key=${encodeURIComponent(this.apiKey!)}`,
+          { headers: this.buildHeaders() },
         );
         if (!res.ok) return [];
         const json = (await res.json()) as any;
@@ -177,13 +194,14 @@ export class GeminiAdapter implements ProviderAdapter {
         },
       ];
     }
+    const requestId = resolveRequestId(request.requestId);
     let res: Response | undefined;
     let lastErr: Error | undefined;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         res = await fetch(url, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: this.buildHeaders(requestId),
           body: JSON.stringify(body),
           signal: request.signal,
         });
@@ -261,6 +279,7 @@ export class GeminiAdapter implements ProviderAdapter {
       finishReason: toolCalls.length ? "tool_calls" : "stop",
       usage,
       metadata: thinking ? { thinking } : undefined,
+      requestId,
     };
   }
 

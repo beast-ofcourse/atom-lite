@@ -8,6 +8,8 @@ export interface ModelTurnRequest {
   tools: ModelRequest["tools"];
   effort: string;
   signal: AbortSignal;
+  /** Optional caller-supplied id for the outgoing model request. */
+  requestId?: string;
 }
 
 export type ModelTurnEvent =
@@ -39,6 +41,7 @@ export async function* runModelTurn(
     tools: request.tools,
     signal: request.signal,
     options: { effort: request.effort },
+    requestId: request.requestId,
   };
 
   if (typeof request.provider.stream === "function") {

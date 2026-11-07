@@ -52,6 +52,11 @@ export type AgentEvent =
   | { type: "checkpoint_created"; id: string }
   | { type: "checkpoint_failed"; reason: string }
   | { type: "checkpoint_unavailable"; reason?: string }
+  | {
+      type: "task_ledger_open";
+      pending: number;
+      todos: import("../runtime/todos.js").TodoItem[];
+    }
   | { type: "error"; message: string };
 
 export interface AgentRuntimeOptions {
@@ -78,6 +83,8 @@ export interface AgentRuntimeOptions {
   supportsVision?: boolean;
   /** Background task manager override (defaults to a new manager). */
   backgroundTasks?: import("../runtime/background-tasks.js").BackgroundTaskManager;
+  /** Task ledger override (defaults to a new in-memory store). */
+  todoStore?: import("../runtime/todos.js").TodoStore;
   /** Whether checkpointing is enabled for this runtime. Defaults to true. */
   checkpointingEnabled?: boolean;
   /** Checkpoint store override (defaults to a new store per turn). */

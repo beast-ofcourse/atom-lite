@@ -36,6 +36,8 @@ export interface ToolContext {
   supportsVision?: boolean;
   /** Background task manager, if available. */
   backgroundTasks?: import("../runtime/background-tasks.js").BackgroundTaskManager;
+  /** Session task ledger, if available. */
+  todos?: import("../runtime/todos.js").TodoStore;
   /** Live output from a running command, forwarded to the UI. */
   onToolOutput?: (
     call: ToolCall,

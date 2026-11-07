@@ -132,7 +132,7 @@ export class ContextManager {
           {
             role: "system" as const,
             content:
-              "Summarize the following conversation history compactly. Retain: (1) the current task/goal; (2) files touched and their last known state (paths with a brief change summary); (3) decisions and constraints. Drop: full tool outputs and intermediate reasoning. Output only the summary." +
+              "Summarize the following conversation history compactly. Retain: (1) every user-assigned task and its acceptance criteria, marking completed vs pending; (2) the current task and the next action; (3) files touched and their last known state (paths with a brief change summary); (4) decisions, constraints, and rejected approaches; (5) verification commands and their results. Never drop an open task or a user constraint. Drop: full tool outputs and intermediate reasoning. Output only the summary." +
               focusLine,
           },
           {

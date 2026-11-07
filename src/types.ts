@@ -61,6 +61,7 @@ export interface ModelRequest {
   tools?: ToolDefinition[];
   options?: Record<string, unknown>;
   signal?: AbortSignal;
+  requestId?: string;
 }
 
 export interface ModelResponse {
@@ -70,6 +71,7 @@ export interface ModelResponse {
   usage?: TokenUsage;
   providerState?: unknown;
   metadata?: Record<string, unknown>;
+  requestId?: string;
 }
 
 export type ModelStreamEvent =

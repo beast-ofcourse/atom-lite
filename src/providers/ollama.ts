@@ -10,6 +10,11 @@ import type { ProviderAdapter } from "./types.js";
 import { parseArgs } from "./tool-calls.js";
 import { knownVisionModel } from "./context-window.js";
 import { isRetryableStatus, retryDelayMs, delay } from "./retry.js";
+import {
+  applyRequestId,
+  mergeHeaders,
+  resolveRequestId,
+} from "./http-headers.js";
 
 export interface OllamaConfig {
   id?: string;
@@ -79,11 +84,9 @@ export class OllamaAdapter implements ProviderAdapter {
     return this.supportsStreamingFlag;
   }
 
-  private buildHeaders(): Record<string, string> {
-    const h: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...this.headers,
-    };
+  private buildHeaders(requestId?: string): Record<string, string> {
+    const h = mergeHeaders({ "Content-Type": "application/json" }, this.headers);
+    applyRequestId(h, requestId);
     return h;
   }
 
@@ -218,13 +221,14 @@ export class OllamaAdapter implements ProviderAdapter {
   async generate(request: ModelRequest): Promise<ModelResponse> {
     const url = `${this.baseUrl}/api/chat`;
     const body = this.buildBody(request, false);
+    const requestId = resolveRequestId(request.requestId);
     let res: Response | undefined;
     let lastErr: Error | undefined;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         res = await fetch(url, {
           method: "POST",
-          headers: this.buildHeaders(),
+          headers: this.buildHeaders(requestId),
           body: JSON.stringify(body),
           signal: request.signal,
         });
@@ -281,17 +285,19 @@ export class OllamaAdapter implements ProviderAdapter {
       finishReason: toolCalls.length ? "tool_calls" : "stop",
       usage,
       metadata: json,
+      requestId,
     };
   }
 
   async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
     const url = `${this.baseUrl}/api/chat`;
     const body = this.buildBody(request, true);
+    const requestId = resolveRequestId(request.requestId);
     let res: Response;
     try {
       res = await fetch(url, {
         method: "POST",
-        headers: this.buildHeaders(),
+        headers: this.buildHeaders(requestId),
         body: JSON.stringify(body),
         signal: request.signal,
       });
@@ -397,6 +403,7 @@ export class OllamaAdapter implements ProviderAdapter {
       finishReason: finalCalls.length ? "tool_calls" : "stop",
       usage,
       metadata: finalJson ?? undefined,
+      requestId,
     };
     yield { type: "done", response };
   }

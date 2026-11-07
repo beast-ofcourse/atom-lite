@@ -2,6 +2,7 @@ export { readTool } from "./read.js";
 export { writeTool } from "./write.js";
 export { editTool } from "./edit.js";
 export { bashTool } from "./bash.js";
+export { todoTool } from "./todo.js";
 export { taskTool } from "./task.js";
 export { webfetchTool } from "./webfetch.js";
 export { websearchTool } from "./websearch.js";

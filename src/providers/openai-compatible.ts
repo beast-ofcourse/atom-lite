@@ -19,6 +19,12 @@ import {
   toToolCalls,
   type RawToolCallChunk,
 } from "./tool-calls.js";
+import {
+  applyRequestId,
+  mergeHeaders,
+  resolveRequestId,
+  setHeader,
+} from "./http-headers.js";
 
 export interface OpenAICompatibleConfig {
   id: string;
@@ -91,12 +97,14 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     return ids.length ? ids : [this.model];
   }
 
-  private buildHeaders(): Record<string, string> {
-    const h: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...this.headers,
-    };
-    if (this.apiKey) h["Authorization"] = `Bearer ${this.apiKey}`;
+  private buildHeaders(requestId?: string): Record<string, string> {
+    const h = mergeHeaders({ "Content-Type": "application/json" }, this.headers);
+    // A resolved API key wins over a caller-supplied Authorization header,
+    // matching the adapter's established precedence.
+    if (this.apiKey) {
+      setHeader(h, "Authorization", `Bearer ${this.apiKey}`);
+    }
+    applyRequestId(h, requestId);
     return h;
   }
 
@@ -168,9 +176,10 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       Object.assign(body, opts);
     }
 
+    const requestId = resolveRequestId(request.requestId);
     const res = await this.fetchWithRetry(url, {
       method: "POST",
-      headers: this.buildHeaders(),
+      headers: this.buildHeaders(requestId),
       body: JSON.stringify(body),
       signal: request.signal,
     });
@@ -200,6 +209,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       toolCalls,
       finishReason: toolCalls.length ? "tool_calls" : "stop",
       usage,
+      requestId,
     };
   }
 
@@ -232,10 +242,11 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       if (effort) opts.reasoning_effort = effort;
       Object.assign(body, opts);
     }
+    const requestId = resolveRequestId(request.requestId);
     const post = () =>
       fetch(url, {
         method: "POST",
-        headers: this.buildHeaders(),
+        headers: this.buildHeaders(requestId),
         body: JSON.stringify(body),
         signal: request.signal,
       });
@@ -353,6 +364,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       toolCalls: finalCalls,
       finishReason: finalCalls.length ? "tool_calls" : "stop",
       usage,
+      requestId,
     };
     yield { type: "done", response };
   }
