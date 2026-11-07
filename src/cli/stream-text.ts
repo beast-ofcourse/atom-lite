@@ -61,13 +61,21 @@ export class StreamText {
         this.live = new Markdown("", 0, 0, this.markdownTheme);
         this.transcript.add(this.live);
       }
-      this.live.setText(renderMermaidBlocks(this.buffer));
+      this.live.setText(this.buffer);
       this.transcript.invalidate();
     }
   }
 
   /** Stop this message; its rendered text stays in the transcript. */
   finalize(): void {
+    if (this.live) {
+      try {
+        this.live.setText(renderMermaidBlocks(this.buffer));
+      } catch {
+        // Best effort; keep raw text on failure.
+      }
+      this.transcript.invalidate();
+    }
     this.buffer = "";
     this.live = null;
   }

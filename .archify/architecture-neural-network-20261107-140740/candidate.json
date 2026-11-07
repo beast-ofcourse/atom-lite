@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Neural Network",
+    "output": "neural-network-rendered.html",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "input", "type": "external", "label": "Input Layer", "sublabel": "features x1..xn", "pos": [40, 260], "size": [140, 70], "tag": "n neurons" },
+    { "id": "h1", "type": "backend", "label": "Hidden Layer 1", "sublabel": "ReLU", "pos": [260, 120], "size": [150, 70], "tag": "m neurons" },
+    { "id": "h2", "type": "backend", "label": "Hidden Layer 2", "sublabel": "ReLU", "pos": [260, 400], "size": [150, 70], "tag": "k neurons" },
+    { "id": "out", "type": "backend", "label": "Output Layer", "sublabel": "softmax / sigmoid", "pos": [500, 260], "size": [150, 70], "tag": "classes" },
+    { "id": "loss", "type": "security", "label": "Loss", "sublabel": "cross-entropy", "pos": [720, 120], "size": [140, 60] },
+    { "id": "opt", "type": "database", "label": "Optimizer", "sublabel": "SGD / Adam", "pos": [720, 400], "size": [140, 60] },
+    { "id": "data", "type": "cloud", "label": "Training Data", "sublabel": "batches", "pos": [40, 120], "size": [140, 60] }
+  ],
+  "connections": [
+    { "id": "data-to-input", "from": "data", "to": "input", "label": "batch", "variant": "dashed" },
+    { "id": "in-h1", "from": "input", "to": "h1", "label": "W1, b1" },
+    { "id": "in-h2", "from": "input", "to": "h2", "label": "W2, b2" },
+    { "id": "h1-out", "from": "h1", "to": "out", "label": "W3" },
+    { "id": "h2-out", "from": "h2", "to": "out", "label": "W4" },
+    { "id": "out-loss", "from": "out", "to": "loss", "label": "prediction", "variant": "emphasis" },
+    { "id": "opt-update", "from": "opt", "to": "h1", "label": "update weights", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Forward pass", "items": ["Inputs flow through weighted connections", "Each neuron applies activation (ReLU)"] },
+    { "dot": "emerald", "title": "Backward pass", "items": ["Loss computed vs labels", "Gradients flow back; optimizer updates weights"] }
+  ]
+}
