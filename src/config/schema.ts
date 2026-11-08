@@ -25,6 +25,8 @@ export const RuntimeConfigSchema = z
     maxBashTimeMs: z.number().int().positive().default(120_000),
     bashConcurrency: z.enum(["serial", "parallel"]).default("serial"),
     mode: z.enum(["plan", "yolo"]).default("yolo"),
+    /** Default primary persona applied at startup. User config only. */
+    agent: z.string().min(1).optional(),
     maxTokensPerSession: z.number().int().positive().nullable().default(null),
     maxTokensPerTurn: z.number().int().positive().nullable().default(null),
     /** Enable checkpointing in non-interactive runs. Interactive runs always enable it. */

@@ -70,6 +70,7 @@ export interface CommandContext {
   loadSkill(name: string, extra: string): Promise<boolean>;
   listAgents(): LoadedAgent[];
   activateAgent(name: string): void;
+  openAgentPicker(): void;
   runTurn(prompt: string): Promise<void>;
   requestExit(): void;
 }
@@ -281,11 +282,11 @@ export function createCommandRegistry(
     name: "agent",
     description: "switch primary agent",
     category: "Agent",
-    argumentHint: "<name>",
+    argumentHint: "[name]",
     run(ctx, args) {
       const name = args.trim();
       if (!name) {
-        ctx.appendLine("usage: /agent <name>");
+        ctx.openAgentPicker();
         return;
       }
       const agents = ctx.listAgents();
@@ -675,7 +676,7 @@ export function createCommandRegistry(
   });
   registry.register({
     name: "reload",
-    description: "reload all extensions from disk",
+    description: "reload extensions, skills, and agent personas from disk",
     category: "Extensions",
     run: async (ctx) => {
       await ctx.reloadExtensions();

@@ -23,19 +23,33 @@ export interface TrustReviewEntry {
 
 export type ProjectTrustDecision = "approve" | "deny";
 
+export interface ProjectTrustPromptOptions {
+  title?: string;
+  note?: string;
+}
+
 /**
- * Modal review for project-local extensions. It defaults to deny and captures
- * input directly so the editor underneath cannot receive the decision keys.
+ * Modal review for project-local extensions and agent personas. It defaults to
+ * deny and captures input directly so the editor underneath cannot receive the
+ * decision keys.
  */
 export class ProjectTrustPrompt implements Component {
   private selected = 1; // Safe default: deny.
   private settled = false;
+  private readonly title: string;
+  private readonly note: string;
 
   constructor(
     private readonly entries: TrustReviewEntry[],
     private readonly cwd: string,
     private readonly onDecision: (decision: ProjectTrustDecision) => void,
-  ) {}
+    options: ProjectTrustPromptOptions = {},
+  ) {
+    this.title = options.title ?? "project extensions need approval";
+    this.note =
+      options.note ??
+      "only approve projects you trust; extensions run with your permissions";
+  }
 
   invalidate(): void {
     // No cached state.
@@ -69,9 +83,7 @@ export class ProjectTrustPrompt implements Component {
   render(width: number): string[] {
     const panelWidth = Math.max(8, Math.floor(width));
     const inner = panelWidth - 4;
-    const lines: string[] = [
-      panelTop("project extensions need approval", panelWidth, yellow),
-    ];
+    const lines: string[] = [panelTop(this.title, panelWidth, yellow)];
     for (const line of wrapTextWithAnsi(this.cwd, inner)) {
       lines.push(panelRow(` ${dim(line)}`, panelWidth, yellow));
     }
@@ -91,13 +103,9 @@ export class ProjectTrustPrompt implements Component {
         lines.push(panelRow(`  ${dim(line)}`, panelWidth, yellow));
       }
     }
-    lines.push(
-      panelRow(
-        ` ${dim("only approve projects you trust; extensions run with your permissions")}`,
-        panelWidth,
-        yellow,
-      ),
-    );
+    for (const line of wrapTextWithAnsi(this.note, inner)) {
+      lines.push(panelRow(` ${dim(line)}`, panelWidth, yellow));
+    }
     const choices = [
       { label: "[y] Approve", color: cyan, active: this.selected === 0 },
       { label: "[n] Deny", color: red, active: this.selected === 1 },

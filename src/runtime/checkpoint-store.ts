@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { Worker } from "node:worker_threads";
 import {
   copyFileSync,
   chmodSync,
@@ -151,6 +152,20 @@ export class CheckpointStore {
 
   private listWorkspaceFiles(): string[] {
     if (this.isGitAvailable()) {
+      try {
+        const out = this.runGit([
+          "ls-files",
+          "-z",
+          "--cached",
+          "--others",
+          "--exclude-standard",
+        ])
+          .split("\0")
+          .filter(Boolean);
+        return [...new Set(out)].sort();
+      } catch {
+        // fall back to separate calls if combined flags unsupported
+      }
       let tracked: string[] = [];
       let untracked: string[] = [];
       try {
@@ -404,6 +419,45 @@ export class CheckpointStore {
       // ignore
     }
     return manifest;
+  }
+
+  /**
+   * Create a checkpoint off the main thread so the TUI event loop stays
+   * responsive. Falls back to the synchronous path if worker threads are
+   * unavailable or the worker fails to start.
+   */
+  async createAsync(turn: number, label?: string): Promise<CheckpointManifest> {
+    try {
+      return await new Promise<CheckpointManifest>((resolve, reject) => {
+        const worker = new Worker(
+          new URL("./checkpoint-worker.js", import.meta.url),
+          {
+            workerData: {
+              workspace: this.workspace,
+              sessionId: this.sessionId,
+              options: {
+                maxCheckpointBytes: this.maxBytes,
+                maxCheckpoints: this.maxCount,
+                enabled: this.enabled,
+              },
+              turn,
+              label,
+            },
+          },
+        );
+        worker.on("message", (msg: { ok: boolean; manifest?: CheckpointManifest; error?: string }) => {
+          if (msg.ok && msg.manifest) resolve(msg.manifest);
+          else reject(new Error(msg.error ?? "checkpoint worker failed"));
+        });
+        worker.on("error", reject);
+        worker.on("exit", (code) => {
+          if (code !== 0) reject(new Error(`checkpoint worker exited ${code}`));
+        });
+      });
+    } catch {
+      // Fall back to synchronous creation if the worker cannot run.
+      return this.create(turn, label);
+    }
   }
 
   isAtCheckpoint(id: string): boolean {

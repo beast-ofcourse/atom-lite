@@ -42,12 +42,17 @@ import { initLsp, shutdownLsp } from "../lsp/index.js";
 import { Transcript } from "./transcript.js";
 import { AgentRuntime } from "../agent/loop.js";
 import { DefaultAgentRegistry } from "../agents/registry.js";
+import { resolveConfiguredAgent } from "../agents/selection.js";
 import { JsonlSessionStore } from "../sessions/store.js";
 import { ExtensionLoader } from "../extensions/loader.js";
 import { createDefaultExtensionUI } from "../extensions/ui.js";
 import type { ExtensionUICallbacks } from "../extensions/ui.js";
 import { collectExtensionTools } from "../extensions/tool-adapter.js";
-import { denyProject, trustProject } from "../extensions/trust.js";
+import {
+  denyProject,
+  isProjectTrusted,
+  trustProject,
+} from "../extensions/trust.js";
 import { ProjectTrustPrompt } from "./trust-prompt.js";
 import {
   formatSessionList,
@@ -223,6 +228,17 @@ export async function run(args: string[]): Promise<void> {
 
   const interactive = process.stdin.isTTY === true && !jsonMode;
 
+  let agentReg = new DefaultAgentRegistry(process.cwd(), {
+    projectTrusted: isProjectTrusted(process.cwd()),
+  });
+  const configuredAgent = resolveConfiguredAgent(
+    agentReg,
+    config.runtime.agent,
+  );
+  if (configuredAgent.warning && !interactive) {
+    process.stderr.write(`atom-lite: ${configuredAgent.warning}\n`);
+  }
+
   // one-shot task from positional or stdin
   let stdinTask = "";
   if (
@@ -298,6 +314,12 @@ export async function run(args: string[]): Promise<void> {
   if (!interactive && pendingTrust.length > 0) {
     process.stderr.write(
       `atom-lite: skipping ${pendingTrust.length} untrusted project extension(s); run interactively to review\n`,
+    );
+  }
+  const untrustedAgents = agentReg.untrusted();
+  if (!interactive && untrustedAgents.length > 0) {
+    process.stderr.write(
+      `atom-lite: skipping ${untrustedAgents.length} untrusted project agent(s); run interactively to review\n`,
     );
   }
   await extensionLoader.loadAll().catch(() => {
@@ -390,6 +412,7 @@ export async function run(args: string[]): Promise<void> {
     workspace: process.cwd(),
     tools: allTools,
     approvals,
+    persona: configuredAgent.persona,
     mode: config.runtime.mode,
     maxTokensPerSession: config.runtime.maxTokensPerSession,
     maxTokensPerTurn: config.runtime.maxTokensPerTurn,
@@ -467,7 +490,6 @@ export async function run(args: string[]): Promise<void> {
     ScrollView,
     VStack,
     Markdown,
-    visibleWidth,
   } = await import("@earendil-works/pi-tui");
 
   const mouseEnabled = shouldEnableMouse({
@@ -564,7 +586,6 @@ export async function run(args: string[]): Promise<void> {
     await import("../skills/registry.js");
   let skillSignature = skillCacheSignature(process.cwd());
   let skillReg = new DefaultSkillRegistry(process.cwd());
-  const agentReg = new DefaultAgentRegistry(process.cwd());
   function cachedSkillRegistry(): InstanceType<typeof DefaultSkillRegistry> {
     const sig = skillCacheSignature(process.cwd());
     if (sig !== skillSignature) {
@@ -723,11 +744,13 @@ export async function run(args: string[]): Promise<void> {
 
   let thinkingText: ThinkingBlock | null = null;
   let thinkingBuffer = "";
+  let lastThinkingInvalidateAt = 0;
   let showThinking = config.ui.showThinking;
   let expandTools = false;
   let uiModalOpen = false;
   let closeActiveOverlay: (() => void) | undefined;
   const toolBoxes: ToolBox[] = [];
+  let lastToolOutputInvalidateAt = 0;
 
   /**
    * Close whichever modal overlay owns the keyboard. Callers that clear the
@@ -758,7 +781,7 @@ export async function run(args: string[]): Promise<void> {
     tui.requestRender();
   }
 
-  /** Review project-local extensions once per project decision. */
+  /** Review project-local extensions and agent personas once per decision. */
   function maybeReviewProjectTrust(): void {
     if (uiModalOpen) return;
     const pending = extensionLoader
@@ -769,18 +792,38 @@ export async function run(args: string[]): Promise<void> {
           !entry.trusted &&
           entry.skipReason === "project is not trusted",
       );
-    if (pending.length === 0) return;
+    const untrustedAgents = agentReg.untrusted();
+    if (pending.length === 0 && untrustedAgents.length === 0) return;
 
-    uiModalOpen = true;
-    closeOverlay();
-    dropdownContainer.clear();
-    const prompt = new ProjectTrustPrompt(
-      pending.map((entry) => ({
+    const hasAgents = untrustedAgents.length > 0;
+    const entries = [
+      ...pending.map((entry) => ({
         id: entry.id,
         entryPath: entry.entryPath,
         version: entry.manifest?.version,
         capabilities: entry.manifest?.capabilities ?? [],
       })),
+      ...untrustedAgents.map((agent) => ({
+        id: `${agent.name} (agent)`,
+        entryPath: agent.path,
+        capabilities: ["agent persona: system prompt and tool permissions"],
+      })),
+    ];
+    const options = hasAgents
+      ? {
+          title:
+            pending.length > 0
+              ? "project agents and extensions need approval"
+              : "project agents need approval",
+          note: "only approve projects you trust; extensions run with your permissions and agents can change the system prompt and tool permissions",
+        }
+      : undefined;
+
+    uiModalOpen = true;
+    closeOverlay();
+    dropdownContainer.clear();
+    const prompt = new ProjectTrustPrompt(
+      entries,
       process.cwd(),
       (decision) => {
         uiModalOpen = false;
@@ -788,11 +831,29 @@ export async function run(args: string[]): Promise<void> {
         tui.setFocus(input);
         if (decision === "approve") {
           trustProject(process.cwd());
-          appendLine("approved project extensions");
+          appendLine("approved project files");
         } else {
           denyProject(process.cwd());
-          appendLine("denied project extensions");
+          appendLine("denied project files");
         }
+
+        agentReg = new DefaultAgentRegistry(process.cwd(), {
+          projectTrusted: isProjectTrusted(process.cwd()),
+        });
+        const selected = resolveConfiguredAgent(agentReg, config.runtime.agent);
+        if (
+          selected.persona &&
+          runtime.getPersona()?.name !== selected.persona.name
+        ) {
+          runtime.setPersona(selected.persona);
+          appendLine(
+            `agent: ${selected.persona.name}${selected.persona.description ? ` — ${selected.persona.description}` : ""}`,
+          );
+          updateStatus();
+        } else if (selected.warning) {
+          appendLine(`atom-lite: ${selected.warning}`, theme.tokens.warning);
+        }
+
         void extensionLoader
           .loadAll()
           .then(() => {
@@ -812,6 +873,7 @@ export async function run(args: string[]): Promise<void> {
             );
           });
       },
+      options,
     );
     dropdownContainer.addChild(prompt);
     tui.setFocus(prompt);
@@ -1551,6 +1613,47 @@ export async function run(args: string[]): Promise<void> {
     closeActiveOverlay = picker.close;
   }
 
+  function agentPickerItems(): PickerItem[] {
+    const active = runtime.getPersona()?.name;
+    return agentReg.primary().map((agent) => ({
+      value: agent.name,
+      label: `${agent.name === active ? "* " : "  "}${agent.name}`,
+      description: agent.description,
+    }));
+  }
+
+  function openAgentPicker(): void {
+    uiModalOpen = true;
+    const picker = openSearchablePicker({
+      tui,
+      container: dropdownContainer,
+      title: "Select agent",
+      theme,
+      items: agentPickerItems(),
+      maxVisible: 15,
+      initialValue: runtime.getPersona()?.name,
+      onSelect: (item) => {
+        uiModalOpen = false;
+        const persona = agentReg.get(item.value);
+        if (!persona) {
+          appendLine(`unknown agent: ${item.value}`);
+          return;
+        }
+        runtime.setPersona(persona);
+        appendLine(
+          `agent: ${persona.name}${persona.description ? ` — ${persona.description}` : ""}`,
+        );
+        updateStatus();
+      },
+      onCancel: () => {
+        uiModalOpen = false;
+        appendLine("cancelled");
+      },
+      restoreFocus: () => tui.setFocus(input),
+    });
+    closeActiveOverlay = picker.close;
+  }
+
   async function loadSkill(name: string, extra: string): Promise<boolean> {
     const registry = cachedSkillRegistry();
     const content = registry.load(name);
@@ -1609,6 +1712,7 @@ export async function run(args: string[]): Promise<void> {
     openProviderPicker,
     openEffortPicker,
     openThemePicker,
+    openAgentPicker,
     openSessionsPicker,
     openKeybindings: () => {
       const path = defaultUserConfigPath();
@@ -2103,6 +2207,25 @@ export async function run(args: string[]): Promise<void> {
       ...collectExtensionTools(extensionLoader),
       ...createMcpTools(mcpManager),
     ]);
+
+    // Refresh project trust-dependent registries and persona state.
+    agentReg = new DefaultAgentRegistry(process.cwd(), {
+      projectTrusted: isProjectTrusted(process.cwd()),
+    });
+    const currentPersonaName = runtime.getPersona()?.name;
+    const reloadedPersona = currentPersonaName
+      ? agentReg.get(currentPersonaName)
+      : undefined;
+    if (reloadedPersona) {
+      runtime.setPersona(reloadedPersona);
+    } else {
+      const selected = resolveConfiguredAgent(agentReg, config.runtime.agent);
+      if (selected.persona) runtime.setPersona(selected.persona);
+      else if (selected.warning)
+        appendLine(`atom-lite: ${selected.warning}`, theme.tokens.warning);
+    }
+    updateStatus();
+
     // Emit session_start with reason reload.
     for (const loaded of extensionLoader.list()) {
       const handlers = loaded.registries?.handlers?.get?.(
@@ -2387,7 +2510,11 @@ export async function run(args: string[]): Promise<void> {
       }
       thinkingBuffer += e.text;
       thinkingText.buffer = thinkingBuffer;
-      transcript.invalidate();
+      const now = Date.now();
+      if (now - lastThinkingInvalidateAt >= 50) {
+        transcript.invalidate();
+        lastThinkingInvalidateAt = now;
+      }
       tui.requestRender();
     } else if (e.type === "assistant_delta") {
       activity.setPhase("working");
@@ -2467,7 +2594,11 @@ export async function run(args: string[]): Promise<void> {
       if (box) {
         activity.setPhase("working", e.name);
         box.appendLive(e.text);
-        transcript.invalidate();
+        const now = Date.now();
+        if (now - lastToolOutputInvalidateAt >= 50) {
+          transcript.invalidate();
+          lastToolOutputInvalidateAt = now;
+        }
         tui.requestRender();
       }
     } else if (e.type === "tool_result") {
@@ -2477,6 +2608,7 @@ export async function run(args: string[]): Promise<void> {
       if (last) {
         last.setResult(e.content, { isError: e.isError, diff: e.diff });
         activity.setPhase("working");
+        transcript.invalidate();
         tui.requestRender();
       }
     } else if (e.type === "final") {
@@ -2833,6 +2965,12 @@ export async function run(args: string[]): Promise<void> {
   });
 
   tui.start();
+  const configuredUntrusted =
+    configuredAgent.warning !== undefined &&
+    agentReg.untrusted().some((agent) => agent.name === config.runtime.agent);
+  if (configuredAgent.warning && !configuredUntrusted) {
+    appendLine(`atom-lite: ${configuredAgent.warning}`, theme.tokens.warning);
+  }
   maybeReviewProjectTrust();
   if (mouseEnabled) {
     process.once("exit", () => mouseCapture.disable());

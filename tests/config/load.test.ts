@@ -29,6 +29,34 @@ test("loadConfig reads project config", () => {
   assert.equal(cfg.defaultProvider, "ollama-local");
 });
 
+test("loadConfig reads runtime.agent from user config", () => {
+  const dir = mkdtempSync(join(tmpdir(), "atom-"));
+  const userPath = join(dir, "user.json");
+  writeFileSync(userPath, JSON.stringify({ runtime: { agent: "reviewer" } }));
+  const cfg = loadConfig({ projectRoot: dir, userConfigPath: userPath });
+  assert.equal(cfg.runtime.agent, "reviewer");
+});
+
+test("runtime.agent is unset by default and user-owned", () => {
+  const dir = mkdtempSync(join(tmpdir(), "atom-"));
+  mkdirSync(join(dir, ".atom-lite"));
+  const userPath = join(dir, "user.json");
+  writeFileSync(userPath, JSON.stringify({ runtime: { agent: "reviewer" } }));
+  writeFileSync(
+    join(dir, ".atom-lite", "config.json"),
+    JSON.stringify({ runtime: { agent: "planner" } }),
+  );
+
+  const configured = loadConfig({ projectRoot: dir, userConfigPath: userPath });
+  assert.equal(configured.runtime.agent, "reviewer");
+
+  const defaults = loadConfig({
+    projectRoot: dir,
+    userConfigPath: join(dir, "missing.json"),
+  });
+  assert.equal(defaults.runtime.agent, undefined);
+});
+
 test("loadConfig throws on invalid config", () => {
   const dir = mkdtempSync(join(tmpdir(), "atom-"));
   mkdirSync(join(dir, ".atom-lite"));

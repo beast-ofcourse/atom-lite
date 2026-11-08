@@ -65,6 +65,7 @@ function fakeContext() {
     openProviderPicker: () => calls.push("provider-picker"),
     openEffortPicker: () => calls.push("effort-picker"),
     openThemePicker: () => calls.push("theme-picker"),
+    openAgentPicker: () => calls.push("agent-picker"),
     openSessionsPicker: (scope) => calls.push(`sessions:${scope}`),
     searchSessions: (query) => calls.push(`search:${query}`),
     renameSession: (title) => calls.push(`rename:${title}`),
@@ -198,13 +199,12 @@ test("/agent switches to a primary agent and rejects bad names", async () => {
   await registry.dispatch("/agent helper", ctx);
   await registry.dispatch("/agent", ctx);
 
-  assert.deepEqual(calls, ["agent:reviewer"]);
+  assert.deepEqual(calls, ["agent:reviewer", "agent-picker"]);
   assert.match(
     lines[0] ?? "",
     /unknown agent: nope \(available: default, reviewer\)/,
   );
   assert.match(lines[1] ?? "", /agent helper is not a primary agent/);
-  assert.match(lines[2] ?? "", /usage: \/agent <name>/);
 });
 
 test("bare skill names still route through the registry, but other prompts do not", () => {

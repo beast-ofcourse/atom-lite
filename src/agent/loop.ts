@@ -750,10 +750,13 @@ export class AgentRuntime {
             const avail = store.isAvailable();
             if (avail.available) {
               try {
-                const m = store.create(
-                  this.turnIndex,
-                  `turn ${this.turnIndex}`,
-                );
+                const m =
+                  typeof (store as any).createAsync === "function"
+                    ? await (store as any).createAsync(
+                        this.turnIndex,
+                        `turn ${this.turnIndex}`,
+                      )
+                    : store.create(this.turnIndex, `turn ${this.turnIndex}`);
                 this.turnCheckpointId = m.id;
                 try {
                   if (typeof (session as any).appendEvent === "function") {

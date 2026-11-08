@@ -167,27 +167,38 @@ The selected provider/model is persisted to user config, so the next session sta
 
 Type `/help` for the grouped list, or press `ctrl+p` for the fuzzy command palette. Common commands:
 
-| Command                            | Description                                |
-| ---------------------------------- | ------------------------------------------ |
-| `/model [model]`                   | Show or switch the active model            |
-| `/provider [profile]`              | Show or switch the active provider         |
-| `/effort [low\|medium\|high]`      | Set reasoning effort                       |
-| `/rename [rename <title>]`         | Show or rename the current session         |
-| `/sessions [all]`                  | Search and resume a session                |
-| `/search <query>`                  | Search sessions by title or content        |
-| `/export [path]`                   | Export the session transcript              |
-| `/mcp [reconnect [server]]`        | Inspect or reconnect MCP servers           |
-| `/extensions`                      | List discovered extensions and load status |
-| `/compact`                         | Compact older context                      |
-| `/clear`                           | Clear the transcript view                  |
-| `/undo`                            | Restore workspace to a checkpoint          |
-| `/diff`                            | Show changes since the last checkpoint     |
-| `/approval`                        | Show approval mode (legacy)                |
-| `/doctor`                          | Run diagnostics                            |
-| `/thinking`                        | Toggle thinking display                    |
-| `/theme [auto\|dark\|light\|ansi]` | Switch theme                               |
-| `/skills`, `/skill <name>`         | List or load a skill                       |
-| `/exit`                            | Exit the TUI                               |
+| Command                                      | Description                                |
+| -------------------------------------------- | ------------------------------------------ |
+| `/help` (alias `/?`)                        | Show commands                              |
+| `/model [model]`                             | Search or switch the active model           |
+| `/provider [profile]`                        | Add or select a provider                   |
+| `/effort [low\|medium\|high]`               | Set reasoning effort                       |
+| `/agents`                                    | List primary agent personas                |
+| `/agent [name]`                              | Switch primary agent persona (interactive) |
+| `/rename [rename <title>]` (alias `/session`) | Show or rename the current session         |
+| `/sessions [all]`                            | Search or resume a session                 |
+| `/search <query>`                            | Search sessions by title or content        |
+| `/new` (alias `/clear`)                      | Start a new session                        |
+| `/compact [focus]`                           | Compact older context                      |
+| `/undo [list\|<n>] [--keep-untracked] [--yes\|--force]` | Restore workspace to a checkpoint |
+| `/diff [--stat] [path]`                      | Show changes since the last checkpoint     |
+| `/export [path] [--format md\|json] [--force] [--no-redact]` | Export the session transcript |
+| `/mcp [reconnect [server]]`                  | List or reconnect MCP servers              |
+| `/extensions`                                | List discovered extensions and load status |
+| `/reload`                                    | Reload all extensions from disk            |
+| `/approval`                                  | Show approval mode (legacy)                |
+| `/doctor`                                    | Run diagnostics                            |
+| `/thinking`                                  | Toggle thinking display                    |
+| `/theme [auto\|dark\|light\|ansi]`           | Choose a colour theme                      |
+| `/skills`                                    | List skills                                |
+| `/skill <name> [prompt]`                     | Load a skill                               |
+| `/keybindings`                               | Open the keybindings config file           |
+| `/shortcuts`                                 | List keyboard shortcuts                    |
+| `/exit` (alias `/quit`)                      | Exit the TUI                               |
+
+## Agent personas
+
+Primary agent personas are Markdown files that preset role instructions, sampling temperature, and tool permissions for the one agent loop. `/agents` lists them, `/agent <name>` switches without clearing conversation history, and the active persona appears in the status line. Set `runtime.agent` in user config to load one at startup. Project-local personas require project trust. See [`docs/agents.md`](./docs/agents.md) and [ADR 0017](./docs/adr/0017-primary-agent-personas.md).
 
 ## Sessions
 

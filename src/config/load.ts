@@ -181,6 +181,11 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
   mergedRuntime.mode = userRuntime.mode ?? "yolo";
   mergedRuntime.maxTokensPerSession = userRuntime.maxTokensPerSession ?? null;
   mergedRuntime.maxTokensPerTurn = userRuntime.maxTokensPerTurn ?? null;
+  // Persona selection is user-owned: an untrusted repository must not be able
+  // to point the agent at a prompt or permission policy without the user's
+  // explicit action.
+  if (userRuntime.agent === undefined) delete mergedRuntime.agent;
+  else mergedRuntime.agent = userRuntime.agent;
   delete mergedRuntime.approvalMode;
   merged.runtime = mergedRuntime;
 

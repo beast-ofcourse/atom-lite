@@ -9,6 +9,8 @@ with the code and is readable offline.
   providers, safety, sessions, and development.
 - [Configuration reference](./configuration.md) — every config field, default,
   and precedence rule.
+- [Agent personas](./agents.md) — persona files, frontmatter, permissions,
+  trust, and `/agent`.
 - [Product context](../PRODUCT.md) — users, positioning, capabilities, and
   product principles.
 - [CHANGELOG](../CHANGELOG.md) — release history.
@@ -26,6 +28,7 @@ with the code and is readable offline.
 - [0014 — Checkpoints and undo](./adr/0014-checkpoints-and-undo.md)
 - [0015 — Eval harness](./adr/0015-eval-harness.md)
 - [0016 — Session task ledger](./adr/0016-session-task-ledger.md)
+- [0017 — Primary agent personas](./adr/0017-primary-agent-personas.md)
 
 ## Contributing
 

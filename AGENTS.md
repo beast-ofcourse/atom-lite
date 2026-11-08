@@ -16,6 +16,8 @@ Do not use `npm stage approve` (requires 2FA/CI token). Direct publish works wit
 
 ## Agent skills
 
+- Always use caveman skill , always on.
+
 ### Issue tracker
 
 Issues and specs live as markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.

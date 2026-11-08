@@ -25,11 +25,11 @@ Low to high:
 5. CLI and API overrides
 
 Objects (`providers`, `runtime`, `context`, `sessions`) merge key by key; a
-project config does not replace the whole section. Two deliberate exceptions:
-**`runtime.mode`, `runtime.maxTokensPerSession`, `runtime.maxTokensPerTurn`, and the
-whole `ui` section are read only from user config or the environment**, so a
-repository cannot silently relax safety settings or change your colours and
-editor behaviour.
+project config does not replace the whole section. Deliberate exceptions:
+**`runtime.mode`, `runtime.maxTokensPerSession`, `runtime.maxTokensPerTurn`,
+`runtime.agent`, and the whole `ui` section are read only from user config or the
+environment**, so a repository cannot silently relax safety settings, select an
+agent persona, or change your colours and editor behaviour.
 
 ## Top level
 
@@ -40,7 +40,11 @@ editor behaviour.
 | `runtime`         | object | see below      | Loop, scheduler, and execution limits.          |
 | `context`         | object | see below      | Context budget and compaction.                  |
 | `sessions`        | object | see below      | Session persistence.                            |
+| `lsp`             | object | see below      | Optional language server integration.           |
 | `ui`              | object | see below      | Theme and editor preferences. User config only. |
+| `keybindings`     | object | see below      | Keyboard shortcut overrides.                    |
+| `mcpServers`      | object | `{}`           | Stdio MCP server definitions. User config only. |
+| `extensions`      | object | see below      | Extension trust settings. User config only.     |
 
 ## `providers.<name>`
 
@@ -71,6 +75,7 @@ stored credential, then inline `apiKey`.
 | `maxBashTimeMs`        | positive integer           | `120000`   | Timeout for a single `bash` call (2 minutes).                                                                                          |
 | `bashConcurrency`      | `"serial"` \| `"parallel"` | `"serial"` | `serial` keeps `bash` as a global exclusive barrier.                                                                                   |
 | `mode`                 | `"plan"` \| `"yolo"`       | `"yolo"`   | `plan` allows read/web tools plus the session task ledger; `yolo` allows all tools without approval. User config and environment only. |
+| `agent`                | string                     | unset      | Default primary persona name applied at startup. User config only. See [Agent personas](./agents.md).                                  |
 | `maxTokensPerSession`  | positive integer \| null   | `null`     | Optional session token budget (hard stop). `null` means no limit. User config only.                                                    |
 | `maxTokensPerTurn`     | positive integer \| null   | `null`     | Optional per-turn token soft warning. `null` means no warning. User config only.                                                       |
 | `checkpointing`        | boolean                    | `false`    | Enable automatic checkpoints in non-interactive runs. Interactive runs always checkpoint. User config only.                            |
@@ -83,6 +88,7 @@ stored credential, then inline `apiKey`.
 | `reserveOutputTokens`        | positive integer         | `4096`  | Headroom kept for the response.                             |
 | `compactAtPercent`           | integer 1–100            | `85`    | Context usage that triggers compaction.                     |
 | `maxProjectInstructionBytes` | positive integer         | `30000` | Cap on injected `AGENTS.md`/`CLAUDE.md`-style instructions. |
+| `compactEveryNTurns`         | integer >= 0             | `0`     | Compact every N turns. `0` disables periodic compaction.    |
 
 The model window is resolved from, in order: `providers.<name>.contextWindow`,
 live provider metadata, then a built-in table of known model families.
@@ -124,6 +130,21 @@ Commands:
 - `/diff` — show changes since the last checkpoint (falls back to `HEAD`).
 - `/diff --stat` — file-level summary.
 - `/diff <path>` — scope the diff.
+
+## `keybindings`
+
+Keyboard shortcut overrides. All fields are nullable; set a field to `null` to disable its shortcut.
+
+| Key                | Type            | Default       | Description              |
+| ------------------ | --------------- | ------------- | ------------------------ |
+| `jumpBottom`       | string or null  | `"ctrl+b"`    | Jump to bottom.          |
+| `newSession`       | string or null  | `"ctrl+n"`    | Start a new session.     |
+| `searchSessions`   | string or null  | `"ctrl+f"`    | Search sessions.         |
+| `scrollUp`         | string or null  | `"ctrl+up"`   | Scroll up.               |
+| `scrollDown`       | string or null  | `"ctrl+down"` | Scroll down.             |
+| `toggleThinking`   | string or null  | `"ctrl+t"`    | Toggle thinking display. |
+| `inputHistoryUp`   | string or null  | `"up"`        | Previous input history.  |
+| `inputHistoryDown` | string or null  | `"down"`      | Next input history.      |
 
 ## `mcpServers`
 

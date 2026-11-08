@@ -23,6 +23,29 @@ test("renders the project path, entry files, and capabilities", () => {
   assert.match(output, /Deny/);
 });
 
+test("renders agent persona entries with a persona-specific title", () => {
+  const prompt = new ProjectTrustPrompt(
+    [
+      {
+        id: "reviewer (agent)",
+        entryPath: "/work/.atom-lite/agents/reviewer.md",
+        capabilities: ["agent persona: system prompt and tool permissions"],
+      },
+    ],
+    "/work",
+    () => {},
+    {
+      title: "project agents need approval",
+      note: "agents can change the system prompt and tool permissions",
+    },
+  );
+  const output = prompt.render(80).join("\n");
+  assert.match(output, /project agents need approval/);
+  assert.match(output, /reviewer \(agent\)/);
+  assert.match(output, /reviewer\.md/);
+  assert.match(output, /system prompt and tool permissions/);
+});
+
 test("y approves and n denies", () => {
   const decisions: string[] = [];
   const approve = new ProjectTrustPrompt(entries, "/work", (decision) =>

@@ -18,8 +18,8 @@ const fixtureDirs = {
   opencode: join(fixtureRoot, "opencode"),
 };
 
-function fixtureRegistry() {
-  return new DefaultAgentRegistry("", { dirs: fixtureDirs });
+function fixtureRegistry(projectTrusted = true) {
+  return new DefaultAgentRegistry("", { dirs: fixtureDirs, projectTrusted });
 }
 
 test("discovers primary personas with body, temperature, and source", () => {
@@ -68,6 +68,31 @@ test("precedence: project beats opencode beats global beats bundled", () => {
   assert.equal(registry.get("reviewer")?.body, "Opencode reviewer body.");
 });
 
+test("skips project and opencode personas until the project is trusted", () => {
+  const registry = fixtureRegistry(false);
+  // Project planner is hidden, so the global copy wins.
+  assert.equal(registry.get("planner")?.source, "global");
+  assert.equal(registry.get("planner")?.body, "Global planner body.");
+  // Opencode reviewer is hidden, so the global copy wins.
+  assert.equal(registry.get("reviewer")?.source, "global");
+  assert.equal(registry.get("subagent"), undefined);
+  assert.deepEqual(
+    registry
+      .untrusted()
+      .map((persona) => persona.name)
+      .sort(),
+    ["planner", "reviewer", "subagent"],
+  );
+});
+
+test("trusted projects load project and opencode personas normally", () => {
+  const registry = fixtureRegistry(true);
+  assert.equal(registry.get("planner")?.source, "project");
+  assert.equal(registry.get("reviewer")?.source, "opencode");
+  assert.equal(registry.get("subagent")?.source, "project");
+  assert.deepEqual(registry.untrusted(), []);
+});
+
 test("lists subagent personas but excludes them from primary()", () => {
   const registry = fixtureRegistry();
   assert.equal(registry.get("subagent")?.mode, "subagent");
@@ -77,6 +102,7 @@ test("lists subagent personas but excludes them from primary()", () => {
 
 test("ignores non-markdown files and missing directories", () => {
   const registry = new DefaultAgentRegistry("", {
+    projectTrusted: true,
     dirs: {
       ...fixtureDirs,
       bundled: join(fixtureRoot, "missing"),

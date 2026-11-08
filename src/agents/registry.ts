@@ -31,6 +31,8 @@ export interface AgentRegistry {
   list(): AgentPersona[];
   get(name: string): AgentPersona | undefined;
   primary(): AgentPersona[];
+  /** Project/opencode personas skipped because the project is not trusted. */
+  untrusted(): AgentPersona[];
 }
 
 export interface AgentRegistryDirs {
@@ -43,6 +45,11 @@ export interface AgentRegistryDirs {
 export interface AgentRegistryOptions {
   /** Override discovery directories. Useful for embedding and tests. */
   dirs?: Partial<AgentRegistryDirs>;
+  /**
+   * Whether project-local and `.opencode` personas may load. Defaults to
+   * false so an untrusted workspace cannot inject prompts or permissions.
+   */
+  projectTrusted?: boolean;
 }
 
 const FRONTMATTER_DELIMITER = "---";
@@ -304,9 +311,11 @@ function scanDir(dir: string, source: AgentSource): AgentPersona[] {
 
 export class DefaultAgentRegistry implements AgentRegistry {
   private agents: AgentPersona[];
+  private untrustedAgents: AgentPersona[];
 
   constructor(workspace: string, options: AgentRegistryOptions = {}) {
     const dirs = { ...defaultAgentDirs(workspace), ...options.dirs };
+    const projectTrusted = options.projectTrusted ?? false;
     // Later layers override earlier ones. Project-local sources sit above
     // global, and the canonical `.atom-lite` directory beats the migration
     // `.opencode` directory.
@@ -317,12 +326,20 @@ export class DefaultAgentRegistry implements AgentRegistry {
       [dirs.project, "project"],
     ];
     const map = new Map<string, AgentPersona>();
+    const untrusted = new Map<string, AgentPersona>();
     for (const [dir, source] of layers) {
+      const gated =
+        (source === "project" || source === "opencode") && !projectTrusted;
       for (const persona of scanDir(dir, source)) {
+        if (gated) {
+          untrusted.set(persona.name, persona);
+          continue;
+        }
         map.set(persona.name, persona);
       }
     }
     this.agents = [...map.values()];
+    this.untrustedAgents = [...untrusted.values()];
   }
 
   list(): AgentPersona[] {
@@ -335,5 +352,9 @@ export class DefaultAgentRegistry implements AgentRegistry {
 
   primary(): AgentPersona[] {
     return this.agents.filter((agent) => agent.mode === "primary");
+  }
+
+  untrusted(): AgentPersona[] {
+    return this.untrustedAgents;
   }
 }
