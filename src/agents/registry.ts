@@ -174,7 +174,11 @@ function splitFrontmatter(text: string): {
   body: string;
 } {
   const normalized = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
-  const lines = normalized.split("\n");
+  const rawLines = normalized.split("\n");
+  // Tolerate leading blank lines before the frontmatter fence.
+  let start = 0;
+  while (start < rawLines.length && rawLines[start].trim() === "") start++;
+  const lines = rawLines.slice(start);
   if (lines[0]?.trim() !== FRONTMATTER_DELIMITER) {
     return { frontmatterLines: [], body: normalized };
   }
@@ -182,9 +186,12 @@ function splitFrontmatter(text: string): {
     (line, index) => index > 0 && line.trim() === FRONTMATTER_DELIMITER,
   );
   if (end === -1) return { frontmatterLines: [], body: normalized };
+  // Body must be sliced from the original normalized text after the closing
+  // fence, preserving content. Recompute offset in rawLines.
+  const closingIndex = start + end;
   return {
     frontmatterLines: lines.slice(1, end),
-    body: lines.slice(end + 1).join("\n"),
+    body: rawLines.slice(closingIndex + 1).join("\n"),
   };
 }
 

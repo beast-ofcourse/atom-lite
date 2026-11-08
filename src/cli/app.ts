@@ -862,6 +862,7 @@ export async function run(args: string[]): Promise<void> {
               ...collectExtensionTools(extensionLoader),
               ...createMcpTools(mcpManager),
             ]);
+            refreshCommandRegistry(true);
             appendLine(
               `extensions: ${extensionLoader.list().length} processed (see /extensions)`,
             );
@@ -1810,7 +1811,10 @@ export async function run(args: string[]): Promise<void> {
         projectTrusted: isProjectTrusted(process.cwd()),
       });
       const persona = agentReg.get(name);
-      if (!persona) return;
+      if (!persona) {
+        appendLine(`unknown agent: ${name}`);
+        return;
+      }
       runtime.setPersona(persona);
       appendLine(
         `agent: ${persona.name}${persona.description ? ` — ${persona.description}` : ""}`,
@@ -2230,7 +2234,9 @@ export async function run(args: string[]): Promise<void> {
 
     // Force context caches (AGENTS.md and skills) and registries to rescan.
     runtime.invalidateContextCaches();
-    skillSignature = skillCacheSignature(process.cwd());
+    // Reset the cached signature so cachedSkillRegistry() actually rebuilds
+    // instead of returning the stale registry.
+    skillSignature = "";
     skillReg = cachedSkillRegistry();
     agentReg = new DefaultAgentRegistry(process.cwd(), {
       projectTrusted: isProjectTrusted(process.cwd()),

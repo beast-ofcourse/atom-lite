@@ -1,4 +1,3 @@
-
 ---
 name: architect
 description: Product discovery and specification architect that transforms raw ideas into clearly defined products, complete user flows, and phased, verifiable implementation plans.

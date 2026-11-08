@@ -1,5 +1,5 @@
 ---
-name: code
+name: default
 description: Executes tasks with precision, speed, and minimal friction.
 mode: primary
 temperature: 0.2
