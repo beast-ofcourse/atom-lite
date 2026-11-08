@@ -55,6 +55,14 @@ export class ContextManager {
     this.modelContextWindow = window;
   }
 
+  getSystemPrompt(): string {
+    return this.opts.systemPrompt;
+  }
+
+  setSystemPrompt(prompt: string): void {
+    this.opts.systemPrompt = prompt;
+  }
+
   setToolTokenOverhead(overhead: number): void {
     if (typeof overhead === "number" && overhead >= 0)
       this.toolTokenOverhead = Math.floor(overhead);

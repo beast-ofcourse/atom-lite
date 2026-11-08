@@ -15,6 +15,8 @@ import { CheckpointStore } from "../runtime/checkpoint-store.js";
 import { TodoStore } from "../runtime/todos.js";
 import { runModelTurn } from "./model-turn.js";
 import { TurnRecorder } from "./turn-recorder.js";
+import type { AgentPersona } from "../agents/registry.js";
+import { composePersonaSystemPrompt } from "../agents/persona.js";
 
 export class AgentRuntime {
   private provider: AgentRuntimeOptions["provider"];
@@ -26,6 +28,9 @@ export class AgentRuntime {
   private maxTokensPerTurn: number | null;
   private totalTokensUsed: number;
   private contextManager: ContextManager;
+  /** System prompt without any persona body, used when recomposing. */
+  private baseSystemPrompt: string;
+  private persona: AgentPersona | undefined;
   private onEvent: AgentRuntimeOptions["onEvent"];
   private tools: AgentRuntimeOptions["tools"];
   private effort: string;
@@ -73,6 +78,14 @@ export class AgentRuntime {
         provider: options.provider,
         model: options.model ?? options.provider.model ?? "default",
       });
+    this.baseSystemPrompt =
+      options.systemPrompt ?? this.contextManager.getSystemPrompt();
+    this.persona = options.persona;
+    if (this.persona) {
+      this.contextManager.setSystemPrompt(
+        composePersonaSystemPrompt(this.baseSystemPrompt, this.persona),
+      );
+    }
     this.toolMap = new Map(options.tools.map((t) => [t.definition.name, t]));
     this.refreshToolTokenOverhead();
     this.limits = { ...DEFAULT_LIMITS, ...(options.limits ?? {}) };
@@ -166,6 +179,22 @@ export class AgentRuntime {
 
   getMode(): "plan" | "yolo" {
     return this.mode;
+  }
+
+  /**
+   * Switch the active persona without touching conversation history. The next
+   * context build picks up the recomposed system prompt, temperature, and
+   * permission policy.
+   */
+  setPersona(persona: AgentPersona | undefined): void {
+    this.persona = persona;
+    this.contextManager.setSystemPrompt(
+      composePersonaSystemPrompt(this.baseSystemPrompt, persona),
+    );
+  }
+
+  getPersona(): AgentPersona | undefined {
+    return this.persona;
   }
 
   setSteeringQueue(queue: string[]): void {
@@ -419,6 +448,7 @@ export class AgentRuntime {
           messages,
           tools: this.tools.map((t) => t.definition),
           effort: this.effort,
+          temperature: this.persona?.temperature,
           signal,
           requestId,
         })) {
@@ -435,11 +465,19 @@ export class AgentRuntime {
             response = ev.response;
             streamedText = ev.streamedText;
             if (thinkingBuffer) {
-              if (response?.message && !response.message.thinking) response.message.thinking = thinkingBuffer;
+              if (response?.message && !response.message.thinking)
+                response.message.thinking = thinkingBuffer;
               if (!response?.metadata?.thinking) {
-                response.metadata = { ...(response?.metadata ?? {}), thinking: thinkingBuffer };
+                response.metadata = {
+                  ...(response?.metadata ?? {}),
+                  thinking: thinkingBuffer,
+                };
               }
-            } else if (response?.metadata?.thinking && response?.message && !response.message.thinking) {
+            } else if (
+              response?.metadata?.thinking &&
+              response?.message &&
+              !response.message.thinking
+            ) {
               response.message.thinking = response.metadata.thinking;
             }
           }
@@ -601,6 +639,7 @@ export class AgentRuntime {
           maxBashTimeMs: this.limits.maxBashTimeMs,
           maxToolOutputBytes: this.limits.maxToolOutputBytes,
           approvals: this.approvals,
+          agentPermissions: this.persona?.permissions,
           onToolOutput: (
             call: { id: string; name: string },
             stream: "stdout" | "stderr",

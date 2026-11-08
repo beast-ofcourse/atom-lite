@@ -41,6 +41,7 @@ import { StreamText } from "./stream-text.js";
 import { initLsp, shutdownLsp } from "../lsp/index.js";
 import { Transcript } from "./transcript.js";
 import { AgentRuntime } from "../agent/loop.js";
+import { DefaultAgentRegistry } from "../agents/registry.js";
 import { JsonlSessionStore } from "../sessions/store.js";
 import { ExtensionLoader } from "../extensions/loader.js";
 import { createDefaultExtensionUI } from "../extensions/ui.js";
@@ -541,6 +542,7 @@ export async function run(args: string[]): Promise<void> {
     tokens: "tokens: ?",
     effort: "effort: medium",
     mode: currentMode,
+    agent: runtime.getPersona()?.name,
     activity: activity.text(),
   });
 
@@ -562,6 +564,7 @@ export async function run(args: string[]): Promise<void> {
     await import("../skills/registry.js");
   let skillSignature = skillCacheSignature(process.cwd());
   let skillReg = new DefaultSkillRegistry(process.cwd());
+  const agentReg = new DefaultAgentRegistry(process.cwd());
   function cachedSkillRegistry(): InstanceType<typeof DefaultSkillRegistry> {
     const sig = skillCacheSignature(process.cwd());
     if (sig !== skillSignature) {
@@ -686,7 +689,11 @@ export async function run(args: string[]): Promise<void> {
     private cachedBuffer = "";
     private cachedLines: string[] | null = null;
     render(width: number): string[] {
-      if (this.cachedLines && this.cachedWidth === width && this.cachedBuffer === this.buffer) {
+      if (
+        this.cachedLines &&
+        this.cachedWidth === width &&
+        this.cachedBuffer === this.buffer
+      ) {
         return this.cachedLines;
       }
       const lines: string[] = [theme.tokens.dim("💭 thinking")];
@@ -958,6 +965,7 @@ export async function run(args: string[]): Promise<void> {
       tokens: `tokens: ${formatContextUsage(usage.used, usage.window)}`,
       effort: `effort: ${effortLevel}`,
       mode: currentMode,
+      agent: runtime.getPersona()?.name,
       activity: activity.text(),
     });
     tui.requestRender();
@@ -1069,7 +1077,8 @@ export async function run(args: string[]): Promise<void> {
   }
 
   function profileConfig(profile: string): Record<string, unknown> | undefined {
-    return (config.providers as Record<string, unknown>)[profile] as Record<string, unknown> | undefined;
+    return (config.providers as Record<string, unknown>)[profile] as
+      Record<string, unknown> | undefined;
   }
 
   /** Ensure a preset profile exists in the in-memory config. */
@@ -1666,6 +1675,24 @@ export async function run(args: string[]): Promise<void> {
           description: skill.description,
         })),
     loadSkill,
+    listAgents: () => {
+      const active = runtime.getPersona()?.name;
+      return agentReg.list().map((agent) => ({
+        name: agent.name,
+        description: agent.description,
+        mode: agent.mode,
+        active: agent.name === active,
+      }));
+    },
+    activateAgent: (name) => {
+      const persona = agentReg.get(name);
+      if (!persona) return;
+      runtime.setPersona(persona);
+      appendLine(
+        `agent: ${persona.name}${persona.description ? ` — ${persona.description}` : ""}`,
+      );
+      updateStatus();
+    },
     runTurn,
     requestExit: () => {
       extensionLoader.notifySessionEnd();
@@ -2731,8 +2758,8 @@ export async function run(args: string[]): Promise<void> {
         appendLine(`steering: ${text}`, theme.tokens.dim);
       } else {
         transcript.add(new Spacer(1));
-          transcript.add(new Spacer(1));
-          transcript.add(new UserBox(`> ${text}`));
+        transcript.add(new Spacer(1));
+        transcript.add(new UserBox(`> ${text}`));
         tui.requestRender();
         await runTurn(text);
       }

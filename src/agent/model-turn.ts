@@ -7,6 +7,7 @@ export interface ModelTurnRequest {
   messages: Message[];
   tools: ModelRequest["tools"];
   effort: string;
+  temperature?: number;
   signal: AbortSignal;
   /** Optional caller-supplied id for the outgoing model request. */
   requestId?: string;
@@ -35,12 +36,16 @@ export class ModelTurn {
 export async function* runModelTurn(
   request: ModelTurnRequest,
 ): AsyncGenerator<ModelTurnEvent> {
+  const options: Record<string, unknown> = { effort: request.effort };
+  if (request.temperature !== undefined) {
+    options.temperature = request.temperature;
+  }
   const modelRequest: ModelRequest = {
     model: request.model,
     messages: request.messages,
     tools: request.tools,
     signal: request.signal,
-    options: { effort: request.effort },
+    options,
     requestId: request.requestId,
   };
 

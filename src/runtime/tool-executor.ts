@@ -4,6 +4,11 @@ import type { ToolResult } from "../tools/types.js";
 import { resolve } from "node:path";
 import { LockManager, type Release } from "./locks.js";
 import { isToolAllowed } from "./modes.js";
+import { checkApproval } from "./approvals.js";
+import {
+  permissionInvocation,
+  resolveToolPermission,
+} from "../agents/permissions.js";
 
 function resourceKey(call: ToolCall, workspace: string): string {
   const args = call.arguments ?? {};
@@ -32,6 +37,56 @@ export interface ToolExecutorOptions {
   maxParallelToolCalls?: number;
   bashConcurrency?: "serial" | "parallel";
   limits?: unknown;
+}
+
+/**
+ * Enforce the active persona's tool policy before a tool runs. `allow` and
+ * `deny` are absolute; `ask` reuses the existing approval handler.
+ */
+async function personaPermissionResult(
+  call: ToolCall,
+  ctx: ToolContext,
+): Promise<ToolResult | undefined> {
+  const invocation = permissionInvocation(call.name, call.arguments);
+  const match = resolveToolPermission(
+    ctx.agentPermissions,
+    call.name,
+    invocation,
+  );
+  if (!match || match.decision === "allow") return undefined;
+
+  if (match.decision === "deny") {
+    return {
+      toolCallId: call.id,
+      name: call.name,
+      content: `PERSONA_PERMISSION_DENIED: ${call.name} matched "${match.pattern}"`,
+      isError: true,
+    };
+  }
+
+  if (!ctx.approvals) {
+    return {
+      toolCallId: call.id,
+      name: call.name,
+      content: `PERSONA_PERMISSION_REQUIRED: ${call.name} matched "${match.pattern}"`,
+      isError: true,
+    };
+  }
+  const decision = await checkApproval(ctx.approvals, {
+    command: invocation
+      ? `${call.name}: ${invocation}`
+      : `${call.name} (no arguments)`,
+    cwd: ctx.workspace,
+    timeoutMs: 0,
+    sandboxed: false,
+  });
+  if (decision.allowed) return undefined;
+  return {
+    toolCallId: call.id,
+    name: call.name,
+    content: `PERSONA_PERMISSION_REQUIRED: ${call.name} matched "${match.pattern}"`,
+    isError: true,
+  };
 }
 
 export class ToolExecutor {
@@ -140,6 +195,11 @@ export class ToolExecutor {
           };
           return;
         }
+        const permissionResult = await personaPermissionResult(call, ctx);
+        if (permissionResult) {
+          results[i] = permissionResult;
+          return;
+        }
         if (signal.aborted) {
           results[i] = {
             toolCallId: call.id,
@@ -150,7 +210,17 @@ export class ToolExecutor {
           return;
         }
         let release: Release | undefined;
-        try { await acquireSlot(signal); } catch { results[i] = { toolCallId: call.id, name: call.name, content: "USER_CANCELLED", isError: true }; return; }
+        try {
+          await acquireSlot(signal);
+        } catch {
+          results[i] = {
+            toolCallId: call.id,
+            name: call.name,
+            content: "USER_CANCELLED",
+            isError: true,
+          };
+          return;
+        }
         try {
           release = await acquire(call);
           if (signal.aborted) {

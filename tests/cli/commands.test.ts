@@ -12,6 +12,25 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 
+const AGENTS = [
+  {
+    name: "default",
+    description: "general coding agent",
+    mode: "primary" as const,
+    active: true,
+  },
+  {
+    name: "reviewer",
+    description: "review code",
+    mode: "primary" as const,
+  },
+  {
+    name: "helper",
+    description: "internal helper",
+    mode: "subagent" as const,
+  },
+];
+
 const SKILLS = [
   {
     name: "review",
@@ -61,6 +80,8 @@ function fakeContext() {
       calls.push(`skill:${name}${extra ? `:${extra}` : ""}`);
       return true;
     },
+    listAgents: () => AGENTS,
+    activateAgent: (name) => calls.push(`agent:${name}`),
     runTurn: async (prompt) => calls.push(`turn:${prompt}`),
     requestExit: () => calls.push("exit"),
   };
@@ -93,6 +114,8 @@ test("registry lists every built-in command plus skills", () => {
     "doctor",
     "thinking",
     "theme",
+    "agents",
+    "agent",
     "skills",
     "skill",
     "exit",
@@ -151,6 +174,37 @@ test("skills dispatch through the registry with no separate handler", async () =
   await registry.dispatch("/skill triage now", ctx);
 
   assert.deepEqual(calls, ["skill:review:please look", "skill:triage:now"]);
+});
+
+test("/agents lists primary agents and marks the active one", async () => {
+  const registry = createCommandRegistry();
+  const { ctx, lines } = fakeContext();
+
+  await registry.dispatch("/agents", ctx);
+
+  const output = lines.at(-1) ?? "";
+  assert.match(output, /^Agents:/);
+  assert.match(output, /\* default\s+general coding agent/);
+  assert.match(output, /  reviewer\s+review code/);
+  assert.ok(!output.includes("helper"));
+});
+
+test("/agent switches to a primary agent and rejects bad names", async () => {
+  const registry = createCommandRegistry();
+  const { ctx, calls, lines } = fakeContext();
+
+  await registry.dispatch("/agent reviewer", ctx);
+  await registry.dispatch("/agent nope", ctx);
+  await registry.dispatch("/agent helper", ctx);
+  await registry.dispatch("/agent", ctx);
+
+  assert.deepEqual(calls, ["agent:reviewer"]);
+  assert.match(
+    lines[0] ?? "",
+    /unknown agent: nope \(available: default, reviewer\)/,
+  );
+  assert.match(lines[1] ?? "", /agent helper is not a primary agent/);
+  assert.match(lines[2] ?? "", /usage: \/agent <name>/);
 });
 
 test("bare skill names still route through the registry, but other prompts do not", () => {

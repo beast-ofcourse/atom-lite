@@ -1,14 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
-import { StatusLine } from "../../dist/cli/status-line.js";
+import {
+  StatusLine,
+  type StatusLineParts,
+} from "../../dist/cli/status-line.js";
 import { ansiTheme, darkTheme, type Theme } from "../../dist/cli/theme.js";
 
-function render(
-  parts: { left: string; tokens: string; effort: string },
-  width: number,
-  theme?: Theme,
-) {
+function render(parts: StatusLineParts, width: number, theme?: Theme) {
   const status = new StatusLine(theme);
   status.setParts(parts);
   return status.render(width);
@@ -29,6 +28,14 @@ test("status line puts tokens below provider/model and keeps effort on top", () 
   assert.ok(plain[0].trimStart().startsWith("kilo/kilo-auto/free"));
   assert.ok(plain[0].trimEnd().endsWith("effort: medium"));
   assert.ok(plain[1].trimStart().startsWith("tokens: 4.5k/256k"));
+});
+
+test("status line shows the active persona beside the mode", () => {
+  const rows = render({ ...PLAIN, agent: "reviewer", mode: "yolo" }, 100);
+  const plain = rows.map(stripTerminalSequences);
+  assert.match(plain[0], /agent:reviewer/);
+  assert.match(plain[0], /mode:yolo/);
+  assert.ok(plain[0].trimEnd().endsWith("effort: medium"));
 });
 
 test("status line colours parts through semantic theme tokens", () => {

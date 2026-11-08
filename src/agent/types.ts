@@ -66,6 +66,8 @@ export interface AgentRuntimeOptions {
   tools: Tool[];
   limits?: Partial<AgentLimits>;
   systemPrompt?: string;
+  /** Active primary persona. Applies its prompt, temperature, and permissions. */
+  persona?: import("../agents/registry.js").AgentPersona;
   approvals?: ApprovalContext;
   /** Initial agent mode. Defaults to yolo for programmatic use. */
   mode?: "plan" | "yolo";

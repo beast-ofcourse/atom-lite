@@ -41,7 +41,8 @@
   "files": [
     "dist",
     "CHANGELOG.md",
-    "skills"
+    "skills",
+    "agents"
   ],
   "publishConfig": {
     "access": "public"

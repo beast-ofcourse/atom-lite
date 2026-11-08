@@ -32,6 +32,8 @@ export interface ToolContext {
   approvals?: import("../runtime/approvals.js").ApprovalContext;
   /** Current agent mode; plan blocks write/edit/bash. */
   mode?: "plan" | "yolo";
+  /** Active persona permission policy, enforced before tool execution. */
+  agentPermissions?: import("../agents/registry.js").AgentPermissionPolicy;
   /** Whether the selected model supports vision input. */
   supportsVision?: boolean;
   /** Background task manager, if available. */

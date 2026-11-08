@@ -1,5 +1,6 @@
 import type { SlashCommand } from "@earendil-works/pi-tui";
 import type { Skill } from "../skills/registry.js";
+import type { AgentPersona } from "../agents/registry.js";
 import { CheckpointStore } from "../runtime/checkpoint-store.js";
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
@@ -24,6 +25,12 @@ export interface CommandDefinition {
 }
 
 export type LoadedSkill = Pick<Skill, "name" | "description">;
+export type LoadedAgent = Pick<
+  AgentPersona,
+  "name" | "description" | "mode"
+> & {
+  active?: boolean;
+};
 
 /**
  * Everything a command is allowed to do. The app supplies the real
@@ -61,6 +68,8 @@ export interface CommandContext {
   setTheme(name: string): void;
   listSkills(): LoadedSkill[];
   loadSkill(name: string, extra: string): Promise<boolean>;
+  listAgents(): LoadedAgent[];
+  activateAgent(name: string): void;
   runTurn(prompt: string): Promise<void>;
   requestExit(): void;
 }
@@ -242,6 +251,60 @@ export function createCommandRegistry(
       } else {
         ctx.appendLine("usage: /effort low|medium|high");
       }
+    },
+  });
+
+  registry.register({
+    name: "agents",
+    description: "list primary agents",
+    category: "Agent",
+    run(ctx) {
+      const agents = ctx
+        .listAgents()
+        .filter((agent) => agent.mode === "primary");
+      if (agents.length === 0) {
+        ctx.appendLine("no primary agents found");
+        return;
+      }
+      const width = Math.max(...agents.map((agent) => agent.name.length));
+      const lines = ["Agents:"];
+      for (const agent of agents) {
+        const marker = agent.active ? "*" : " ";
+        const description = agent.description ? `  ${agent.description}` : "";
+        lines.push(`  ${marker} ${agent.name.padEnd(width)}${description}`);
+      }
+      ctx.appendLine(lines.join("\n"));
+    },
+  });
+
+  registry.register({
+    name: "agent",
+    description: "switch primary agent",
+    category: "Agent",
+    argumentHint: "<name>",
+    run(ctx, args) {
+      const name = args.trim();
+      if (!name) {
+        ctx.appendLine("usage: /agent <name>");
+        return;
+      }
+      const agents = ctx.listAgents();
+      const match = agents.find((agent) => agent.name === name);
+      if (!match) {
+        const available = agents
+          .filter((agent) => agent.mode === "primary")
+          .map((agent) => agent.name)
+          .join(", ");
+        ctx.appendLine(
+          `unknown agent: ${name}${available ? ` (available: ${available})` : ""}`,
+        );
+        return;
+      }
+      if (match.mode !== "primary") {
+        ctx.appendLine(`agent ${name} is not a primary agent`);
+        return;
+      }
+      ctx.activateAgent(name);
     },
   });
 

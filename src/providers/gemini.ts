@@ -177,12 +177,17 @@ export class GeminiAdapter implements ProviderAdapter {
     const body: any = { contents };
     if (systemInstruction) body.systemInstruction = systemInstruction;
     const effort = (request.options as any)?.effort;
-    if (effort) {
-      const budget = effort === "low" ? 1024 : effort === "high" ? 16384 : 4096;
-      body.generationConfig = {
-        ...(body.generationConfig ?? {}),
-        thinkingConfig: { thinkingBudget: budget },
-      };
+    const temperature = (request.options as any)?.temperature;
+    if (effort || typeof temperature === "number") {
+      body.generationConfig = { ...(body.generationConfig ?? {}) };
+      if (effort) {
+        const budget =
+          effort === "low" ? 1024 : effort === "high" ? 16384 : 4096;
+        body.generationConfig.thinkingConfig = { thinkingBudget: budget };
+      }
+      if (typeof temperature === "number") {
+        body.generationConfig.temperature = temperature;
+      }
     }
     if (request.tools && request.tools.length) {
       body.tools = [

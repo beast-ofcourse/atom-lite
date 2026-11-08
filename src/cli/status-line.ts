@@ -8,6 +8,8 @@ export interface StatusLineParts {
   effort: string;
   /** Current agent mode, rendered as "mode:<value>" in the top row. */
   mode?: string;
+  /** Active persona name, rendered as "agent:<value>" in the top row. */
+  agent?: string;
   /** Animated agent state, rendered as an optional third row. Already styled. */
   activity?: string;
 }
@@ -58,7 +60,10 @@ export class StatusLine implements Component {
         ? tokens.warning(`mode:${this.parts.mode}`)
         : tokens.accent(`mode:${this.parts.mode}`)
       : "";
-    const right = [modePart, tokens.dim(this.parts.effort)]
+    const agentPart = this.parts.agent
+      ? tokens.accent(`agent:${this.parts.agent}`)
+      : "";
+    const right = [agentPart, modePart, tokens.dim(this.parts.effort)]
       .filter(Boolean)
       .join("  ");
     const top = formatStatusLine(
