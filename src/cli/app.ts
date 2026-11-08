@@ -1623,6 +1623,14 @@ export async function run(args: string[]): Promise<void> {
   }
 
   function openAgentPicker(): void {
+    agentReg = new DefaultAgentRegistry(process.cwd(), {
+      projectTrusted: isProjectTrusted(process.cwd()),
+    });
+    const activeName = runtime.getPersona()?.name;
+    if (activeName && !agentReg.get(activeName)) {
+      runtime.setPersona(undefined);
+      updateStatus();
+    }
     uiModalOpen = true;
     const picker = openSearchablePicker({
       tui,
@@ -1780,6 +1788,15 @@ export async function run(args: string[]): Promise<void> {
         })),
     loadSkill,
     listAgents: () => {
+      // Rescan so deleted or newly added personas are reflected immediately.
+      agentReg = new DefaultAgentRegistry(process.cwd(), {
+        projectTrusted: isProjectTrusted(process.cwd()),
+      });
+      const activeName = runtime.getPersona()?.name;
+      if (activeName && !agentReg.get(activeName)) {
+        runtime.setPersona(undefined);
+        updateStatus();
+      }
       const active = runtime.getPersona()?.name;
       return agentReg.list().map((agent) => ({
         name: agent.name,
@@ -1789,6 +1806,9 @@ export async function run(args: string[]): Promise<void> {
       }));
     },
     activateAgent: (name) => {
+      agentReg = new DefaultAgentRegistry(process.cwd(), {
+        projectTrusted: isProjectTrusted(process.cwd()),
+      });
       const persona = agentReg.get(name);
       if (!persona) return;
       runtime.setPersona(persona);
