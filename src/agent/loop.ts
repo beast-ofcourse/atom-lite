@@ -193,6 +193,11 @@ export class AgentRuntime {
     );
   }
 
+  /** Force the next context build to rescan AGENTS.md and skills from disk. */
+  invalidateContextCaches(): void {
+    this.contextManager.invalidateCaches();
+  }
+
   getPersona(): AgentPersona | undefined {
     return this.persona;
   }

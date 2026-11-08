@@ -610,9 +610,9 @@ export async function run(args: string[]): Promise<void> {
     extensionCommands: collectExtensionCommands(),
   });
   let registrySkillSignature = skillSignature;
-  function refreshCommandRegistry(): void {
+  function refreshCommandRegistry(force = false): void {
     const sig = skillCacheSignature(process.cwd());
-    if (sig === registrySkillSignature) return;
+    if (!force && sig === registrySkillSignature) return;
     commandRegistry = createCommandRegistry({
       skills: cachedSkillRegistry().list(),
       extensionCommands: collectExtensionCommands(),
@@ -2208,10 +2208,15 @@ export async function run(args: string[]): Promise<void> {
       ...createMcpTools(mcpManager),
     ]);
 
-    // Refresh project trust-dependent registries and persona state.
+    // Force context caches (AGENTS.md and skills) and registries to rescan.
+    runtime.invalidateContextCaches();
+    skillSignature = skillCacheSignature(process.cwd());
+    skillReg = cachedSkillRegistry();
     agentReg = new DefaultAgentRegistry(process.cwd(), {
       projectTrusted: isProjectTrusted(process.cwd()),
     });
+
+    // Refresh project trust-dependent registries and persona state.
     const currentPersonaName = runtime.getPersona()?.name;
     const reloadedPersona = currentPersonaName
       ? agentReg.get(currentPersonaName)
@@ -2246,7 +2251,7 @@ export async function run(args: string[]): Promise<void> {
         }
       }
     }
-    refreshCommandRegistry();
+    refreshCommandRegistry(true);
     appendLine(
       `extensions: ${extensionLoader.list().length} reloaded (see /extensions)`,
     );

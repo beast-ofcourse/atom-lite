@@ -63,6 +63,12 @@ export class ContextManager {
     this.opts.systemPrompt = prompt;
   }
 
+  /** Drop cached instruction and skill indexes so the next build rescans disk. */
+  invalidateCaches(): void {
+    this.instructionCache = undefined;
+    this.skillCache = undefined;
+  }
+
   setToolTokenOverhead(overhead: number): void {
     if (typeof overhead === "number" && overhead >= 0)
       this.toolTokenOverhead = Math.floor(overhead);
