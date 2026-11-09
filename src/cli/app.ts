@@ -753,6 +753,14 @@ export async function run(args: string[]): Promise<void> {
   let lastToolOutputInvalidateAt = 0;
 
   /**
+   * Per-child rendered-height cache for tool-box click hit-testing. Entries
+   * are stamped with a counter incremented at every in-place transcript child
+   * mutation anywhere in this file; WeakMap identity handles pruned children.
+   */
+  let heightStamp = 0;
+  const childHeights = new WeakMap<object, { width: number; height: number; stamp: number }>();
+
+  /**
    * Close whichever modal overlay owns the keyboard. Callers that clear the
    * dropdown container directly must use this first, or the overlay's input
    * listener would keep consuming keys after it disappears from the screen.
@@ -778,6 +786,7 @@ export async function run(args: string[]): Promise<void> {
 
   function appendDelta(delta: string): void {
     streamText.append(delta);
+    heightStamp++; // streamText mutates its live Markdown child in place
     tui.requestRender();
   }
 
@@ -883,6 +892,7 @@ export async function run(args: string[]): Promise<void> {
 
   function finalizeText(): void {
     streamText.finalize();
+    heightStamp++; // final Markdown set in place
   }
 
   let activeTurnController: AbortController | null = null;
@@ -2146,6 +2156,7 @@ export async function run(args: string[]): Promise<void> {
     for (const box of toolBoxes) {
       box.setExpanded(expandTools);
     }
+    heightStamp++; // every box's expanded state changed in place
     transcript.invalidate();
     tui.requestRender();
   }
@@ -2416,10 +2427,21 @@ export async function run(args: string[]): Promise<void> {
     if (screenY < 0 || screenY >= outputHeight) return false;
 
     const children = content.children as any[];
-    const contentBlocks = children.map((child, index) => ({
-      id: `content:${index}`,
-      height: child.render(width).length,
-    }));
+    // Hit-testing needs every child's height. Rendering each child from
+    // scratch costs ~300 ms on an expanded-box transcript, so cache heights
+    // per child. A counter bumped at every in-place mutation site (below)
+    // plus WeakMap identity keeps an interactively mutated child exact;
+    // structural changes (add/remove/clear/theme) each bump the same counter
+    // through transcript.invalidate()/TranscriptContainer.
+    const contentBlocks = children.map((child, index) => {
+      const cached = childHeights.get(child);
+      if (cached && cached.width === width && cached.stamp === heightStamp) {
+        return { id: `content:${index}`, height: cached.height };
+      }
+      const height = child.render(width).length;
+      childHeights.set(child, { width, height, stamp: heightStamp });
+      return { id: `content:${index}`, height };
+    });
     const total = contentBlocks.reduce((sum, block) => sum + block.height, 0);
     const viewportTop = Math.max(0, total - outputHeight);
     const inner = blockAtLine(contentBlocks, viewportTop + screenY);
@@ -2428,6 +2450,7 @@ export async function run(args: string[]): Promise<void> {
     if (!(child instanceof ToolBox)) return false;
     child.toggleExpanded();
     transcript.invalidate();
+    heightStamp++; // the toggled child's height changed in place
     return true;
   }
 
@@ -2541,6 +2564,7 @@ export async function run(args: string[]): Promise<void> {
       }
       thinkingBuffer += e.text;
       thinkingText.buffer = thinkingBuffer;
+      heightStamp++; // in-place ThinkingBlock buffer mutation
       const now = Date.now();
       if (now - lastThinkingInvalidateAt >= 50) {
         transcript.invalidate();
@@ -2625,6 +2649,7 @@ export async function run(args: string[]): Promise<void> {
       if (box) {
         activity.setPhase("working", e.name);
         box.appendLive(e.text);
+        heightStamp++; // in-place ToolBox live output mutation
         const now = Date.now();
         if (now - lastToolOutputInvalidateAt >= 50) {
           transcript.invalidate();
@@ -2639,6 +2664,7 @@ export async function run(args: string[]): Promise<void> {
       if (last) {
         last.setResult(e.content, { isError: e.isError, diff: e.diff });
         activity.setPhase("working");
+        heightStamp++; // in-place ToolBox result mutation
         transcript.invalidate();
         tui.requestRender();
       }
