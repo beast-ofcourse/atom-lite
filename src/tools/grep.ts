@@ -1,4 +1,5 @@
-import { readdirSync, statSync, readFileSync, existsSync } from "node:fs";
+import { readdir as readdirAsync, stat as statAsync, readFile as readFileAsync } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import * as fs from "node:fs";
 import { resolve, relative, join, dirname } from "node:path";
 import { spawn } from "node:child_process";
@@ -23,38 +24,53 @@ const MAX_FILE_BYTES = 1_000_000;
 const DEFAULT_MAX = 100;
 const SKIP_DIRS = new Set([".git", "node_modules", "dist", ".next"]);
 
-function collectFiles(root: string, globPattern?: string): string[] {
+async function collectFiles(root: string, globPattern?: string): Promise<string[]> {
   try {
-    if (statSync(root).isFile()) return [root];
+    if ((await statAsync(root)).isFile()) return [root];
   } catch {
     // fall through
   }
   if (globPattern) {
+    // Node 22+ async glob keeps the event loop free while walking.
     try {
-      const matches = (fs as any).globSync(globPattern, {
-        cwd: root,
-      }) as string[];
-      return matches.map((m: string) => resolve(root, m));
+      const out: string[] = [];
+      for await (const m of (
+        fs as unknown as {
+          glob: (
+            p: string,
+            o: { cwd: string },
+          ) => AsyncIterable<string>;
+        }
+      ).glob(globPattern, { cwd: root })) {
+        const abs = resolve(root, m);
+        // Match the old globSync contract: files only.
+        try {
+          if ((await statAsync(abs)).isFile()) out.push(abs);
+        } catch {
+          // vanished mid-walk; skip
+        }
+      }
+      return out;
     } catch {
       // fall through to walk
     }
   }
   const out: string[] = [];
-  const walk = (dir: string) => {
+  const walk = async (dir: string): Promise<void> => {
     let entries: import("node:fs").Dirent[];
     try {
-      entries = readdirSync(dir, { withFileTypes: true });
+      entries = await readdirAsync(dir, { withFileTypes: true });
     } catch {
       return;
     }
     for (const e of entries) {
       if (SKIP_DIRS.has(e.name)) continue;
       const full = join(dir, e.name);
-      if (e.isDirectory()) walk(full);
+      if (e.isDirectory() && !e.isSymbolicLink()) await walk(full);
       else if (e.isFile()) out.push(full);
     }
   };
-  walk(root);
+  await walk(root);
   return out;
 }
 
@@ -65,7 +81,7 @@ function isBinary(buf: Buffer): boolean {
   return false;
 }
 
-function grepJs(
+async function grepJs(
   root: string,
   ctx: ToolContext,
   pattern: string,
@@ -75,8 +91,8 @@ function grepJs(
   maxResults: number,
   outputMode: string,
   cap: number,
-): string {
-  const files = collectFiles(root, globPattern);
+): Promise<string> {
+  const files = await collectFiles(root, globPattern);
   let output = "";
   let matchCount = 0;
   const filesWithMatches = new Set<string>();
@@ -95,9 +111,9 @@ function grepJs(
     if (matchCount >= maxResults && outputMode === "content") break;
     let buf: Buffer;
     try {
-      const st = statSync(file);
+      const st = await statAsync(file);
       if (st.size > MAX_FILE_BYTES) continue;
-      buf = readFileSync(file);
+      buf = await readFileAsync(file);
     } catch {
       continue;
     }
@@ -235,8 +251,8 @@ export const grepTool: Tool = {
       error?: Error;
     }>((resolve) => {
       const child = spawn("rg", rgArgs, { stdio: ["ignore", "pipe", "pipe"] });
-      let stdout = "";
-      let stderr = "";
+      const outChunks: string[] = [];
+      const errChunks: string[] = [];
       let killed = false;
       const timer = setTimeout(() => {
         killed = true;
@@ -248,19 +264,36 @@ export const grepTool: Tool = {
       }, 30000);
       child.stdout?.setEncoding("utf8");
       child.stderr?.setEncoding("utf8");
+      let outLen = 0;
+      let errLen = 0;
       child.stdout?.on("data", (c: string) => {
-        if (stdout.length < 10 * 1024 * 1024) stdout += c;
+        if (outLen < 10 * 1024 * 1024) {
+          outChunks.push(c);
+          outLen += c.length;
+        }
       });
       child.stderr?.on("data", (c: string) => {
-        if (stderr.length < 1024 * 1024) stderr += c;
+        if (errLen < 1024 * 1024) {
+          errChunks.push(c);
+          errLen += c.length;
+        }
       });
       child.on("error", (err) => {
         clearTimeout(timer);
-        resolve({ stdout, stderr, status: null, error: err });
+        resolve({
+          stdout: outChunks.join(""),
+          stderr: errChunks.join(""),
+          status: null,
+          error: err,
+        });
       });
       child.on("close", (code) => {
         clearTimeout(timer);
-        resolve({ stdout, stderr, status: killed ? 124 : code });
+        resolve({
+          stdout: outChunks.join(""),
+          stderr: errChunks.join(""),
+          status: killed ? 124 : code,
+        });
       });
     });
 
@@ -273,7 +306,7 @@ export const grepTool: Tool = {
 
     if (res.error || (res.status !== 0 && res.status !== 1)) {
       // Fallback to JS implementation.
-      const content = grepJs(
+      const content = await grepJs(
         root,
         ctx,
         pattern,

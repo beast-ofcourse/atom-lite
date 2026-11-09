@@ -1,4 +1,4 @@
-import { readFileSync, statSync, existsSync } from "node:fs";
+import { readFile, stat as statAsync } from "node:fs/promises";
 import { resolve, extname } from "node:path";
 import { createHash } from "node:crypto";
 import { isWithinWorkspace } from "../security/paths.js";
@@ -146,7 +146,13 @@ export const readTool: Tool = {
       }
       full = resolved;
     }
-    if (!existsSync(full)) {
+    // One async stat replaces the old existsSync+statSync pair: non-blocking
+    // (keeps the event loop free for the TUI and parallel tool calls) and a
+    // single syscall instead of two.
+    let st;
+    try {
+      st = await statAsync(full);
+    } catch {
       return {
         toolCallId: call.id,
         name: "read",
@@ -154,8 +160,7 @@ export const readTool: Tool = {
         isError: true,
       };
     }
-    const stat = statSync(full);
-    if (stat.isDirectory()) {
+    if (st.isDirectory()) {
       return {
         toolCallId: call.id,
         name: "read",
@@ -163,7 +168,7 @@ export const readTool: Tool = {
         isError: true,
       };
     }
-    if (stat.size > 10 * 1024 * 1024) {
+    if (st.size > 10 * 1024 * 1024) {
       return {
         toolCallId: call.id,
         name: "read",
@@ -171,7 +176,7 @@ export const readTool: Tool = {
         isError: true,
       };
     }
-    const buf = readFileSync(full);
+    const buf = await readFile(full);
     const mime = detectImageMime(full, buf);
     if (mime) {
       if (!ctx.supportsVision) {

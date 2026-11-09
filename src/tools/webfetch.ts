@@ -15,6 +15,31 @@ const MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_TIMEOUT = 30000;
 const MAX_TIMEOUT = 120000;
 
+// Small TTL cache: agents frequently re-fetch the same URL (retry loops,
+// follow-up questions, repeated URL opens). Saves a full network round trip.
+const CACHE_TTL_MS = 60_000;
+const CACHE_MAX_ENTRIES = 8;
+const responseCache = new Map<string, { at: number; content: string }>();
+
+function cacheGet(key: string): string | undefined {
+  const hit = responseCache.get(key);
+  if (!hit) return undefined;
+  if (Date.now() - hit.at > CACHE_TTL_MS) {
+    responseCache.delete(key);
+    return undefined;
+  }
+  return hit.content;
+}
+
+function cachePut(key: string, content: string): void {
+  if (responseCache.size >= CACHE_MAX_ENTRIES) {
+    // Evict the oldest entry (Map preserves insertion order).
+    const first = responseCache.keys().next().value;
+    if (first !== undefined) responseCache.delete(first);
+  }
+  responseCache.set(key, { at: Date.now(), content });
+}
+
 export const webfetchTool: Tool = {
   definition: {
     name: "webfetch",
@@ -50,6 +75,11 @@ export const webfetchTool: Tool = {
           "TOOL_ARGUMENT_INVALID: URL must start with http:// or https://",
         isError: true,
       };
+    }
+    const cacheKey = `${format}\n${url}`;
+    const cached = cacheGet(cacheKey);
+    if (cached !== undefined) {
+      return { toolCallId: call.id, name: "webfetch", content: cached };
     }
     const timeoutMs = Math.min((timeout ?? 30) * 1000, MAX_TIMEOUT);
     const controller = new AbortController();
@@ -119,6 +149,7 @@ export const webfetchTool: Tool = {
     // cap output
     if (output.length > 30000)
       output = output.slice(0, 30000) + "\nOUTPUT_TRUNCATED";
+    cachePut(cacheKey, output);
     return { toolCallId: call.id, name: "webfetch", content: output };
   },
 };

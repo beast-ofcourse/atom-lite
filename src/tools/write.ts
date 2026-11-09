@@ -1,11 +1,10 @@
 import {
-  readFileSync,
-  writeFileSync,
-  existsSync,
-  mkdirSync,
-  statSync,
-  renameSync,
-} from "node:fs";
+  readFile,
+  writeFile,
+  mkdir,
+  rename,
+  unlink,
+} from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import { isWithinWorkspace } from "../security/paths.js";
@@ -82,10 +81,12 @@ export const writeTool: Tool = {
       }
       full = resolved;
     }
-    const existed = existsSync(full);
+    // Async read: ENOENT means the file doesn't exist yet (creation path);
+    // anything else re-reads and hash-checks the existing file. Non-blocking
+    // so parallel tool calls and the TUI keep running.
     let oldText: string | undefined;
-    if (existed) {
-      const buf = readFileSync(full);
+    try {
+      const buf = await readFile(full);
       oldText = buf.toString("utf8");
       const currentHash = sha256(buf);
       if (expected_hash && expected_hash !== currentHash) {
@@ -105,14 +106,28 @@ export const writeTool: Tool = {
           isError: true,
         };
       }
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        (err as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        // new file: fall through, creation requires no hash
+      } else {
+        throw err;
+      }
     }
     // create parent dirs
-    mkdirSync(dirname(full), { recursive: true });
+    await mkdir(dirname(full), { recursive: true });
     const buf = Buffer.from(content, "utf8");
     // atomic write
     const tmp = full + ".tmp-" + process.pid;
-    writeFileSync(tmp, buf);
-    renameSync(tmp, full);
+    await writeFile(tmp, buf);
+    try {
+      await rename(tmp, full);
+    } catch (err) {
+      await unlink(tmp).catch(() => {});
+      throw err;
+    }
     const newHash = sha256(buf);
     return {
       toolCallId: call.id,

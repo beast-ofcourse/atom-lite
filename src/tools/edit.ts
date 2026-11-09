@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, renameSync } from "node:fs";
+import { readFile, writeFile, rename, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { isWithinWorkspace } from "../security/paths.js";
@@ -85,7 +85,10 @@ export const editTool: Tool = {
       }
       full = resolved;
     }
-    if (!existsSync(full)) {
+    let buf: Buffer;
+    try {
+      buf = await readFile(full);
+    } catch {
       return {
         toolCallId: call.id,
         name: "edit",
@@ -93,7 +96,6 @@ export const editTool: Tool = {
         isError: true,
       };
     }
-    const buf = readFileSync(full);
     const currentHash = sha256(buf);
     if (expected_hash && expected_hash !== currentHash) {
       return {
@@ -104,10 +106,15 @@ export const editTool: Tool = {
       };
     }
     const text = buf.toString("utf8");
+    // Single pass: locate the unique match and count occurrences together
+    // instead of scanning the whole text twice.
+    let matchIndex = -1;
     let count = 0;
     let idx = text.indexOf(old_string);
     while (idx !== -1) {
+      if (matchIndex === -1) matchIndex = idx;
       count++;
+      if (count > 1) break; // ambiguous already
       idx = text.indexOf(old_string, idx + old_string.length);
     }
     if (count === 0) {
@@ -126,15 +133,19 @@ export const editTool: Tool = {
         isError: true,
       };
     }
-    const matchIndex = text.indexOf(old_string);
     const newText =
       text.slice(0, matchIndex) +
       new_string +
       text.slice(matchIndex + old_string.length);
     const newBuf = Buffer.from(newText, "utf8");
     const tmp = full + ".tmp-" + process.pid;
-    writeFileSync(tmp, newBuf);
-    renameSync(tmp, full);
+    await writeFile(tmp, newBuf);
+    try {
+      await rename(tmp, full);
+    } catch (err) {
+      await unlink(tmp).catch(() => {});
+      throw err;
+    }
     const newHash = sha256(newBuf);
     return {
       toolCallId: call.id,

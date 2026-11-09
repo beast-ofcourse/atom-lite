@@ -78,8 +78,8 @@ export const globTool: Tool = {
       const child = spawn("rg", ["--hidden", "--files", "-g", pattern, root], {
         stdio: ["ignore", "pipe", "pipe"],
       });
-      let stdout = "";
-      let stderr = "";
+      const outChunks: string[] = [];
+      const errChunks: string[] = [];
       let killed = false;
       let settled = false;
       const timer = setTimeout(() => {
@@ -92,17 +92,30 @@ export const globTool: Tool = {
       }, 30000);
       child.stdout?.setEncoding("utf8");
       child.stderr?.setEncoding("utf8");
+      let outLen = 0;
+      let errLen = 0;
       child.stdout?.on("data", (c: string) => {
-        if (stdout.length < 10 * 1024 * 1024) stdout += c;
+        if (outLen < 10 * 1024 * 1024) {
+          outChunks.push(c);
+          outLen += c.length;
+        }
       });
       child.stderr?.on("data", (c: string) => {
-        if (stderr.length < 1024 * 1024) stderr += c;
+        if (errLen < 1024 * 1024) {
+          errChunks.push(c);
+          errLen += c.length;
+        }
       });
       child.on("error", (err) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        resolvePromise({ stdout, stderr, code: null, error: err });
+        resolvePromise({
+          stdout: outChunks.join(""),
+          stderr: errChunks.join(""),
+          code: null,
+          error: err,
+        });
       });
       child.on("close", () => {
         if (settled) return;
@@ -110,13 +123,17 @@ export const globTool: Tool = {
         clearTimeout(timer);
         if (killed) {
           resolvePromise({
-            stdout,
-            stderr,
+            stdout: outChunks.join(""),
+            stderr: errChunks.join(""),
             code: null,
             error: new Error("rg timed out"),
           });
         } else {
-          resolvePromise({ stdout, stderr, code: child.exitCode });
+          resolvePromise({
+            stdout: outChunks.join(""),
+            stderr: errChunks.join(""),
+            code: child.exitCode,
+          });
         }
       });
     });
