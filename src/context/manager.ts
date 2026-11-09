@@ -292,8 +292,9 @@ export class ContextManager {
         ],
       });
     }
-    messages.push(...workingHistory);
-
+    // Loop instead of spread: very long histories would exceed V8's
+    // max-arguments limit in messages.push(...workingHistory).
+    for (const m of workingHistory) messages.push(m);
     const total =
       messages.reduce((s, m) => s + estimateMessageTokens(m), 0) +
       this.toolTokenOverhead;
@@ -342,9 +343,6 @@ export class ContextManager {
     this.lastCompactionCoveredCount = coveredCount;
     this.compactedThisBuild = true;
     this.lastReportedUsage = undefined;
-    this.lastBuildTokens =
-      recent.reduce((s, m) => s + estimateMessageTokens(m), 0) +
-      this.toolTokenOverhead;
 
     const compacted: Message[] = [
       { role: "system", content: systemPrompt },
@@ -355,6 +353,7 @@ export class ContextManager {
       },
       ...recent,
     ];
+    // Final value only; the intermediate assign was dead work.
     this.lastBuildTokens =
       compacted.reduce((s, m) => s + estimateMessageTokens(m), 0) +
       this.toolTokenOverhead;
