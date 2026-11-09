@@ -60,6 +60,9 @@ export class BackgroundTaskManager {
       cwd,
       env,
       detached: process.platform !== "win32",
+      // EOF-on-stdin so commands that read stdin do not block for the whole
+      // 10-minute timeout.
+      stdio: ["ignore", "pipe", "pipe"],
     });
     task.child = child;
 

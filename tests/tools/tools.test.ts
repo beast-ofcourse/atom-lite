@@ -205,6 +205,38 @@ test("bash streams stdout and stderr while running", async () => {
   );
 });
 
+test("bash resolves even when a detached descendant holds the pipes open", async () => {
+  if (process.platform === "win32") return; // setsid/POSIX pipes
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  const start = Date.now();
+  const r = await bashTool.execute(
+    {
+      id: "1",
+      name: "bash",
+      arguments: { command: "setsid sleep 20 & echo launched" },
+    },
+    ctx(dir),
+  );
+  const elapsed = Date.now() - start;
+  // Without the close-guard the tool would block until the sleeping
+  // grandchild (20s) exits, even though the shell finished instantly.
+  assert.ok(elapsed < 6000, `took ${elapsed}ms`);
+  assert.match(r.content, /launched/);
+  assert.match(r.content, /exit_code: 0/);
+});
+
+test("bash gives stdin-reading commands EOF instead of hanging", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  const start = Date.now();
+  const r = await bashTool.execute(
+    { id: "1", name: "bash", arguments: { command: "cat" } },
+    ctx(dir),
+  );
+  const elapsed = Date.now() - start;
+  assert.ok(elapsed < 6000, `took ${elapsed}ms`);
+  assert.match(r.content, /exit_code: 0/);
+});
+
 test("write and edit attach pre-computed diffs to the result", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   const created = await writeTool.execute(

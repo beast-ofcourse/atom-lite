@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import { resolve } from "node:path";
 import { isWithinWorkspace } from "../security/paths.js";
 import { defaultShell, terminateProcessTree } from "../security/process.js";
@@ -131,35 +132,41 @@ export const bashTool: Tool = {
     const flag = process.platform === "win32" ? "/c" : "-c";
     const start = Date.now();
     return new Promise<ToolResult>((resolvePromise) => {
+      let settled = false;
       const child = spawn(shell, [flag, command], {
         cwd: workdir,
         env: process.env,
         detached: process.platform !== "win32",
+        // stdin: "ignore" gives commands that read stdin an immediate EOF
+        // instead of blocking forever on a pipe that never closes.
+        stdio: ["ignore", "pipe", "pipe"],
       });
+      const cap = ctx.maxToolOutputBytes ?? 30000;
+      const decoder = {
+        out: new StringDecoder("utf8"),
+        err: new StringDecoder("utf8"),
+      };
       let stdout = "";
       let stderr = "";
       let truncated = false;
-      const cap = ctx.maxToolOutputBytes ?? 30000;
-      const append = (target: "out" | "err", chunk: Buffer) => {
-        const s = chunk.toString("utf8");
+      let pipesDestroyed = false;
+      const remaining = (target: "out" | "err") =>
+        Math.max(0, cap - (target === "out"
+          ? Buffer.byteLength(stdout, "utf8")
+          : Buffer.byteLength(stderr, "utf8")));
+      const consume = (target: "out" | "err", s: string): string => {
+        if (s === "") return "";
         let accepted = s;
-        if (target === "out") {
-          if (stdout.length + s.length > cap) {
-            truncated = true;
-            accepted = s.slice(0, Math.max(0, cap - stdout.length));
-            stdout += accepted;
-          } else {
-            stdout += s;
-          }
-        } else {
-          if (stderr.length + s.length > cap) {
-            truncated = true;
-            accepted = s.slice(0, Math.max(0, cap - stderr.length));
-            stderr += accepted;
-          } else {
-            stderr += s;
-          }
+        const rem = remaining(target);
+        if (Buffer.byteLength(s, "utf8") > rem) {
+          truncated = true;
+          // Byte-accurate cut: may split a trailing multibyte character, which
+          // surfaces as U+FFFD (at most 2 bytes of overshoot) — well within
+          // the spirit of the cap.
+          accepted = Buffer.from(s, "utf8").subarray(0, rem).toString("utf8");
         }
+        if (target === "out") stdout += accepted;
+        else stderr += accepted;
         if (accepted) {
           ctx.onToolOutput?.(
             call,
@@ -167,6 +174,11 @@ export const bashTool: Tool = {
             accepted,
           );
         }
+        return accepted;
+      };
+      const append = (target: "out" | "err", chunk: Buffer) => {
+        const s = decoder[target].write(chunk);
+        consume(target, s);
       };
       child.stdout?.on("data", (c: Buffer) => append("out", c));
       child.stderr?.on("data", (c: Buffer) => append("err", c));
@@ -183,25 +195,61 @@ export const bashTool: Tool = {
         setTimeout(() => terminateProcessTree(child, "SIGKILL"), 1000).unref();
       };
       ctx.signal.addEventListener("abort", onAbort, { once: true });
-      child.on("error", (err) => {
+      // The child 'close' event only fires once every stdio stream has
+      // closed. If the command leaves a descendant (daemon, watcher, dev
+      // server started with '&' or setsid) inheriting our pipes, 'close'
+      // never fires and the agent would hang forever. Once the shell itself
+      // has exited, stop waiting on stragglers: after a short grace period
+      // destroy the pipes, which emits 'close' with the exit already
+      // collected.
+      let closeGuard: NodeJS.Timeout | undefined;
+      const watchForClosedPipes = () => {
+        if (closeGuard) return;
+        closeGuard = setTimeout(() => {
+          pipesDestroyed = true;
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+        }, 2000);
+        closeGuard.unref();
+      };
+      const finish = (result: ToolResult) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
+        if (closeGuard) clearTimeout(closeGuard);
         ctx.signal.removeEventListener("abort", onAbort);
-        resolvePromise({
+        resolvePromise(result);
+      };
+      child.on("error", (err) => {
+        finish({
           toolCallId: call.id,
           name: "bash",
           content: `COMMAND_FAILED: ${err.message}`,
           isError: true,
         });
       });
+      child.on("exit", () => {
+        watchForClosedPipes();
+      });
       child.on("close", (code, signal) => {
-        clearTimeout(timer);
-        ctx.signal.removeEventListener("abort", onAbort);
+        // Flush any bytes remaining buffered in the decoder, through the same
+        // cap accounting as live chunks.
+        try {
+          consume("out", decoder.out.end());
+          consume("err", decoder.err.end());
+        } catch {
+          // Ignore decoder errors at close.
+        }
         const duration = Date.now() - start;
         const parts: string[] = [];
         parts.push(`exit_code: ${code ?? "null"}`);
         if (signal) parts.push(`signal: ${signal}`);
         if (timedOut) parts.push("timed_out: true");
         if (killedByAbort) parts.push("cancelled: true");
+        if (pipesDestroyed)
+          parts.push(
+            "warning: descendant processes kept result output pipes open; remaining descendant output was not collected",
+          );
         if (truncated) parts.push("OUTPUT_TRUNCATED");
         parts.push(`duration_ms: ${duration}`);
         parts.push(`cwd: ${workdir}`);
@@ -217,7 +265,7 @@ export const bashTool: Tool = {
         if (stdout) parts.push(`stdout:\n${stdout}`);
         if (stderr) parts.push(`stderr:\n${stderr}`);
         const failed = code !== 0 || timedOut || killedByAbort;
-        resolvePromise({
+        finish({
           toolCallId: call.id,
           name: "bash",
           content: parts.join("\n"),
