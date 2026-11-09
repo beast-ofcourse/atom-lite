@@ -6,6 +6,7 @@ import {
   resolveToolPermission,
 } from "../../dist/agents/permissions.js";
 import { composePersonaSystemPrompt } from "../../dist/agents/persona.js";
+import { DEFAULT_SYSTEM_PROMPT } from "../../dist/agent/system-prompt.js";
 
 test("permission patterns support exact matches and globs", () => {
   assert.equal(matchPermissionPattern("git log*", "git log --oneline"), true);
@@ -74,4 +75,19 @@ test("custom prompts without policy sections append the persona body", () => {
     composePersonaSystemPrompt(base, { name: "empty", body: "  " }),
     base,
   );
+});
+
+test("default system prompt keeps the persona policy marker splittable", () => {
+  // composePersonaSystemPrompt replaces role instructions with the active
+  // persona body by slicing on the "\n\nTask discipline:" marker. If this
+  // prompt loses the marker (e.g. a rewrite renames the section), persona
+  // bodies stop replacing role instructions — a silent behavior regression.
+  const prompt = composePersonaSystemPrompt(DEFAULT_SYSTEM_PROMPT, {
+    name: "reviewer",
+    body: "Review for correctness.",
+  });
+  assert.ok(prompt.includes("Review for correctness."));
+  assert.ok(!prompt.includes("Read context before editing"));
+  assert.ok(prompt.includes("Task discipline:"));
+  assert.ok(prompt.includes("Tools:"));
 });
