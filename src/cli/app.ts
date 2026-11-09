@@ -520,7 +520,16 @@ export async function run(args: string[]): Promise<void> {
   transcript.add(banner);
   transcript.add(new Spacer(1));
   const content = transcript.container;
-  const output = new ScrollView(content, { follow: "end" });
+  const output = new ScrollView(content, {
+    follow: "end",
+    // Transient scrollbar: appears on scroll activity when the transcript
+    // overflows the viewport, hides after a short idle delay. "always" would
+    // reserve a content column (see ScrollView.getContentWidth), shifting
+    // wrap widths and the tool-box click hit-test metrics.
+    scrollbar: "auto",
+    scrollbarTrackStyle: () => theme.tokens.dim("│"),
+    scrollbarThumbStyle: (text) => theme.tokens.accent(text),
+  });
   const streamText = new StreamText(
     transcript,
     200,
