@@ -12,10 +12,11 @@ import {
   statSync,
   lstatSync,
   writeFileSync,
+  Dirent,
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { join, relative, sep } from "node:path";
+import { join, relative, sep, dirname } from "node:path";
 import { userConfigDir } from "../config/paths.js";
 
 export interface CheckpointOptions {
@@ -62,6 +63,14 @@ export interface CheckpointDiffEntry {
 const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
 const DEFAULT_MAX_COUNT = 20;
 
+interface IgnoreMatcher {
+  re: RegExp;
+  dirOnly: boolean;
+  baseNameOnly: boolean;
+  /** Test a candidate path with the original anchored/basename semantics. */
+  test: (rel: string) => boolean;
+}
+
 export class CheckpointStore {
   private workspace: string;
   private sessionId: string;
@@ -70,6 +79,9 @@ export class CheckpointStore {
   private enabled: boolean;
   private sequence = 0;
   private gitAvailableCache: boolean | undefined;
+  private workspaceHashCache: string | undefined;
+  private storageRootCache: string | undefined;
+  private storageRootEnvKey: string | undefined;
 
   constructor(
     workspace: string,
@@ -90,19 +102,29 @@ export class CheckpointStore {
   }
 
   private workspaceHash(): string {
-    return createHash("sha256")
-      .update(this.workspace)
-      .digest("hex")
-      .slice(0, 16);
+    if (this.workspaceHashCache === undefined) {
+      this.workspaceHashCache = createHash("sha256")
+        .update(this.workspace)
+        .digest("hex")
+        .slice(0, 16);
+    }
+    return this.workspaceHashCache;
   }
 
   private storageRoot(): string {
-    return join(
-      userConfigDir(),
-      "checkpoints",
-      this.workspaceHash(),
-      this.sessionId,
-    );
+    // userConfigDir() is env-dependent; keep the memo honest by invalidating
+    // when XDG_CONFIG_HOME changes (or comparing against the no-env default).
+    const envKey = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
+    if (this.storageRootCache === undefined || this.storageRootEnvKey !== envKey) {
+      this.storageRootCache = join(
+        userConfigDir(),
+        "checkpoints",
+        this.workspaceHash(),
+        this.sessionId,
+      );
+      this.storageRootEnvKey = envKey;
+    }
+    return this.storageRootCache;
   }
 
   private checkpointDir(id: string): string {
@@ -205,16 +227,27 @@ export class CheckpointStore {
     return patterns;
   }
 
-  private isIgnored(rel: string, isDir: boolean): boolean {
-    const patterns = this.loadIgnorePatterns();
-    for (const raw of patterns) {
+  /**
+   * One compiled matcher per walk. Matching semantics are identical to the
+   * pre-compile version; this just avoids re-reading .gitignore and rebuilding
+   * RegExp objects for every single file examined during a traversal.
+   */
+  private matchesIgnore(matchers: IgnoreMatcher[], rel: string, isDir: boolean): boolean {
+    for (const m of matchers) {
+      if (m.dirOnly && !isDir) continue;
+      if (m.test(rel)) return true;
+    }
+    return false;
+  }
+
+  private compileIgnorePatterns(patterns: string[]): IgnoreMatcher[] {
+    return patterns.map((raw) => {
       let p = raw;
       let dirOnly = false;
       if (p.endsWith("/")) {
         dirOnly = true;
         p = p.replace(/\/+$/, "");
       }
-      if (dirOnly && !isDir) continue;
       const anchored = p.startsWith("/");
       if (anchored) p = p.slice(1);
       const re = new RegExp(
@@ -225,10 +258,20 @@ export class CheckpointStore {
             .replace(/\*/g, "[^/]*") +
           "$",
       );
-      const target = anchored ? rel : (rel.split("/").pop() ?? rel);
-      if (re.test(rel) || (!anchored && re.test(target))) return true;
-    }
-    return false;
+      const base = anchored
+        ? (rel: string) => rel
+        : (rel: string) => {
+            const slash = rel.lastIndexOf("/");
+            return slash === -1 ? rel : rel.slice(slash + 1);
+          };
+      const baseNameOnly = !anchored;
+      return {
+        re,
+        dirOnly,
+        baseNameOnly,
+        test: (rel: string) => re.test(rel) || (baseNameOnly && re.test(base(rel))),
+      };
+    });
   }
 
   private walkWorkspaceFiles(): string[] {
@@ -239,29 +282,45 @@ export class CheckpointStore {
       ".next",
       ".atom-lite",
     ]);
+    const matchers = this.compileIgnorePatterns(this.loadIgnorePatterns());
     const out: string[] = [];
-    const walk = (dir: string, relPrefix: string) => {
-      let entries: string[] = [];
+    // Classify entries exactly like the previous statSync-based version (which
+    // follows symlinks) but avoid one stat syscall per entry: readdir with
+    // Dirent already knows directory/regular-file types, so statSync is only
+    // needed for symlinks and for the DT_UNKNOWN / special-file cases that
+    // Dirent leaves ambiguous; identical classification semantics.
+    const kindOf = (full: string, ent: Dirent): "dir" | "file" | "other" => {
+      if (!ent.isSymbolicLink() && ent.isDirectory()) return "dir";
+      if (!ent.isSymbolicLink() && ent.isFile()) return "file";
+      // symlink, DT_UNKNOWN, fifo/socket/device: fall back to the same
+      // statSync-following classification as before
+      let st;
       try {
-        entries = readdirSync(dir);
+        st = statSync(full);
+      } catch {
+        return "other"; // old code hit this catch and skipped the entry too
+      }
+      if (st.isDirectory()) return "dir";
+      if (st.isFile()) return "file";
+      return "other";
+    };
+    const walk = (dir: string, relPrefix: string) => {
+      let entries: Dirent[] = [];
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
       } catch {
         return;
       }
       for (const name of entries) {
-        if (SKIP.has(name)) continue;
-        const full = join(dir, name);
-        const rel = relPrefix ? `${relPrefix}/${name}` : name;
-        let st;
-        try {
-          st = statSync(full);
-        } catch {
-          continue;
-        }
-        const isDir = st.isDirectory();
-        if (this.isIgnored(rel, isDir)) continue;
-        if (isDir) {
+        if (SKIP.has(name.name)) continue;
+        const full = join(dir, name.name);
+        const rel = relPrefix ? `${relPrefix}/${name.name}` : name.name;
+        const kind = kindOf(full, name);
+        const isDir = kind === "dir";
+        if (this.matchesIgnore(matchers, rel, isDir)) continue;
+        if (kind === "dir") {
           walk(full, rel);
-        } else if (st.isFile()) {
+        } else if (kind === "file") {
           out.push(rel);
         }
       }
@@ -356,43 +415,51 @@ export class CheckpointStore {
     const toCopy: Array<{ rel: string; size: number }> = [];
     for (const rel of files) {
       const full = join(this.workspace, rel);
-      if (this.isSymlink(rel)) {
+      // One lstat answers symlink/dir/type/size for this file. For non-symlinks
+      // lstat == stat for every field the old code used, so the classification
+      // below is identical to the isSymlink/isSubmodule/statSync sequence.
+      let lst;
+      try {
+        lst = lstatSync(full);
+      } catch {
+        skipped.push({ path: rel, reason: "deleted" });
+        continue;
+      }
+      if (lst.isSymbolicLink()) {
         let target: string | undefined;
         try {
-          target = readlinkSync(join(this.workspace, rel));
+          target = readlinkSync(full);
         } catch {
           target = undefined;
         }
         skipped.push({ path: rel, reason: "symlink", target });
         continue;
       }
-      if (this.isSubmodule(rel)) {
+      if (lst.isDirectory() && existsSync(join(full, ".git"))) {
         skipped.push({ path: rel, reason: "submodule" });
         continue;
       }
-      let st;
-      try {
-        st = statSync(full);
-      } catch {
-        skipped.push({ path: rel, reason: "deleted" });
-        continue;
-      }
-      if (!st.isFile()) {
+      if (!lst.isFile()) {
         skipped.push({ path: rel, reason: "not a regular file" });
         continue;
       }
-      if (bytes + st.size > this.maxBytes) {
+      if (bytes + lst.size > this.maxBytes) {
         skipped.push({ path: rel, reason: "too_large" });
         continue;
       }
-      bytes += st.size;
-      toCopy.push({ rel, size: st.size });
+      bytes += lst.size;
+      toCopy.push({ rel, size: lst.size });
     }
 
+    const copiedDirs = new Set<string>(); // mkdirSync on parents only once per dir
     for (const { rel } of toCopy) {
       const src = join(this.workspace, rel);
       const dst = join(filesDir, rel);
-      mkdirSync(join(dst, ".."), { recursive: true });
+      const dir = dirname(dst);
+      if (!copiedDirs.has(dir)) {
+        copiedDirs.add(dir);
+        mkdirSync(dir, { recursive: true });
+      }
       copyFileSync(src, dst);
       captured.push(rel);
     }
@@ -528,11 +595,16 @@ export class CheckpointStore {
     if (!m) throw new Error("CHECKPOINT_NOT_FOUND");
     const preview = this.previewRestore(id, keepUntracked);
     // write snapshot files
+    const restoredDirs = new Set<string>(); // mkdirSync on parents only once per dir
     for (const rel of m.files) {
       const src = join(this.filesDir(id), rel);
       const dst = join(this.workspace, rel);
       if (!existsSync(src)) continue;
-      mkdirSync(join(dst, ".."), { recursive: true });
+      const dir = dirname(dst);
+      if (!restoredDirs.has(dir)) {
+        restoredDirs.add(dir);
+        mkdirSync(dir, { recursive: true });
+      }
       copyFileSync(src, dst);
     }
     // remove
