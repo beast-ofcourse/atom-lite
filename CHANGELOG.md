@@ -5,6 +5,34 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `/trust` command: allow, deny, or reset project trust for extensions/agents from within a session (previously the decision could only be made once at the startup prompt).
+- `tests/e2e/` layer: the CLI binary is spawned end-to-end against a local stub provider, verifying the full flow (args → config → streamed tool call → read tool → session log → `--json` result) with no network.
+- `tests/README.md` documents the test suite's layering (unit / integration / E2E), conventions, and anti-growth rules.
+- `test-suite` agent skill (`.agents/skills/test-suite/SKILL.md`) for maintaining and auditing the suite.
+- Test coverage added for: the background-task pipeline (`bash background:true` → `task` tool), tool-executor plan-mode gating and lock classification, every `checkApproval` branch, `createProvider` wiring, streamed tool-call assembly, context token budgeting, process-tree termination, session crash-recovery and retention pruning, skill discovery, and config schema validation.
+
+### Changed
+
+- Runtime limits (`runtime.maxParallelToolCalls`, `maxToolOutputBytes`, `maxBashTimeMs`) now reach `AgentRuntime` and the tools; they were documented but silently ignored. `npm run eval` accepts the same limits.
+- Plan mode now blocks mutating MCP and extension tools unless they declare `readOnlyHint: true`; previously only the built-in `write`/`edit`/`bash` were gated.
+- `read` and the four `lsp_*` tools declare `readOnlyHint: true`, so concurrent reads of the same path no longer serialize on a write lock and read-only turns no longer trigger checkpoints.
+- `/export` redaction now also applies the shared `security/redaction.ts` rules, catching `key: value` secret forms the inline patterns missed.
+- Unknown `--flags` warn on stderr instead of vanishing.
+- Repository formatting brought under Prettier compliance (the `format:check` CI gate was failing on master for previously unmodified files).
+
+### Fixed
+
+- bash tool no longer prompts twice for one command when plan mode and an outside-workspace `cwd` both apply.
+- `BackgroundTaskManager` prunes finished task records (bounded at 32) so long sessions cannot leak memory.
+- grep passes the pattern after `--`, so patterns starting with `-` are no longer parsed as ripgrep flags.
+- Checkpoint worker creation terminates and falls back to the synchronous path after a hard timeout instead of hanging the turn forever.
+- `sessions.enabled` and `sessions.retentionDays` are honored: disabled sessions run ephemeral (in-memory), and retention prunes session files older than the configured window.
+- Removed dead modules and exports: `cli/renderer.ts`, `cli/approvals.ts`, `context/compaction.ts`, the `ModelTurn` wrapper class, unused panel color helpers, and `estimateTokens`.
+
 ## [0.12.0] - 2026-11-08
 
 ### Added

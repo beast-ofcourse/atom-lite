@@ -9,6 +9,8 @@ with the code and is readable offline.
   providers, safety, sessions, and development.
 - [Configuration reference](./configuration.md) — every config field, default,
   and precedence rule.
+- [Test suite](../tests/README.md) — unit / integration / E2E layering,
+  conventions, and maintenance rules.
 - [Agent personas](./agents.md) — persona files, frontmatter, permissions,
   trust, and `/agent`.
 - [Product context](../PRODUCT.md) — users, positioning, capabilities, and

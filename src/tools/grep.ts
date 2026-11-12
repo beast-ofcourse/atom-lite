@@ -1,4 +1,8 @@
-import { readdir as readdirAsync, stat as statAsync, readFile as readFileAsync } from "node:fs/promises";
+import {
+  readdir as readdirAsync,
+  stat as statAsync,
+  readFile as readFileAsync,
+} from "node:fs/promises";
 import { existsSync } from "node:fs";
 import * as fs from "node:fs";
 import { resolve, relative, join, dirname } from "node:path";
@@ -24,7 +28,10 @@ const MAX_FILE_BYTES = 1_000_000;
 const DEFAULT_MAX = 100;
 const SKIP_DIRS = new Set([".git", "node_modules", "dist", ".next"]);
 
-async function collectFiles(root: string, globPattern?: string): Promise<string[]> {
+async function collectFiles(
+  root: string,
+  globPattern?: string,
+): Promise<string[]> {
   try {
     if ((await statAsync(root)).isFile()) return [root];
   } catch {
@@ -36,10 +43,7 @@ async function collectFiles(root: string, globPattern?: string): Promise<string[
       const out: string[] = [];
       for await (const m of (
         fs as unknown as {
-          glob: (
-            p: string,
-            o: { cwd: string },
-          ) => AsyncIterable<string>;
+          glob: (p: string, o: { cwd: string }) => AsyncIterable<string>;
         }
       ).glob(globPattern, { cwd: root })) {
         const abs = resolve(root, m);
@@ -241,6 +245,7 @@ export const grepTool: Tool = {
     if (output_mode === "files_with_matches") rgArgs.push("-l");
     else if (output_mode === "count") rgArgs.push("-c");
     rgArgs.push("--hidden", "--color=never", "-H", "-n");
+    rgArgs.push("--");
     rgArgs.push(pattern);
     rgArgs.push(root);
 

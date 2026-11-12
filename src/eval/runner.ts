@@ -70,6 +70,8 @@ export interface RunEvalOptions {
   taskFilter?: string;
   outDir?: string;
   writeBaseline?: boolean;
+  /** Partial limits override; defaults to the harness DEFAULT_LIMITS. */
+  limits?: Partial<import("../types.js").AgentLimits>;
   onProgress?: (msg: string) => void;
 }
 
@@ -200,6 +202,7 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
         tools: BUILTIN_TOOLS,
         mode: "yolo",
         checkpointingEnabled: false,
+        limits: options.limits,
         onEvent: (e: any) => {
           if (e?.type === "usage") {
             turns += 1;

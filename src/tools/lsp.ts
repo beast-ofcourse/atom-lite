@@ -35,6 +35,8 @@ function result(call: ToolCall, content: unknown, isError = false): ToolResult {
 }
 
 export const lspDiagnosticsTool: Tool = {
+  // LSP tooling only reads workspace state.
+  annotations: { readOnlyHint: true },
   definition: {
     name: "lsp_diagnostics",
     description:
@@ -67,6 +69,8 @@ export const lspDiagnosticsTool: Tool = {
 };
 
 export const lspDefinitionTool: Tool = {
+  // LSP tooling only reads workspace state.
+  annotations: { readOnlyHint: true },
   definition: {
     name: "lsp_definition",
     description:
@@ -108,6 +112,8 @@ export const lspDefinitionTool: Tool = {
 };
 
 export const lspReferencesTool: Tool = {
+  // LSP tooling only reads workspace state.
+  annotations: { readOnlyHint: true },
   definition: {
     name: "lsp_references",
     description: "Find references to a symbol using LSP. Lines are 1-based.",
@@ -148,6 +154,8 @@ export const lspReferencesTool: Tool = {
 };
 
 export const lspSymbolsTool: Tool = {
+  // LSP tooling only reads workspace state.
+  annotations: { readOnlyHint: true },
   definition: {
     name: "lsp_symbols",
     description:

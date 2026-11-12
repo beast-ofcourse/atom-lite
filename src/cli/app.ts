@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { writeFileSync, existsSync } from "node:fs";
 import { execSync, spawn } from "node:child_process";
 import { defaultShell, terminateProcessTree } from "../security/process.js";
+import { redactSecrets } from "../security/redaction.js";
 import { openSearchablePicker, type PickerItem } from "./picker.js";
 import { openCommandPalette, type PaletteItem } from "./palette.js";
 import {
@@ -43,15 +44,22 @@ import { Transcript } from "./transcript.js";
 import { AgentRuntime } from "../agent/loop.js";
 import { DefaultAgentRegistry } from "../agents/registry.js";
 import { resolveConfiguredAgent } from "../agents/selection.js";
-import { JsonlSessionStore } from "../sessions/store.js";
+import {
+  JsonlSessionStore,
+  InMemorySession,
+  type Session,
+} from "../sessions/store.js";
+import { randomUUID } from "node:crypto";
 import { ExtensionLoader } from "../extensions/loader.js";
 import { createDefaultExtensionUI } from "../extensions/ui.js";
 import type { ExtensionUICallbacks } from "../extensions/ui.js";
 import { collectExtensionTools } from "../extensions/tool-adapter.js";
 import {
   denyProject,
+  isProjectDenied,
   isProjectTrusted,
   trustProject,
+  untrustProject,
 } from "../extensions/trust.js";
 import { ProjectTrustPrompt } from "./trust-prompt.js";
 import {
@@ -149,7 +157,7 @@ export async function run(args: string[]): Promise<void> {
       );
       return;
     } else if (a.startsWith("--")) {
-      // ignore
+      process.stderr.write(`atom-lite: ignoring unknown option ${a}\n`);
     } else {
       positional.push(a);
     }
@@ -253,13 +261,27 @@ export async function run(args: string[]): Promise<void> {
   const oneShot = (taskArgs.join(" ").trim() || stdinTask).trim();
 
   const store = new JsonlSessionStore();
-  let session = sessionOverride
-    ? (store.resume(sessionOverride) ??
-      store.create(process.cwd(), provider.id))
-    : positional.includes("__continue__")
-      ? (store.resumeLatest(process.cwd()) ??
+  const sessionsEnabled = config.sessions.enabled !== false;
+  let session: Session;
+  if (!sessionsEnabled) {
+    if (sessionOverride || positional.includes("__continue__")) {
+      process.stderr.write(
+        "atom-lite: sessions are disabled in config; starting an ephemeral session\n",
+      );
+    }
+    session = new InMemorySession(randomUUID(), process.cwd(), provider.id);
+  } else {
+    if (config.sessions.retentionDays) {
+      store.pruneOldSessions(config.sessions.retentionDays);
+    }
+    session = sessionOverride
+      ? (store.resume(sessionOverride) ??
         store.create(process.cwd(), provider.id))
-      : store.create(process.cwd(), provider.id);
+      : positional.includes("__continue__")
+        ? (store.resumeLatest(process.cwd()) ??
+          store.create(process.cwd(), provider.id))
+        : store.create(process.cwd(), provider.id);
+  }
 
   const mcpServers = (config.mcpServers ?? {}) as Record<string, unknown>;
   const mcpManager = new McpManager({
@@ -420,6 +442,11 @@ export async function run(args: string[]): Promise<void> {
     extensionDispatch,
     bashConcurrency: config.runtime.bashConcurrency,
     checkpointingEnabled: interactive || Boolean(config.runtime.checkpointing),
+    limits: {
+      maxParallelToolCalls: config.runtime.maxParallelToolCalls,
+      maxToolOutputBytes: config.runtime.maxToolOutputBytes,
+      maxBashTimeMs: config.runtime.maxBashTimeMs,
+    },
   });
 
   mcpManager.onToolsChanged = () => {
@@ -767,7 +794,10 @@ export async function run(args: string[]): Promise<void> {
    * mutation anywhere in this file; WeakMap identity handles pruned children.
    */
   let heightStamp = 0;
-  const childHeights = new WeakMap<object, { width: number; height: number; stamp: number }>();
+  const childHeights = new WeakMap<
+    object,
+    { width: number; height: number; stamp: number }
+  >();
 
   /**
    * Close whichever modal overlay owns the keyboard. Callers that clear the
@@ -1396,7 +1426,7 @@ export async function run(args: string[]): Promise<void> {
     modelOverride = chosen;
     provider = createProvider(config, preset.id, chosen);
     runtime.switchModel(provider, chosen);
-    if (typeof (session as any).appendEvent === "function") {
+    if (typeof session.appendEvent === "function") {
       session.appendEvent({
         type: "provider_selected",
         provider: preset.id,
@@ -1695,7 +1725,7 @@ export async function run(args: string[]): Promise<void> {
       tui.requestRender();
     }
     session.appendMessage({ role: "system", content });
-    if (typeof (session as any).appendEvent === "function") {
+    if (typeof session.appendEvent === "function") {
       session.appendEvent({ type: "skill_loaded", name });
     }
     try {
@@ -1791,6 +1821,27 @@ export async function run(args: string[]): Promise<void> {
     },
     extensionDoctor: () => extensionLoader.doctor(),
     reloadExtensions,
+    setProjectTrust: (decision) => {
+      if (decision === "allow") {
+        trustProject(process.cwd());
+        appendLine("project trusted; run /reload to apply");
+      } else if (decision === "deny") {
+        denyProject(process.cwd());
+        appendLine("project denied; run /reload to apply");
+      } else {
+        untrustProject(process.cwd());
+        appendLine("project trust reset (undecided); run /reload to apply");
+      }
+      appendLine(
+        `current status: ${
+          isProjectDenied(process.cwd())
+            ? "denied"
+            : isProjectTrusted(process.cwd())
+              ? "trusted"
+              : "undecided"
+        }`,
+      );
+    },
     switchModel: switchModelTarget,
     startProviderSetup,
     setEffort: setEffortTarget,
@@ -1956,7 +2007,7 @@ export async function run(args: string[]): Promise<void> {
     }
     const previous = session.id;
     session = next;
-    session.appendEvent({ type: "session_resumed", from: previous });
+    session.appendEvent?.({ type: "session_resumed", from: previous });
     restoreTranscript(next);
     const title = sessionTitleFromEvents(next.events);
     appendLine(
@@ -1977,7 +2028,7 @@ export async function run(args: string[]): Promise<void> {
       appendLine("usage: /session rename <title>");
       return;
     }
-    session.appendEvent({ type: "session_renamed", title: trimmed });
+    session.appendEvent?.({ type: "session_renamed", title: trimmed });
     appendLine(`session renamed: ${trimmed}`);
     tui.requestRender();
   }
@@ -2631,7 +2682,7 @@ export async function run(args: string[]): Promise<void> {
       tui.requestRender();
     } else if (e.type === "model_switched") {
       appendLine(`switched model to ${e.provider}/${e.model}`);
-      if (typeof (session as any).appendEvent === "function") {
+      if (typeof session.appendEvent === "function") {
         session.appendEvent({
           type: "model_switched",
           provider: e.provider,
@@ -2793,7 +2844,9 @@ export async function run(args: string[]): Promise<void> {
       for (const pattern of secretPatterns) {
         out = out.replace(pattern, "[REDACTED]");
       }
-      return out;
+      // Shared key=token-value redaction (api key / token / secret /
+      // password / authorization in `key: value` or `key=value` forms).
+      return redactSecrets(out);
     };
 
     const messageText = (message: any): string => {

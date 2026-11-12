@@ -1,8 +1,4 @@
-import {
-  truncateToWidth,
-  visibleWidth,
-  wrapTextWithAnsi,
-} from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 /** Shared ANSI helpers for the small hand-drawn panels in the TUI. */
 export const RESET = "\x1b[0m";
@@ -12,8 +8,6 @@ export const DIM = "\x1b[2m";
 export const RED = "\x1b[31m";
 export const GREEN = "\x1b[32m";
 export const YELLOW = "\x1b[33m";
-export const BLUE = "\x1b[34m";
-export const MAGENTA = "\x1b[35m";
 export const CYAN = "\x1b[36m";
 export const GRAY = "\x1b[90m";
 
@@ -24,8 +18,6 @@ export const bold: Color = (text) => `${BOLD}${text}${RESET}`;
 export const red: Color = (text) => `${RED}${text}\x1b[39m`;
 export const green: Color = (text) => `${GREEN}${text}\x1b[39m`;
 export const yellow: Color = (text) => `${YELLOW}${text}\x1b[39m`;
-export const blue: Color = (text) => `${BLUE}${text}\x1b[39m`;
-export const magenta: Color = (text) => `${MAGENTA}${text}\x1b[39m`;
 export const cyan: Color = (text) => `${CYAN}${text}\x1b[39m`;
 export const gray: Color = (text) => `${GRAY}${text}\x1b[39m`;
 
@@ -48,15 +40,4 @@ export function panelRow(content: string, width: number, color: Color): string {
   const inner = Math.max(0, Math.floor(width) - 2);
   const text = truncateToWidth(content, inner, "…", true);
   return `${color("│")}${text}${color("│")}`;
-}
-
-/** Wrap plain or ANSI-styled text for a panel's inner width. */
-export function wrapPanelText(text: string, width: number): string[] {
-  const inner = Math.max(1, Math.floor(width) - 2);
-  return text
-    .replace(/\t/g, "  ")
-    .split("\n")
-    .flatMap((line) =>
-      line.length === 0 ? [""] : wrapTextWithAnsi(line, inner),
-    );
 }

@@ -68,17 +68,17 @@ stored credential, then inline `apiKey`.
 
 ## `runtime`
 
-| Key                    | Type                       | Default    | Description                                                                                                                            |
-| ---------------------- | -------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `maxParallelToolCalls` | positive integer           | `10`       | Concurrency cap for a tool-call batch.                                                                                                 |
-| `maxToolOutputBytes`   | positive integer           | `30000`    | Output cap per tool result.                                                                                                            |
-| `maxBashTimeMs`        | positive integer           | `120000`   | Timeout for a single `bash` call (2 minutes).                                                                                          |
-| `bashConcurrency`      | `"serial"` \| `"parallel"` | `"serial"` | `serial` keeps `bash` as a global exclusive barrier.                                                                                   |
-| `mode`                 | `"plan"` \| `"yolo"`       | `"yolo"`   | `plan` allows read/web tools plus the session task ledger; `yolo` allows all tools without approval. User config and environment only. |
-| `agent`                | string                     | unset      | Default primary persona name applied at startup. User config only. See [Agent personas](./agents.md).                                  |
-| `maxTokensPerSession`  | positive integer \| null   | `null`     | Optional session token budget (hard stop). `null` means no limit. User config only.                                                    |
-| `maxTokensPerTurn`     | positive integer \| null   | `null`     | Optional per-turn token soft warning. `null` means no warning. User config only.                                                       |
-| `checkpointing`        | boolean                    | `false`    | Enable automatic checkpoints in non-interactive runs. Interactive runs always checkpoint. User config only.                            |
+| Key                    | Type                       | Default    | Description                                                                                                                                                                                                |
+| ---------------------- | -------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `maxParallelToolCalls` | positive integer           | `10`       | Concurrency cap for a tool-call batch.                                                                                                                                                                     |
+| `maxToolOutputBytes`   | positive integer           | `30000`    | Output cap per tool result.                                                                                                                                                                                |
+| `maxBashTimeMs`        | positive integer           | `120000`   | Timeout for a single `bash` call (2 minutes).                                                                                                                                                              |
+| `bashConcurrency`      | `"serial"` \| `"parallel"` | `"serial"` | `serial` keeps `bash` as a global exclusive barrier.                                                                                                                                                       |
+| `mode`                 | `"plan"` \| `"yolo"`       | `"yolo"`   | `plan` allows read-only tools (built-in read-only tools and any tool declaring `readOnlyHint`, including MCP/extension tools); `yolo` allows all tools without approval. User config and environment only. |
+| `agent`                | string                     | unset      | Default primary persona name applied at startup. User config only. See [Agent personas](./agents.md).                                                                                                      |
+| `maxTokensPerSession`  | positive integer \| null   | `null`     | Optional session token budget (hard stop). `null` means no limit. User config only.                                                                                                                        |
+| `maxTokensPerTurn`     | positive integer \| null   | `null`     | Optional per-turn token soft warning. `null` means no warning. User config only.                                                                                                                           |
+| `checkpointing`        | boolean                    | `false`    | Enable automatic checkpoints in non-interactive runs. Interactive runs always checkpoint. User config only.                                                                                                |
 
 ## `context`
 
@@ -135,16 +135,16 @@ Commands:
 
 Keyboard shortcut overrides. All fields are nullable; set a field to `null` to disable its shortcut.
 
-| Key                | Type            | Default       | Description              |
-| ------------------ | --------------- | ------------- | ------------------------ |
-| `jumpBottom`       | string or null  | `"ctrl+b"`    | Jump to bottom.          |
-| `newSession`       | string or null  | `"ctrl+n"`    | Start a new session.     |
-| `searchSessions`   | string or null  | `"ctrl+f"`    | Search sessions.         |
-| `scrollUp`         | string or null  | `"ctrl+up"`   | Scroll up.               |
-| `scrollDown`       | string or null  | `"ctrl+down"` | Scroll down.             |
-| `toggleThinking`   | string or null  | `"ctrl+t"`    | Toggle thinking display. |
-| `inputHistoryUp`   | string or null  | `"up"`        | Previous input history.  |
-| `inputHistoryDown` | string or null  | `"down"`      | Next input history.      |
+| Key                | Type           | Default       | Description              |
+| ------------------ | -------------- | ------------- | ------------------------ |
+| `jumpBottom`       | string or null | `"ctrl+b"`    | Jump to bottom.          |
+| `newSession`       | string or null | `"ctrl+n"`    | Start a new session.     |
+| `searchSessions`   | string or null | `"ctrl+f"`    | Search sessions.         |
+| `scrollUp`         | string or null | `"ctrl+up"`   | Scroll up.               |
+| `scrollDown`       | string or null | `"ctrl+down"` | Scroll down.             |
+| `toggleThinking`   | string or null | `"ctrl+t"`    | Toggle thinking display. |
+| `inputHistoryUp`   | string or null | `"up"`        | Previous input history.  |
+| `inputHistoryDown` | string or null | `"down"`      | Next input history.      |
 
 ## `mcpServers`
 

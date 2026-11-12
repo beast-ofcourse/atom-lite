@@ -92,6 +92,9 @@ function sliceLines(text: string, offset?: number, limit?: number): string[] {
 }
 
 export const readTool: Tool = {
+  // Read-only: reads never mutate workspace paths, so the executor takes a
+  // read lock instead of serializing on a write lock.
+  annotations: { readOnlyHint: true },
   definition: {
     name: "read",
     description: "Read a file or a selected range of lines.",
@@ -144,7 +147,6 @@ export const readTool: Tool = {
           isError: true,
         };
       }
-      full = resolved;
     }
     // One async stat replaces the old existsSync+statSync pair: non-blocking
     // (keeps the event loop free for the TUI and parallel tool calls) and a

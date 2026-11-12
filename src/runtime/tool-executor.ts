@@ -3,7 +3,7 @@ import type { Tool, ToolContext } from "../tools/types.js";
 import type { ToolResult } from "../tools/types.js";
 import { resolve } from "node:path";
 import { LockManager, type Release } from "./locks.js";
-import { isToolAllowed } from "./modes.js";
+import { isPlanToolAllowed } from "./modes.js";
 import { checkApproval } from "./approvals.js";
 import {
   permissionInvocation,
@@ -185,8 +185,15 @@ export class ToolExecutor {
     const tasks = calls.map((call, i) => {
       return (async () => {
         if (
-          !isToolAllowed((ctx.mode as "plan" | "yolo") ?? "yolo", call.name)
+          (ctx.mode as "plan" | "yolo" | undefined) === "plan" &&
+          !isPlanToolAllowed(
+            call.name,
+            toolMap.get(call.name)?.annotations?.readOnlyHint === true,
+          )
         ) {
+          // Plan mode blocks the mutating built-ins. MCP and extension tools
+          // are not built-ins, so they must either declare `readOnlyHint` or
+          // are treated as mutating and blocked until the mode is lifted.
           results[i] = {
             toolCallId: call.id,
             name: call.name,

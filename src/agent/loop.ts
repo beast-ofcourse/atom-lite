@@ -739,7 +739,10 @@ export class AgentRuntime {
           "todo",
         ]);
         const hasMutating = toolCalls.some(
-          (c: any) => !blocked.has(c.id) && !readOnly.has(c.name),
+          (c: any) =>
+            !blocked.has(c.id) &&
+            !readOnly.has(c.name) &&
+            this.toolMap.get(c.name)?.annotations?.readOnlyHint !== true,
         );
         if (hasMutating && !this.turnCheckpointed) {
           this.turnCheckpointed = true;

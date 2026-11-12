@@ -6,6 +6,7 @@ import {
   appendFileSync,
   readdirSync,
   statSync,
+  unlinkSync,
 } from "node:fs";
 import { promises as fsPromises } from "node:fs";
 import { join } from "node:path";
@@ -30,6 +31,11 @@ export interface Session {
   appendMessage(message: Message): void;
   // Back-compat alias.
   append?(message: Message): void;
+  /**
+   * Durable sessions only: append a raw event to the JSONL log. Ephemeral
+   * (in-memory) sessions do not implement it and callers must guard.
+   */
+  appendEvent?(event: unknown): void;
   // Flush pending durable writes (async persistence).
   flush?(): Promise<void>;
 }
@@ -431,6 +437,39 @@ export class JsonlSessionStore {
 
   recent(workspace?: string): SessionSummary[] {
     return this.listSessions(workspace);
+  }
+
+  /**
+   * Delete session files last modified before `days` ago. Returns the ids
+   * removed. Compaction of the directory happens in-place, newest-first tie
+   * break is irrelevant (mtime decides).
+   */
+  pruneOldSessions(days: number): string[] {
+    const cutoff = Date.now() - Math.max(0, days) * 24 * 60 * 60 * 1000;
+    const removed: string[] = [];
+    let files: string[] = [];
+    try {
+      files = readdirSync(this.rootDir).filter((f) => f.endsWith(".jsonl"));
+    } catch {
+      return removed;
+    }
+    for (const f of files) {
+      const filePath = join(this.rootDir, f);
+      let stat;
+      try {
+        stat = statSync(filePath);
+      } catch {
+        continue;
+      }
+      if (stat.mtimeMs >= cutoff) continue;
+      try {
+        unlinkSync(filePath);
+        removed.push(f.replace(/\.jsonl$/, ""));
+      } catch {
+        // A file we cannot delete now is judged during the next startup.
+      }
+    }
+    return removed;
   }
 
   all(): SessionSummary[] {

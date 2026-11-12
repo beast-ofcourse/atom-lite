@@ -86,12 +86,20 @@ export const bashTool: Tool = {
     const timeout = Math.min(timeout_ms ?? capMs, capMs);
     const workdir = cwd ? resolve(ctx.workspace, cwd) : ctx.workspace;
     const cwdOutside = !!cwd && !isWithinWorkspace(ctx.workspace, cwd);
-    if (cwdOutside) {
+    // One approval covers both reasons (outside-workspace cwd and mode
+    // gating); prompting twice for the same command is a UX bug.
+    const needsApproval =
+      cwdOutside || (ctx.mode !== "yolo" && !!ctx.approvals);
+    if (needsApproval) {
       if (ctx.approvals?.nonInteractive || !ctx.approvals?.handler) {
+        // Non-interactive runs cannot approve. Outside-workspace cwd is a
+        // hard path violation; mode gating is a policy refusal.
         return {
           toolCallId: call.id,
           name: "bash",
-          content: "PATH_OUTSIDE_WORKSPACE",
+          content: cwdOutside
+            ? "PATH_OUTSIDE_WORKSPACE"
+            : "COMMAND_APPROVAL_REQUIRED",
           isError: true,
         };
       }
@@ -106,24 +114,9 @@ export const bashTool: Tool = {
         return {
           toolCallId: call.id,
           name: "bash",
-          content: "COMMAND_APPROVAL_REQUIRED",
-          isError: true,
-        };
-      }
-    }
-    if (ctx.mode !== "yolo" && ctx.approvals) {
-      const { checkApproval } = await import("../runtime/approvals.js");
-      const decision = await checkApproval(ctx.approvals, {
-        command,
-        cwd: workdir,
-        timeoutMs: timeout,
-        sandboxed: false,
-      });
-      if (!decision.allowed) {
-        return {
-          toolCallId: call.id,
-          name: "bash",
-          content: "COMMAND_APPROVAL_REQUIRED",
+          content: cwdOutside
+            ? "PATH_OUTSIDE_WORKSPACE"
+            : "COMMAND_APPROVAL_REQUIRED",
           isError: true,
         };
       }
@@ -151,9 +144,13 @@ export const bashTool: Tool = {
       let truncated = false;
       let pipesDestroyed = false;
       const remaining = (target: "out" | "err") =>
-        Math.max(0, cap - (target === "out"
-          ? Buffer.byteLength(stdout, "utf8")
-          : Buffer.byteLength(stderr, "utf8")));
+        Math.max(
+          0,
+          cap -
+            (target === "out"
+              ? Buffer.byteLength(stdout, "utf8")
+              : Buffer.byteLength(stderr, "utf8")),
+        );
       const consume = (target: "out" | "err", s: string): string => {
         if (s === "") return "";
         let accepted = s;

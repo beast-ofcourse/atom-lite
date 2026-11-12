@@ -72,6 +72,8 @@ export interface CommandContext {
   activateAgent(name: string): void;
   openAgentPicker(): void;
   runTurn(prompt: string): Promise<void>;
+  /** Manage project trust for extensions/agents. Takes effect on reload. */
+  setProjectTrust(decision: "allow" | "deny" | "reset"): void;
   requestExit(): void;
 }
 
@@ -680,6 +682,22 @@ export function createCommandRegistry(
     category: "Extensions",
     run: async (ctx) => {
       await ctx.reloadExtensions();
+    },
+  });
+
+  registry.register({
+    name: "trust",
+    description:
+      "manage project trust for extensions/agents: allow, deny, or reset",
+    category: "Extensions",
+    argumentHint: "[allow|deny|reset]",
+    run(ctx, args) {
+      const sub = args.trim().toLowerCase();
+      if (!sub || !["allow", "deny", "reset"].includes(sub)) {
+        ctx.appendLine("usage: /trust allow|deny|reset");
+        return;
+      }
+      ctx.setProjectTrust(sub as "allow" | "deny" | "reset");
     },
   });
 

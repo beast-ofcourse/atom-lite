@@ -22,13 +22,35 @@ interface InternalTask extends BackgroundTask {
 const MAX_CONCURRENT = 4;
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const OUTPUT_CAP = 30_000;
+/**
+ * Finished task records are kept so the `task` tool can report status, but
+ * they are bounded: `start()` prunes the oldest finished records so long
+ * sessions cannot grow the manager's memory without limit.
+ */
+const MAX_FINISHED = 32;
 
 export class BackgroundTaskManager {
   private tasks = new Map<string, InternalTask>();
   private counter = 0;
   private completedQueue: string[] = [];
 
+  private prune(maxFinished: number = MAX_FINISHED): void {
+    const finished: string[] = [];
+    for (const [id, t] of this.tasks) {
+      if (t.status !== "running") finished.push(id);
+    }
+    let excess = finished.length - maxFinished;
+    if (excess <= 0) return;
+    // Map iteration is insertion-ordered, so this prunes the oldest.
+    for (const id of finished) {
+      if (excess <= 0) break;
+      this.tasks.delete(id);
+      excess--;
+    }
+  }
+
   start(command: string, cwd: string, env: NodeJS.ProcessEnv): BackgroundTask {
+    this.prune();
     const running = [...this.tasks.values()].filter(
       (t) => t.status === "running",
     ).length;

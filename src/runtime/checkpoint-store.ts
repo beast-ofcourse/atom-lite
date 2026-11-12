@@ -62,6 +62,8 @@ export interface CheckpointDiffEntry {
 
 const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
 const DEFAULT_MAX_COUNT = 20;
+/** Hard cap on worker-thread checkpoint creation before synced fallback. */
+const CHECKPOINT_WORKER_TIMEOUT_MS = 120_000;
 
 interface IgnoreMatcher {
   re: RegExp;
@@ -115,7 +117,10 @@ export class CheckpointStore {
     // userConfigDir() is env-dependent; keep the memo honest by invalidating
     // when XDG_CONFIG_HOME changes (or comparing against the no-env default).
     const envKey = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
-    if (this.storageRootCache === undefined || this.storageRootEnvKey !== envKey) {
+    if (
+      this.storageRootCache === undefined ||
+      this.storageRootEnvKey !== envKey
+    ) {
       this.storageRootCache = join(
         userConfigDir(),
         "checkpoints",
@@ -232,7 +237,11 @@ export class CheckpointStore {
    * pre-compile version; this just avoids re-reading .gitignore and rebuilding
    * RegExp objects for every single file examined during a traversal.
    */
-  private matchesIgnore(matchers: IgnoreMatcher[], rel: string, isDir: boolean): boolean {
+  private matchesIgnore(
+    matchers: IgnoreMatcher[],
+    rel: string,
+    isDir: boolean,
+  ): boolean {
     for (const m of matchers) {
       if (m.dirOnly && !isDir) continue;
       if (m.test(rel)) return true;
@@ -269,7 +278,8 @@ export class CheckpointStore {
         re,
         dirOnly,
         baseNameOnly,
-        test: (rel: string) => re.test(rel) || (baseNameOnly && re.test(base(rel))),
+        test: (rel: string) =>
+          re.test(rel) || (baseNameOnly && re.test(base(rel))),
       };
     });
   }
@@ -496,7 +506,20 @@ export class CheckpointStore {
   async createAsync(turn: number, label?: string): Promise<CheckpointManifest> {
     try {
       return await new Promise<CheckpointManifest>((resolve, reject) => {
-        const worker = new Worker(
+        let worker: Worker | undefined;
+        // Large workspaces can legitimately take a while, but a stalled
+        // worker must not hang the turn forever: time out, terminate, and
+        // fall through to the synchronous path.
+        const timeout = setTimeout(() => {
+          try {
+            worker?.terminate();
+          } catch {
+            // ignore
+          }
+          reject(new Error("checkpoint worker timed out"));
+        }, CHECKPOINT_WORKER_TIMEOUT_MS);
+        timeout.unref();
+        worker = new Worker(
           new URL("./checkpoint-worker.js", import.meta.url),
           {
             workerData: {
@@ -512,10 +535,17 @@ export class CheckpointStore {
             },
           },
         );
-        worker.on("message", (msg: { ok: boolean; manifest?: CheckpointManifest; error?: string }) => {
-          if (msg.ok && msg.manifest) resolve(msg.manifest);
-          else reject(new Error(msg.error ?? "checkpoint worker failed"));
-        });
+        worker.on(
+          "message",
+          (msg: {
+            ok: boolean;
+            manifest?: CheckpointManifest;
+            error?: string;
+          }) => {
+            if (msg.ok && msg.manifest) resolve(msg.manifest);
+            else reject(new Error(msg.error ?? "checkpoint worker failed"));
+          },
+        );
         worker.on("error", reject);
         worker.on("exit", (code) => {
           if (code !== 0) reject(new Error(`checkpoint worker exited ${code}`));

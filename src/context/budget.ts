@@ -1,10 +1,6 @@
 import type { JsonValue } from "../types.js";
 // Token budget helpers. Heuristic estimation: ~4 chars per token.
 
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
-
 /**
  * estimateMessageTokens is called for every history message on every context
  * build (once per model turn), so the session's aggregate cost is quadratic
