@@ -786,6 +786,7 @@ export async function run(args: string[]): Promise<void> {
   let uiModalOpen = false;
   let closeActiveOverlay: (() => void) | undefined;
   const toolBoxes: ToolBox[] = [];
+  const toolBoxesById = new Map<string, ToolBox>();
   let lastToolOutputInvalidateAt = 0;
 
   /**
@@ -1908,6 +1909,7 @@ export async function run(args: string[]): Promise<void> {
     transcript.reset();
     // Drop stale references so toggles only affect the resumed transcript.
     toolBoxes.length = 0;
+    toolBoxesById.clear();
     thinkingText = null;
     thinkingBuffer = "";
     banner.setTheme(theme);
@@ -2703,9 +2705,10 @@ export async function run(args: string[]): Promise<void> {
       transcript.add(new Spacer(1));
       transcript.add(box);
       toolBoxes.push(box);
+      toolBoxesById.set(box.id, box);
       tui.requestRender();
     } else if (e.type === "tool_output") {
-      const box = toolBoxes.find((b) => b.id === e.toolCallId);
+      const box = toolBoxesById.get(e.toolCallId);
       if (box) {
         activity.setPhase("working", e.name);
         box.appendLive(e.text);

@@ -119,6 +119,11 @@ export class Activity {
       this.stop();
       return;
     }
+    // bash emits setPhase per streamed chunk; skipping no-op transitions
+    // keeps the timer semantics identical while avoiding redundant renders.
+    if (this.phase === phase && this.detail === detail) {
+      return;
+    }
     if (this.phase === "idle" || this.startedAt === null) {
       this.startedAt = this.now();
     }

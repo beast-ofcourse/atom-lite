@@ -17,7 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Runtime limits (`runtime.maxParallelToolCalls`, `maxToolOutputBytes`, `maxBashTimeMs`) now reach `AgentRuntime` and the tools; they were documented but silently ignored. `npm run eval` accepts the same limits.
+- bash live-output forwarding is coalesced (at most one TUI event per 33 ms or 8 KB) instead of one event per stdout chunk, so chatty commands no longer flood the event pipeline and renderer. Delivery is unchanged: everything pending is flushed before the tool result resolves.
+- `ToolBox` renders are cached per (mutation version, width); repeated renders during streaming no longer re-wrap every line of every box in the transcript.
+- `ActivityIndicator.setPhase` skips no-op transitions, and tool-output events look up their box via a Map instead of a linear scan.
+- bash's close-guard grace period for detached descendants holding the output pipes dropped from 2 s to 500 ms, cutting the perceived hang after commands like `setsid sleep 20 &`.
+
+### Fixed
 - Plan mode now blocks mutating MCP and extension tools unless they declare `readOnlyHint: true`; previously only the built-in `write`/`edit`/`bash` were gated.
 - `read` and the four `lsp_*` tools declare `readOnlyHint: true`, so concurrent reads of the same path no longer serialize on a write lock and read-only turns no longer trigger checkpoints.
 - `/export` redaction now also applies the shared `security/redaction.ts` rules, catching `key: value` secret forms the inline patterns missed.

@@ -68,6 +68,30 @@ test("toggleExpanded flips the expanded state", () => {
   assert.equal(box.toggleExpanded(), false);
 });
 
+test("render caches per version+width and re-renders on mutation", () => {
+  const box = new ToolBox({ id: "1", name: "bash", args: { command: "x" } });
+  const first = box.render(60);
+  assert.strictEqual(box.render(60), first, "repeat call serves the cache");
+
+  box.appendLive("chunk\n");
+  const running = box.render(60);
+  assert.notStrictEqual(running, first, "live append re-renders");
+  assert.strictEqual(box.render(60), running, "re-cached after append");
+
+  box.setResult("done");
+  const done = box.render(60);
+  assert.notStrictEqual(done, running, "result re-renders");
+  assert.strictEqual(box.render(60), done);
+
+  box.toggleExpanded();
+  const expanded = box.render(60);
+  assert.notStrictEqual(expanded, done, "expansion re-renders");
+
+  // A width change must re-render even with no version bump.
+  const wide = box.render(120);
+  assert.notStrictEqual(wide, expanded, "width change re-renders");
+});
+
 test("formatToolArgs picks the useful argument for common tools", () => {
   assert.equal(formatToolArgs("bash", { command: "ls\n-la" }), "$ ls -la");
   assert.equal(formatToolArgs("read", { path: "src/a.ts" }), "path: src/a.ts");

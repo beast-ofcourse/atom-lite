@@ -71,6 +71,19 @@ export class ToolBox implements Component {
   private liveBuffer = "";
   private startedAt = Date.now();
   private finishedAt: number | undefined;
+  /**
+   * Bumped on every in-place mutation (live output append, result set,
+   * expansion toggle). Rendering is expensive on large transcripts — the
+   * caller invalidates the whole container at streaming frequency — so the
+   * rendered lines are cached per width and dropped when the version or the
+   * width changes.
+   */
+  private renderVersion = 0;
+  private cachedRender: {
+    version: number;
+    width: number;
+    lines: string[];
+  } | null = null;
 
   constructor(options: ToolBoxOptions) {
     this.id = options.id;
@@ -80,10 +93,12 @@ export class ToolBox implements Component {
 
   setExpanded(expanded: boolean): void {
     this.expanded = expanded;
+    this.renderVersion++;
   }
 
   toggleExpanded(): boolean {
     this.expanded = !this.expanded;
+    this.renderVersion++;
     return this.expanded;
   }
 
@@ -112,10 +127,12 @@ export class ToolBox implements Component {
     } else {
       this.diffView = undefined;
     }
+    this.renderVersion++;
   }
 
   appendLive(text: string): void {
     this.liveBuffer += text;
+    this.renderVersion++;
     // The completed result carries the full, capped output. Keep the live view
     // bounded so a chatty command cannot pin arbitrarily much text in memory.
     if (this.liveBuffer.length > 60_000) {
@@ -124,10 +141,25 @@ export class ToolBox implements Component {
   }
 
   invalidate(): void {
-    // No cached render state.
+    // The render cache is keyed by renderVersion + width; callers bump the
+    // version through the mutation methods. Nothing else to clear here.
   }
 
   render(width: number): string[] {
+    const cached = this.cachedRender;
+    if (
+      cached &&
+      cached.version === this.renderVersion &&
+      cached.width === width
+    ) {
+      return cached.lines;
+    }
+    const lines = this.renderUncached(width);
+    this.cachedRender = { version: this.renderVersion, width, lines };
+    return lines;
+  }
+
+  private renderUncached(width: number): string[] {
     const w = Math.max(8, Math.floor(width));
     const TOOL_BG = "\x1b[48;5;236m";
     const TOOL_BG_RESET = "\x1b[49m";

@@ -205,6 +205,44 @@ test("bash streams stdout and stderr while running", async () => {
   );
 });
 
+test("bash coalesces chatty live output without losing any content", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  const stdoutChunks: string[] = [];
+  const c = {
+    ...ctx(dir),
+    onToolOutput: (
+      _call: unknown,
+      stream: "stdout" | "stderr",
+      text: string,
+    ) => {
+      if (stream === "stdout") stdoutChunks.push(text);
+    },
+  };
+  // 200 tiny writes in a tight loop: pre-coalescing this produced one TUI
+  // event per chunk (hundreds of events in a few ms).
+  const r = await bashTool.execute(
+    {
+      id: "1",
+      name: "bash",
+      arguments: {
+        command: 'for i in $(seq 1 200); do echo "line-$i"; done',
+      },
+    },
+    c,
+  );
+  const live = stdoutChunks.join("");
+  // Nothing lost: the live stream carries every line the result carries.
+  assert.match(live, /line-1\n/);
+  assert.match(live, /line-200\n/);
+  assert.ok(!live.includes("line-201"));
+  // And it was actually coalesced, not one event per line.
+  assert.ok(
+    stdoutChunks.length < 200,
+    `expected coalescing, got ${stdoutChunks.length} chunks`,
+  );
+  assert.match(r.content, /line-200/);
+});
+
 test("bash resolves even when a detached descendant holds the pipes open", async () => {
   if (process.platform === "win32") return; // setsid/POSIX pipes
   const dir = mkdtempSync(join(tmpdir(), "ws-"));

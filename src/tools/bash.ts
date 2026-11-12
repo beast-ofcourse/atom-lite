@@ -151,6 +151,42 @@ export const bashTool: Tool = {
               ? Buffer.byteLength(stdout, "utf8")
               : Buffer.byteLength(stderr, "utf8")),
         );
+      // Live-output forwarding is coalesced: one TUI event per stdout chunk
+      // makes chatty commands flood the event pipeline and the renderer.
+      // Forward at most every FORWARD_INTERVAL_MS, or immediately once a
+      // batch exceeds FORWARD_FLUSH_BYTES. Delivery is not lossy: whatever
+      // is pending is flushed before the tool result resolves.
+      const FORWARD_INTERVAL_MS = 33;
+      const FORWARD_FLUSH_BYTES = 8 * 1024;
+      const pending = { out: "", err: "" };
+      let flushTimer: NodeJS.Timeout | undefined;
+      const flushNow = () => {
+        if (flushTimer) {
+          clearTimeout(flushTimer);
+          flushTimer = undefined;
+        }
+        for (const target of ["out", "err"] as const) {
+          if (!pending[target]) continue;
+          const text = pending[target];
+          pending[target] = "";
+          ctx.onToolOutput?.(
+            call,
+            target === "out" ? "stdout" : "stderr",
+            text,
+          );
+        }
+      };
+      const forward = (target: "out" | "err", accepted: string): void => {
+        pending[target] += accepted;
+        if (pending[target].length >= FORWARD_FLUSH_BYTES) {
+          flushNow();
+          return;
+        }
+        if (!flushTimer) {
+          flushTimer = setTimeout(flushNow, FORWARD_INTERVAL_MS);
+          flushTimer.unref?.();
+        }
+      };
       const consume = (target: "out" | "err", s: string): string => {
         if (s === "") return "";
         let accepted = s;
@@ -164,13 +200,7 @@ export const bashTool: Tool = {
         }
         if (target === "out") stdout += accepted;
         else stderr += accepted;
-        if (accepted) {
-          ctx.onToolOutput?.(
-            call,
-            target === "out" ? "stdout" : "stderr",
-            accepted,
-          );
-        }
+        if (accepted) forward(target, accepted);
         return accepted;
       };
       const append = (target: "out" | "err", chunk: Buffer) => {
@@ -200,13 +230,19 @@ export const bashTool: Tool = {
       // destroy the pipes, which emits 'close' with the exit already
       // collected.
       let closeGuard: NodeJS.Timeout | undefined;
+      // Commands that leave descendants holding our output pipes (dev
+      // servers, watchers) would otherwise delay the result by this grace
+      // period. 500 ms is ample for the kernel to flush the pipes of an
+      // already-exited shell while still cutting the perceived hang from
+      // 2s to half a second.
+      const CLOSE_GRACE_MS = 500;
       const watchForClosedPipes = () => {
         if (closeGuard) return;
         closeGuard = setTimeout(() => {
           pipesDestroyed = true;
           child.stdout?.destroy();
           child.stderr?.destroy();
-        }, 2000);
+        }, CLOSE_GRACE_MS);
         closeGuard.unref();
       };
       const finish = (result: ToolResult) => {
@@ -218,6 +254,7 @@ export const bashTool: Tool = {
         resolvePromise(result);
       };
       child.on("error", (err) => {
+        flushNow();
         finish({
           toolCallId: call.id,
           name: "bash",
@@ -230,13 +267,16 @@ export const bashTool: Tool = {
       });
       child.on("close", (code, signal) => {
         // Flush any bytes remaining buffered in the decoder, through the same
-        // cap accounting as live chunks.
+        // cap accounting as live chunks, then deliver every coalesced but
+        // unforwarded chunk: the live view must end with the same text the
+        // result carries.
         try {
           consume("out", decoder.out.end());
           consume("err", decoder.err.end());
         } catch {
           // Ignore decoder errors at close.
         }
+        flushNow();
         const duration = Date.now() - start;
         const parts: string[] = [];
         parts.push(`exit_code: ${code ?? "null"}`);
