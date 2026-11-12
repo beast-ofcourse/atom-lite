@@ -31,6 +31,7 @@ with the code and is readable offline.
 - [0015 — Eval harness](./adr/0015-eval-harness.md)
 - [0016 — Session task ledger](./adr/0016-session-task-ledger.md)
 - [0017 — Primary agent personas](./adr/0017-primary-agent-personas.md)
+- [0018 — Defer checkpoint removal](./adr/0018-defer-checkpoint-removal.md)
 
 ## Contributing
 
