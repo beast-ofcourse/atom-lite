@@ -48,9 +48,6 @@ export type AgentEvent =
       status: string;
       exitCode: number | null;
     }
-  | { type: "checkpoint_created"; id: string }
-  | { type: "checkpoint_failed"; reason: string }
-  | { type: "checkpoint_unavailable"; reason?: string }
   | {
       type: "task_ledger_open";
       pending: number;
