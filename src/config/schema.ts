@@ -29,8 +29,12 @@ export const RuntimeConfigSchema = z
     agent: z.string().min(1).optional(),
     maxTokensPerSession: z.number().int().positive().nullable().default(null),
     maxTokensPerTurn: z.number().int().positive().nullable().default(null),
-    /** Enable checkpointing in non-interactive runs. Interactive runs always enable it. */
-    checkpointing: z.boolean().default(false),
+    /**
+     * Accepted for backward compatibility but ignored. Automatic checkpoints
+     * were removed entirely (ADR 0018); this schema is `.strict()`, so the key
+     * must stay accepted or old user configs fail to load.
+     */
+    checkpointing: z.boolean().optional(),
   })
   .strict();
 
