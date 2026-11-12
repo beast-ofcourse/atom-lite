@@ -11,7 +11,6 @@ import {
 import { ContextManager } from "../context/manager.js";
 import { DEFAULT_SYSTEM_PROMPT } from "./system-prompt.js";
 import { BackgroundTaskManager } from "../runtime/background-tasks.js";
-import { CheckpointStore } from "../runtime/checkpoint-store.js";
 import { TodoStore } from "../runtime/todos.js";
 import { runModelTurn } from "./model-turn.js";
 import { TurnRecorder } from "./turn-recorder.js";
@@ -45,11 +44,6 @@ export class AgentRuntime {
   private supportsVision: boolean | undefined;
   private backgroundTasks: BackgroundTaskManager;
   private todoStore: TodoStore;
-  private checkpointingEnabled: boolean;
-  private checkpointStoreOverride: CheckpointStore | undefined;
-  private turnCheckpointed = false;
-  private turnCheckpointId: string | null = null;
-  private turnCheckpointStore: CheckpointStore | null = null;
   private turnIndex = 0;
   private todoStoreInjected: boolean;
   private todoTouchedThisTurn = false;
@@ -97,8 +91,6 @@ export class AgentRuntime {
       options.backgroundTasks ?? new BackgroundTaskManager();
     this.todoStore = options.todoStore ?? new TodoStore();
     this.todoStoreInjected = options.todoStore !== undefined;
-    this.checkpointingEnabled = options.checkpointingEnabled ?? true;
-    this.checkpointStoreOverride = options.checkpointStore;
     this.contextManager.setModelContextWindow(options.contextWindow);
   }
 
@@ -377,9 +369,6 @@ export class AgentRuntime {
     this.onEvent?.({ type: "request_id", requestId });
     this.todoTouchedThisTurn = false;
     this.injectCompletedBackgroundTasks(session);
-    this.turnCheckpointed = false;
-    this.turnCheckpointId = null;
-    this.turnCheckpointStore = null;
     this.captureUserTask(input, session);
 
     session.appendMessage({
@@ -588,22 +577,6 @@ export class AgentRuntime {
             });
             continue;
           }
-          // Discard a checkpoint that produced no changes.
-          if (this.turnCheckpointId && this.turnCheckpointStore) {
-            try {
-              if (
-                this.turnCheckpointStore.isAtCheckpoint(this.turnCheckpointId)
-              ) {
-                const m = this.turnCheckpointStore.get(this.turnCheckpointId);
-                if (m) {
-                  this.turnCheckpointStore.discard(this.turnCheckpointId);
-                }
-                this.turnCheckpointId = null;
-              }
-            } catch {
-              // best effort
-            }
-          }
           await this.extensionDispatch?.("agent_settled", {
             type: "agent_settled",
           });
@@ -728,86 +701,6 @@ export class AgentRuntime {
           });
         }
 
-        // Capture a checkpoint before the first mutating batch of this turn.
-        const readOnly = new Set([
-          "read",
-          "grep",
-          "glob",
-          "webfetch",
-          "websearch",
-          "task",
-          "todo",
-        ]);
-        const hasMutating = toolCalls.some(
-          (c: any) =>
-            !blocked.has(c.id) &&
-            !readOnly.has(c.name) &&
-            this.toolMap.get(c.name)?.annotations?.readOnlyHint !== true,
-        );
-        if (hasMutating && !this.turnCheckpointed) {
-          this.turnCheckpointed = true;
-          if (this.checkpointingEnabled) {
-            const store =
-              this.checkpointStoreOverride ??
-              new CheckpointStore(
-                (session as any).workspace ?? this.workspace,
-                (session as any).id ?? "session",
-                { enabled: this.checkpointingEnabled },
-              );
-            this.turnCheckpointStore = store;
-            const avail = store.isAvailable();
-            if (avail.available) {
-              try {
-                const m =
-                  typeof (store as any).createAsync === "function"
-                    ? await (store as any).createAsync(
-                        this.turnIndex,
-                        `turn ${this.turnIndex}`,
-                      )
-                    : store.create(this.turnIndex, `turn ${this.turnIndex}`);
-                this.turnCheckpointId = m.id;
-                try {
-                  if (typeof (session as any).appendEvent === "function") {
-                    (session as any).appendEvent({
-                      type: "checkpoint_created",
-                      checkpointId: m.id,
-                      turn: this.turnIndex,
-                      fileCount: m.files.length,
-                      bytes: m.bytes,
-                      truncated: m.truncated === true,
-                    });
-                  }
-                } catch {
-                  // best effort
-                }
-                this.onEvent?.({ type: "checkpoint_created", id: m.id });
-              } catch (err) {
-                const reason = err instanceof Error ? err.message : String(err);
-                try {
-                  if (typeof (session as any).appendEvent === "function") {
-                    (session as any).appendEvent({
-                      type: "checkpoint_failed",
-                      turn: this.turnIndex,
-                      reason,
-                    });
-                  }
-                } catch {
-                  // best effort
-                }
-                this.onEvent?.({
-                  type: "checkpoint_failed",
-                  reason,
-                });
-              }
-            } else {
-              this.onEvent?.({
-                type: "checkpoint_unavailable",
-                reason: avail.reason,
-              });
-            }
-          }
-        }
-
         const execCalls = toolCalls.filter((c: any) => !blocked.has(c.id));
         for (const call of execCalls) {
           const pathArg = (call as any)?.arguments?.path;
@@ -898,22 +791,6 @@ export class AgentRuntime {
         }
 
         if (terminate) {
-          // Discard a checkpoint that produced no changes.
-          if (this.turnCheckpointId && this.turnCheckpointStore) {
-            try {
-              if (
-                this.turnCheckpointStore.isAtCheckpoint(this.turnCheckpointId)
-              ) {
-                const m = this.turnCheckpointStore.get(this.turnCheckpointId);
-                if (m) {
-                  this.turnCheckpointStore.discard(this.turnCheckpointId);
-                }
-                this.turnCheckpointId = null;
-              }
-            } catch {
-              // best effort
-            }
-          }
           await this.extensionDispatch?.("agent_settled", {
             type: "agent_settled",
           });
