@@ -27,7 +27,7 @@ with the code and is readable offline.
   [0001](./adr/0001-four-built-in-tools-only.md),
   [0006](./adr/0006-expanded-toolset.md), and
   [0007](./adr/0007-pi-tui-replaces-opentui.md).
-- [0014 — Checkpoints and undo](./adr/0014-checkpoints-and-undo.md)
+- [0014 — Checkpoints and undo](./adr/0014-checkpoints-and-undo.md) (superseded by 0018)
 - [0015 — Eval harness](./adr/0015-eval-harness.md)
 - [0016 — Session task ledger](./adr/0016-session-task-ledger.md)
 - [0017 — Primary agent personas](./adr/0017-primary-agent-personas.md)

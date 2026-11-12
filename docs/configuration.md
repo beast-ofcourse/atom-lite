@@ -78,7 +78,7 @@ stored credential, then inline `apiKey`.
 | `agent`                | string                     | unset      | Default primary persona name applied at startup. User config only. See [Agent personas](./agents.md).                                                                                                      |
 | `maxTokensPerSession`  | positive integer \| null   | `null`     | Optional session token budget (hard stop). `null` means no limit. User config only.                                                                                                                        |
 | `maxTokensPerTurn`     | positive integer \| null   | `null`     | Optional per-turn token soft warning. `null` means no warning. User config only.                                                                                                                           |
-| `checkpointing`        | boolean                    | `false`    | Enable automatic checkpoints in non-interactive runs. Interactive runs always checkpoint. User config only.                                                                                                |
+| `checkpointing`        | boolean                    | (ignored)  | Deprecated: automatic checkpoints were removed. Accepted for config compatibility; no effect.                                                                                                              |
 
 ## `context`
 
@@ -118,16 +118,19 @@ banner, and pickers read semantic tokens rather than hardcoded escapes.
 
 ## Recovery
 
-Atom-lite captures a recovery point before the first workspace mutation of each agent turn. Recovery is **Git-gated**: checkpointing works only inside a Git worktree; outside Git it is disabled with a clear warning and no checkpoint is created. Snapshots are stored outside the workspace under the user config directory with restrictive permissions, and the user's index and `HEAD` are never touched.
+Automatic pre-mutation checkpoints were removed (see
+[ADR 0018](./adr/0018-defer-checkpoint-removal.md)); use git for undo and
+review, and `/diff` for working-tree changes.
 
-Commands:
+- `/diff [--stat] [path]` — show workspace changes against git `HEAD` (added,
+  modified, and untracked files). Requires a git repository.
 
-- `/undo` — restore the most recent checkpoint. Before restoring, a preview of changed, restored, and removed files is printed; restore requires `--yes` (or `--force` to override a dirty workspace).
-- `/undo list` — list recent checkpoints with timestamps and labels.
-- `/undo <n>` — restore a specific checkpoint.
-- `/undo --keep-untracked` — keep files created outside the checkpoint.
-- `/undo --force` — override a dirty workspace.
-- `/diff` — show changes since the last checkpoint (falls back to `HEAD`).
+Legacy checkpoint data on disk is no longer used and can be removed with:
+
+```sh
+rm -rf ~/.config/atom-lite/checkpoints
+```
+
 - `/diff --stat` — file-level summary.
 - `/diff <path>` — scope the diff.
 
