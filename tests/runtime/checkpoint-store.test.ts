@@ -154,6 +154,114 @@ test("byte cap skips oversized files", () => {
   );
 });
 
+test("byte cap reached bails out of the size pass and marks the manifest truncated", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  gitInit(dir);
+  track(dir, {
+    "a.txt": "x".repeat(20), // fills the cap exactly
+    "b.txt": "yyyyy",
+    "c.txt": "zzzzz",
+  });
+  const store = new CheckpointStore(dir, "s1", { maxCheckpointBytes: 20 });
+  const m = store.create(1);
+  assert.deepEqual(m.files, ["a.txt"]);
+  assert.ok(m.truncated, "manifest marked truncated");
+  assert.ok(
+    m.skipped.some((s) => s.reason === "capture cap reached"),
+    "remaining files skipped with cap reason",
+  );
+});
+
+test("file-count budget stops the walk and marks the manifest truncated", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  gitInit(dir);
+  const many: Record<string, string> = {};
+  for (let i = 0; i < 8; i++) many[`f${i}.txt`] = `v${i}`;
+  track(dir, many);
+  const store = new CheckpointStore(dir, "s1", { maxCheckpointFiles: 3 });
+  const m = store.create(1);
+  assert.ok(m.files.length <= 3, `got ${m.files.length} files`);
+  assert.equal(m.truncated, true);
+});
+
+test("capture excludes its own storage when the workspace contains it", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  const prev = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = join(dir, ".config");
+  try {
+    writeFileSync(join(dir, "real.txt"), "keep");
+    // Simulate previous captures living inside the workspace (the
+    // workspace-is-HOME scenario): ~/.config/atom-lite/checkpoints/...
+    mkdirSync(
+      join(
+        dir,
+        ".config",
+        "atom-lite",
+        "checkpoints",
+        "h",
+        "s",
+        "old",
+        "files",
+      ),
+      { recursive: true },
+    );
+    writeFileSync(
+      join(
+        dir,
+        ".config",
+        "atom-lite",
+        "checkpoints",
+        "h",
+        "s",
+        "old",
+        "manifest.json",
+      ),
+      "{}",
+    );
+    writeFileSync(
+      join(
+        dir,
+        ".config",
+        "atom-lite",
+        "checkpoints",
+        "h",
+        "s",
+        "old",
+        "files",
+        "junk.bin",
+      ),
+      Buffer.alloc(4096),
+    );
+    const store = new CheckpointStore(dir, "selfex");
+    const m = store.create(1);
+    assert.ok(m.files.includes("real.txt"), "real workspace file captured");
+    assert.ok(
+      !m.files.some((f) => f.startsWith(".config/atom-lite")),
+      "own storage excluded",
+    );
+  } finally {
+    if (prev === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = prev;
+  }
+});
+
+test("orphan checkpoint directories without a manifest are cleaned up", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  gitInit(dir);
+  track(dir, { "a.txt": "a" });
+  const store = new CheckpointStore(dir, "s1orphan");
+  store.create(1);
+  // The store's own storage root (private, but exact): configDir/checkpoints/<hash>/<sessionId>
+  const root = (store as any).storageRoot() as string;
+  const orphan = join(root, "orphaned-id");
+  mkdirSync(join(orphan, "files"), { recursive: true });
+  writeFileSync(join(orphan, "files", "junk.bin"), Buffer.alloc(2048));
+  // A fresh store (orphan pruning runs once per instance) must clean it up.
+  const store2 = new CheckpointStore(dir, "s1orphan");
+  store2.create(2);
+  assert.equal(existsSync(orphan), false, "orphan removed");
+});
+
 test("count cap prunes oldest", () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   gitInit(dir);

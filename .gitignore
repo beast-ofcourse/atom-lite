@@ -10,3 +10,4 @@ dist/
 skills-lock.json
 plans/
 evals/tasks/git-commit/workspace
+temp/

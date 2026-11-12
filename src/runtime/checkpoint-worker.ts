@@ -7,6 +7,7 @@ interface WorkerData {
   options: {
     maxCheckpointBytes?: number;
     maxCheckpoints?: number;
+    maxCheckpointFiles?: number;
     enabled?: boolean;
   };
   turn: number;

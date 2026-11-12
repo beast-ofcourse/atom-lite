@@ -5,6 +5,20 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Checkpoint capture no longer walks and re-copies Atom-lite's own storage (`~/.config/atom-lite/checkpoints/...`) when the workspace is the home directory — a self-amplifying loop that produced 468,926-file captures and multi-minute stalls before every bash approval prompt.
+- Checkpoint captures stop early once the byte cap or a new file-count budget (`maxCheckpointFiles`, default 50,000) is reached, and the manifest records `truncated: true`; previously the walk continued lstat-ing every remaining file after the cap for minutes.
+- A checkpoint worker that times out (or fails after real work) now surfaces `checkpoint_failed` immediately instead of falling back to a synchronous full re-capture on the main thread, which doubled the stall (observed: 120 s worker timeout + ~5 more minutes blocking the tool).
+- Abandoned checkpoint directories (worker terminated before the manifest was written) are pruned on the next capture instead of accumulating ~500k-file orphans.
+- `checkpoint_failed` events are now recorded in the session log; previously they were only shown transiently in the TUI, so the session log showed an unexplained multi-minute gap.
+
+### Changed
+
+- `temp/` scratch directory excluded from Prettier and git.
+
 ## [0.13.0] — 2026-11-12
 
 ### Added

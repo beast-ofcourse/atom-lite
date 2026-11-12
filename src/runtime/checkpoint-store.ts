@@ -22,6 +22,14 @@ import { userConfigDir } from "../config/paths.js";
 export interface CheckpointOptions {
   maxCheckpointBytes?: number;
   maxCheckpoints?: number;
+  /**
+   * Hard cap on enumerated files per capture. Restoring hundreds of
+   * thousands of files is not a realistic undo anyway; without this cap a
+   * capture on a home-directory workspace walks for minutes and blocks
+   * the turn (observed: 468,926 files, 3m22s, plus a second full pass in
+   * the sync fallback).
+   */
+  maxCheckpointFiles?: number;
   enabled?: boolean;
 }
 
@@ -42,6 +50,12 @@ export interface CheckpointManifest {
   skipped: CheckpointSkipped[];
   bytes: number;
   empty: boolean;
+  /**
+   * True when the capture stopped early (byte cap or file-count cap).
+   * A truncated checkpoint is partial: it may not cover the whole
+   * workspace, and `isAtCheckpoint` will generally report false.
+   */
+  truncated?: boolean;
 }
 
 export interface CheckpointAvailability {
@@ -62,6 +76,7 @@ export interface CheckpointDiffEntry {
 
 const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
 const DEFAULT_MAX_COUNT = 20;
+const DEFAULT_MAX_FILES = 50_000;
 /** Hard cap on worker-thread checkpoint creation before synced fallback. */
 const CHECKPOINT_WORKER_TIMEOUT_MS = 120_000;
 
@@ -78,8 +93,10 @@ export class CheckpointStore {
   private sessionId: string;
   private maxBytes: number;
   private maxCount: number;
+  private maxFiles: number;
   private enabled: boolean;
   private sequence = 0;
+  private orphansPruned = false;
   private gitAvailableCache: boolean | undefined;
   private workspaceHashCache: string | undefined;
   private storageRootCache: string | undefined;
@@ -94,6 +111,7 @@ export class CheckpointStore {
     this.sessionId = sessionId;
     this.maxBytes = options.maxCheckpointBytes ?? DEFAULT_MAX_BYTES;
     this.maxCount = options.maxCheckpoints ?? DEFAULT_MAX_COUNT;
+    this.maxFiles = options.maxCheckpointFiles ?? DEFAULT_MAX_FILES;
     this.enabled = options.enabled ?? true;
     try {
       const seqs = this.list().map((m) => m.sequence ?? 0);
@@ -178,6 +196,19 @@ export class CheckpointStore {
   }
 
   private listWorkspaceFiles(): string[] {
+    this.walkTruncated = false;
+    // Atom-lite's own storage (checkpoints, sessions) must never appear in
+    // a capture; see walkWorkspaceFiles for why.
+    const selfStorage = userConfigDir() + sep;
+    const notSelf = (rel: string) =>
+      !join(this.workspace, rel).startsWith(selfStorage);
+    const cap = (files: string[]): string[] => {
+      if (files.length > this.maxFiles) {
+        this.walkTruncated = true;
+        return files.slice(0, this.maxFiles);
+      }
+      return files;
+    };
     if (this.isGitAvailable()) {
       try {
         const out = this.runGit([
@@ -189,7 +220,7 @@ export class CheckpointStore {
         ])
           .split("\0")
           .filter(Boolean);
-        return [...new Set(out)].sort();
+        return cap([...new Set(out)].filter(notSelf).sort());
       } catch {
         // fall back to separate calls if combined flags unsupported
       }
@@ -212,7 +243,9 @@ export class CheckpointStore {
       } catch {
         untracked = [];
       }
-      return [...new Set([...tracked, ...untracked])].sort();
+      return cap(
+        [...new Set([...tracked, ...untracked])].filter(notSelf).sort(),
+      );
     }
     return this.walkWorkspaceFiles();
   }
@@ -292,8 +325,16 @@ export class CheckpointStore {
       ".next",
       ".atom-lite",
     ]);
+    // Atom-lite's own storage (checkpoints, sessions, logs) lives under
+    // userConfigDir(). When the workspace is the home directory that tree is
+    // inside the workspace and the capture would walk and re-copy its own
+    // previous checkpoints — a self-amplifying loop observed in practice
+    // (468,926-file captures on /home/bhavin). Exclude it by absolute path;
+    // for any other workspace the prefix never matches.
+    const selfStorage = userConfigDir() + sep;
     const matchers = this.compileIgnorePatterns(this.loadIgnorePatterns());
     const out: string[] = [];
+    let truncated = false;
     // Classify entries exactly like the previous statSync-based version (which
     // follows symlinks) but avoid one stat syscall per entry: readdir with
     // Dirent already knows directory/regular-file types, so statSync is only
@@ -315,6 +356,10 @@ export class CheckpointStore {
       return "other";
     };
     const walk = (dir: string, relPrefix: string) => {
+      if (out.length >= this.maxFiles) {
+        truncated = true;
+        return;
+      }
       let entries: Dirent[] = [];
       try {
         entries = readdirSync(dir, { withFileTypes: true });
@@ -322,8 +367,14 @@ export class CheckpointStore {
         return;
       }
       for (const name of entries) {
+        if (out.length >= this.maxFiles) {
+          truncated = true;
+          return;
+        }
         if (SKIP.has(name.name)) continue;
         const full = join(dir, name.name);
+        // Never descend into Atom-lite's own storage; see selfStorage above.
+        if (full === userConfigDir() || full.startsWith(selfStorage)) continue;
         const rel = relPrefix ? `${relPrefix}/${name.name}` : name.name;
         const kind = kindOf(full, name);
         const isDir = kind === "dir";
@@ -336,8 +387,12 @@ export class CheckpointStore {
       }
     };
     walk(this.workspace, "");
+    this.walkTruncated = truncated;
     return out.sort();
   }
+
+  /** Whether the last walkWorkspaceFiles() hit the file-count cap. */
+  private walkTruncated = false;
 
   private isSymlink(rel: string): boolean {
     try {
@@ -390,6 +445,26 @@ export class CheckpointStore {
     if (!avail.available)
       throw new Error(avail.reason ?? "checkpoint unavailable");
 
+    // A terminated worker (timeout) or crashed capture leaves a checkpoint
+    // directory without a manifest. Clean those up once per store instance
+    // so they cannot accumulate (observed: a ~500k-file orphan from one
+    // abandoned capture) and so the sequence numbering stays honest.
+    if (!this.orphansPruned) {
+      this.orphansPruned = true;
+      const root = this.storageRoot();
+      if (existsSync(root)) {
+        for (const name of readdirSync(root)) {
+          if (!existsSync(join(root, name, "manifest.json"))) {
+            try {
+              rmSync(join(root, name), { recursive: true, force: true });
+            } catch {
+              // best effort
+            }
+          }
+        }
+      }
+    }
+
     // prune by count
     const existing = this.list();
     if (existing.length >= this.maxCount) {
@@ -421,9 +496,17 @@ export class CheckpointStore {
     let bytes = 0;
 
     const files = this.listWorkspaceFiles();
-    // first pass: compute sizes
+    // first pass: compute sizes. Once the byte cap is reached, every
+    // remaining file is guaranteed to overflow it — stop instead of
+    // lstat-ing the rest of a potentially huge tree (on a home-directory
+    // workspace that was minutes of wasted syscalls after the cap).
     const toCopy: Array<{ rel: string; size: number }> = [];
+    let capReached = this.walkTruncated;
     for (const rel of files) {
+      if (capReached) {
+        skipped.push({ path: rel, reason: "capture cap reached" });
+        continue;
+      }
       const full = join(this.workspace, rel);
       // One lstat answers symlink/dir/type/size for this file. For non-symlinks
       // lstat == stat for every field the old code used, so the classification
@@ -455,6 +538,7 @@ export class CheckpointStore {
       }
       if (bytes + lst.size > this.maxBytes) {
         skipped.push({ path: rel, reason: "too_large" });
+        if (bytes >= this.maxBytes) capReached = true;
         continue;
       }
       bytes += lst.size;
@@ -484,6 +568,7 @@ export class CheckpointStore {
       files: captured,
       skipped,
       bytes,
+      truncated: this.walkTruncated || capReached,
       empty: captured.length === 0 && skipped.length === 0,
     };
     writeFileSync(this.manifestPath(id), JSON.stringify(manifest, null, 2), {
@@ -500,17 +585,25 @@ export class CheckpointStore {
 
   /**
    * Create a checkpoint off the main thread so the TUI event loop stays
-   * responsive. Falls back to the synchronous path if worker threads are
-   * unavailable or the worker fails to start.
+   * responsive. Falls back to the synchronous path only when the worker
+   * cannot start; a timed-out or long-running-then-failed worker
+   * propagates the error instead of redoing the capture on the main
+   * thread.
    */
   async createAsync(turn: number, label?: string): Promise<CheckpointManifest> {
+    let timedOut = false;
+    const startedAt = Date.now();
     try {
       return await new Promise<CheckpointManifest>((resolve, reject) => {
         let worker: Worker | undefined;
-        // Large workspaces can legitimately take a while, but a stalled
-        // worker must not hang the turn forever: time out, terminate, and
-        // fall through to the synchronous path.
+        // A stalled worker must not hang the turn forever: time out and
+        // terminate. The error is surfaced as-is (checkpoint_failed on the
+        // turn); it must NOT trigger the synchronous fallback below — that
+        // would redo the whole multi-minute capture from scratch on the
+        // main thread (observed: worker 120s + sync redo ≈ 5 more minutes
+        // blocking a bash approval prompt).
         const timeout = setTimeout(() => {
+          timedOut = true;
           try {
             worker?.terminate();
           } catch {
@@ -528,6 +621,7 @@ export class CheckpointStore {
               options: {
                 maxCheckpointBytes: this.maxBytes,
                 maxCheckpoints: this.maxCount,
+                maxCheckpointFiles: this.maxFiles,
                 enabled: this.enabled,
               },
               turn,
@@ -551,8 +645,16 @@ export class CheckpointStore {
           if (code !== 0) reject(new Error(`checkpoint worker exited ${code}`));
         });
       });
-    } catch {
-      // Fall back to synchronous creation if the worker cannot run.
+    } catch (err) {
+      // Fall back to synchronous creation only when the worker could not
+      // run at all (spawn failure, immediate crash) — a fast path by
+      // definition. A worker that ran for real time and then failed, or
+      // timed out, must propagate: re-running the capture synchronously
+      // would redo the whole multi-minute walk on the main thread.
+      const ranForReal = Date.now() - startedAt > 3_000;
+      if (timedOut || ranForReal) {
+        throw err instanceof Error ? err : new Error(String(err));
+      }
       return this.create(turn, label);
     }
   }

@@ -774,6 +774,7 @@ export class AgentRuntime {
                       turn: this.turnIndex,
                       fileCount: m.files.length,
                       bytes: m.bytes,
+                      truncated: m.truncated === true,
                     });
                   }
                 } catch {
@@ -781,9 +782,21 @@ export class AgentRuntime {
                 }
                 this.onEvent?.({ type: "checkpoint_created", id: m.id });
               } catch (err) {
+                const reason = err instanceof Error ? err.message : String(err);
+                try {
+                  if (typeof (session as any).appendEvent === "function") {
+                    (session as any).appendEvent({
+                      type: "checkpoint_failed",
+                      turn: this.turnIndex,
+                      reason,
+                    });
+                  }
+                } catch {
+                  // best effort
+                }
                 this.onEvent?.({
                   type: "checkpoint_failed",
-                  reason: err instanceof Error ? err.message : String(err),
+                  reason,
                 });
               }
             } else {

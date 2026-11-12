@@ -10,7 +10,7 @@ import {
   todoTool,
 } from "../../dist/tools/index.js";
 import { TodoStore } from "../../dist/runtime/todos.js";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -172,6 +172,58 @@ test("mutating turn creates a checkpoint and records session metadata", async ()
     await import("../../dist/runtime/checkpoint-store.js");
   const store = new CheckpointStore(dir, "s1");
   assert.ok(store.list().length >= 1, "checkpoint expected on disk");
+});
+
+test("a failing checkpoint does not block or fail the turn", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  gitInit(dir);
+  const events: any[] = [];
+  const provider = new FakeProvider([
+    {
+      toolCalls: [
+        {
+          id: "w1",
+          name: "write",
+          arguments: { path: "new.txt", content: "hi\n" },
+        },
+      ],
+    },
+    { text: "done" },
+  ]);
+  const runtime = new AgentRuntime({
+    provider,
+    workspace: dir,
+    tools: [writeTool],
+    mode: "yolo",
+    checkpointingEnabled: true,
+    checkpointStore: {
+      isAvailable: () => ({ available: true }),
+      createAsync: async () => {
+        throw new Error("checkpoint worker timed out");
+      },
+      create: () => {
+        throw new Error("checkpoint worker timed out");
+      },
+    } as any,
+    onEvent: (e) => events.push(e),
+  });
+  const session = new InMemorySession("s1", dir);
+  await runtime.runAgentTurn("go", session, new AbortController().signal);
+  // The failure is visible...
+  assert.ok(
+    events.some(
+      (e) => e.type === "checkpoint_failed" && /timed out/.test(e.reason),
+    ),
+    "checkpoint_failed event emitted",
+  );
+  // ...and the tool still ran.
+  assert.ok(
+    events.some((e) => e.type === "tool_result" && e.toolCallId === "w1"),
+  );
+  assert.ok(
+    existsSync(join(dir, "new.txt")),
+    "write executed despite checkpoint failure",
+  );
 });
 
 test("read-only turn creates no checkpoint", async () => {
