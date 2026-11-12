@@ -28,6 +28,7 @@ import {
 } from "./theme.js";
 import { SecretInput } from "./secret-input.js";
 import { StatusLine } from "./status-line.js";
+import { purgeOrphanCheckpoints } from "../runtime/legacy-checkpoint-purge.js";
 import { Activity } from "./activity.js";
 import { ToolBox } from "./tool-box.js";
 import { UserBox } from "./user-box.js";
@@ -281,6 +282,15 @@ export async function run(args: string[]): Promise<void> {
         ? (store.resumeLatest(process.cwd()) ??
           store.create(process.cwd(), provider.id))
         : store.create(process.cwd(), provider.id);
+  }
+
+  // Automatic checkpoints were removed (ADR 0018); sweep up orphaned capture
+  // directories left by terminated workers. Cheap readdir; runs every start
+  // so the huge leftovers from the checkpoint era get collected.
+  try {
+    purgeOrphanCheckpoints();
+  } catch {
+    // best effort; never block startup on legacy cleanup
   }
 
   const mcpServers = (config.mcpServers ?? {}) as Record<string, unknown>;

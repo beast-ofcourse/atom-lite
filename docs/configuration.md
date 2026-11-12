@@ -125,7 +125,9 @@ review, and `/diff` for working-tree changes.
 - `/diff [--stat] [path]` — show workspace changes against git `HEAD` (added,
   modified, and untracked files). Requires a git repository.
 
-Legacy checkpoint data on disk is no longer used and can be removed with:
+Legacy checkpoint data on disk is no longer used. Orphaned capture
+directories (left by terminated workers) are purged automatically at every
+startup; the rest can be removed with:
 
 ```sh
 rm -rf ~/.config/atom-lite/checkpoints
