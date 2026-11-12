@@ -116,6 +116,7 @@ export class JsonlSession implements Session {
   private seq: number;
   private store: any;
   private writeQueue: Promise<void> = Promise.resolve();
+  private persisted = false;
 
   constructor(options: JsonlSessionOptions) {
     this.id = options.id;
@@ -126,6 +127,7 @@ export class JsonlSession implements Session {
     this.seq = 0;
 
     const events = options.events ?? [];
+    const resumed = events.length > 0;
     // Replay events.
     for (const ev of events) {
       this.events.push(ev);
@@ -135,8 +137,9 @@ export class JsonlSession implements Session {
     }
 
     // Ensure session_started exists.
+    let started: SessionEvent | undefined;
     if (!events.some((e) => e.type === "session_started")) {
-      const ev: SessionEvent = {
+      started = {
         type: "session_started",
         timestamp: nowIso(),
         sessionId: this.id,
@@ -144,8 +147,15 @@ export class JsonlSession implements Session {
         workspace: this.workspace,
         provider: this.provider,
       };
-      this.events.push(ev);
-      this.persist(ev);
+      this.events.push(started);
+    }
+
+    // A resumed session already has a log on disk, so a synthesized start
+    // event is written immediately. A new session stays in memory until its
+    // first message, so creating one and quitting leaves no empty log.
+    this.persisted = resumed;
+    if (started && resumed) {
+      this.persist(started);
     }
   }
 
@@ -175,6 +185,22 @@ export class JsonlSession implements Session {
       });
   }
 
+  /**
+   * Persist a message-bearing event. The first such event also flushes the
+   * in-memory backlog (session_started plus any pre-message events) in seq
+   * order, which is what brings the session file into existence.
+   */
+  private persistNewEvent(event: SessionEvent): void {
+    if (this.persisted) {
+      this.persist(event);
+      return;
+    }
+    this.persisted = true;
+    for (const pending of this.events) {
+      this.persist(pending);
+    }
+  }
+
   async flush(): Promise<void> {
     await this.writeQueue;
   }
@@ -187,7 +213,7 @@ export class JsonlSession implements Session {
     this.messages.push(message);
     const ev = messageToEvent(message, this.id, ++this.seq);
     this.events.push(ev);
-    this.persist(ev);
+    this.persistNewEvent(ev);
   }
 
   appendEvent(partial: Partial<SessionEvent>): SessionEvent {
@@ -206,9 +232,12 @@ export class JsonlSession implements Session {
     this.events.push(ev);
 
     const msg = eventToMessage(ev);
-    if (msg) this.messages.push(msg);
-
-    this.persist(ev);
+    if (msg) {
+      this.messages.push(msg);
+      this.persistNewEvent(ev);
+    } else if (this.persisted) {
+      this.persist(ev);
+    }
     return ev;
   }
 

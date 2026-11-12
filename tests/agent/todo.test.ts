@@ -171,6 +171,10 @@ test("todos persist through a real JSONL session resume", async () => {
     type: "todos_updated",
     todos: [{ id: "T1", content: "jsonl persisted task", status: "pending" }],
   });
+  created.appendMessage({
+    role: "user",
+    content: [{ type: "text", text: "continue" }],
+  });
   await created.flush();
   const resumed = store.resume("s1");
   assert.ok(resumed);

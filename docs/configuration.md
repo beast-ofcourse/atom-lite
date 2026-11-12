@@ -100,6 +100,9 @@ live provider metadata, then a built-in table of known model families.
 | `enabled`       | boolean                  | `true`  | Persist sessions as JSONL.                                |
 | `retentionDays` | positive integer \| null | `null`  | Delete sessions older than this. `null` keeps everything. |
 
+A session is written on its first message. Creating a session and quitting
+without sending one leaves no JSONL file behind.
+
 ## `ui`
 
 `ui` is user-owned. Project config may include the section, but it is ignored.
