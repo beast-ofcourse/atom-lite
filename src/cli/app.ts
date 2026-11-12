@@ -123,8 +123,10 @@ import {
   matchesKey,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
+import { installEditorKeybindings } from "./editor-keybindings.js";
 
 export async function run(args: string[]): Promise<void> {
+  installEditorKeybindings();
   let providerOverride: string | undefined;
   let modelOverride: string | undefined;
   let jsonMode = false;

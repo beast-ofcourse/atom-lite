@@ -148,6 +148,13 @@ Keyboard shortcut overrides. All fields are nullable; set a field to `null` to d
 | `inputHistoryUp`   | string or null | `"up"`        | Previous input history.  |
 | `inputHistoryDown` | string or null | `"down"`      | Next input history.      |
 
+### Editor keybindings (fixed)
+
+The prompt editor always supports: `ctrl+backspace` deletes the word left of
+the cursor, `ctrl+shift+backspace` deletes the whole current line. Terminals
+without Kitty keyboard-protocol support use the legacy defaults `ctrl+w` /
+`alt+backspace` (word) and `ctrl+u` (line start) instead.
+
 ## `mcpServers`
 
 User-owned only. Project config entries are ignored with a warning. Each entry
