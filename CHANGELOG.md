@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Checkpoint feature removed entirely (ADR 0018): automatic pre-mutation snapshots, `/undo`, and the checkpoint runtime (`checkpoint-store`, `checkpoint-worker`, ~1,200 lines). `/diff` is now git-only (`git HEAD` diff plus untracked files, same `--stat`/path syntax). The `runtime.checkpointing` config key is accepted but ignored (old configs still parse). Old session logs containing checkpoint events still resume cleanly.
+- Orphaned checkpoint capture directories (worker terminated before the manifest was written) are purged automatically at startup; valid checkpoints remain until manually removed with `rm -rf ~/.config/atom-lite/checkpoints`.
+
 ### Fixed
 
 - Checkpoint capture no longer walks and re-copies Atom-lite's own storage (`~/.config/atom-lite/checkpoints/...`) when the workspace is the home directory — a self-amplifying loop that produced 468,926-file captures and multi-minute stalls before every bash approval prompt.

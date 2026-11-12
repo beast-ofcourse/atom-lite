@@ -1,9 +1,15 @@
-# 0018 — Defer removal of the checkpoint feature
+# 0018 — Remove the checkpoint feature
 
 Date: 2026-11-12
-Status: Accepted
-Supersedes: none
-Amends: 0014 (checkpoints and undo)
+Status: Accepted (removal implemented on branch `checkpoint-removal`, 2026-11-12)
+
+> **Amendment.** The go-ahead was received the same day; removal was
+> implemented per the spec at `.scratch/checkpoint-removal/spec.md`
+> (tickets 01–07 resolved). `/undo` is gone, `/diff` is git-only, the
+> checkpoint runtime is deleted, and orphaned checkpoint directories are
+> purged at startup. The deferral rationale below is kept for history.
+> Supersedes: none
+> Amends: 0014 (checkpoints and undo)
 
 ## Context
 

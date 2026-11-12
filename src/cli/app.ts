@@ -2667,13 +2667,6 @@ export async function run(args: string[]): Promise<void> {
         theme.tokens.dim,
       );
       tui.requestRender();
-    } else if (e.type === "checkpoint_created") {
-      // Legacy session events recorded before checkpoint removal: replayed
-      // silently, nothing to render (see tests/sessions/checkpoint-replay.test.ts).
-    } else if (e.type === "checkpoint_failed") {
-      // Legacy; see above.
-    } else if (e.type === "checkpoint_unavailable") {
-      // Legacy; see above.
     } else if (e.type === "task_ledger_open") {
       appendLine(
         `task ledger: ${e.pending} open item(s) remain`,

@@ -133,9 +133,6 @@ startup; the rest can be removed with:
 rm -rf ~/.config/atom-lite/checkpoints
 ```
 
-- `/diff --stat` — file-level summary.
-- `/diff <path>` — scope the diff.
-
 ## `keybindings`
 
 Keyboard shortcut overrides. All fields are nullable; set a field to `null` to disable its shortcut.

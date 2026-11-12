@@ -90,12 +90,12 @@ export interface CommandDispatchResult {
   name?: string;
 }
 
-/** Parse `/name args` into its parts; non-slash input returns null. */
 /** Run git in a workspace; throws on failure so callers can map it to a message. */
 function runGit(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" });
 }
 
+/** Parse `/name args` into its parts; non-slash input returns null. */
 export function parseCommandInput(input: string): ParsedCommand | null {
   const trimmed = input.trim();
   if (!trimmed.startsWith("/")) return null;
@@ -440,17 +440,31 @@ export function createCommandRegistry(
         return;
       }
       const lines: string[] = [];
+      // One diff invocation for every entry, then bucket the output by path:
+      // spawning git per file would be O(entries) subprocesses.
+      const all = runGit(session.workspace, [
+        "diff",
+        "HEAD",
+        "--no-color",
+        ...(pathFilter ? ["--", pathFilter] : []),
+      ]);
+      const byPath = new Map<string, string[]>();
+      let current: string | undefined;
+      for (const l of all.split("\n")) {
+        const m = /^diff --git a\/(.+?) b\/(.+)$/.exec(l);
+        if (m) {
+          current = m[2];
+          byPath.set(current, []);
+        } else if (current) {
+          byPath.get(current)!.push(l);
+        }
+      }
       for (const e of entries) {
         lines.push(`${e.status.padEnd(8)} ${e.path}`);
         if (e.status !== "added") {
-          const d = runGit(session.workspace, [
-            "diff",
-            "HEAD",
-            "--no-color",
-            "--",
-            e.path,
-          ]);
-          for (const l of d.split("\n").filter(Boolean)) lines.push("  " + l);
+          for (const l of byPath.get(e.path) ?? []) {
+            lines.push("  " + l);
+          }
         }
       }
       ctx.appendLine(lines.join("\n"));
