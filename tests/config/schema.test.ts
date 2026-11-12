@@ -29,6 +29,16 @@ test("empty config yields documented defaults", () => {
   assert.equal(cfg.sessions.enabled, true);
   assert.equal(cfg.sessions.retentionDays, null);
   assert.equal(cfg.ui.theme, "auto");
+  assert.equal(cfg.runtime.checkpointing, undefined);
+});
+
+test("old configs carrying runtime.checkpointing still parse (ignored)", () => {
+  // The runtime object is .strict(): the deprecated key must stay accepted
+  // or every config written before checkpoint removal would fail to load.
+  const cfg = ConfigSchema.parse({ runtime: { checkpointing: true } });
+  assert.equal(cfg.runtime.checkpointing, true);
+  const off = ConfigSchema.parse({ runtime: { checkpointing: false } });
+  assert.equal(off.runtime.checkpointing, false);
 });
 
 test("loadConfig reads a valid user config file", () => {
