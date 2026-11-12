@@ -1,10 +1,4 @@
-import {
-  readFile,
-  writeFile,
-  mkdir,
-  rename,
-  unlink,
-} from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename, unlink } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import { isWithinWorkspace } from "../security/paths.js";

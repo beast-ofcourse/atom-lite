@@ -5,4 +5,5 @@ temperature: 0.4
 permission:
   edit: allow
 ---
+
 Bundled planner body.

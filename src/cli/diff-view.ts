@@ -1,13 +1,5 @@
 import type { Component } from "@earendil-works/pi-tui";
-import {
-  green,
-  red,
-  cyan,
-  dim,
-  bold,
-  gray,
-  type Color,
-} from "./panel.js";
+import { green, red, cyan, dim, bold, gray, type Color } from "./panel.js";
 import { wrapTextWithAnsi, visibleWidth } from "@earendil-works/pi-tui";
 
 const TOOL_BG = "\x1b[48;5;236m";
@@ -87,9 +79,7 @@ export class DiffView implements Component {
     if (this.cachedLines && this.cachedWidth === w) return this.cachedLines;
 
     const out: string[] = [];
-    const label = this.path
-      ? `diff · ${this.path}`
-      : "diff";
+    const label = this.path ? `diff · ${this.path}` : "diff";
     const header = ` ${bold(label)}  ${green(`+${this.added}`)} ${red(`-${this.removed}`)}`;
     out.push(fillBg(header, w));
     out.push(fillBg("", w));

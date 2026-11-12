@@ -7,13 +7,7 @@
  */
 
 export type ThemeMode =
-  | "dark"
-  | "light"
-  | "ansi"
-  | "dracula"
-  | "monokai"
-  | "nord"
-  | "solarized";
+  "dark" | "light" | "ansi" | "dracula" | "monokai" | "nord" | "solarized";
 
 export type ThemeToken =
   | "text"
@@ -267,8 +261,14 @@ export function resolveThemeName(
 ): "dark" | "light" | "ansi" | "dracula" | "monokai" | "nord" | "solarized" {
   if (options.noColor || isNoColorEnabled(options.env)) return "ansi";
   if (name === "ansi") return "ansi";
-  if (name === "light" || name === "solarized") return name as "light" | "solarized";
-  if (name === "dark" || name === "dracula" || name === "monokai" || name === "nord")
+  if (name === "light" || name === "solarized")
+    return name as "light" | "solarized";
+  if (
+    name === "dark" ||
+    name === "dracula" ||
+    name === "monokai" ||
+    name === "nord"
+  )
     return name as "dark" | "dracula" | "monokai" | "nord";
   // Unknown custom names are not loadable yet; keep the safe default.
   if (name !== "auto") return "dark";

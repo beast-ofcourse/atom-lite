@@ -17,7 +17,11 @@ const data = workerData as WorkerData | undefined;
 
 try {
   if (!data) throw new Error("missing worker data");
-  const store = new CheckpointStore(data.workspace, data.sessionId, data.options);
+  const store = new CheckpointStore(
+    data.workspace,
+    data.sessionId,
+    data.options,
+  );
   const manifest = store.create(data.turn, data.label);
   parentPort?.postMessage({ ok: true, manifest });
 } catch (err) {

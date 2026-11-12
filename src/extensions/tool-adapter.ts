@@ -23,7 +23,10 @@ export function coerceToolArguments(
   input: Record<string, unknown>,
 ): Record<string, unknown> {
   const result: Record<string, unknown> = { ...(input ?? {}) };
-  const properties = (schema?.properties ?? {}) as Record<string, SchemaProperty>;
+  const properties = (schema?.properties ?? {}) as Record<
+    string,
+    SchemaProperty
+  >;
   const required = Array.isArray(schema?.required)
     ? (schema.required as string[])
     : [];

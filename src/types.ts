@@ -1,5 +1,6 @@
 // Canonical types shared across the runtime. Provider- and transport-agnostic.
-export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+export type JsonValue =
+  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
 export type ImagePart = { data: string; mime: string };
 

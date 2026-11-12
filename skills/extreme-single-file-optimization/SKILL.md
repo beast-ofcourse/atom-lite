@@ -1,12 +1,12 @@
-
 ---
+
 name: extreme-single-file-optimization
 description: >
-  Aggressively optimize a single source file in any programming language
-  for maximum practical performance, memory efficiency, and resource usage
-  while preserving all functionality. Analyze repository-wide dependencies,
-  validate every optimization, benchmark improvements, and iteratively
-  optimize until diminishing returns.
+Aggressively optimize a single source file in any programming language
+for maximum practical performance, memory efficiency, and resource usage
+while preserving all functionality. Analyze repository-wide dependencies,
+validate every optimization, benchmark improvements, and iteratively
+optimize until diminishing returns.
 ---
 
 # Extreme Single-File Optimization
@@ -82,6 +82,7 @@ clearly state the limitation.
 Explore the target file for:
 
 ### Algorithmic inefficiencies
+
 - Poor time complexity.
 - Repeated searches or traversals.
 - Unnecessary sorting.
@@ -89,6 +90,7 @@ Explore the target file for:
 - Redundant computation.
 
 ### Runtime inefficiencies
+
 - Unnecessary function calls.
 - Excessive allocations.
 - Repeated conversions.
@@ -96,6 +98,7 @@ Explore the target file for:
 - Excessive dispatch or synchronization.
 
 ### Memory inefficiencies
+
 - Unnecessary copies.
 - Temporary objects.
 - Duplicate data.
@@ -103,12 +106,14 @@ Explore the target file for:
 - Memory leaks.
 
 ### Resource inefficiencies
+
 - Redundant I/O.
 - Repeated requests.
 - Unnecessary parsing or serialization.
 - Inefficient resource initialization and cleanup.
 
 ### Structural inefficiencies
+
 - Duplicated logic.
 - Unnecessary abstractions.
 - Excessive indirection.
@@ -313,22 +318,26 @@ within the available constraints.
 Provide a concise report containing:
 
 ### Optimization Summary
+
 - Target file.
 - Main bottlenecks.
 - Accepted optimizations.
 - Rejected optimizations and reasons.
 
 ### Performance
+
 - Before and after measurements.
 - Actual improvement percentages.
 - Measurement limitations.
 
 ### Repository Impact
+
 - Files modified.
 - Interfaces preserved.
 - Relevant downstream dependencies analyzed.
 
 ### Validation
+
 - Tests executed and results.
 - Compilation and static analysis.
 - Remaining risks or unverified behavior.
@@ -361,4 +370,3 @@ Preserve all existing functionality and observable behavior.
 
 The final implementation must be the best practical version of the
 specified file, not merely a cleaner or shorter version.
-

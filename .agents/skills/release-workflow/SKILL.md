@@ -44,22 +44,28 @@ Prepend a new section to `CHANGELOG.md` (create the file if absent) using this s
 ## vX.Y.Z — YYYY-MM-DD
 
 ### Added
+
 - ...
 
 ### Changed
+
 - ...
 
 ### Fixed
+
 - ...
 
 ### Performance
+
 - ...
 
 ### Breaking
+
 - (only if applicable; otherwise omit)
 ```
 
 Rules:
+
 - One bullet per user-visible or developer-visible change. Group by category.
 - Each bullet starts with a capital, ends with a period, and names the affected surface (`cli`, `agent`, `tools`, `runtime`, ...).
 - Include file paths only when they help a contributor locate the change; keep user-facing bullets path-free.
@@ -113,15 +119,19 @@ Write release notes derived from the CHANGELOG entry, expanded for GitHub reader
 ## Changes
 
 ### Added
+
 ...
 
 ### Changed
+
 ...
 
 ### Fixed
+
 ...
 
 ### Performance
+
 ...
 
 ## Install / upgrade
@@ -134,6 +144,7 @@ https://github.com/<owner>/<repo>/compare/vPREV...vX.Y.Z
 ```
 
 Rules:
+
 - Lead with user-facing impact, not implementation details.
 - Keep the "What's new" section to 3-5 bullets; details go under Changes.
 - Include the install command and the compare link.
@@ -169,6 +180,7 @@ Tell the user: version shipped, npm link, GitHub release link, and any bench del
 - Never force-push tags. If a tag is wrong, delete locally and remotely then re-tag, and announce it.
 - Never include secrets, tokens, or internal paths in notes.
 - If the working tree is dirty, stop and resolve before releasing.
+
 ---
 
 ## Notes

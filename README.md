@@ -167,34 +167,34 @@ The selected provider/model is persisted to user config, so the next session sta
 
 Type `/help` for the grouped list, or press `ctrl+p` for the fuzzy command palette. Common commands:
 
-| Command                                      | Description                                |
-| -------------------------------------------- | ------------------------------------------ |
-| `/help` (alias `/?`)                        | Show commands                              |
-| `/model [model]`                             | Search or switch the active model           |
-| `/provider [profile]`                        | Add or select a provider                   |
-| `/effort [low\|medium\|high]`               | Set reasoning effort                       |
-| `/agents`                                    | List primary agent personas                |
-| `/agent [name]`                              | Switch primary agent persona (interactive) |
-| `/rename [rename <title>]` (alias `/session`) | Show or rename the current session         |
-| `/sessions [all]`                            | Search or resume a session                 |
-| `/search <query>`                            | Search sessions by title or content        |
-| `/new` (alias `/clear`)                      | Start a new session                        |
-| `/compact [focus]`                           | Compact older context                      |
-| `/undo [list\|<n>] [--keep-untracked] [--yes\|--force]` | Restore workspace to a checkpoint |
-| `/diff [--stat] [path]`                      | Show changes since the last checkpoint     |
-| `/export [path] [--format md\|json] [--force] [--no-redact]` | Export the session transcript |
-| `/mcp [reconnect [server]]`                  | List or reconnect MCP servers              |
-| `/extensions`                                | List discovered extensions and load status |
-| `/reload`                                    | Reload all extensions from disk            |
-| `/approval`                                  | Show approval mode (legacy)                |
-| `/doctor`                                    | Run diagnostics                            |
-| `/thinking`                                  | Toggle thinking display                    |
-| `/theme [auto\|dark\|light\|ansi]`           | Choose a colour theme                      |
-| `/skills`                                    | List skills                                |
-| `/skill <name> [prompt]`                     | Load a skill                               |
-| `/keybindings`                               | Open the keybindings config file           |
-| `/shortcuts`                                 | List keyboard shortcuts                    |
-| `/exit` (alias `/quit`)                      | Exit the TUI                               |
+| Command                                                      | Description                                |
+| ------------------------------------------------------------ | ------------------------------------------ |
+| `/help` (alias `/?`)                                         | Show commands                              |
+| `/model [model]`                                             | Search or switch the active model          |
+| `/provider [profile]`                                        | Add or select a provider                   |
+| `/effort [low\|medium\|high]`                                | Set reasoning effort                       |
+| `/agents`                                                    | List primary agent personas                |
+| `/agent [name]`                                              | Switch primary agent persona (interactive) |
+| `/rename [rename <title>]` (alias `/session`)                | Show or rename the current session         |
+| `/sessions [all]`                                            | Search or resume a session                 |
+| `/search <query>`                                            | Search sessions by title or content        |
+| `/new` (alias `/clear`)                                      | Start a new session                        |
+| `/compact [focus]`                                           | Compact older context                      |
+| `/undo [list\|<n>] [--keep-untracked] [--yes\|--force]`      | Restore workspace to a checkpoint          |
+| `/diff [--stat] [path]`                                      | Show changes since the last checkpoint     |
+| `/export [path] [--format md\|json] [--force] [--no-redact]` | Export the session transcript              |
+| `/mcp [reconnect [server]]`                                  | List or reconnect MCP servers              |
+| `/extensions`                                                | List discovered extensions and load status |
+| `/reload`                                                    | Reload all extensions from disk            |
+| `/approval`                                                  | Show approval mode (legacy)                |
+| `/doctor`                                                    | Run diagnostics                            |
+| `/thinking`                                                  | Toggle thinking display                    |
+| `/theme [auto\|dark\|light\|ansi]`                           | Choose a colour theme                      |
+| `/skills`                                                    | List skills                                |
+| `/skill <name> [prompt]`                                     | Load a skill                               |
+| `/keybindings`                                               | Open the keybindings config file           |
+| `/shortcuts`                                                 | List keyboard shortcuts                    |
+| `/exit` (alias `/quit`)                                      | Exit the TUI                               |
 
 ## Agent personas
 
