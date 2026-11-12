@@ -1,7 +1,12 @@
 # ADR 0014 — Checkpoints and undo
 
 Date: 2026-11-06
-Status: Accepted
+Status: Superseded by 0018 (2026-11-12)
+
+> **Superseded by [ADR 0018](./0018-defer-checkpoint-removal.md).** The
+> checkpoint/undo feature described below was removed in the checkpoint-removal
+> work; `/undo` no longer exists and `/diff` is git-only. This ADR is kept for
+> history.
 
 ## Context
 
