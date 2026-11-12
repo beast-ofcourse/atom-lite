@@ -7,7 +7,7 @@ import {
   parseCommandInput,
   type CommandContext,
 } from "../../dist/cli/commands.js";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -45,6 +45,18 @@ const SKILLS = [
     scope: "global" as const,
   },
 ];
+
+/** Temp git repo with one committed file, `a.txt` containing "a\n". */
+function gitRepoWithInit(): string {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  execFileSync("git", ["config", "user.email", "t@t.com"], { cwd: dir });
+  execFileSync("git", ["config", "user.name", "t"], { cwd: dir });
+  writeFileSync(join(dir, "a.txt"), "a\n");
+  execFileSync("git", ["add", "-A"], { cwd: dir });
+  execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: dir });
+  return dir;
+}
 
 function fakeContext() {
   const lines: string[] = [];
@@ -275,56 +287,67 @@ test("empty session searches and renames explain their usage", async () => {
   ]);
 });
 
-test("/undo reports no checkpoints outside a git repo with none", async () => {
-  const { ctx, lines } = fakeContext();
-  const registry = createCommandRegistry();
-  await registry.dispatch("/undo", ctx);
-  assert.ok(lines.some((l) => /no checkpoints/.test(l)));
+test("/undo no longer exists in the registry", () => {
+  const registry = createCommandRegistry({ skills: SKILLS });
+  assert.equal(registry.get("undo"), undefined);
+  const names = registry.list().map((command) => command.name);
+  assert.ok(!names.includes("undo"), "/undo should be removed");
 });
 
-test("/undo with no checkpoints says so", async () => {
-  // Use a temp git repo with no checkpoints
-  const dir = mkdtempSync(join(tmpdir(), "ws-"));
-  execFileSync("git", ["init", "-q"], { cwd: dir });
-  const { ctx, lines } = fakeContext();
-  (ctx.session as any).workspace = dir;
-  const registry = createCommandRegistry();
-  await registry.dispatch("/undo", ctx);
-  assert.ok(lines.some((l) => /no checkpoints/.test(l)));
-});
-
-test("/diff reports no changes when at checkpoint", async () => {
-  const { execFileSync } = await import("node:child_process");
-  const { mkdtempSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
-  const { join } = await import("node:path");
-  const dir = mkdtempSync(join(tmpdir(), "ws-"));
-  execFileSync("git", ["init", "-q"], { cwd: dir });
-  execFileSync("git", ["config", "user.email", "t@t.com"], { cwd: dir });
-  execFileSync("git", ["config", "user.name", "t"], { cwd: dir });
-  const { writeFileSync } = await import("node:fs");
-  writeFileSync(join(dir, "a.txt"), "a");
-  execFileSync("git", ["add", "-A"], { cwd: dir });
-  execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: dir });
-  const { CheckpointStore } =
-    await import("../../dist/runtime/checkpoint-store.js");
-  const store = new CheckpointStore(dir, "s1");
-  store.create(1);
+test("/diff shows working-tree changes against git HEAD", async () => {
+  const dir = gitRepoWithInit();
+  writeFileSync(join(dir, "a.txt"), "changed\n");
   const { ctx, lines } = fakeContext();
   (ctx.session as any).workspace = dir;
   const registry = createCommandRegistry();
   await registry.dispatch("/diff", ctx);
-  assert.ok(lines.some((l) => /\(no changes\)/.test(l)));
+  const output = lines.join("\n");
+  assert.match(output, /a\.txt/);
+  assert.match(output, /\+changed/);
 });
 
-test("/diff reports no changes when no git and no checkpoints", async () => {
-  const { mkdtempSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
-  const { join } = await import("node:path");
-  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+test("/diff --stat summarizes changes against git HEAD", async () => {
+  const dir = gitRepoWithInit();
+  writeFileSync(join(dir, "a.txt"), "changed\n");
+  const { ctx, lines } = fakeContext();
+  (ctx.session as any).workspace = dir;
+  const registry = createCommandRegistry();
+  await registry.dispatch("/diff --stat", ctx);
+  const output = lines.join("\n");
+  assert.match(output, /1 file changed/);
+  assert.match(output, /a\.txt/);
+});
+
+test("/diff filters by path argument", async () => {
+  const dir = gitRepoWithInit();
+  writeFileSync(join(dir, "a.txt"), "changed\n");
+  writeFileSync(join(dir, "b.txt"), "b\n");
+  execFileSync("git", ["add", "-A"], { cwd: dir });
+  const { ctx, lines } = fakeContext();
+  (ctx.session as any).workspace = dir;
+  const registry = createCommandRegistry();
+  await registry.dispatch("/diff b.txt", ctx);
+  const output = lines.join("\n");
+  assert.ok(!output.includes("a.txt"), "unrelated file should be filtered out");
+  assert.match(output, /b\.txt/);
+});
+
+test("/diff reports no changes when the tree is clean", async () => {
+  const dir = gitRepoWithInit();
   const { ctx, lines } = fakeContext();
   (ctx.session as any).workspace = dir;
   const registry = createCommandRegistry();
   await registry.dispatch("/diff", ctx);
   assert.ok(lines.some((l) => l.includes("(no changes)")));
+});
+
+test("/diff is unavailable outside a git repository", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  const { ctx, lines } = fakeContext();
+  (ctx.session as any).workspace = dir;
+  const registry = createCommandRegistry();
+  await registry.dispatch("/diff", ctx);
+  assert.ok(
+    lines.some((l) => l.includes("diff unavailable: not a git repository")),
+  );
 });
