@@ -7,18 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-11-12
+
 ### Removed
 
-- Checkpoint feature removed entirely (ADR 0018): automatic pre-mutation snapshots, `/undo`, and the checkpoint runtime (`checkpoint-store`, `checkpoint-worker`, ~1,200 lines). `/diff` is now git-only (`git HEAD` diff plus untracked files, same `--stat`/path syntax). The `runtime.checkpointing` config key is accepted but ignored (old configs still parse). Old session logs containing checkpoint events still resume cleanly.
-- Orphaned checkpoint capture directories (worker terminated before the manifest was written) are purged automatically at startup; valid checkpoints remain until manually removed with `rm -rf ~/.config/atom-lite/checkpoints`.
-
-### Fixed
-
-- Checkpoint capture no longer walks and re-copies Atom-lite's own storage (`~/.config/atom-lite/checkpoints/...`) when the workspace is the home directory — a self-amplifying loop that produced 468,926-file captures and multi-minute stalls before every bash approval prompt.
-- Checkpoint captures stop early once the byte cap or a new file-count budget (`maxCheckpointFiles`, default 50,000) is reached, and the manifest records `truncated: true`; previously the walk continued lstat-ing every remaining file after the cap for minutes.
-- A checkpoint worker that times out (or fails after real work) now surfaces `checkpoint_failed` immediately instead of falling back to a synchronous full re-capture on the main thread, which doubled the stall (observed: 120 s worker timeout + ~5 more minutes blocking the tool).
-- Abandoned checkpoint directories (worker terminated before the manifest was written) are pruned on the next capture instead of accumulating ~500k-file orphans.
-- `checkpoint_failed` events are now recorded in the session log; previously they were only shown transiently in the TUI, so the session log showed an unexplained multi-minute gap.
+- Checkpoint feature removed entirely (ADR 0018): automatic pre-mutation snapshots, `/undo`, and the checkpoint runtime (~1,200 lines). Recovery is git-native now; use commits, `git stash`, or your editor's local history.
+- `/diff` is now git-only: working-tree changes against `git HEAD` (added, modified, deleted, untracked), same `--stat` and path-filter syntax; outside a git repository it prints a clear unavailability message instead of falling back to checkpoints.
+- The `runtime.checkpointing` config key is accepted but ignored; existing user configs still parse unchanged.
+- Old session logs containing checkpoint events (`checkpoint_created` / `checkpoint_failed` / `checkpoint_unavailable` / `checkpoint_restored`) still resume cleanly and keep every message intact.
+- Orphaned checkpoint capture directories (left by terminated workers before a manifest was written) are purged automatically at startup. Remaining legacy data can be removed manually with `rm -rf ~/.config/atom-lite/checkpoints`; measured on a real machine this reclaims gigabytes of stale captures.
 
 ### Changed
 
