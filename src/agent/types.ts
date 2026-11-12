@@ -48,9 +48,6 @@ export type AgentEvent =
       status: string;
       exitCode: number | null;
     }
-  | { type: "checkpoint_created"; id: string }
-  | { type: "checkpoint_failed"; reason: string }
-  | { type: "checkpoint_unavailable"; reason?: string }
   | {
       type: "task_ledger_open";
       pending: number;
@@ -87,10 +84,6 @@ export interface AgentRuntimeOptions {
   backgroundTasks?: import("../runtime/background-tasks.js").BackgroundTaskManager;
   /** Task ledger override (defaults to a new in-memory store). */
   todoStore?: import("../runtime/todos.js").TodoStore;
-  /** Whether checkpointing is enabled for this runtime. Defaults to true. */
-  checkpointingEnabled?: boolean;
-  /** Checkpoint store override (defaults to a new store per turn). */
-  checkpointStore?: import("../runtime/checkpoint-store.js").CheckpointStore;
   /** Optional steering queue drained into the turn between iterations. */
   steeringQueue?: string[];
   /** Optional dispatcher for Pi extension events. */

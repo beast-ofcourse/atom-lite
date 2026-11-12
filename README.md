@@ -38,7 +38,7 @@ Most coding agents accumulate tools, sub-agents, and orchestration until the har
 - **Command palette & themes** — `ctrl+p` fuzzy-searches commands, skills, providers, models, themes, sessions. `/theme` switches auto/dark/light/no-colour.
 - **Local-first** — runs fully against local providers; no telemetry or hosted database.
 - **Safe path handling** — file tools resolve against the workspace and reject escapes; shell is an explicit boundary.
-- **Recovery** — automatic Git-gated checkpoints before mutating turns, with `/undo` and `/diff` for review. See [ADR 0014](./docs/adr/0014-checkpoints-and-undo.md).
+- **Git-native recovery** — use git for undo/review (`/diff` shows changes against `HEAD`). Automatic checkpoints were removed (see [ADR 0018](./docs/adr/0018-defer-checkpoint-removal.md)).
 
 ## Install
 
@@ -180,8 +180,7 @@ Type `/help` for the grouped list, or press `ctrl+p` for the fuzzy command palet
 | `/search <query>`                                            | Search sessions by title or content        |
 | `/new` (alias `/clear`)                                      | Start a new session                        |
 | `/compact [focus]`                                           | Compact older context                      |
-| `/undo [list\|<n>] [--keep-untracked] [--yes\|--force]`      | Restore workspace to a checkpoint          |
-| `/diff [--stat] [path]`                                      | Show changes since the last checkpoint     |
+| `/diff [--stat] [path]`                                      | Show workspace changes against git `HEAD`  |
 | `/export [path] [--format md\|json] [--force] [--no-redact]` | Export the session transcript              |
 | `/mcp [reconnect [server]]`                                  | List or reconnect MCP servers              |
 | `/extensions`                                                | List discovered extensions and load status |

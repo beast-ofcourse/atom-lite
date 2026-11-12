@@ -144,37 +144,7 @@ function gitInit(dir: string): void {
   execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: dir });
 }
 
-test("mutating turn creates a checkpoint and records session metadata", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "ws-"));
-  gitInit(dir);
-  const provider = new FakeProvider([
-    {
-      toolCalls: [
-        {
-          id: "w1",
-          name: "write",
-          arguments: { path: "new.txt", content: "hi\n" },
-        },
-      ],
-    },
-    { text: "done" },
-  ]);
-  const runtime = new AgentRuntime({
-    provider,
-    workspace: dir,
-    tools: [writeTool],
-    mode: "yolo",
-    checkpointingEnabled: true,
-  });
-  const session = new InMemorySession("s1", dir);
-  await runtime.runAgentTurn("go", session, new AbortController().signal);
-  const { CheckpointStore } =
-    await import("../../dist/runtime/checkpoint-store.js");
-  const store = new CheckpointStore(dir, "s1");
-  assert.ok(store.list().length >= 1, "checkpoint expected on disk");
-});
-
-test("a failing checkpoint does not block or fail the turn", async () => {
+test("mutating turn emits no checkpoint events", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   gitInit(dir);
   const events: any[] = [];
@@ -195,40 +165,38 @@ test("a failing checkpoint does not block or fail the turn", async () => {
     workspace: dir,
     tools: [writeTool],
     mode: "yolo",
-    checkpointingEnabled: true,
-    checkpointStore: {
-      isAvailable: () => ({ available: true }),
-      createAsync: async () => {
-        throw new Error("checkpoint worker timed out");
-      },
-      create: () => {
-        throw new Error("checkpoint worker timed out");
-      },
-    } as any,
     onEvent: (e) => events.push(e),
   });
   const session = new InMemorySession("s1", dir);
-  await runtime.runAgentTurn("go", session, new AbortController().signal);
-  // The failure is visible...
-  assert.ok(
-    events.some(
-      (e) => e.type === "checkpoint_failed" && /timed out/.test(e.reason),
-    ),
-    "checkpoint_failed event emitted",
+  const sessionEvents: any[] = [];
+  (session as any).appendEvent = (ev: any) => sessionEvents.push(ev);
+  const result = await runtime.runAgentTurn(
+    "go",
+    session,
+    new AbortController().signal,
   );
-  // ...and the tool still ran.
+  assert.equal(result, "done");
+  // The write still ran.
+  assert.ok(existsSync(join(dir, "new.txt")));
   assert.ok(
     events.some((e) => e.type === "tool_result" && e.toolCallId === "w1"),
   );
+  // No checkpoint events anywhere: neither onEvent nor the session log.
   assert.ok(
-    existsSync(join(dir, "new.txt")),
-    "write executed despite checkpoint failure",
+    events.every((e) => !String(e.type).startsWith("checkpoint")),
+    "unexpected checkpoint event in onEvent stream",
+  );
+  assert.ok(
+    sessionEvents.every((e) => !String(e.type).startsWith("checkpoint")),
+    "unexpected checkpoint event in session log",
   );
 });
 
-test("read-only turn creates no checkpoint", async () => {
+test("read-only turn emits no checkpoint events", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   gitInit(dir);
+  writeFileSync(join(dir, "a.txt"), "hello\n");
+  const events: any[] = [];
   const provider = new FakeProvider([
     { toolCalls: [{ id: "r1", name: "read", arguments: { path: "a.txt" } }] },
     { text: "done" },
@@ -237,83 +205,23 @@ test("read-only turn creates no checkpoint", async () => {
     provider,
     workspace: dir,
     tools: [readTool],
-    checkpointingEnabled: true,
+    onEvent: (e) => events.push(e),
   });
   const session = new InMemorySession("s1", dir);
+  const sessionEvents: any[] = [];
+  (session as any).appendEvent = (ev: any) => sessionEvents.push(ev);
   await runtime.runAgentTurn("go", session, new AbortController().signal);
-  const { CheckpointStore } =
-    await import("../../dist/runtime/checkpoint-store.js");
-  const store = new CheckpointStore(dir, "s1");
-  assert.equal(store.list().length, 0);
-});
-
-test("checkpointing disabled creates no checkpoint", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "ws-"));
-  gitInit(dir);
-  const provider = new FakeProvider([
-    {
-      toolCalls: [
-        {
-          id: "w1",
-          name: "write",
-          arguments: { path: "new.txt", content: "hi\n" },
-        },
-      ],
-    },
-    { text: "done" },
-  ]);
-  const runtime = new AgentRuntime({
-    provider,
-    workspace: dir,
-    tools: [writeTool],
-    mode: "yolo",
-    checkpointingEnabled: false,
-  });
-  const session = new InMemorySession("s1", dir);
-  await runtime.runAgentTurn("go", session, new AbortController().signal);
-  const { CheckpointStore } =
-    await import("../../dist/runtime/checkpoint-store.js");
-  const store = new CheckpointStore(dir, "s1");
-  assert.equal(store.list().length, 0);
-});
-
-test("checkpoint capture failure does not block the turn", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "ws-"));
-  gitInit(dir);
-  // force a too-large checkpoint by tiny cap
-  const { CheckpointStore } =
-    await import("../../dist/runtime/checkpoint-store.js");
-  const store = new CheckpointStore(dir, "s1", { maxCheckpointBytes: 1 });
-  const provider = new FakeProvider([
-    {
-      toolCalls: [
-        {
-          id: "w1",
-          name: "write",
-          arguments: { path: "new.txt", content: "hi\n" },
-        },
-      ],
-    },
-    { text: "done" },
-  ]);
-  const runtime = new AgentRuntime({
-    provider,
-    workspace: dir,
-    tools: [writeTool],
-    mode: "yolo",
-    checkpointingEnabled: true,
-    checkpointStore: store,
-  });
-  const session = new InMemorySession("s1", dir);
-  const result = await runtime.runAgentTurn(
-    "go",
-    session,
-    new AbortController().signal,
+  assert.ok(
+    events.every((e) => !String(e.type).startsWith("checkpoint")),
+    "unexpected checkpoint event in onEvent stream",
   );
-  assert.equal(result, "done");
+  assert.ok(
+    sessionEvents.every((e) => !String(e.type).startsWith("checkpoint")),
+    "unexpected checkpoint event in session log",
+  );
 });
 
-test("non-git workspace warns and continues", async () => {
+test("non-git workspace mutating turn emits no checkpoint events", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-")); // not git
   const provider = new FakeProvider([
     {
@@ -333,17 +241,25 @@ test("non-git workspace warns and continues", async () => {
     workspace: dir,
     tools: [writeTool],
     mode: "yolo",
-    checkpointingEnabled: true,
     onEvent: (e) => events.push(e),
   });
   const session = new InMemorySession("s1", dir);
+  const sessionEvents: any[] = [];
+  (session as any).appendEvent = (ev: any) => sessionEvents.push(ev);
   const result = await runtime.runAgentTurn(
     "go",
     session,
     new AbortController().signal,
   );
   assert.equal(result, "done");
-  assert.ok(events.some((e) => e.type === "checkpoint_created"));
+  assert.ok(
+    events.every((e) => !String(e.type).startsWith("checkpoint")),
+    "unexpected checkpoint event in onEvent stream",
+  );
+  assert.ok(
+    sessionEvents.every((e) => !String(e.type).startsWith("checkpoint")),
+    "unexpected checkpoint event in session log",
+  );
 });
 
 test("repeated long requests do not duplicate the task ledger", async () => {

@@ -1,10 +1,7 @@
 import type { SlashCommand } from "@earendil-works/pi-tui";
 import type { Skill } from "../skills/registry.js";
 import type { AgentPersona } from "../agents/registry.js";
-import { CheckpointStore } from "../runtime/checkpoint-store.js";
-import { join } from "node:path";
-import { readFileSync } from "node:fs";
-import { renderDiff } from "../tools/diff.js";
+import { execFileSync } from "node:child_process";
 
 /**
  * One interactive command. The registry is the single source of truth for
@@ -91,6 +88,11 @@ export interface CommandDispatchResult {
   /** True when the command name did not exist. */
   unknown?: boolean;
   name?: string;
+}
+
+/** Run git in a workspace; throws on failure so callers can map it to a message. */
+function runGit(cwd: string, args: string[]): string {
+  return execFileSync("git", args, { cwd, encoding: "utf8" });
 }
 
 /** Parse `/name args` into its parts; non-slash input returns null. */
@@ -370,186 +372,98 @@ export function createCommandRegistry(
   });
 
   registry.register({
-    name: "undo",
-    description: "restore workspace to a checkpoint",
-    category: "Session",
-    argumentHint: "[list|<n>] [--keep-untracked] [--yes|--force]",
-    run(ctx, args) {
-      const session = ctx.session;
-      const store = new CheckpointStore(session.workspace, session.id);
-      const avail = store.isAvailable();
-      if (!avail.available) {
-        ctx.appendLine(`undo unavailable: ${avail.reason}`);
-        return;
-      }
-      const tokens = (args ?? "").split(/\s+/).filter(Boolean);
-      const keepUntracked = tokens.includes("--keep-untracked");
-      const force = tokens.includes("--yes") || tokens.includes("--force");
-      const positional = tokens.filter((t) => !t.startsWith("--"));
-      if (positional[0] === "list") {
-        const list = store.list();
-        if (!list.length) {
-          ctx.appendLine("no checkpoints");
-          return;
-        }
-        ctx.appendLine(
-          list
-            .map((m, i) => {
-              const label = m.label ? `  ${m.label}` : "";
-              return `${i + 1}. ${m.id}  ${new Date(m.createdAt).toISOString()}  ${m.files.length} files${label}`;
-            })
-            .join("\n"),
-        );
-        return;
-      }
-      const list = store.list();
-      if (!list.length) {
-        ctx.appendLine("no checkpoints");
-        return;
-      }
-      let id = list[0].id;
-      if (positional[0] && /^\d+$/.test(positional[0])) {
-        const idx = parseInt(positional[0], 10) - 1;
-        if (idx < 0 || idx >= list.length) {
-          ctx.appendLine("checkpoint not found");
-          return;
-        }
-        id = list[idx].id;
-      }
-      let preview;
-      try {
-        preview = store.previewRestore(id, keepUntracked);
-      } catch (err) {
-        ctx.appendLine(
-          `checkpoint no longer available: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        return;
-      }
-      // Non-interactive: refuse unless forced.
-      if ((ctx.approvals as any)?.nonInteractive && !force) {
-        ctx.appendLine(
-          "undo unavailable in non-interactive mode (use --force)",
-        );
-        return;
-      }
-      const manifest = store.get(id);
-      const skipped = manifest?.skipped ?? [];
-      ctx.appendLine(
-        `preview:\n  changed: ${preview.changed.join(", ") || "(none)"}\n  restored: ${preview.restored.join(", ") || "(none)"}\n  removed: ${preview.removed.join(", ") || "(none)"}`,
-      );
-      if (store.isAtCheckpoint(id)) {
-        ctx.appendLine("already at checkpoint");
-        return;
-      }
-      // Dirty workspace (modified or removed files) requires --force.
-      const dirty = preview.changed.length > 0 || preview.removed.length > 0;
-      if (dirty && !force) {
-        ctx.appendLine(
-          "workspace has changes since checkpoint; rerun with --force to override",
-        );
-        return;
-      }
-      if (!force && !tokens.includes("--yes")) {
-        ctx.appendLine("rerun with --yes to apply");
-        return;
-      }
-      let result;
-      try {
-        result = store.restore(id, keepUntracked);
-      } catch (err) {
-        ctx.appendLine(
-          `checkpoint no longer available: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        return;
-      }
-      ctx.appendLine(
-        `restored ${result.changed.length + result.restored.length} files; removed ${result.removed.length}; skipped ${skipped.length}`,
-      );
-      if (typeof (ctx.session as any).appendEvent === "function") {
-        try {
-          (ctx.session as any).appendEvent({
-            type: "checkpoint_restored",
-            checkpointId: id,
-            changed: result.changed.length,
-            restored: result.restored.length,
-            removed: result.removed.length,
-          });
-        } catch {
-          // best effort
-        }
-      }
-    },
-  });
-
-  registry.register({
     name: "diff",
-    description: "show workspace changes since the last checkpoint",
+    description: "show workspace changes against git HEAD",
     category: "Session",
     argumentHint: "[--stat] [path]",
     run(ctx, args) {
       const session = ctx.session;
-      const store = new CheckpointStore(session.workspace, session.id);
-      const avail = store.isAvailable();
       const tokens = (args ?? "").split(/\s+/).filter(Boolean);
       const statOnly = tokens.includes("--stat");
       const pathFilter = tokens.filter((t) => !t.startsWith("--"))[0];
-      const hasCheckpoint = store.list().length > 0;
-      let entries;
-      try {
-        entries = store.diff();
-      } catch (err) {
-        ctx.appendLine(
-          `diff unavailable: ${err instanceof Error ? err.message : String(err)}`,
-        );
+
+      const inRepo = (() => {
+        try {
+          const out = runGit(session.workspace, [
+            "rev-parse",
+            "--is-inside-work-tree",
+          ]);
+          return out.trim() === "true";
+        } catch {
+          return false;
+        }
+      })();
+      if (!inRepo) {
+        ctx.appendLine("diff unavailable: not a git repository");
         return;
       }
-      if (pathFilter) {
-        entries = entries.filter(
-          (e) => e.path === pathFilter || e.path.startsWith(pathFilter + "/"),
-        );
+
+      type Entry = { path: string; status: "added" | "modified" | "deleted" };
+      const entries: Entry[] = [];
+      const nameStatus = runGit(session.workspace, [
+        "diff",
+        "--name-status",
+        "HEAD",
+        ...(pathFilter ? ["--", pathFilter] : []),
+      ]);
+      for (const line of nameStatus.split("\n").filter(Boolean)) {
+        const [code, ...rest] = line.split("\t");
+        const p = rest.join("\t");
+        if (code.startsWith("A")) entries.push({ path: p, status: "added" });
+        else if (code.startsWith("D"))
+          entries.push({ path: p, status: "deleted" });
+        else entries.push({ path: p, status: "modified" });
       }
+      const untracked = runGit(session.workspace, [
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        ...(pathFilter ? ["--", pathFilter] : []),
+      ]);
+      for (const p of untracked.split("\n").filter(Boolean)) {
+        entries.push({ path: p, status: "added" });
+      }
+      entries.sort((a, b) => a.path.localeCompare(b.path));
+
       if (!entries.length) {
-        if (!hasCheckpoint && !avail.available) {
-          ctx.appendLine(
-            "diff unavailable: not a git repository and no checkpoints",
-          );
-        } else {
-          ctx.appendLine("(no changes)");
-        }
+        ctx.appendLine("(no changes)");
         return;
       }
       if (statOnly) {
         const counts = { added: 0, modified: 0, deleted: 0 };
         for (const e of entries) counts[e.status]++;
+        const noun = entries.length === 1 ? "file" : "files";
         ctx.appendLine(
-          `${entries.length} files changed: ${counts.added} added, ${counts.modified} modified, ${counts.deleted} deleted\n` +
+          `${entries.length} ${noun} changed: ${counts.added} added, ${counts.modified} modified, ${counts.deleted} deleted\n` +
             entries.map((e) => `${e.status.padEnd(8)} ${e.path}`).join("\n"),
         );
         return;
       }
-      // Detailed: per-file status + line diff for checkpoint-backed entries.
-      const cp = hasCheckpoint ? store.list()[0] : undefined;
       const lines: string[] = [];
+      // One diff invocation for every entry, then bucket the output by path:
+      // spawning git per file would be O(entries) subprocesses.
+      const all = runGit(session.workspace, [
+        "diff",
+        "HEAD",
+        "--no-color",
+        ...(pathFilter ? ["--", pathFilter] : []),
+      ]);
+      const byPath = new Map<string, string[]>();
+      let current: string | undefined;
+      for (const l of all.split("\n")) {
+        const m = /^diff --git a\/(.+?) b\/(.+)$/.exec(l);
+        if (m) {
+          current = m[2];
+          byPath.set(current, []);
+        } else if (current) {
+          byPath.get(current)!.push(l);
+        }
+      }
       for (const e of entries) {
         lines.push(`${e.status.padEnd(8)} ${e.path}`);
-        if (cp) {
-          const snap = store.snapshotFileContent(cp.id, e.path);
-          const curPath = join(session.workspace, e.path);
-          let cur: Buffer | null = null;
-          try {
-            cur = readFileSync(curPath);
-          } catch {
-            cur = null;
-          }
-          if (e.status === "modified" && snap && cur) {
-            const d = renderDiff(snap.toString("utf8"), cur.toString("utf8"));
-            for (const l of d) lines.push("  " + l);
-          } else if (e.status === "added" && cur) {
-            const d = renderDiff("", cur.toString("utf8"));
-            for (const l of d) lines.push("  " + l);
-          } else if (e.status === "deleted" && snap) {
-            const d = renderDiff(snap.toString("utf8"), "");
-            for (const l of d) lines.push("  " + l);
+        if (e.status !== "added") {
+          for (const l of byPath.get(e.path) ?? []) {
+            lines.push("  " + l);
           }
         }
       }

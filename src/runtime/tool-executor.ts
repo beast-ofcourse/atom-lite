@@ -20,8 +20,7 @@ function resourceKey(call: ToolCall, workspace: string): string {
 
 function isMutation(call: ToolCall): boolean {
   // Workspace mutations. The todo ledger is session state, not workspace
-  // state: it is serialized by its own lock key below and never triggers a
-  // checkpoint.
+  // state: it is serialized by its own lock key below.
   return call.name === "write" || call.name === "edit";
 }
 
@@ -129,7 +128,7 @@ export class ToolExecutor {
       }
       if (call.name === "todo") {
         // Serialize ledger writes without classifying them as workspace
-        // mutations (no checkpoint, allowed in plan mode).
+        // mutations (allowed in plan mode).
         return lm.acquireWrite("__todo__", signal);
       }
       const key = resourceKey(call, ctx.workspace);
