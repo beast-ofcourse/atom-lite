@@ -441,7 +441,6 @@ export async function run(args: string[]): Promise<void> {
     contextManager,
     extensionDispatch,
     bashConcurrency: config.runtime.bashConcurrency,
-    checkpointingEnabled: interactive || Boolean(config.runtime.checkpointing),
     limits: {
       maxParallelToolCalls: config.runtime.maxParallelToolCalls,
       maxToolOutputBytes: config.runtime.maxToolOutputBytes,

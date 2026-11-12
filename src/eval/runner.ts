@@ -201,7 +201,6 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
         workspace: tmp,
         tools: BUILTIN_TOOLS,
         mode: "yolo",
-        checkpointingEnabled: false,
         limits: options.limits,
         onEvent: (e: any) => {
           if (e?.type === "usage") {
