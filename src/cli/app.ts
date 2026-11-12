@@ -2658,17 +2658,12 @@ export async function run(args: string[]): Promise<void> {
       );
       tui.requestRender();
     } else if (e.type === "checkpoint_created") {
-      appendLine(`checkpoint ${e.id} created`, theme.tokens.dim);
-      tui.requestRender();
+      // Legacy session events recorded before checkpoint removal: replayed
+      // silently, nothing to render (see tests/sessions/checkpoint-replay.test.ts).
     } else if (e.type === "checkpoint_failed") {
-      appendLine(`checkpoint failed: ${e.reason}`, theme.tokens.warning);
-      tui.requestRender();
+      // Legacy; see above.
     } else if (e.type === "checkpoint_unavailable") {
-      appendLine(
-        `checkpoint unavailable: ${e.reason ?? "not a git repository"}`,
-        theme.tokens.warning,
-      );
-      tui.requestRender();
+      // Legacy; see above.
     } else if (e.type === "task_ledger_open") {
       appendLine(
         `task ledger: ${e.pending} open item(s) remain`,
