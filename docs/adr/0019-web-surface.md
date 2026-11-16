@@ -1,7 +1,7 @@
 # 0019 — Web surface (`atom-lite --serve`)
 
 Date: 2026-11-16
-Status: Accepted (implemented on branch `web-ui`, tickets 01–09)
+Status: Accepted (implemented on branch `web-ui`, tickets 01–12)
 Supersedes: none
 
 ## Context
@@ -25,7 +25,7 @@ Two constraints shaped the design:
 Add a server mode that owns the same runtime the TUI uses and serves a
 zero-build browser client.
 
-- **Transport.** A Node `http` server plus `ws` (`8.18.3`, pinned) carries JSON
+- **Transport.** A Node `http` server plus `ws` (`8.23.0`, pinned) carries JSON
   messages. `ws` is the only new runtime dependency. The client is vanilla
   HTML/CSS/JS under repo-root `web/`, shipped in the npm package; there is no
   frontend build step.
@@ -37,7 +37,10 @@ zero-build browser client.
   foreign `Origin` or `Host` are rejected (localhost CSRF and DNS rebinding).
   `--host` stays out of scope.
 - **Runtime events.** `AgentRuntime.setEventSink` lets the server (or the TUI)
-  own the single event stream. The runtime itself is unchanged.
+  own the single event stream. The runtime gains only additive seams for the
+  browser: `setEventSink`, `setWorkspace`, an optional `tool` on
+  `ApprovalRequest`, and an optional `resetTrust` on `ApprovalContext`. The
+  loop, tool behavior, and scheduling are unchanged.
 - **Approvals.** The server installs itself as the approval handler; requests
   go to the browser with the command, cwd, tool, and the waiting turn id.
   Approve/deny/trust-session map onto the existing `ApprovalContext`; trust is
