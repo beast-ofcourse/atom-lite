@@ -11,3 +11,12 @@ skills-lock.json
 plans/
 evals/tasks/git-commit/workspace
 temp/
+.codex/
+.github/agents/
+.github/hooks/
+.github/skills/
+
+.playwright-mcp/
+.impeccable/
+web/.impeccable/
+.atom-lite/attachments/

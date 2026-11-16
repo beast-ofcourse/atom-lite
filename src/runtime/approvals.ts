@@ -7,6 +7,8 @@ export interface ApprovalRequest {
   cwd: string;
   timeoutMs: number;
   sandboxed: boolean;
+  /** Tool that raised the request, when known (e.g. bash, write, edit, read). */
+  tool?: string;
 }
 
 export type ApprovalHandler = (
@@ -18,6 +20,8 @@ export interface ApprovalContext {
   handler?: ApprovalHandler;
   isTrusted: () => boolean;
   trustSession: () => void;
+  /** Clear session trust, e.g. when the user starts a new conversation. */
+  resetTrust?: () => void;
   nonInteractive: boolean;
 }
 

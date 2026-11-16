@@ -108,10 +108,43 @@ test("session index derives titles, message counts, and search text", async () =
   });
 });
 
+// Regression: creating a session and quitting used to leave an empty JSONL
+// log. A new session must stay in memory until its first message.
+test("a new session stays in memory until its first message", async () => {
+  await withStore(async (store) => {
+    const created = store.create({
+      workspace: "/w",
+      provider: "fake",
+      id: "lazy",
+    });
+    created.appendEvent({ type: "todos_updated", todos: [] });
+    await created.flush();
+
+    assert.equal(store.resume("lazy"), undefined);
+    assert.deepEqual(store.list(), []);
+
+    created.appendMessage({
+      role: "user",
+      content: [{ type: "text", text: "hello" }],
+    });
+    await created.flush();
+
+    const resumed = store.resume("lazy");
+    assert.ok(resumed);
+    assert.deepEqual(
+      resumed.events.map((event) => event.type),
+      ["session_started", "todos_updated", "user_message"],
+    );
+    assert.equal(store.list().length, 1);
+  });
+});
+
 test("listing is scoped by workspace", async () => {
   await withStore(async (store) => {
     const sa = store.create({ workspace: "/a", provider: "fake", id: "a" });
     const sb = store.create({ workspace: "/b", provider: "fake", id: "b" });
+    sa.appendMessage({ role: "user", content: [{ type: "text", text: "a" }] });
+    sb.appendMessage({ role: "user", content: [{ type: "text", text: "b" }] });
     await sa.flush();
     await sb.flush();
     assert.deepEqual(

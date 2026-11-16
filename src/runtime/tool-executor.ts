@@ -78,6 +78,7 @@ async function personaPermissionResult(
     cwd: ctx.workspace,
     timeoutMs: 0,
     sandboxed: false,
+    tool: call.name,
   });
   if (decision.allowed) return undefined;
   return {

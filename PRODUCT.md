@@ -1,11 +1,14 @@
 # Product
 
+<!-- impeccable:product-schema 1 -->
+
 ## Platform
 
 web
 
-<!-- Terminal TUI (ANSI) is the only surface today. Recorded as `web` because the
-     product schema has no terminal value; it is not a browser product. -->
+<!-- Dual-surface product: a Terminal TUI (ANSI) as the primary surface plus a
+     browser UI served by `atom-lite --serve` (added 2026-11, secondary). The
+     product schema has no terminal value, so the bare value stays `web`. -->
 
 ## Users
 
@@ -17,7 +20,9 @@ They work in a repository workspace, often against local or self-hosted models
 (Ollama, LM Studio, llama.cpp), and sometimes against hosted OpenAI-compatible
 endpoints, Gemini, or the default Kilo gateway. They value offline operation,
 explicit safety boundaries, and the ability to extend the agent without forking
-the core.
+the core. A secondary use is the same developers reaching the agent from a
+browser (`atom-lite --serve`) — a remote machine, another device, or a quick
+look — without giving up the local-first runtime.
 
 ## Product Purpose
 
@@ -40,10 +45,15 @@ than a lock-in.
 
 ## Operating Context
 
-- Runs in an interactive terminal (TUI) or as a one-shot CLI task; requires
-  Node.js >= 22.19 and is distributed on npm as `atom-lite`.
+- Runs in an interactive terminal (TUI) as the primary surface, as a one-shot
+  CLI task, or as a local web server (`atom-lite --serve [port]`, default
+  7317, localhost-only, no account) driven from a browser; requires Node.js >=
+  22.19 and is distributed on npm as `atom-lite`.
 - Primary workflow: open a repository workspace, talk to the agent, approve or
   run tools, inspect streamed tool output/diffs, and resume sessions later.
+- The web surface reuses the same runtime, tools, sessions, and approval
+  semantics. A per-session lockfile gives one live owner at a time across the
+  CLI and server, and a reconnecting tab replays the in-flight turn.
 - Configuration lives in `~/.config/atom-lite/config.json` and per-project
   `.atom-lite/config.json`; secrets live in
   `~/.config/atom-lite/credentials.json` (0600) or environment variables.
@@ -78,11 +88,22 @@ than a lock-in.
 - **Terminal UI:** pi-tui-based renderer with streaming text, tool boxes, diff
   view, command palette, pickers, themes (auto/dark/light/ansi), mouse support
   that can be disabled, and no-colour fallbacks.
+- **Web UI (v1 scope):** browser client over WebSocket against the same
+  `AgentRuntime`; streaming chat text, markdown with syntax-highlighted code,
+  local image rendering with a lightbox, Mermaid SVG diagrams, foldable thinking
+  blocks, tool cards with live output and final result/diff, approval dialogs
+  (approve / deny / trust-session), session list/resume/new/rename/delete over
+  the same JSONL logs, multiple tabs with one controller, mid-turn input queued
+  into the steering queue, reconnect with active-turn replay, a live provider
+  model overlay, effort and plan/yolo switching in the composer, native file
+  attachments, skills and MCP overlays, a workspace explorer, slash commands and
+  a command palette, and System/Light/Dark theming. Deferred: ANSI rendering,
+  shell mode, extension widgets, and cross-machine access.
 - **Constraints:** TypeScript strict on NodeNext ESM; the small-core principle
   (new built-in tools need strong justification against ADR 0001); local-first
-  with no telemetry or hosted database (ADR 0004).
-- **Undecided:** whether the platform ever expands beyond the terminal. The
-  repository contains no browser or native-app surface.
+  with no telemetry or hosted database (ADR 0004); the web server binds
+  localhost only and is token-guarded against localhost CSRF.
+- **Undecided:** whether the browser surface grows toward full TUI parity.
 
 ## Brand Commitments
 
@@ -99,11 +120,13 @@ than a lock-in.
 - `README.md` — install, quick start, configuration, tools, providers, safety,
   sessions, commands, development, and architecture.
 - `docs/README.md`, `docs/configuration.md`, `docs/extensions.md` — supporting
-  reference docs.
-- `docs/adr/0001`–`0016` — architectural decisions, including four-tools-only,
+  reference docs; `web/DESIGN.md` records the web surface design system.
+- `docs/adr/0001`–`0020` — architectural decisions, including four-tools-only,
   single agent loop, bash barrier, local-first, pi-tui, expanded toolset, MCP,
   session search, deepened loop, Pi extensions, autonomy primitives, advanced
-  tool features, checkpoints, the eval harness, and the session task ledger.
+  tool features, checkpoints, the eval harness, the session task ledger,
+  primary agent personas, checkpoint removal, the web surface, and one live
+  owner per session.
 - `tests/` — behavioral test suite; `scripts/bench.mjs` — non-gating benchmark.
 - `CHANGELOG.md` — release history through 0.9.0.
 - **Absences future work must not fabricate:** no customer testimonials, case

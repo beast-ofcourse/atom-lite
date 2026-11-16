@@ -95,7 +95,7 @@ See [`docs/configuration.md`](./docs/configuration.md) for every field, default,
 ```
 atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
           [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json]
-          [--theme NAME] [--no-color] [--version] [--help]
+          [--theme NAME] [--no-color] [--serve [PORT]] [--version] [--help]
 ```
 
 | Flag                      | Description                                      |
@@ -112,10 +112,67 @@ atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
 
 | `--theme NAME` | Use `auto`, `dark`, `light`, or `ansi` for this run |
 | `--no-color` | Force the no-colour theme |
+| `--serve [PORT]` | Serve the browser UI on localhost (default port 7317; next free port if taken) |
 | `--version` | Print version |
 | `--help` | Show help |
 
+`--serve` starts the same runtime, tools, sessions, and approvals behind a
+localhost-only web page and opens it in your browser. The page and every asset
+carry a per-run token; requests with a foreign `Origin` or `Host` are rejected.
+The first tab controls the session, later tabs are read-only viewers. The page
+reconnects on its own and replays an in-flight turn, renders assistant markdown
+with syntax-highlighted code, and follows the configured theme (light for
+`light`, `solarized`, `ansi`, and no-colour; dark otherwise). Sessions use a
+per-session lockfile, so the terminal and browser cannot drive the same log at
+once.
+
 In the TUI, type `/help` for every command grouped by category, or press `ctrl+p` for the fuzzy command palette. `/theme` opens a live-preview picker and persists your choice; `NO_COLOR` and `--no-color` always win. `/sessions` opens a searchable picker scoped to the current workspace; `/search <query>` prints matching sessions with snippets. Mouse wheel scrolling and click-to-focus are enabled for interactive terminals and can be disabled with `ui.mouse: false`.
+
+## Web UI
+
+```
+atom-lite --serve [port]
+```
+
+Starts a local server (default `127.0.0.1:7317`, or the next free port), prints
+the URL with its per-run token, and opens it. The browser drives the same
+runtime, tools, sessions, and approvals as the terminal; there is no second
+agent.
+
+- **Localhost only.** The server binds `127.0.0.1`, and the page and every
+  asset carry the run token. Requests with a foreign `Origin` or `Host` are
+  rejected. Treat the printed URL as a secret while the server runs.
+- **One live owner per session.** The terminal and the server both take
+  `<sessionId>.jsonl.lock`. Opening a session another process holds is refused
+  and names the holder; an unsaved session is protected too. A lock left by a
+  killed process is reclaimed automatically.
+- **Tabs.** The first tab controls the session; later tabs are read-only
+  viewers and take over if the controller leaves.
+- **Reconnects.** A dropped socket reconnects on its own and replays the
+  in-flight turn exactly once. A pending approval survives the drop and
+  returns to the reconnecting tab; it fails safe as a denial if nobody comes
+  back within the grace period.
+- **Input.** Messages typed while a turn runs join the steering queue and are
+  delivered in order before the turn ends.
+- **Rendering.** Assistant text is markdown with syntax-highlighted fenced
+  code, local workspace images with a lightbox, and Mermaid diagrams rendered as
+  themed SVG (source and Copy remain as the fallback); thinking is folded into a
+  disclosure. The sidebar lists, resumes, renames, and deletes workspace
+  sessions.
+- **Controls.** The header model chip opens a searchable overlay whose catalog
+  is refreshed live from every configured provider. The composer shows and
+  switches effort (`low`/`medium`/`high`) and mode (`plan`/`yolo`), and its plus
+  button opens the native file picker for attachments on every platform.
+  `Ctrl/Cmd+O` opens the working-directory explorer and `Ctrl/Cmd+K` the command
+  palette. Typing `/` offers `/new`, `/help`, `/model`, `/theme`, `/cwd`,
+  `/rename`, `/delete`, `/search`, `/export`, `/effort`, `/mode`, `/skills`, and
+  `/mcp`.
+- **Theme.** The configured `ui.theme` seeds the web theme; the sidebar footer
+  can then switch between System, Light, and Dark and remembers the choice.
+- **Not yet.** ANSI rendering, shell mode, extension widgets, and cross-machine
+  access. The terminal remains the primary surface.
+
+The visual system is documented in [`web/DESIGN.md`](./web/DESIGN.md).
 
 ## Tools
 
@@ -201,7 +258,7 @@ Primary agent personas are Markdown files that preset role instructions, samplin
 
 ## Sessions
 
-Sessions are append-only JSONL event logs recording everything in one conversation. They are resumable across CLI restarts and grouped by workspace. The session index derives a title from the first user message unless `/rename rename <title>` overrides it, and records the provider, update time, and message count. `/sessions` resumes a session in place: retained messages are replayed into the transcript and a `session_resumed` event is appended. `/search <query>` matches titles, message content, and workspace paths, ranking title hits first. `--list-sessions` and `--search-sessions` print the same index as stable tab-separated rows for scripts. Compaction summarizes older history to stay within the context budget while retaining the full transcript.
+Sessions are append-only JSONL event logs recording everything in one conversation. They are resumable across CLI restarts and grouped by workspace. A new session stays in memory until its first message, so creating one and quitting leaves no empty log. The session index derives a title from the first user message unless `/rename rename <title>` overrides it, and records the provider, update time, and message count. `/sessions` resumes a session in place: retained messages are replayed into the transcript and a `session_resumed` event is appended. `/search <query>` matches titles, message content, and workspace paths, ranking title hits first. `--list-sessions` and `--search-sessions` print the same index as stable tab-separated rows for scripts. Compaction summarizes older history to stay within the context budget while retaining the full transcript.
 
 ## Context management
 

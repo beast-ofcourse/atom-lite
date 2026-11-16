@@ -120,3 +120,27 @@ test("glob filter narrows the search", async () => {
   assert.match(r.content, /a\.log/);
   assert.ok(!r.content.includes("a.txt"));
 });
+
+// Regression: fs.glob's AsyncIterable form lives on node:fs/promises. Calling
+// the callback-based fs variant threw, so the JS fallback silently ignored
+// `glob` on hosts without ripgrep (CI) and reported non-matching files.
+test("glob filter narrows when ripgrep is unavailable", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "grep-"));
+  mkdirSync(join(ws, "sub"), { recursive: true });
+  writeFileSync(join(ws, "a.txt"), "needle\n");
+  writeFileSync(join(ws, "a.log"), "needle\n");
+  const emptyBin = mkdtempSync(join(tmpdir(), "grep-no-rg-"));
+  const originalPath = process.env.PATH;
+  try {
+    process.env.PATH = emptyBin;
+    const r = await grepTool.execute(
+      call({ pattern: "needle", glob: "*.log" }),
+      ctx(ws),
+    );
+    assert.match(r.content, /a\.log/);
+    assert.ok(!r.content.includes("a.txt"));
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+  }
+});

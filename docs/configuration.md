@@ -100,6 +100,14 @@ live provider metadata, then a built-in table of known model families.
 | `enabled`       | boolean                  | `true`  | Persist sessions as JSONL.                                |
 | `retentionDays` | positive integer \| null | `null`  | Delete sessions older than this. `null` keeps everything. |
 
+A session is written on its first message. Creating a session and quitting
+without sending one leaves no JSONL file behind.
+
+While a session is open, a sibling `<sessionId>.jsonl.lock` file records the
+owning process. The terminal and `atom-lite --serve` both take this lock, so
+the same session cannot be driven from two places at once; the refusal names
+the holder. A lock left behind by a killed process is reclaimed automatically.
+
 ## `ui`
 
 `ui` is user-owned. Project config may include the section, but it is ignored.
@@ -115,6 +123,17 @@ live provider metadata, then a built-in table of known model families.
 `COLORFGBG`, then falls back to `dark`. `--no-color` and a non-empty `NO_COLOR`
 environment variable force the `ansi` theme. The transcript, status line,
 banner, and pickers read semantic tokens rather than hardcoded escapes.
+
+### Web surface
+
+`atom-lite --serve [port]` uses the same configuration. The configured theme
+seeds the browser: `light`, `solarized`, `ansi`, or a forced no-colour run gives
+the light web theme; every other theme is dark. An in-page System/Light/Dark
+choice is stored in browser `localStorage` without changing the config. The web
+server inherits the session settings above and takes the same per-session lock
+as the terminal. Files attached from the composer are written under
+`<workspace>/.atom-lite/attachments/<session>/` so the agent's tools can read
+them; they are not uploaded anywhere.
 
 ## Recovery
 

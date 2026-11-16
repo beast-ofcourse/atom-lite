@@ -108,6 +108,11 @@ export class AgentRuntime {
     this.emitContextUsage();
   }
 
+  /** Point subsequent tools and approvals at a different workspace. */
+  setWorkspace(workspace: string): void {
+    this.workspace = workspace;
+  }
+
   /** Update the context window for the selected model (metadata may arrive late). */
   setContextWindow(window: number | undefined): void {
     const next =
@@ -226,6 +231,14 @@ export class AgentRuntime {
       }
     }
     return summary;
+  }
+
+  /**
+   * Replace the event consumer. The TUI uses this at startup; the web server
+   * uses it when it owns the runtime. One sink at a time, by design.
+   */
+  setEventSink(sink: AgentRuntimeOptions["onEvent"]): void {
+    this.onEvent = sink;
   }
 
   /** Replace the toolset, e.g. after MCP discovery or a list_changed refresh. */

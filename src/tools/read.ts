@@ -138,6 +138,7 @@ export const readTool: Tool = {
         cwd: ctx.workspace,
         timeoutMs: 0,
         sandboxed: false,
+        tool: "read",
       });
       if (!decision.allowed) {
         return {

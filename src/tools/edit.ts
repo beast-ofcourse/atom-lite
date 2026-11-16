@@ -74,6 +74,7 @@ export const editTool: Tool = {
         cwd: ctx.workspace,
         timeoutMs: 0,
         sandboxed: false,
+        tool: "edit",
       });
       if (!decision.allowed) {
         return {

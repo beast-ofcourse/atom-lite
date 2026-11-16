@@ -109,6 +109,7 @@ export const bashTool: Tool = {
         cwd: workdir,
         timeoutMs: timeout,
         sandboxed: false,
+        tool: "bash",
       });
       if (!decision.allowed) {
         return {

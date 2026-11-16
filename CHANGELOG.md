@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `atom-lite --serve [port]` starts a local web server (default port 7317, next free port on conflict) and opens a browser UI for the same agent runtime, tools, sessions, and approvals. The server binds localhost only, issues a per-run token that the page and every asset carry, and rejects requests with a foreign origin or host so no other page on the machine can drive the agent.
+- The web surface streams assistant text, renders tool calls as collapsible cards with live output and their final result/diff, and shows approval requests with approve / deny / trust-for-session answers. A pending approval is denied if the browser goes away, so the turn never strands.
+- The web surface lists the workspace's sessions (title, updated time, message count), resumes one into the transcript, and starts a new one. Listings are workspace-scoped, and browser sessions are the same JSONL logs the terminal reads and writes.
+- Multiple tabs share the live stream: the first tab controls and later tabs are read-only viewers (labelled in the header) that take over control when the controller leaves. Messages typed while a turn is running are queued into the runtime's steering queue, shown as pending, and delivered in order before `turn_end`.
+- The web client reconnects on its own after a dropped socket. The server buffers the active turn's events and sends them on reconnect (with the session history sliced to before the turn), so the turn continues and nothing is re-run or duplicated. The buffer is released at `turn_end`.
+- Web sessions take a per-session `.jsonl.lock`. The CLI and the server both refuse to open a session held by another live process and name the holder; a lock left by a killed process is reclaimed after a short grace period. Different sessions do not interfere.
+- The web surface is a ChatGPT-style conversation workspace: a dated session sidebar, centered 768px transcript, unframed assistant prose, right-aligned user bubbles, a 28px composer, and a System/Light/Dark theme switch that starts from the configured UI theme and remembers the local choice.
+- Sessions can be renamed and deleted from a row menu or slash command. Deleting the active chat opens a fresh one first. The header model control is now a searchable overlay whose catalog is refreshed live from every configured provider; effort and plan/yolo mode are visible and switchable from the composer.
+- Assistant markdown renders local workspace images with a lightbox and Mermaid fences as themed SVG diagrams (lazily loaded, strict security, source fallback). Failed images degrade to an accessible placeholder.
+- The composer plus button opens the native file picker on every platform; selected files become removable chips and are stored under the workspace's `.atom-lite/attachments` for the next turn. `/skills` and `/mcp` open live runtime overlays, and the workspace explorer, slash autocomplete, command palette, and `/export` cover the remaining chat actions.
+- Switching sessions preserves rendered markdown, Mermaid diagrams, and the cached thinking block; a pending stream batch is flushed before the transcript resets. The token system and component decisions are recorded in `web/DESIGN.md`.
+
+**Deliberately deferred for the web surface:** ANSI rendering, shell mode, extension widgets, and any cross-machine access. The terminal remains the primary surface.
+
 ## [0.14.0] — 2026-11-12
 
 ### Removed
