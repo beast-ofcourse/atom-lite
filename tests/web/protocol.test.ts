@@ -2,9 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { once } from "node:events";
 import { request as httpRequest } from "node:http";
+import { spawn } from "node:child_process";
 import { WebSocket } from "ws";
 import { AgentRuntime } from "../../dist/agent/loop.js";
 import { FakeProvider } from "../../dist/providers/fake.js";
@@ -14,7 +15,7 @@ import {
   JsonlSessionStore,
   type Session,
 } from "../../dist/sessions/store.js";
-import { startWebServer } from "../../dist/web/server.js";
+import { startWebServer, webThemeFor } from "../../dist/web/server.js";
 import type { ProviderAdapter } from "../../dist/providers/types.js";
 import type {
   ModelRequest,
@@ -68,7 +69,11 @@ function buildRuntime(
 
 async function start(
   built: WebRuntime,
-  extras: { store?: JsonlSessionStore } = {},
+  extras: {
+    store?: JsonlSessionStore;
+    theme?: "light" | "dark";
+    approvalGraceMs?: number;
+  } = {},
 ) {
   return startWebServer({
     runtime: built.runtime,
@@ -78,6 +83,8 @@ async function start(
     model: "fake-model",
     store: extras.store,
     workspace: built.workspace,
+    theme: extras.theme,
+    approvalGraceMs: extras.approvalGraceMs,
     port: 0,
     openBrowser: false,
   });
@@ -88,7 +95,7 @@ class Client {
   readonly ws: WebSocket;
   readonly messages: any[] = [];
   private waiters: Array<{
-    type: string;
+    matches: (message: any) => boolean;
     resolve: (m: any) => void;
     reject: (e: Error) => void;
     timer: NodeJS.Timeout;
@@ -100,7 +107,7 @@ class Client {
       const msg = JSON.parse(data.toString());
       this.messages.push(msg);
       for (const waiter of [...this.waiters]) {
-        if (waiter.type === msg.type) {
+        if (waiter.matches(msg)) {
           clearTimeout(waiter.timer);
           this.waiters.splice(this.waiters.indexOf(waiter), 1);
           waiter.resolve(msg);
@@ -117,21 +124,29 @@ class Client {
     this.ws.send(JSON.stringify(message));
   }
 
-  /** Resolve with the first message of this type (past or future). */
+  /** Resolve with the first matching message (past or future). */
   waitFor(type: string, timeoutMs = 5000): Promise<any> {
     const existing = this.messages.find((m) => m.type === type);
     if (existing) return Promise.resolve(existing);
-    return this.waitForNext(type, timeoutMs);
+    return this.waitForMatching((m) => m.type === type, timeoutMs);
   }
 
   /** Resolve with the next message of this type, ignoring earlier ones. */
   waitForNext(type: string, timeoutMs = 5000): Promise<any> {
+    return this.waitForMatching((m) => m.type === type, timeoutMs);
+  }
+
+  /** Resolve with the first message matching an arbitrary predicate. */
+  waitForMatching(
+    matches: (message: any) => boolean,
+    timeoutMs = 5000,
+  ): Promise<any> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.waiters = this.waiters.filter((w) => w.timer !== timer);
-        reject(new Error(`timed out waiting for ${type}`));
+        reject(new Error("timed out waiting for a matching message"));
       }, timeoutMs);
-      this.waiters.push({ type, resolve, reject, timer });
+      this.waiters.push({ matches, resolve, reject, timer });
     });
   }
 
@@ -177,6 +192,14 @@ function assistantTextOf(client: Client): string {
     .filter((m) => m.type === "event" && m.event.type === "assistant_text")
     .map((m) => m.event.text)
     .join("");
+}
+
+/** Wait for one runtime event of a given type. */
+function waitForEvent(client: Client, type: string, timeoutMs = 5000) {
+  return client.waitForMatching(
+    (m) => m.type === "event" && m.event?.type === type,
+    timeoutMs,
+  );
 }
 
 /** History events a transcript renders; bookkeeping events are ignored. */
@@ -319,6 +342,49 @@ class SlowFlushSession implements Session {
   }
 }
 
+/** A tool that asks approval, emits output, then blocks until released. */
+function gatedTool() {
+  let openGate!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    openGate = resolve;
+  });
+  return {
+    open: () => openGate(),
+    tool: {
+      definition: {
+        name: "slow",
+        description: "ask, stream, then wait",
+        parameters: { type: "object", properties: {} },
+      },
+      annotations: { readOnlyHint: false },
+      async execute(call: any, ctx: any) {
+        const decision = await checkApproval(ctx.approvals, {
+          command: "slow work",
+          cwd: ctx.workspace,
+          timeoutMs: 0,
+          sandboxed: false,
+          tool: "slow",
+        });
+        if (!decision.allowed) {
+          return {
+            toolCallId: call.id,
+            name: "slow",
+            content: "SLOW_DENIED",
+            isError: true,
+          };
+        }
+        ctx.onToolOutput?.(call, "stdout", "chunk\n");
+        await gate;
+        return {
+          toolCallId: call.id,
+          name: "slow",
+          content: "finished",
+        };
+      },
+    },
+  };
+}
+
 /** A mutating tool that asks the runtime's approval context before running. */
 function mutatingTool(log: string[]) {
   return {
@@ -380,11 +446,43 @@ test("the page is served only with the run token", async () => {
     assert.equal(withToken.status, 200);
     const html = await withToken.text();
     assert.match(html, /<html/i);
+    assert.match(html, /data-theme="dark"/);
     assert.ok(
       !html.includes("__ATOM_LITE_TOKEN__"),
       "token placeholder replaced",
     );
     assert.match(html, /\/app\.js\?token=/, "assets carry the token");
+    assert.match(
+      html,
+      /\/vendor\/markdown-it\.min\.js\?token=/,
+      "vendored renderer carries the token",
+    );
+
+    const vendor = await fetch(
+      `http://127.0.0.1:${server.port}/vendor/markdown-it.min.js?token=${server.token}`,
+    );
+    assert.equal(vendor.status, 200);
+    assert.match(vendor.headers.get("content-type") ?? "", /javascript/);
+  } finally {
+    await server.close();
+  }
+});
+
+// Reason: spec (ticket 09) — the configured UI theme maps onto light/dark for
+// the web surface, and no-colour defaults to light.
+test("the web theme follows the configured theme", async () => {
+  assert.equal(webThemeFor("light"), "light");
+  assert.equal(webThemeFor("ansi"), "light");
+  assert.equal(webThemeFor("solarized"), "light");
+  assert.equal(webThemeFor("auto"), "dark");
+  assert.equal(webThemeFor("dracula"), "dark");
+  assert.equal(webThemeFor("dark"), "dark");
+
+  const built = buildRuntime([{ text: "hi" }]);
+  const server = await start(built, { theme: "light" });
+  try {
+    const html = await (await fetch(server.url)).text();
+    assert.match(html, /data-theme="light"/);
   } finally {
     await server.close();
   }
@@ -501,6 +599,196 @@ test("a tool call reaches the browser as card events in order", async () => {
     assert.match(result.event.content, /echoed/);
   } finally {
     client.close();
+    await server.close();
+  }
+});
+
+// Reason: spec (ticket 07) — a socket drop mid-turn must not lose or re-run
+// work: the reconnect carries the active turn exactly once, the turn finishes,
+// an already-answered approval is not shown again, and the buffer is released.
+test("a reconnecting client replays the active turn exactly once", async () => {
+  const slow = gatedTool();
+  const built = buildRuntime(
+    [
+      { toolCalls: [{ id: "r1", name: "slow", arguments: {} }] },
+      { text: "done" },
+    ],
+    { tools: [slow.tool] },
+  );
+  const server = await start(built);
+  const a = new Client(server.wsUrl);
+  let b: Client | undefined;
+  let c: Client | undefined;
+  try {
+    await a.open();
+    a.send({ type: "input", text: "start" });
+    const approval = await a.waitFor("approval_request");
+    a.send({
+      type: "approval",
+      id: approval.id,
+      turnId: approval.turnId,
+      decision: "approve",
+    });
+    await waitForEvent(a, "tool_output");
+    a.close();
+
+    b = new Client(server.wsUrl);
+    await b.open();
+    const hello = await b.waitFor("hello");
+    assert.deepEqual(historyMessages(hello.history), []);
+
+    const replay = await b.waitFor("replay");
+    assert.ok(replay.turnId > 0);
+    assert.deepEqual(replay.prompts, ["start"]);
+    assert.deepEqual(
+      replay.events
+        .filter((e: any) => e.type.startsWith("tool_"))
+        .map((e: any) => e.type),
+      ["tool_call", "tool_output"],
+    );
+    assert.deepEqual(
+      replay.events
+        .filter((e: any) => e.type === "tool_output")
+        .map((e: any) => e.text),
+      ["chunk\n"],
+    );
+
+    // The approval was answered before the drop; nothing prompts again.
+    b.send({ type: "list_sessions" });
+    await b.waitFor("sessions");
+    assert.ok(!b.messages.some((m) => m.type === "approval_request"));
+
+    slow.open();
+    await b.waitFor("turn_end");
+
+    const replayedKinds = replay.events
+      .filter((e: any) => e.type.startsWith("tool_"))
+      .map((e: any) => e.type);
+    const liveKinds = b.messages
+      .filter((m) => m.type === "event")
+      .map((m) => m.event)
+      .filter((e: any) => e.type.startsWith("tool_"))
+      .map((e: any) => e.type);
+    assert.deepEqual(
+      [...replayedKinds, ...liveKinds],
+      ["tool_call", "tool_output", "tool_result"],
+      "each tool event arrives once",
+    );
+    assert.equal(assistantTextOf(b), "done");
+
+    // turn_end releases the buffer; a late joiner renders the turn from the
+    // session history and receives no replay.
+    c = new Client(server.wsUrl);
+    await c.open();
+    const lateHello = await c.waitFor("hello");
+    assert.deepEqual(
+      historyMessages(lateHello.history).map((e: any) => e.type),
+      ["user_message", "assistant_message", "tool_result", "assistant_message"],
+    );
+    c.send({ type: "list_sessions" });
+    await c.waitFor("sessions");
+    assert.ok(!c.messages.some((m) => m.type === "replay"));
+  } finally {
+    slow.open();
+    a.close();
+    b?.close();
+    c?.close();
+    await server.close();
+  }
+});
+
+// Reason: spec (ticket 08) — the browser must refuse to open a session that
+// another process holds and name the holder instead of writing to it.
+test("the browser refuses a session held by another process", async () => {
+  const storeRoot = mkdtempSync(join(tmpdir(), "web-store-"));
+  const workspace = mkdtempSync(join(tmpdir(), "web-workspace-"));
+  const store = new JsonlSessionStore({ rootDir: storeRoot, lockReclaimMs: 5 });
+  const held = store.create(workspace, "fake", "held");
+  held.appendMessage({
+    role: "user",
+    content: [{ type: "text", text: "held elsewhere" }],
+  });
+  await held.flush();
+  held.releaseLock();
+
+  const holder = spawn(
+    process.execPath,
+    [
+      resolve("tests/fixtures/hold-session-lock.mjs"),
+      join(storeRoot, "held.jsonl.lock"),
+      "held",
+    ],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
+  await once(holder.stdout!, "data");
+  try {
+    const built = buildRuntime([], {
+      workspace,
+      session: store.create(workspace, "fake", "server"),
+    });
+    const server = await start(built, { store });
+    const client = new Client(server.wsUrl);
+    try {
+      await client.open();
+      const hello = await client.waitFor("hello");
+      client.send({ type: "resume_session", id: "held" });
+      const error = await client.waitForNext("error");
+      assert.match(error.message, new RegExp(`PID ${holder.pid}`));
+      assert.notEqual(hello.sessionId, "held");
+    } finally {
+      client.close();
+      await server.close();
+    }
+  } finally {
+    holder.kill("SIGKILL");
+    await once(holder, "exit");
+  }
+});
+
+// Reason: spec (ticket 07) — a prompt that was open when the socket dropped
+// must come back on reconnect, so a blip does not silently deny the tool.
+test("a pending approval returns to the reconnecting client", async () => {
+  const slow = gatedTool();
+  const built = buildRuntime(
+    [
+      { toolCalls: [{ id: "p1", name: "slow", arguments: {} }] },
+      { text: "done" },
+    ],
+    { tools: [slow.tool] },
+  );
+  const server = await start(built, { approvalGraceMs: 5_000 });
+  const a = new Client(server.wsUrl);
+  let b: Client | undefined;
+  try {
+    await a.open();
+    a.send({ type: "input", text: "start" });
+    const first = await a.waitFor("approval_request");
+    a.close();
+
+    b = new Client(server.wsUrl);
+    await b.open();
+    const again = await b.waitFor("approval_request");
+    assert.equal(again.id, first.id, "the same pending prompt returns");
+
+    b.send({
+      type: "approval",
+      id: again.id,
+      turnId: again.turnId,
+      decision: "approve",
+    });
+    await waitForEvent(b, "tool_output");
+    slow.open();
+    await b.waitFor("turn_end");
+
+    const result = b.messages.find(
+      (m) => m.type === "event" && m.event.type === "tool_result",
+    );
+    assert.equal(result.event.content, "finished");
+    assert.ok(!result.event.isError);
+  } finally {
+    slow.open();
+    a.close();
+    b?.close();
     await server.close();
   }
 });
@@ -690,6 +978,24 @@ test("turn_end flushes the session on the error path", async () => {
   }
 });
 
+// Reason: regression — `.approval-layer { display: grid }` overrides the
+// browser's [hidden] rule, so the dialog rendered before any request existed
+// and its buttons had nothing to answer.
+test("the stylesheet keeps hidden elements hidden", async () => {
+  const built = buildRuntime([{ text: "hi" }]);
+  const server = await start(built);
+  try {
+    const css = await (
+      await fetch(
+        `http://127.0.0.1:${server.port}/styles.css?token=${server.token}`,
+      )
+    ).text();
+    assert.match(css, /\[hidden\]\s*\{[^}]*display:\s*none/, "[hidden] wins");
+  } finally {
+    await server.close();
+  }
+});
+
 // Reason: spec (ticket 03) — a mutating tool must block on the browser
 // answer, carry the request details and waiting turn, then proceed.
 test("an approval request blocks the turn until approved", async () => {
@@ -832,7 +1138,8 @@ test("trust-for-session lets later matching requests through", async () => {
 });
 
 // Reason: spec (ticket 03) — a browser that disappears while an approval is
-// pending must not strand the turn; the request fails safe as a denial.
+// pending must not strand the turn; with nobody back before the grace period,
+// the request fails safe as a denial.
 test("a pending approval fails safe when the only client disconnects", async () => {
   const log: string[] = [];
   const built = buildRuntime(
@@ -842,7 +1149,7 @@ test("a pending approval fails safe when the only client disconnects", async () 
     ],
     { tools: [mutatingTool(log)] },
   );
-  const server = await start(built);
+  const server = await start(built, { approvalGraceMs: 50 });
   const client = new Client(server.wsUrl);
   try {
     await client.open();

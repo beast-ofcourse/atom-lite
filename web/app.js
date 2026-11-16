@@ -25,6 +25,28 @@ const approvalCwd = document.getElementById("approval-cwd");
 const MAX_TOOL_OUTPUT_CHARS = 60_000;
 const MAX_TOOL_OUTPUT_LINES = 400;
 
+const hljs = window.hljs ?? null;
+const markdown = window.markdownit
+  ? window.markdownit({
+      html: false,
+      linkify: true,
+      breaks: true,
+      highlight: highlightCode,
+    })
+  : null;
+
+if (markdown) {
+  const renderToken =
+    markdown.renderer.rules.link_open ??
+    ((tokens, idx, options, env, self) =>
+      self.renderToken(tokens, idx, options));
+  markdown.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+    tokens[idx].attrSet("target", "_blank");
+    tokens[idx].attrSet("rel", "noreferrer noopener");
+    return renderToken(tokens, idx, options, env, self);
+  };
+}
+
 let socket = null;
 let readOnly = false;
 let pendingApproval = null;
@@ -34,6 +56,62 @@ let thinkingNode = null;
 let currentSessionId = null;
 let sessionsCache = [];
 let queuedMessages = [];
+let renderTimer = null;
+let renderBody = null;
+
+/* ---------------- markdown ---------------- */
+
+function escapeHtml(text) {
+  return text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function highlightCode(code, language) {
+  if (!hljs || !language) return "";
+  try {
+    if (!hljs.getLanguage(language)) return "";
+    return hljs.highlight(code, {
+      language,
+      ignoreIllegals: true,
+    }).value;
+  } catch {
+    // markdown-it escapes the code when highlighting returns nothing.
+    return "";
+  }
+}
+
+function renderMarkdown(text) {
+  if (!markdown) return escapeHtml(text).replaceAll("\n", "<br>");
+  return markdown.render(text);
+}
+
+function queueAssistantRender(body) {
+  renderBody = body;
+  if (renderTimer) return;
+  renderTimer = setTimeout(() => {
+    renderTimer = null;
+    const target = renderBody;
+    renderBody = null;
+    if (target) {
+      target.innerHTML = renderMarkdown(target.dataset.raw ?? "");
+      scrollToEnd();
+    }
+  }, 40);
+}
+
+function flushAssistantRender() {
+  if (renderTimer) {
+    clearTimeout(renderTimer);
+    renderTimer = null;
+  }
+  if (renderBody) {
+    renderBody.innerHTML = renderMarkdown(renderBody.dataset.raw ?? "");
+    renderBody = null;
+  }
+}
 
 /* ---------------- rendering ---------------- */
 
@@ -42,6 +120,11 @@ function resetTranscript() {
   emptyEl.hidden = false;
   assistantNode = null;
   thinkingNode = null;
+  if (renderTimer) {
+    clearTimeout(renderTimer);
+    renderTimer = null;
+  }
+  renderBody = null;
   clearQueued();
 }
 
@@ -106,7 +189,8 @@ function assistantBlock() {
     role.className = "msg-role";
     role.textContent = "atom-lite";
     const body = document.createElement("div");
-    body.className = "msg-body";
+    body.className = "msg-body msg-markdown";
+    body.dataset.raw = "";
     wrap.append(role, body);
     transcriptEl.append(wrap);
     assistantNode = body;
@@ -114,7 +198,14 @@ function assistantBlock() {
   return assistantNode;
 }
 
+function appendAssistantText(text) {
+  const body = assistantBlock();
+  body.dataset.raw = (body.dataset.raw ?? "") + text;
+  queueAssistantRender(body);
+}
+
 function endAssistantBlock() {
+  flushAssistantRender();
   assistantNode = null;
 }
 
@@ -249,7 +340,11 @@ function renderHistory(events) {
     } else if (event.type === "assistant_message") {
       const message = event.message ?? {};
       const text = textFromMessage(message);
-      if (text) assistantBlock().textContent += text;
+      if (text) {
+        const body = assistantBlock();
+        body.dataset.raw = text;
+        body.innerHTML = renderMarkdown(text);
+      }
       const calls = Array.isArray(message.toolCalls) ? message.toolCalls : [];
       for (const call of calls) {
         toolCard(call.id, call.name, call.arguments, "done");
@@ -263,6 +358,13 @@ function renderHistory(events) {
   }
   endAssistantBlock();
   endThinkingBlock();
+  scrollToEnd();
+}
+
+/** Rebuild the active turn after a reconnect; hello already rendered history. */
+function renderReplay(message) {
+  for (const prompt of message.prompts ?? []) addUserMessage(prompt);
+  for (const event of message.events ?? []) handleEvent(event);
   scrollToEnd();
 }
 
@@ -328,7 +430,7 @@ function handleEvent(event) {
   switch (event.type) {
     case "assistant_delta":
     case "assistant_text":
-      assistantBlock().textContent += event.text;
+      appendAssistantText(event.text);
       scrollToEnd();
       break;
     case "thinking_delta":
@@ -398,6 +500,9 @@ function handleMessage(message) {
       break;
     case "event":
       handleEvent(message.event);
+      break;
+    case "replay":
+      renderReplay(message);
       break;
     case "user_input":
       addUserMessage(message.text);

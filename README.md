@@ -119,7 +119,12 @@ atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
 `--serve` starts the same runtime, tools, sessions, and approvals behind a
 localhost-only web page and opens it in your browser. The page and every asset
 carry a per-run token; requests with a foreign `Origin` or `Host` are rejected.
-The first tab controls the session, later tabs are read-only viewers.
+The first tab controls the session, later tabs are read-only viewers. The page
+reconnects on its own and replays an in-flight turn, renders assistant markdown
+with syntax-highlighted code, and follows the configured theme (light for
+`light`, `solarized`, `ansi`, and no-colour; dark otherwise). Sessions use a
+per-session lockfile, so the terminal and browser cannot drive the same log at
+once.
 
 In the TUI, type `/help` for every command grouped by category, or press `ctrl+p` for the fuzzy command palette. `/theme` opens a live-preview picker and persists your choice; `NO_COLOR` and `--no-color` always win. `/sessions` opens a searchable picker scoped to the current workspace; `/search <query>` prints matching sessions with snippets. Mouse wheel scrolling and click-to-focus are enabled for interactive terminals and can be disabled with `ui.mouse: false`.
 

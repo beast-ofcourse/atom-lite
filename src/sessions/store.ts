@@ -17,6 +17,7 @@ import type { SessionEvent, SessionSummary } from "./events.js";
 import { isMessage, messageToEvent, eventToMessage, nowIso } from "./events.js";
 import { userConfigDir } from "../config/paths.js";
 import { parseJsonlEvents } from "./recovery.js";
+import { acquireSessionLock, type SessionLock } from "./lock.js";
 import {
   sessionMessageCount,
   sessionSearchText,
@@ -35,6 +36,8 @@ export interface Session {
    */
   events: SessionEvent[];
   appendMessage(message: Message): void;
+  /** Release the one-live-owner lock, when this session holds one. */
+  releaseLock?(): void;
   // Back-compat alias.
   append?(message: Message): void;
   /**
@@ -81,6 +84,7 @@ export interface JsonlSessionOptions {
   filePath: string;
   events?: SessionEvent[];
   store?: JsonlSessionStoreLike;
+  lock?: SessionLock;
 }
 
 export interface JsonlSessionStoreLike {
@@ -126,6 +130,7 @@ export class JsonlSession implements Session {
   private store: any;
   private writeQueue: Promise<void> = Promise.resolve();
   private persisted = false;
+  private lock?: SessionLock;
 
   constructor(options: JsonlSessionOptions) {
     this.id = options.id;
@@ -133,6 +138,7 @@ export class JsonlSession implements Session {
     this.provider = options.provider ?? "fake";
     this.filePath = options.filePath;
     this.store = options.store;
+    this.lock = options.lock;
     this.seq = 0;
 
     const events = options.events ?? [];
@@ -294,11 +300,19 @@ export class JsonlSession implements Session {
   }
 
   end(): SessionEvent {
-    return this.appendEvent({ type: "session_ended" });
+    const event = this.appendEvent({ type: "session_ended" });
+    this.releaseLock();
+    return event;
   }
 
   close(): SessionEvent {
     return this.end();
+  }
+
+  /** Release the live-owner lock without ending the session. */
+  releaseLock(): void {
+    this.lock?.release();
+    this.lock = undefined;
   }
 }
 
@@ -310,10 +324,13 @@ export interface JsonlSessionStoreOptions {
   dir?: string;
   path?: string;
   workspace?: string;
+  /** Grace period before a dead owner's lock is reclaimed. */
+  lockReclaimMs?: number;
 }
 
 export class JsonlSessionStore {
   rootDir: string;
+  private lockReclaimMs: number | undefined;
 
   constructor(options?: string | JsonlSessionStoreOptions) {
     if (typeof options === "string") {
@@ -325,6 +342,7 @@ export class JsonlSessionStore {
         options?.dir ??
         options?.path ??
         defaultDataDir();
+      this.lockReclaimMs = options?.lockReclaimMs;
     }
     ensureDir(this.rootDir);
   }
@@ -347,14 +365,22 @@ export class JsonlSessionStore {
     const id = opts.id ?? opts.sessionId ?? randomUUID();
     const filePath = opts.filePath ?? this.sessionPath(id);
 
-    const session = new JsonlSession({
-      id,
-      workspace,
-      provider,
-      filePath,
-      store: this,
+    const lock = acquireSessionLock(`${filePath}.lock`, id, {
+      reclaimAfterMs: this.lockReclaimMs,
     });
-    return session;
+    try {
+      return new JsonlSession({
+        id,
+        workspace,
+        provider,
+        filePath,
+        store: this,
+        lock,
+      });
+    } catch (err) {
+      lock.release();
+      throw err;
+    }
   }
 
   createSession(...args: any[]): JsonlSession {
@@ -375,23 +401,35 @@ export class JsonlSessionStore {
 
   resumeSession(id: string): JsonlSession | undefined {
     const filePath = this.sessionPath(id);
-    if (!existsSync(filePath)) return undefined;
-    const events = parseJsonlEvents(filePath);
-    if (events.length === 0) {
-      // still return empty session
-    }
-    // Derive workspace/provider from first session_started event.
-    const started = events.find((e) => e.type === "session_started") as any;
-    const workspace = started?.workspace ?? process.cwd();
-    const provider = started?.provider ?? "fake";
-    return new JsonlSession({
-      id,
-      workspace,
-      provider,
-      filePath,
-      events,
-      store: this,
+    // Take the lock before checking the file: a session that is open but has
+    // not written its first message has no JSONL file yet, and it must still
+    // refuse a second owner.
+    const lock = acquireSessionLock(`${filePath}.lock`, id, {
+      reclaimAfterMs: this.lockReclaimMs,
     });
+    try {
+      if (!existsSync(filePath)) {
+        lock.release();
+        return undefined;
+      }
+      const events = parseJsonlEvents(filePath);
+      // Derive workspace/provider from first session_started event.
+      const started = events.find((e) => e.type === "session_started") as any;
+      const workspace = started?.workspace ?? process.cwd();
+      const provider = started?.provider ?? "fake";
+      return new JsonlSession({
+        id,
+        workspace,
+        provider,
+        filePath,
+        events,
+        store: this,
+        lock,
+      });
+    } catch (err) {
+      lock.release();
+      throw err;
+    }
   }
 
   load(id: string): JsonlSession | undefined {
@@ -505,6 +543,12 @@ export class JsonlSessionStore {
       if (stat.mtimeMs >= cutoff) continue;
       try {
         unlinkSync(filePath);
+        // The owner lock dies with its log.
+        try {
+          unlinkSync(`${filePath}.lock`);
+        } catch {
+          // no lock, or it is already gone
+        }
         removed.push(f.replace(/\.jsonl$/, ""));
       } catch {
         // A file we cannot delete now is judged during the next startup.

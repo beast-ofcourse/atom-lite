@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The web surface streams assistant text, renders tool calls as collapsible cards with live output and their final result/diff, and shows approval requests with approve / deny / trust-for-session answers. A pending approval is denied if the browser goes away, so the turn never strands.
 - The web surface lists the workspace's sessions (title, updated time, message count), resumes one into the transcript, and starts a new one. Listings are workspace-scoped, and browser sessions are the same JSONL logs the terminal reads and writes.
 - Multiple tabs share the live stream: the first tab controls and later tabs are read-only viewers (labelled in the header) that take over control when the controller leaves. Messages typed while a turn is running are queued into the runtime's steering queue, shown as pending, and delivered in order before `turn_end`.
+- The web client reconnects on its own after a dropped socket. The server buffers the active turn's events and sends them on reconnect (with the session history sliced to before the turn), so the turn continues and nothing is re-run or duplicated. The buffer is released at `turn_end`.
+- Web sessions take a per-session `.jsonl.lock`. The CLI and the server both refuse to open a session held by another live process and name the holder; a lock left by a killed process is reclaimed after a short grace period. Different sessions do not interfere.
+- The web surface renders assistant markdown with syntax-highlighted fenced code and a plain-text fallback, folds thinking blocks away, and follows the configured UI theme (light, solarized, ansi, or no-colour → light, everything else → dark). The token system and component decisions are recorded in `web/DESIGN.md`.
 
 ## [0.14.0] — 2026-11-12
 

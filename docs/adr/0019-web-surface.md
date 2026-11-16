@@ -1,7 +1,7 @@
 # 0019 — Web surface (`atom-lite --serve`)
 
 Date: 2026-11-16
-Status: Accepted (implemented on branch `web-ui`, tickets 01–04)
+Status: Accepted (implemented on branch `web-ui`, tickets 01–09)
 Supersedes: none
 
 ## Context
@@ -41,8 +41,10 @@ zero-build browser client.
 - **Approvals.** The server installs itself as the approval handler; requests
   go to the browser with the command, cwd, tool, and the waiting turn id.
   Approve/deny/trust-session map onto the existing `ApprovalContext`; trust is
-  memory-only for this server process. A pending request is denied when no
-  client remains, so a disconnect cannot strand a turn.
+  memory-only for this server process. A pending request survives a brief
+  disconnect and is handed to the reconnecting controller; if nobody returns
+  within the grace period it fails safe as a denial, so a disconnect can
+  neither strand a turn nor grant permission nobody gave.
 - **Sessions.** The server keeps the CLI's `JsonlSessionStore` and switches the
   active session on `new_session` / `resume_session`. Listings are filtered to
   the server workspace and reuse the same `<sessionId>.jsonl` logs the TUI
@@ -63,9 +65,17 @@ zero-build browser client.
   break the model and requires a new ADR.
 - The client is untyped browser JS by necessity; the wire protocol is typed
   server-side in `src/web/protocol.ts`, which is the contract to keep in sync.
-- Reconnect replay (ticket 07) and a shared session lockfile (ticket 08) are
-  not in this decision. Until 08 lands, the CLI and server can both open the
-  same session log; the session contract tests pin the durable format.
+- Reconnect replay is an active-turn buffer, not a second session format. The
+  server slices session history to before the turn, sends the buffered runtime
+  events with the turn's prompts on connect, and releases the buffer at
+  `turn_end`. Completed turns stay readable from the JSONL log.
+- Session ownership is a `<sessionId>.jsonl.lock` file containing the holder's
+  PID and host (ADR 0020). Both the CLI and the server acquire it through
+  `src/sessions/lock.ts`; a live holder refuses with its PID, and a lock whose
+  PID is gone is reclaimed after a short grace period. This is process
+  ownership, not a distributed lock: it assumes one machine.
 - Protocol tests in `tests/web/protocol.test.ts` are the regression net for
-  token enforcement, stream ordering, tool-card events, approvals, and session
-  switching. There is no browser-test dependency for v1.
+  token enforcement, stream ordering, tool-card events, approvals, sessions,
+  multi-tab control, mid-turn input, and reconnect replay. There is no
+  browser-test dependency for v1. Session ownership has its own cross-process
+  test in `tests/sessions/ownership.test.ts`.

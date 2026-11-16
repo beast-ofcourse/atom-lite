@@ -21,6 +21,7 @@ import {
 } from "./commands.js";
 import {
   resolveTheme,
+  resolveThemeName,
   themeLabel,
   themeNames,
   type Theme,
@@ -50,6 +51,7 @@ import {
   InMemorySession,
   type Session,
 } from "../sessions/store.js";
+import { SessionLockError } from "../sessions/lock.js";
 import { randomUUID } from "node:crypto";
 import { ExtensionLoader } from "../extensions/loader.js";
 import { createDefaultExtensionUI } from "../extensions/ui.js";
@@ -286,13 +288,22 @@ export async function run(args: string[]): Promise<void> {
     if (config.sessions.retentionDays) {
       store.pruneOldSessions(config.sessions.retentionDays);
     }
-    session = sessionOverride
-      ? (store.resume(sessionOverride) ??
-        store.create(process.cwd(), provider.id))
-      : positional.includes("__continue__")
-        ? (store.resumeLatest(process.cwd()) ??
+    try {
+      session = sessionOverride
+        ? (store.resume(sessionOverride) ??
           store.create(process.cwd(), provider.id))
-        : store.create(process.cwd(), provider.id);
+        : positional.includes("__continue__")
+          ? (store.resumeLatest(process.cwd()) ??
+            store.create(process.cwd(), provider.id))
+          : store.create(process.cwd(), provider.id);
+    } catch (err) {
+      if (err instanceof SessionLockError) {
+        process.stderr.write(`atom-lite: ${err.message}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      throw err;
+    }
   }
 
   // Automatic checkpoints were removed (ADR 0018); sweep up orphaned capture
@@ -493,7 +504,7 @@ export async function run(args: string[]): Promise<void> {
         "atom-lite: a task argument is ignored in --serve mode; type it in the browser\n",
       );
     }
-    const { startWebServer } = await import("../web/server.js");
+    const { startWebServer, webThemeFor } = await import("../web/server.js");
     const server = await startWebServer({
       runtime,
       session,
@@ -502,6 +513,12 @@ export async function run(args: string[]): Promise<void> {
       model: provider.model ?? "",
       store: sessionsEnabled ? store : undefined,
       workspace: process.cwd(),
+      theme: webThemeFor(
+        resolveThemeName(themeOverride ?? config.ui.theme, {
+          noColor,
+          env: process.env,
+        }),
+      ),
       port: servePort ?? 7317,
       openBrowser: true,
     });
@@ -1812,7 +1829,9 @@ export async function run(args: string[]): Promise<void> {
       tui.requestRender();
     },
     newSession: () => {
-      session = store.create(process.cwd(), provider.id);
+      const next = store.create(process.cwd(), provider.id);
+      session.releaseLock?.();
+      session = next;
       sessionTrusted = false;
       session.messages.length = 0;
       content.clear();
@@ -2060,14 +2079,27 @@ export async function run(args: string[]): Promise<void> {
   }
 
   function resumeSession(id: string): void {
-    const next = store.resume(id);
+    if (id === session.id) {
+      appendLine(`already on session ${id}`);
+      return;
+    }
+    let next;
+    try {
+      next = store.resume(id);
+    } catch (err) {
+      appendLine(
+        `could not resume session: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
     if (!next) {
       appendLine(`could not resume session: ${id}`);
       return;
     }
-    const previous = session.id;
+    const previous = session;
     session = next;
-    session.appendEvent?.({ type: "session_resumed", from: previous });
+    previous.releaseLock?.();
+    session.appendEvent?.({ type: "session_resumed", from: previous.id });
     restoreTranscript(next);
     const title = sessionTitleFromEvents(next.events);
     appendLine(

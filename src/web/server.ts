@@ -12,6 +12,7 @@ import {
   type Session,
 } from "../sessions/store.js";
 import type { SessionEvent } from "../sessions/events.js";
+import { contentPartsText } from "../sessions/events.js";
 import type {
   ApprovalContext,
   ApprovalDecision,
@@ -35,6 +36,13 @@ export interface WebServerOptions {
   store?: JsonlSessionStore;
   /** Workspace that scopes session listings; defaults to the session's. */
   workspace?: string;
+  /** Web colour theme; the CLI maps config.ui.theme into this. */
+  theme?: "light" | "dark";
+  /**
+   * How long a pending approval waits for its client to come back before it
+   * fails safe as a denial. Zero denies immediately.
+   */
+  approvalGraceMs?: number;
   /** 0 (default) asks the OS for a free port. */
   port?: number;
   /** Open the default browser once the server is listening. */
@@ -60,7 +68,23 @@ const MIME: Record<string, string> = {
 };
 
 const TOKEN_PLACEHOLDER = "__ATOM_LITE_TOKEN__";
+const THEME_PLACEHOLDER = "__ATOM_LITE_THEME__";
 const COOKIE_NAME = "atom_lite_token";
+
+/**
+ * Map a resolved UI theme name onto the web surface. Light, solarized, and
+ * no-colour themes use the light web theme; everything else is dark.
+ */
+export function webThemeFor(themeName: string): "light" | "dark" {
+  if (
+    themeName === "light" ||
+    themeName === "solarized" ||
+    themeName === "ansi"
+  ) {
+    return "light";
+  }
+  return "dark";
+}
 
 /** The packaged static client, resolved relative to this module. */
 function defaultClientDir(): string {
@@ -119,6 +143,7 @@ export async function startWebServer(
   const token = randomBytes(24).toString("base64url");
   const host = "127.0.0.1";
   const clientDir = defaultClientDir();
+  const theme = options.theme === "light" ? "light" : "dark";
   const workspace = options.workspace ?? options.session.workspace;
   const clients = new Set<WebSocket>();
   const pendingApprovals = new Map<string, PendingApproval>();
@@ -127,6 +152,12 @@ export async function startWebServer(
   let controller: WebSocket | null = null;
   let turnRunning = false;
   let turnCounter = 0;
+  // Everything a client that joins mid-turn needs to rebuild the active turn.
+  // Released at turn_end; completed turns live in the session history.
+  let turnEvents: AgentEvent[] = [];
+  let turnSessionStart = 0;
+  let turnInput = "";
+  let approvalTimer: NodeJS.Timeout | undefined;
 
   options.runtime.setSteeringQueue(steeringQueue);
 
@@ -142,6 +173,7 @@ export async function startWebServer(
   };
 
   const emitEvent = (event: AgentEvent): void => {
+    if (turnRunning) turnEvents.push(event);
     broadcast({ type: "event", event });
   };
 
@@ -151,6 +183,26 @@ export async function startWebServer(
 
   const historyOf = (target: Session): SessionEvent[] => target.events;
 
+  /** History a joining client can render without duplicating the active turn. */
+  const visibleHistory = (): SessionEvent[] =>
+    turnRunning ? session.events.slice(0, turnSessionStart) : session.events;
+
+  /**
+   * Prompts that belong to the active turn. Steering messages already drained
+   * are in the session log; anything still queued is appended after them.
+   */
+  const turnPrompts = (): string[] => {
+    const prompts: string[] = [];
+    for (const event of session.events.slice(turnSessionStart)) {
+      if (event.type !== "user_message") continue;
+      const message = event.message as { content?: unknown } | undefined;
+      const text = contentPartsText(message?.content ?? event.content);
+      if (text) prompts.push(text);
+    }
+    if (prompts.length === 0 && turnInput) prompts.push(turnInput);
+    return [...prompts, ...steeringQueue];
+  };
+
   const listSessions = (): SessionListing[] =>
     options.store?.listSessions(workspace) ?? [];
 
@@ -159,8 +211,34 @@ export async function startWebServer(
     pendingApprovals.clear();
   };
 
+  /**
+   * The last client left with an approval pending. The request stays open for
+   * a grace period so a dropped connection can reconnect and answer it; if
+   * nobody comes back, it fails safe as a denial.
+   */
+  const scheduleApprovalFailSafe = (): void => {
+    if (approvalTimer) return;
+    const grace = Math.max(0, options.approvalGraceMs ?? 120_000);
+    approvalTimer = setTimeout(() => {
+      approvalTimer = undefined;
+      denyPendingApprovals();
+    }, grace);
+    approvalTimer.unref?.();
+  };
+
+  /** Hand a still-pending prompt to the client that can answer it. */
+  const sendPendingApprovals = (client: WebSocket): void => {
+    if (controller !== client) return;
+    for (const pending of pendingApprovals.values()) {
+      sendTo(client, pending.message);
+    }
+  };
+
   const runTurn = async (initial: string): Promise<void> => {
     turnRunning = true;
+    turnEvents = [];
+    turnSessionStart = session.events.length;
+    turnInput = initial;
     const controllerAbort = new AbortController();
     broadcast({ type: "turn_start", turnId: ++turnCounter });
     let next: string | undefined = initial;
@@ -194,6 +272,9 @@ export async function startWebServer(
       // arriving after this point starts a new turn, never a stranded queue.
       turnRunning = false;
       broadcast({ type: "turn_end" });
+      turnEvents = [];
+      turnSessionStart = 0;
+      turnInput = "";
     }
   };
 
@@ -217,6 +298,12 @@ export async function startWebServer(
    * background; every turn already flushed before turn_end.
    */
   const switchSession = (next: Session): void => {
+    if (next.id === session.id) {
+      // Re-opening the active session would drop the lock the server already
+      // holds; ignore the no-op switch.
+      next.releaseLock?.();
+      return;
+    }
     const previous = session;
     session = next;
     steeringQueue.length = 0;
@@ -226,7 +313,7 @@ export async function startWebServer(
       history: historyOf(session),
     });
     broadcast({ type: "sessions", sessions: listSessions() });
-    void previous.flush?.();
+    void previous.flush?.().finally(() => previous.releaseLock?.());
   };
 
   /**
@@ -237,9 +324,17 @@ export async function startWebServer(
     id: string,
   ): { session: Session } | { error: string } => {
     if (!options.store) return { error: "sessions are disabled" };
-    const next = options.store.resume(id);
+    let next: Session | undefined;
+    try {
+      next = options.store.resume(id);
+    } catch (err) {
+      return {
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
     if (!next) return { error: `no session ${id}` };
     if (next.workspace !== workspace) {
+      next.releaseLock?.();
       return { error: "session belongs to another workspace" };
     }
     return { session: next };
@@ -295,7 +390,10 @@ export async function startWebServer(
         return;
       }
       const name = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
-      if (name.includes("..") || name.includes("/")) {
+      const safeName =
+        /^[A-Za-z0-9._-]+$/.test(name) ||
+        /^vendor\/[A-Za-z0-9._-]+$/.test(name);
+      if (!safeName) {
         res.writeHead(404, { "content-type": "text/plain" });
         res.end("not found\n");
         return;
@@ -310,7 +408,8 @@ export async function startWebServer(
           ? file
               .toString("utf8")
               .replaceAll(TOKEN_PLACEHOLDER, token)
-              .replace(/(\/(?:app\.js|styles\.css))"/g, `$1?token=${token}"`)
+              .replaceAll(THEME_PLACEHOLDER, theme)
+              .replace(/\b(src|href)="\/([^"?]+)"/g, `$1="/$2?token=${token}"`)
           : file;
         const headers: Record<string, string> = {
           "content-type": MIME[extname(name)] ?? "application/octet-stream",
@@ -425,8 +524,21 @@ export async function startWebServer(
       provider: options.providerName,
       model: options.model,
       readOnly: controller !== ws,
-      history: historyOf(session),
+      history: visibleHistory(),
     });
+    if (turnRunning) {
+      // Rebuild the in-flight turn, which is not in the session history until
+      // it completes. Sent immediately after hello, before any live event.
+      sendTo(ws, {
+        type: "replay",
+        turnId: turnCounter,
+        prompts: turnPrompts(),
+        events: turnEvents,
+      });
+    }
+    // A prompt that was pending when the previous client dropped is handed
+    // to whoever controls the session now.
+    sendPendingApprovals(ws);
 
     ws.on("message", (data) => {
       const parsed = parseClientMessage(data.toString());
@@ -452,7 +564,7 @@ export async function startWebServer(
           }
         }
       }
-      if (clients.size === 0) denyPendingApprovals();
+      if (clients.size === 0) scheduleApprovalFailSafe();
     });
   });
 
@@ -478,8 +590,14 @@ export async function startWebServer(
         }
       }
       clients.clear();
+      if (approvalTimer) {
+        clearTimeout(approvalTimer);
+        approvalTimer = undefined;
+      }
       denyPendingApprovals();
       options.runtime.setEventSink(undefined);
+      await session.flush?.();
+      session.releaseLock?.();
       wss.close();
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     },

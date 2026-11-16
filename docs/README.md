@@ -33,6 +33,7 @@ with the code and is readable offline.
 - [0017 — Primary agent personas](./adr/0017-primary-agent-personas.md)
 - [0018 — Defer checkpoint removal](./adr/0018-defer-checkpoint-removal.md)
 - [0019 — Web surface](./adr/0019-web-surface.md)
+- [0020 — One live owner per session](./adr/0020-session-ownership.md)
 
 ## Contributing
 

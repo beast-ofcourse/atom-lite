@@ -103,6 +103,11 @@ live provider metadata, then a built-in table of known model families.
 A session is written on its first message. Creating a session and quitting
 without sending one leaves no JSONL file behind.
 
+While a session is open, a sibling `<sessionId>.jsonl.lock` file records the
+owning process. The terminal and `atom-lite --serve` both take this lock, so
+the same session cannot be driven from two places at once; the refusal names
+the holder. A lock left behind by a killed process is reclaimed automatically.
+
 ## `ui`
 
 `ui` is user-owned. Project config may include the section, but it is ignored.

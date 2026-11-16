@@ -40,6 +40,12 @@ export type ServerMessage =
       history: SessionEvent[];
     }
   | { type: "event"; event: AgentEvent }
+  | {
+      type: "replay";
+      turnId: number;
+      prompts: string[];
+      events: AgentEvent[];
+    }
   | { type: "user_input"; text: string }
   | { type: "turn_start"; turnId: number }
   | { type: "turn_end" }
