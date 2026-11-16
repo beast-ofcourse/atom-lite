@@ -5,7 +5,7 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## v0.16.1 — 2026-11-16
+## v0.16.2 — 2026-11-16
 
 ### Added
 
@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cli`: tunnel and server shut down together on Ctrl-C, SIGTERM, tunnel failure, or early provider exit.
 - `cli`: share mode does not open a local browser; it prints the local URL for diagnostics instead.
 - `deps`: terminal QR rendering adds `qrcode` to the CLI dependency set.
+- `release`: v0.16.1 was superseded before npm publication; v0.16.2 carries the same web changes.
 
 ## v0.16.0 — 2026-11-16
 
