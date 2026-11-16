@@ -171,6 +171,10 @@ export async function startWebServer(
           session,
           controllerAbort.signal,
         );
+        // Flush before the next queue check: input that arrives while the
+        // write is in flight is still picked up below, not stranded behind
+        // turn_end.
+        await session.flush?.();
         // The runtime drains the steering queue between model iterations;
         // anything left arrived after the last drain. Treat it as another
         // turn so turn_end still means "everything sent belongs here".
@@ -179,26 +183,29 @@ export async function startWebServer(
     } catch (err) {
       // An aborted/failed turn cannot deliver its queued steering messages;
       // keeping them would inject text into a later turn or session.
+      await session.flush?.();
       steeringQueue.length = 0;
       broadcast({
         type: "error",
         message: err instanceof Error ? err.message : String(err),
       });
     } finally {
-      // Flush before announcing completion, including the error path, so a
-      // client that resumes the log immediately sees everything so far.
-      await session.flush?.();
+      // No awaits between the final queue check and turn_end: a message
+      // arriving after this point starts a new turn, never a stranded queue.
       turnRunning = false;
       broadcast({ type: "turn_end" });
     }
   };
 
-  const handleInput = (text: string): void => {
+  const handleInput = (client: WebSocket, text: string): void => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    // Every tab sees the prompt, including viewer tabs that cannot send one.
+    broadcast({ type: "user_input", text: trimmed });
     if (turnRunning) {
       steeringQueue.push(trimmed);
-      broadcast({ type: "input_queued", text: trimmed });
+      // Only the sender needs the pending row.
+      sendTo(client, { type: "input_queued", text: trimmed });
       return;
     }
     void runTurn(trimmed);
@@ -380,7 +387,7 @@ export async function startWebServer(
     switch (message.type) {
       case "input":
         if (!requireController(client)) return;
-        handleInput(message.text);
+        handleInput(client, message.text);
         return;
       case "approval": {
         if (!requireController(client)) return;

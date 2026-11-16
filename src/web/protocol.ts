@@ -40,6 +40,7 @@ export type ServerMessage =
       history: SessionEvent[];
     }
   | { type: "event"; event: AgentEvent }
+  | { type: "user_input"; text: string }
   | { type: "turn_start"; turnId: number }
   | { type: "turn_end" }
   | { type: "input_queued"; text: string }

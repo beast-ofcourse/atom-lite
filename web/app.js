@@ -33,6 +33,7 @@ let assistantNode = null;
 let thinkingNode = null;
 let currentSessionId = null;
 let sessionsCache = [];
+let queuedMessages = [];
 
 /* ---------------- rendering ---------------- */
 
@@ -41,8 +42,30 @@ function resetTranscript() {
   emptyEl.hidden = false;
   assistantNode = null;
   thinkingNode = null;
-  queuedEl.hidden = true;
-  queuedEl.textContent = "";
+  clearQueued();
+}
+
+function clearQueued() {
+  queuedMessages = [];
+  renderQueued();
+}
+
+function renderQueued() {
+  queuedEl.replaceChildren();
+  if (queuedMessages.length === 0) {
+    queuedEl.hidden = true;
+    return;
+  }
+  queuedEl.hidden = false;
+  for (const text of queuedMessages) {
+    const item = document.createElement("div");
+    item.className = "queued-item";
+    const label = document.createElement("span");
+    label.className = "queued-label";
+    label.textContent = "queued:";
+    item.append(label, document.createTextNode(` ${text}`));
+    queuedEl.append(item);
+  }
 }
 
 function clearEmpty() {
@@ -350,7 +373,9 @@ function summarizeArgs(args) {
 
 function setReadOnly(next) {
   readOnly = Boolean(next);
-  roleEl.hidden = !readOnly;
+  roleEl.hidden = false;
+  roleEl.classList.toggle("role-control", !readOnly);
+  roleEl.textContent = readOnly ? "read-only viewer" : "controlling";
   inputEl.disabled = readOnly;
   updateSessionControls();
   if (readOnly) {
@@ -374,6 +399,9 @@ function handleMessage(message) {
     case "event":
       handleEvent(message.event);
       break;
+    case "user_input":
+      addUserMessage(message.text);
+      break;
     case "turn_start":
       endAssistantBlock();
       endThinkingBlock();
@@ -381,11 +409,12 @@ function handleMessage(message) {
     case "turn_end":
       endAssistantBlock();
       endThinkingBlock();
+      clearQueued();
       send({ type: "list_sessions" });
       break;
     case "input_queued":
-      queuedEl.hidden = false;
-      queuedEl.textContent = `queued: ${message.text}`;
+      queuedMessages.push(message.text);
+      renderQueued();
       break;
     case "approval_request":
       lastApproval = message;
@@ -454,6 +483,7 @@ function connect() {
     pendingApproval = null;
     lastApproval = null;
     approvalLayer.hidden = true;
+    clearQueued();
     setTimeout(connect, 1000);
   });
 }
@@ -462,7 +492,6 @@ composerEl.addEventListener("submit", (event) => {
   event.preventDefault();
   const text = inputEl.value.trim();
   if (!text || readOnly) return;
-  addUserMessage(text);
   inputEl.value = "";
   inputEl.style.height = "auto";
   send({ type: "input", text });

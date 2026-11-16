@@ -171,6 +171,14 @@ async function waitUntil(
   throw new Error(`timed out waiting for ${label}`);
 }
 
+/** Assistant text a client has received so far. */
+function assistantTextOf(client: Client): string {
+  return client.messages
+    .filter((m) => m.type === "event" && m.event.type === "assistant_text")
+    .map((m) => m.event.text)
+    .join("");
+}
+
 /** History events a transcript renders; bookkeeping events are ignored. */
 function historyMessages(events: any[] = []): any[] {
   return events.filter((event) =>
@@ -218,6 +226,96 @@ class FailingProvider implements ProviderAdapter {
 
   async generate(_request: ModelRequest): Promise<ModelResponse> {
     throw new Error("provider exploded");
+  }
+}
+
+/**
+ * A provider whose first request blocks until the test opens the gate, so the
+ * test can send input while the turn is genuinely running.
+ */
+class GatedProvider implements ProviderAdapter {
+  readonly id = "gated";
+  readonly model = "gated-model";
+  readonly requests: ModelRequest[] = [];
+  private openGate!: () => void;
+  private gate = new Promise<void>((resolve) => {
+    this.openGate = resolve;
+  });
+
+  open(): void {
+    this.openGate();
+  }
+
+  async generate(request: ModelRequest): Promise<ModelResponse> {
+    this.requests.push(request);
+    if (this.requests.length === 1) await this.gate;
+    return {
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: `reply ${this.requests.length}` }],
+      },
+      toolCalls: [],
+      finishReason: "stop",
+    };
+  }
+}
+
+/**
+ * A session whose first flush blocks until released, so a test can deliver
+ * input exactly in the window between a turn finishing and `turn_end`.
+ */
+class SlowFlushSession implements Session {
+  readonly inner: Session;
+  flushCount = 0;
+  private openFlush!: () => void;
+  private firstFlush = new Promise<void>((resolve) => {
+    this.openFlush = resolve;
+  });
+
+  constructor(inner: Session) {
+    this.inner = inner;
+  }
+
+  get id(): string {
+    return this.inner.id;
+  }
+
+  get workspace(): string {
+    return this.inner.workspace;
+  }
+
+  get provider(): string {
+    return this.inner.provider;
+  }
+
+  get messages(): Session["messages"] {
+    return this.inner.messages;
+  }
+
+  set messages(messages: Session["messages"]) {
+    this.inner.messages = messages;
+  }
+
+  get events() {
+    return this.inner.events;
+  }
+
+  appendMessage(message: Parameters<Session["appendMessage"]>[0]): void {
+    this.inner.appendMessage(message);
+  }
+
+  appendEvent(event: unknown): void {
+    this.inner.appendEvent?.(event);
+  }
+
+  async flush(): Promise<void> {
+    this.flushCount++;
+    if (this.flushCount === 1) await this.firstFlush;
+    await this.inner.flush?.();
+  }
+
+  release(): void {
+    this.openFlush();
   }
 }
 
@@ -399,6 +497,157 @@ test("a tool call reaches the browser as card events in order", async () => {
     );
     assert.equal(result.event.toolCallId, "t1");
     assert.match(result.event.content, /echoed/);
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: spec (ticket 06) — input that arrives while the closing flush is in
+// flight must still become part of the turn, not sit behind turn_end.
+test("input during the closing flush is not stranded", async () => {
+  const provider = new GatedProvider();
+  provider.open();
+  const workspace = mkdtempSync(join(tmpdir(), "web-ws-"));
+  const session = new SlowFlushSession(
+    new InMemorySession("slow", workspace, "gated"),
+  );
+  const built = buildRuntime([], { provider, session, workspace });
+  const server = await start(built);
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    client.send({ type: "input", text: "first" });
+    await waitUntil(() => session.flushCount === 1, "the closing flush");
+
+    client.send({ type: "input", text: "during flush" });
+    await waitUntil(
+      () => client.messages.some((m) => m.type === "input_queued"),
+      "the queued input",
+    );
+    session.release();
+    await client.waitFor("turn_end");
+
+    assert.equal(provider.requests.length, 2);
+    const userTexts = provider.requests[1].messages
+      .filter((m) => m.role === "user")
+      .map((m) =>
+        Array.isArray(m.content)
+          ? m.content.map((p: any) => p.text ?? "").join("")
+          : String(m.content ?? ""),
+      );
+    assert.deepEqual(userTexts, ["first", "during flush"]);
+    assert.equal(
+      client.messages.filter((m) => m.type === "turn_end").length,
+      1,
+    );
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: spec (ticket 05) — a second tab is a viewer: it receives the live
+// stream, its input is refused with a message, and it takes control when the
+// controller leaves.
+test("two tabs share events and only the controller may drive", async () => {
+  const built = buildRuntime([
+    { text: "from controller" },
+    { text: "from new controller" },
+  ]);
+  const server = await start(built);
+  const a = new Client(server.wsUrl);
+  const b = new Client(server.wsUrl);
+  try {
+    await a.open();
+    const helloA = await a.waitFor("hello");
+    assert.equal(helloA.readOnly, false);
+
+    await b.open();
+    const helloB = await b.waitFor("hello");
+    assert.equal(helloB.readOnly, true);
+
+    a.send({ type: "input", text: "hello" });
+    await a.waitFor("turn_end");
+    // turn_end is ordered after the reply on the same socket, so once the
+    // viewer sees it, its transcript text is complete.
+    await b.waitFor("turn_end");
+    assert.match(assistantTextOf(a), /from controller/);
+    assert.match(assistantTextOf(b), /from controller/);
+    for (const client of [a, b]) {
+      const prompts = client.messages
+        .filter((m) => m.type === "user_input")
+        .map((m) => m.text);
+      assert.deepEqual(prompts, ["hello"], "both tabs see the prompt");
+    }
+
+    b.send({ type: "input", text: "sneaky" });
+    const refused = await b.waitForNext("error");
+    assert.match(refused.message, /read-only viewer/);
+
+    a.close();
+    const control = await b.waitForNext("control");
+    assert.equal(control.readOnly, false);
+
+    b.send({ type: "input", text: "now allowed" });
+    await b.waitForNext("turn_end");
+    assert.match(assistantTextOf(b), /from new controller/);
+  } finally {
+    a.close();
+    b.close();
+    await server.close();
+  }
+});
+
+// Reason: spec (ticket 06) — input typed while a turn runs is held and
+// delivered in order as the following model turn, not dropped or reordered.
+test("mid-turn input is queued and delivered in order", async () => {
+  const provider = new GatedProvider();
+  const built = buildRuntime([], { provider });
+  const server = await start(built);
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    client.send({ type: "input", text: "first" });
+    await client.waitFor("turn_start");
+    await waitUntil(
+      () => provider.requests.length === 1,
+      "the first model request",
+    );
+
+    client.send({ type: "input", text: "queued one" });
+    const q1 = await client.waitForNext("input_queued");
+    assert.equal(q1.text, "queued one");
+    client.send({ type: "input", text: "queued two" });
+    const q2 = await client.waitForNext("input_queued");
+    assert.equal(q2.text, "queued two");
+
+    provider.open();
+    await client.waitFor("turn_end");
+
+    assert.equal(provider.requests.length, 2);
+    const userTexts = provider.requests[1].messages
+      .filter((m) => m.role === "user")
+      .map((m) =>
+        Array.isArray(m.content)
+          ? m.content.map((p: any) => p.text ?? "").join("")
+          : String(m.content ?? ""),
+      );
+    assert.deepEqual(userTexts, ["first", "queued one", "queued two"]);
+
+    const replies = client.messages
+      .filter((m) => m.type === "event" && m.event.type === "assistant_text")
+      .map((m) => m.event.text);
+    assert.deepEqual(replies, ["reply 1", "reply 2"]);
+    const prompts = client.messages
+      .filter((m) => m.type === "user_input")
+      .map((m) => m.text);
+    assert.deepEqual(prompts, ["first", "queued one", "queued two"]);
+    assert.equal(
+      client.messages.filter((m) => m.type === "turn_end").length,
+      1,
+      "one turn_end covers the queued work",
+    );
   } finally {
     client.close();
     await server.close();

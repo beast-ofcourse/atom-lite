@@ -28,7 +28,7 @@
             New
           </button>
         </div>
-        <div class="role" id="role" hidden>read-only viewer</div>
+        <div class="role" id="role" hidden></div>
       </header>
 
       <main class="transcript" id="transcript" aria-live="polite">
@@ -74,7 +74,13 @@
         </button>
       </form>
 
-      <div class="queued" id="queued" hidden></div>
+      <div
+        class="queued"
+        id="queued"
+        aria-live="polite"
+        aria-label="Queued messages"
+        hidden
+      ></div>
     </div>
 
     <script>

@@ -91,7 +91,8 @@ than a lock-in.
 - **Web UI (v1 scope):** browser client over WebSocket against the same
   `AgentRuntime`; streaming chat text, tool cards with live output and final
   result/diff, approval dialogs (approve / deny / trust-session), session
-  list/resume/new over the same JSONL logs. Planned: markdown and
+  list/resume/new over the same JSONL logs, multiple tabs with one controller,
+  and mid-turn input queued into the steering queue. Planned: markdown and
   syntax-highlighted code, reconnect with per-turn replay. Deferred: model
   pickers (config-only), mermaid/ANSI rendering, `/export`, shell mode,
   extension widgets.
