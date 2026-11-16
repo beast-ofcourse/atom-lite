@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## v0.16.0 — 2026-11-16
+
 ### Added
 
 - `web`: assistant and thinking deltas are presented through a bounded pacing queue, so a burst provider reveals text in readable steps. A live stream uses plain text with a quiet caret and gets one final markdown render; history renders only the latest 80 events behind a `Load earlier messages` control that preserves scroll position.
