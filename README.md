@@ -153,7 +153,9 @@ agent.
   returns to the reconnecting tab; it fails safe as a denial if nobody comes
   back within the grace period.
 - **Input.** Messages typed while a turn runs join the steering queue and are
-  delivered in order before the turn ends.
+  delivered in order before the turn ends. The activity line above the composer
+  shows the current phase, rotating verb, elapsed time, and tool; Escape, the
+  inline Stop button, or `/stop` cancels the turn.
 - **Rendering.** Assistant text is markdown with syntax-highlighted fenced
   code, local workspace images with a lightbox, and Mermaid diagrams rendered as
   themed SVG (source and Copy remain as the fallback); thinking is folded into a
@@ -164,9 +166,9 @@ agent.
   switches effort (`low`/`medium`/`high`) and mode (`plan`/`yolo`), and its plus
   button opens the native file picker for attachments on every platform.
   `Ctrl/Cmd+O` opens the working-directory explorer and `Ctrl/Cmd+K` the command
-  palette. Typing `/` offers `/new`, `/help`, `/model`, `/theme`, `/cwd`,
-  `/rename`, `/delete`, `/search`, `/export`, `/effort`, `/mode`, `/skills`, and
-  `/mcp`.
+  palette. Typing `/` offers `/new`, `/help`, `/stop`, `/model`, `/theme`,
+  `/cwd`, `/rename`, `/delete`, `/search`, `/export`, `/effort`, `/mode`,
+  `/skills`, and `/mcp`.
 - **Theme.** The configured `ui.theme` seeds the web theme; the sidebar footer
   can then switch between System, Light, and Dark and remembers the choice.
 - **Not yet.** ANSI rendering, shell mode, extension widgets, and cross-machine

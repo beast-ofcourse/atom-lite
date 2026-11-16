@@ -592,6 +592,7 @@ export async function startWebServer(
     activeAbort = controllerAbort;
     broadcast({ type: "turn_start", turnId: ++turnCounter });
     let next: string | undefined = prompt;
+    let stopped = false;
     try {
       while (next !== undefined) {
         await options.runtime.runAgentTurn(
@@ -613,16 +614,26 @@ export async function startWebServer(
       // keeping them would inject text into a later turn or session.
       await session.flush?.();
       steeringQueue.length = 0;
-      broadcast({
-        type: "error",
-        message: err instanceof Error ? err.message : String(err),
-      });
+      if (
+        controllerAbort.signal.aborted ||
+        (err instanceof Error && err.message === "USER_CANCELLED")
+      ) {
+        // Escape is a normal outcome, not an error the browser should toast.
+        // Providers may surface their own abort error (for example a fetch
+        // AbortError), so the signal is the reliable marker.
+        stopped = true;
+      } else {
+        broadcast({
+          type: "error",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
     } finally {
       // No awaits between the final queue check and turn_end: a message
       // arriving after this point starts a new turn, never a stranded queue.
       turnRunning = false;
       activeAbort = undefined;
-      broadcast({ type: "turn_end" });
+      broadcast({ type: "turn_end", stopped });
       turnEvents = [];
       replayBytes = 0;
       replayTruncated = false;
@@ -920,6 +931,15 @@ export async function startWebServer(
         pending.resolve(message.decision);
         return;
       }
+      case "stop":
+        if (!requireController(client)) return;
+        if (!turnRunning || !activeAbort) return;
+        broadcast({ type: "turn_stopping" });
+        // A tool blocked on an approval would otherwise keep the turn alive
+        // after the abort; deny it so the runtime can unwind.
+        denyPendingApprovals();
+        activeAbort.abort();
+        return;
       case "list_sessions":
         sendTo(client, { type: "sessions", sessions: listSessions() });
         return;

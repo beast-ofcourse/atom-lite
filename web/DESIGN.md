@@ -280,6 +280,21 @@ Disabled send uses `--send-disabled` and keeps its shape. Queued steering
 messages appear above the composer as small `Queued` rows. The disclaimer below
 is 12px `--text-faint`: "Atom-lite can make mistakes. Check important info."
 
+### Activity and stopping
+
+A 12px status row sits between the queued rows and the composer and mirrors the
+terminal activity line. Idle is a green dot and `Ready`. A running turn shows a
+looped ring plus a rotating verb — `formulating`, `thinking`, or `working`
+(`working`, `cooking`, `crafting`, `building`, `brewing`, `crumbling`) — the
+elapsed time, and the current tool name when one is active. Waiting for an
+approval swaps to an amber pulse and `Waiting for approval`; a disconnect is a
+red `Disconnected`. The controlling tab can cancel with Escape, the inline Stop
+button, or `/stop`; the server broadcasts `turn_stopping`, denies any pending
+approval so the runtime can unwind, and ends the turn with `stopped: true`.
+The row settles on `Stopped` for four seconds, then returns to `Ready`; the
+cancellation is never shown as an error toast. Reduced-motion users get the
+static phase marker instead of the spin and pulse.
+
 ### Home state
 
 On a new conversation: the model header stays, the transcript is empty, and a
@@ -346,15 +361,15 @@ live manager rather than a cached browser list.
 ### Slash commands and command palette
 
 Typing `/` in the composer opens an anchored autocomplete list built from one
-client registry: `/new`, `/help`, `/model`, `/theme`, `/cwd`, `/rename`,
-`/delete`, `/search`, `/export`, `/effort`, `/mode`, `/skills`, `/mcp`. Arrow
-keys move, Tab completes, Enter runs,
+client registry: `/new`, `/help`, `/stop`, `/model`, `/theme`, `/cwd`,
+`/rename`, `/delete`, `/search`, `/export`, `/effort`, `/mode`, `/skills`,
+`/mcp`. Arrow keys move, Tab completes, Enter runs,
 Escape closes. `Ctrl/Cmd+K` opens the same registry in a centered command
 palette with a search field and keyboard navigation. Mutating commands are
 hidden from a read-only viewer. Unknown slash commands never reach the agent;
 they produce a toast pointing to `/help`. `/search` filters the sidebar,
-`/theme` accepts `system|light|dark`, and `/export` downloads a Markdown
-transcript generated in the browser.
+`/theme` accepts `system|light|dark`, `/stop` cancels the running turn, and
+`/export` downloads a Markdown transcript generated in the browser.
 
 ### Browser surfaces
 
@@ -447,14 +462,17 @@ and the fake provider, dark and light, 1440×900 and 390×844.
   an active session (fresh chat opened), live model refresh from four provider
   models, model switch, local attachment upload and removal, skills and MCP
   overlays, workspace explorer navigation and switch, theme overrides, sidebar
-  collapse, approval approve, and the read-only viewer state were driven in the
-  real page. Switching away from a thinking turn and back restored Markdown,
-  the Mermaid diagram, and the thinking block. The full suite passes 482 tests.
+  collapse, approval approve, the read-only viewer state, and stopping a live
+  turn with Escape and `/stop` were driven in the real page; the activity hint
+  moved through `Formulating`, `Thinking`, and `Stopped` and returned to
+  `Ready`. Switching away from a thinking turn and back restored Markdown,
+  the Mermaid diagram, and the thinking block. The full suite passes 484 tests.
 - **Keyboard:** focus rings visible; approval traps focus and returns it; Enter
   sends and Shift+Enter breaks; slash autocomplete and command palette support
   arrows, Tab, Enter and Escape; the model overlay supports search, arrows,
   Enter and Escape; `Ctrl/Cmd+K` and `Ctrl/Cmd+O` open the palette and explorer;
-  Escape denies, closes dialogs, and closes the mobile drawer.
+  Escape denies, closes dialogs, stops a running turn, and closes the mobile
+  drawer.
 - **Performance (Brave, local server):** page load to network idle ~1.1s; live
   model overlay open ~198ms; skills overlay ~37ms; session switch with a
   Mermaid SVG ~8ms; 0 console errors.

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `web`: a live activity hint above the composer mirrors the terminal status line with a looped spinner, rotating verbs (`thinking`, `cooking`, `building`, `crumbling`, and so on), elapsed time, and the active tool. Waiting-for-approval, disconnected, and stopped states are explicit. Escape, the inline Stop button, or `/stop` cancels the running turn; the server ends it with `stopped` instead of surfacing the cancellation as an error.
+
 ## v0.15.0 — 2026-11-16
 
 ### Added

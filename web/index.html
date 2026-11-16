@@ -61,6 +61,9 @@
         <path d="M12 19V5" />
         <path d="m5 12 7-7 7 7" />
       </symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24">
+        <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
+      </symbol>
       <symbol id="i-copy" viewBox="0 0 24 24">
         <rect x="8" y="8" width="12" height="12" rx="2" />
         <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
@@ -286,6 +289,37 @@
               multiple
               tabindex="-1"
             />
+
+            <div class="activity" id="activity" data-phase="idle">
+              <span class="activity-glyph" aria-hidden="true"></span>
+              <span class="activity-verb" id="activity-verb">Ready</span>
+              <span
+                class="activity-elapsed"
+                id="activity-elapsed"
+                aria-hidden="true"
+              ></span>
+              <span class="activity-detail" id="activity-detail"></span>
+              <span class="activity-hint" id="activity-hint">esc to stop</span>
+              <button
+                class="activity-stop"
+                id="activity-stop"
+                type="button"
+                title="Stop the agent (Esc)"
+                aria-label="Stop the agent"
+                hidden
+              >
+                <svg class="icon" aria-hidden="true">
+                  <use href="#i-stop"></use>
+                </svg>
+                Stop
+              </button>
+              <span
+                class="sr-only"
+                id="activity-live"
+                role="status"
+                aria-live="polite"
+              ></span>
+            </div>
 
             <form class="composer" id="composer">
               <textarea

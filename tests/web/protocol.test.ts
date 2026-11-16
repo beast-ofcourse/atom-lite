@@ -363,6 +363,34 @@ class GatedProvider implements ProviderAdapter {
 }
 
 /**
+ * A provider whose first request blocks until the turn is aborted. The signal
+ * rejection uses the browser/fetch abort wording rather than USER_CANCELLED,
+ * so the server must key the stopped state off the signal itself.
+ */
+class AbortableProvider implements ProviderAdapter {
+  readonly id = "abortable";
+  readonly model = "abortable-model";
+  started = false;
+
+  async generate(request: ModelRequest): Promise<ModelResponse> {
+    this.started = true;
+    return await new Promise<ModelResponse>((_, reject) => {
+      const signal = request.signal;
+      if (!signal) return;
+      if (signal.aborted) {
+        reject(new Error("This operation was aborted"));
+        return;
+      }
+      signal.addEventListener(
+        "abort",
+        () => reject(new Error("This operation was aborted")),
+        { once: true },
+      );
+    });
+  }
+}
+
+/**
  * A session whose first flush blocks until released, so a test can deliver
  * input exactly in the window between a turn finishing and `turn_end`.
  */
@@ -1028,6 +1056,38 @@ test("mid-turn input is queued and delivered in order", async () => {
       client.messages.filter((m) => m.type === "turn_end").length,
       1,
       "one turn_end covers the queued work",
+    );
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: Escape is the web equivalent of the TUI's cancel key. Stopping must
+// end the turn cleanly (stopped: true) without surfacing USER_CANCELLED as an
+// error toast.
+test("the controller stops a running turn", async () => {
+  const provider = new AbortableProvider();
+  const built = buildRuntime([], { provider });
+  const server = await start(built);
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    await client.waitFor("hello");
+
+    client.send({ type: "input", text: "long running turn" });
+    await client.waitFor("turn_start");
+    await waitUntil(() => provider.started, "the provider request");
+
+    client.send({ type: "stop" });
+    const stopping = await client.waitFor("turn_stopping");
+    assert.equal(stopping.type, "turn_stopping");
+
+    const end = await client.waitFor("turn_end");
+    assert.equal(end.stopped, true);
+    assert.ok(
+      !client.messages.some((message) => message.type === "error"),
+      "a cancelled turn is not reported as an error",
     );
   } finally {
     client.close();
@@ -1729,6 +1789,10 @@ test("a read-only viewer cannot browse directories or refresh models", async () 
     b.send({ type: "refresh_models" });
     const refreshError = await b.waitForNext("error");
     assert.match(refreshError.message, /read-only viewer/);
+
+    b.send({ type: "stop" });
+    const stopError = await b.waitForNext("error");
+    assert.match(stopError.message, /read-only viewer/);
   } finally {
     a.close();
     b.close();

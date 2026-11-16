@@ -42,6 +42,7 @@ export interface WebMcpServer {
 
 export type ClientMessage =
   | { type: "input"; text: string }
+  | { type: "stop" }
   | {
       type: "approval";
       id: string;
@@ -105,7 +106,8 @@ export type ServerMessage =
     }
   | { type: "user_input"; text: string }
   | { type: "turn_start"; turnId: number }
-  | { type: "turn_end" }
+  | { type: "turn_stopping" }
+  | { type: "turn_end"; stopped?: boolean }
   | { type: "input_queued"; text: string }
   | {
       type: "approval_request";
@@ -166,6 +168,8 @@ export function parseClientMessage(raw: string): ClientParseResult {
         return { error: "input text must be a string" };
       }
       return { message: { type: "input", text: value.text } };
+    case "stop":
+      return { message: { type: "stop" } };
     case "approval": {
       const decision = value.decision;
       if (

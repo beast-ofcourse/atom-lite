@@ -58,6 +58,11 @@ zero-build browser client.
 - **Mid-turn input.** Messages sent while a turn runs go into the runtime's
   steering queue and are appended between model iterations; `turn_end` is sent
   only after that queue drains.
+- **Stopping.** The controller can send `stop` from Escape, the composer's
+  Stop button, or `/stop`. The server broadcasts `turn_stopping`, denies any
+  pending approval so the runtime can unwind, aborts the turn, and ends it with
+  `turn_end` carrying `stopped: true` instead of an error, matching the TUI's
+  Escape behaviour.
 
 ## Consequences
 
@@ -79,6 +84,6 @@ zero-build browser client.
   ownership, not a distributed lock: it assumes one machine.
 - Protocol tests in `tests/web/protocol.test.ts` are the regression net for
   token enforcement, stream ordering, tool-card events, approvals, sessions,
-  multi-tab control, mid-turn input, and reconnect replay. There is no
+  multi-tab control, mid-turn input, cancellation, and reconnect replay. There is no
   browser-test dependency for v1. Session ownership has its own cross-process
   test in `tests/sessions/ownership.test.ts`.

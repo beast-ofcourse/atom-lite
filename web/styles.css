@@ -1687,6 +1687,172 @@ body.is-empty .suggestions {
   font-weight: 500;
 }
 
+/* ---------- activity ---------- */
+
+.activity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 24px;
+  margin: 0 6px var(--space-1);
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.activity-glyph {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.activity[data-phase="formulating"] .activity-glyph,
+.activity[data-phase="thinking"] .activity-glyph,
+.activity[data-phase="working"] .activity-glyph {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  background: none;
+  animation: activity-spin 0.85s linear infinite;
+}
+
+.activity[data-phase="formulating"] .activity-glyph,
+.activity[data-phase="thinking"] .activity-glyph {
+  color: var(--warn);
+}
+
+.activity[data-phase="working"] .activity-glyph {
+  color: var(--focus);
+}
+
+.activity[data-phase="waiting"] .activity-glyph {
+  background: var(--warn);
+  animation: activity-pulse 1.4s ease-in-out infinite;
+}
+
+.activity[data-phase="stopping"] .activity-glyph {
+  background: var(--warn);
+}
+
+.activity[data-phase="stopped"] .activity-glyph {
+  background: var(--text-faint);
+}
+
+.activity[data-phase="offline"] .activity-glyph {
+  background: var(--danger);
+}
+
+.activity-verb {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+
+.activity[data-phase="formulating"] .activity-verb,
+.activity[data-phase="thinking"] .activity-verb,
+.activity[data-phase="waiting"] .activity-verb {
+  color: var(--warn);
+}
+
+.activity[data-phase="working"] .activity-verb {
+  color: var(--focus);
+}
+
+.activity[data-phase="idle"] .activity-verb,
+.activity[data-phase="stopped"] .activity-verb {
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.activity[data-phase="offline"] .activity-verb {
+  color: var(--danger);
+}
+
+.activity-elapsed {
+  flex: none;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-elapsed:empty,
+.activity-detail:empty {
+  display: none;
+}
+
+.activity-detail {
+  overflow: hidden;
+  color: var(--text-faint);
+  text-overflow: ellipsis;
+}
+
+.activity-detail:not(:empty)::before {
+  content: "·";
+  margin-right: 4px;
+}
+
+.activity-hint {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-faint);
+  opacity: 0.75;
+}
+
+.activity-stop {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.activity-stop:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.activity-stop .icon {
+  width: 10px;
+  height: 10px;
+}
+
+@keyframes activity-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes activity-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (max-width: 480px) {
+  .activity-hint {
+    display: none;
+  }
+
+  .activity-detail {
+    max-width: 90px;
+  }
+}
+
 /* ---------- session row menu ---------- */
 
 .session-row {
@@ -2364,5 +2530,15 @@ body.is-empty .suggestions {
   *::after {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  .activity-glyph {
+    animation: none !important;
+  }
+
+  .activity[data-phase="formulating"] .activity-glyph,
+  .activity[data-phase="thinking"] .activity-glyph,
+  .activity[data-phase="working"] .activity-glyph {
+    border-right-color: currentColor;
   }
 }
