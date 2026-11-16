@@ -578,10 +578,6 @@ export class JsonlSessionStore {
     }
   }
 
-  delete(id: string): boolean {
-    return this.deleteSession(id);
-  }
-
   appendEvent(
     sessionId: string,
     partial: Partial<SessionEvent>,

@@ -147,6 +147,7 @@ export function acquireSessionLock(
 ): SessionLock {
   installExitHook();
   const reclaimAfterMs = Math.max(0, options.reclaimAfterMs ?? 250);
+  let lastHolder: LockHolder | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const fd = openSync(lockPath, "wx", 0o600);
@@ -164,6 +165,7 @@ export function acquireSessionLock(
     }
 
     const holder = readHolder(lockPath);
+    lastHolder = holder;
     if (holder && holder.pid === process.pid) {
       return join(lockPath, holder);
     }
@@ -188,23 +190,15 @@ export function acquireSessionLock(
       } catch {
         // another process may have reclaimed it first
       }
-      continue;
     }
-
-    throw new SessionLockError(
-      sessionId,
-      holder ?? {
-        pid: 0,
-        host: "unknown",
-        sessionId,
-        startedAt: new Date(0).toISOString(),
-      },
-    );
   }
-  throw new SessionLockError(sessionId, {
-    pid: 0,
-    host: "unknown",
+  throw new SessionLockError(
     sessionId,
-    startedAt: new Date(0).toISOString(),
-  });
+    lastHolder ?? {
+      pid: 0,
+      host: "unknown",
+      sessionId,
+      startedAt: new Date(0).toISOString(),
+    },
+  );
 }

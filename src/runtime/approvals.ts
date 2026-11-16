@@ -7,7 +7,7 @@ export interface ApprovalRequest {
   cwd: string;
   timeoutMs: number;
   sandboxed: boolean;
-  /** Tool that raised the request, when known (bash, write, edit, read). */
+  /** Tool that raised the request, when known (e.g. bash, write, edit, read). */
   tool?: string;
 }
 

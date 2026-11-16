@@ -339,6 +339,22 @@ export async function startWebServer(
     };
   };
 
+  /** Flush a session's log and always release its ownership lock. */
+  const retireSession = async (target: Session): Promise<void> => {
+    try {
+      await target.flush?.();
+    } finally {
+      target.releaseLock?.();
+    }
+  };
+
+  /** Retire a session whose write failure was already surfaced by its turn. */
+  const retireSessionQuietly = (target: Session): void => {
+    void retireSession(target).catch(() => {
+      // The turn already surfaced the write failure; never keep the lock.
+    });
+  };
+
   const renameSession = async (id: string, title: string): Promise<void> => {
     const trimmed = title.trim().slice(0, 120);
     if (!trimmed) throw new Error("title cannot be empty");
@@ -380,11 +396,7 @@ export async function startWebServer(
         sessionId: session.id,
         history: historyOf(session),
       });
-      try {
-        await previous.flush?.();
-      } finally {
-        previous.releaseLock?.();
-      }
+      await retireSession(previous);
       options.store.deleteSession(id);
     } else {
       options.store.deleteSession(id);
@@ -412,23 +424,22 @@ export async function startWebServer(
       history: historyOf(session),
     });
     broadcast({ type: "sessions", sessions: listSessions() });
-    try {
-      await previous.flush?.();
-    } finally {
-      previous.releaseLock?.();
-    }
+    await retireSession(previous);
   };
+
+  const broadcastRuntimeState = (): void =>
+    broadcast({
+      type: "runtime_state",
+      mode: currentMode,
+      effort: currentEffort,
+    });
 
   const setRuntimeMode = (mode: "plan" | "yolo"): void => {
     if (mode === currentMode) return;
     if (!options.setMode) throw new Error("mode switching is disabled");
     options.setMode(mode);
     currentMode = mode;
-    broadcast({
-      type: "runtime_state",
-      mode: currentMode,
-      effort: currentEffort,
-    });
+    broadcastRuntimeState();
   };
 
   const setRuntimeEffort = (effort: string): void => {
@@ -437,11 +448,7 @@ export async function startWebServer(
     if (!options.setEffort) throw new Error("effort switching is disabled");
     options.setEffort(normalized);
     currentEffort = normalized;
-    broadcast({
-      type: "runtime_state",
-      mode: currentMode,
-      effort: currentEffort,
-    });
+    broadcastRuntimeState();
   };
 
   const attachmentDir = (): string =>
@@ -670,11 +677,7 @@ export async function startWebServer(
       history: historyOf(session),
     });
     broadcast({ type: "sessions", sessions: listSessions() });
-    void Promise.resolve(previous.flush?.())
-      .catch(() => {
-        // The turn already surfaced the write failure; never keep the lock.
-      })
-      .finally(() => previous.releaseLock?.());
+    retireSessionQuietly(previous);
   };
 
   /**
@@ -1085,11 +1088,7 @@ export async function startWebServer(
         }
         // The new controller must be able to answer a request that was still
         // pending when control moved.
-        if (controller) {
-          for (const pending of pendingApprovals.values()) {
-            sendTo(controller, pending.message);
-          }
-        }
+        if (controller) sendPendingApprovals(controller);
       }
       if (clients.size === 0) scheduleApprovalFailSafe();
     });

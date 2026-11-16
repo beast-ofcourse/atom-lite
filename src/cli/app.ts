@@ -513,13 +513,21 @@ export async function run(args: string[]): Promise<void> {
         "atom-lite: a task argument is ignored in --serve mode; type it in the browser\n",
       );
     }
+    // Picker values encode provider and model in one string; keep that split
+    // in one place so the initial list and the live refresh read it alike.
+    const parseModelKey = (
+      key: string,
+    ): { provider: string; model: string } => {
+      const [provider, model] = key.split("\u0000");
+      return { provider, model };
+    };
     const webModels = () =>
       buildModelItems().map((item) => {
-        const [profile, model] = item.value.split("\u0000");
+        const { provider, model } = parseModelKey(item.value);
         return {
-          provider: profile,
+          provider,
           model,
-          label: item.description ?? providerLabel(profile),
+          label: item.description ?? providerLabel(provider),
         };
       });
     const webSwitchModel = (profile: string, model: string) => {
@@ -590,11 +598,11 @@ export async function run(args: string[]): Promise<void> {
         for (const key of batches.flat()) {
           if (seen.has(key)) continue;
           seen.add(key);
-          const [profile, model] = key.split("\u0000");
+          const { provider, model } = parseModelKey(key);
           found.push({
-            provider: profile,
+            provider,
             model,
-            label: providerLabel(profile),
+            label: providerLabel(provider),
           });
         }
         return found;
