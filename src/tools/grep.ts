@@ -2,9 +2,9 @@ import {
   readdir as readdirAsync,
   stat as statAsync,
   readFile as readFileAsync,
+  glob as globAsync,
 } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import * as fs from "node:fs";
 import { resolve, relative, join, dirname } from "node:path";
 import { spawn } from "node:child_process";
 import { isWithinWorkspace } from "../security/paths.js";
@@ -38,14 +38,11 @@ async function collectFiles(
     // fall through
   }
   if (globPattern) {
-    // Node 22+ async glob keeps the event loop free while walking.
+    // Node 22+ async glob keeps the event loop free while walking. The
+    // AsyncIterable form lives on fs/promises, not on the callback-based fs.
     try {
       const out: string[] = [];
-      for await (const m of (
-        fs as unknown as {
-          glob: (p: string, o: { cwd: string }) => AsyncIterable<string>;
-        }
-      ).glob(globPattern, { cwd: root })) {
+      for await (const m of globAsync(globPattern, { cwd: root })) {
         const abs = resolve(root, m);
         // Match the old globSync contract: files only.
         try {
