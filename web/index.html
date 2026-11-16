@@ -3,88 +3,798 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
     <title>Atom-lite</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      try {
+        const stored = localStorage.getItem("atom-lite.web.theme");
+        if (stored === "light" || stored === "dark") {
+          document.documentElement.dataset.theme = stored;
+        } else if (stored === "system") {
+          document.documentElement.dataset.theme = window.matchMedia(
+            "(prefers-color-scheme: dark)",
+          ).matches
+            ? "dark"
+            : "light";
+        }
+      } catch {
+        /* use the server theme */
+      }
+    </script>
     <link rel="stylesheet" href="/styles.css" />
   </head>
-  <body>
+  <body class="is-empty">
+    <svg class="icon-sprite" aria-hidden="true" focusable="false">
+      <symbol id="i-atom" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+        <ellipse
+          cx="12"
+          cy="12"
+          rx="9.2"
+          ry="3.8"
+          transform="rotate(30 12 12)"
+        />
+        <ellipse
+          cx="12"
+          cy="12"
+          rx="9.2"
+          ry="3.8"
+          transform="rotate(-30 12 12)"
+        />
+      </symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24">
+        <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+        <path
+          d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"
+        />
+      </symbol>
+      <symbol id="i-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="8" />
+        <path d="m21 21-4.3-4.3" />
+      </symbol>
+      <symbol id="i-panel" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M9 3v18" />
+      </symbol>
+      <symbol id="i-arrow-up" viewBox="0 0 24 24">
+        <path d="M12 19V5" />
+        <path d="m5 12 7-7 7 7" />
+      </symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24">
+        <rect x="8" y="8" width="12" height="12" rx="2" />
+        <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24">
+        <path d="M20 6 9 17l-5-5" />
+      </symbol>
+      <symbol id="i-tool" viewBox="0 0 24 24">
+        <path
+          d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+        />
+      </symbol>
+      <symbol id="i-terminal" viewBox="0 0 24 24">
+        <path d="m4 17 6-6-6-6" />
+        <path d="M12 19h8" />
+      </symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24">
+        <rect x="4" y="10" width="16" height="11" rx="2" />
+        <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+      </symbol>
+      <symbol id="i-chevron-down" viewBox="0 0 24 24">
+        <path d="m6 9 6 6 6-6" />
+      </symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4" />
+        <path
+          d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"
+        />
+      </symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24">
+        <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+      </symbol>
+      <symbol id="i-monitor" viewBox="0 0 24 24">
+        <rect x="2" y="3" width="20" height="14" rx="2" />
+        <path d="M8 21h8M12 17v4" />
+      </symbol>
+      <symbol id="i-more" viewBox="0 0 24 24">
+        <circle cx="12" cy="5" r="1" fill="currentColor" stroke="none" />
+        <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+        <circle cx="12" cy="19" r="1" fill="currentColor" stroke="none" />
+      </symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24">
+        <path
+          d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+        />
+      </symbol>
+      <symbol id="i-up-left" viewBox="0 0 24 24">
+        <path d="M9 14 4 9l5-5" />
+        <path d="M4 9h10a6 6 0 0 1 6 6v4" />
+      </symbol>
+      <symbol id="i-x" viewBox="0 0 24 24">
+        <path d="M18 6 6 18" />
+        <path d="m6 6 12 12" />
+      </symbol>
+      <symbol id="i-image" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <circle cx="8.5" cy="8.5" r="1.5" />
+        <path d="m21 15-5-5L5 21" />
+      </symbol>
+      <symbol id="i-gauge" viewBox="0 0 24 24">
+        <path d="M3.5 18a9 9 0 1 1 17 0" />
+        <path d="m12 14 4-4" />
+        <circle cx="12" cy="14" r="1" fill="currentColor" stroke="none" />
+      </symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      </symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24">
+        <path d="M12 5v14" />
+        <path d="M5 12h14" />
+      </symbol>
+      <symbol id="i-file" viewBox="0 0 24 24">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <path d="M14 2v6h6" />
+      </symbol>
+    </svg>
+
     <div class="app" id="app">
-      <header class="topbar">
-        <div class="brand">
-          <span class="dot" aria-hidden="true"></span>
-          <span class="name">atom-lite</span>
-        </div>
-        <div class="meta" id="meta">connecting…</div>
-        <div class="session-bar">
-          <select
-            id="sessions"
-            class="session-select"
-            aria-label="Workspace sessions"
-          ></select>
-          <button
-            class="btn btn-quiet session-new"
-            id="new-session"
-            type="button"
-          >
-            New
-          </button>
-        </div>
-        <div class="role" id="role" hidden></div>
-      </header>
+      <div class="sidebar-scrim" id="sidebar-scrim" hidden></div>
 
-      <main class="transcript" id="transcript" aria-live="polite">
-        <div class="empty" id="empty">
-          <p class="empty-title">
-            Ask the agent to do something in this workspace.
-          </p>
-          <p class="empty-hint">
-            Tools run locally, exactly as they do in the terminal.
-          </p>
-        </div>
-      </main>
-
-      <div class="approval-layer" id="approval-layer" hidden>
-        <div class="approval" role="dialog" aria-modal="true">
-          <div class="approval-head">Approval required</div>
-          <div class="approval-tool" id="approval-tool"></div>
-          <pre class="approval-command" id="approval-command"></pre>
-          <div class="approval-cwd" id="approval-cwd"></div>
-          <div class="approval-actions">
-            <button class="btn btn-primary" data-decision="approve">
-              Approve
+      <aside class="sidebar" id="sidebar" aria-label="Chat history">
+        <div class="sidebar-inner">
+          <div class="sidebar-head">
+            <div class="brand">
+              <span class="brand-mark" aria-hidden="true">
+                <svg class="icon"><use href="#i-atom"></use></svg>
+              </span>
+              <h1 class="brand-name">atom-lite</h1>
+            </div>
+            <button
+              class="icon-btn sidebar-close"
+              id="sidebar-close"
+              type="button"
+              aria-label="Collapse sidebar"
+              aria-controls="sidebar"
+            >
+              <svg class="icon" aria-hidden="true">
+                <use href="#i-panel"></use>
+              </svg>
             </button>
-            <button class="btn" data-decision="deny">Deny</button>
-            <button class="btn btn-quiet" data-decision="trust-session">
-              Trust for session
+          </div>
+
+          <div class="sidebar-actions">
+            <button class="menu-item" id="new-session" type="button">
+              <svg class="icon" aria-hidden="true">
+                <use href="#i-edit"></use>
+              </svg>
+              <span>New chat</span>
+            </button>
+            <label class="search" for="session-search">
+              <svg class="icon" aria-hidden="true">
+                <use href="#i-search"></use>
+              </svg>
+              <input
+                id="session-search"
+                type="search"
+                placeholder="Search chats"
+                aria-label="Search chats"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </label>
+          </div>
+
+          <nav
+            class="session-list"
+            id="sessions"
+            aria-label="Workspace sessions"
+          ></nav>
+
+          <div class="sidebar-foot">
+            <div class="workspace-avatar" aria-hidden="true">A</div>
+            <div class="workspace-copy">
+              <button
+                class="workspace-path"
+                id="workspace-path"
+                type="button"
+                title="Change working directory (Ctrl+O)"
+                aria-label="Change working directory"
+              >
+                <span id="workspace-path-text">Select a folder…</span>
+              </button>
+              <span class="workspace-meta" id="meta">connecting…</span>
+            </div>
+            <button
+              class="icon-btn theme-toggle"
+              id="theme-toggle"
+              type="button"
+              aria-label="Theme: system"
+              aria-haspopup="menu"
+              aria-expanded="false"
+            >
+              <svg class="icon" aria-hidden="true">
+                <use href="#i-monitor"></use>
+              </svg>
             </button>
           </div>
         </div>
+      </aside>
+
+      <div class="main" id="main">
+        <header class="main-head">
+          <button
+            class="icon-btn sidebar-toggle-main"
+            id="sidebar-toggle"
+            type="button"
+            aria-label="Open sidebar"
+            aria-controls="sidebar"
+            aria-expanded="true"
+          >
+            <svg class="icon" aria-hidden="true">
+              <use href="#i-panel"></use>
+            </svg>
+          </button>
+          <button
+            class="model-chip"
+            id="model-button"
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            title="Switch model"
+          >
+            <span class="model-mark" aria-hidden="true">
+              <svg class="icon"><use href="#i-atom"></use></svg>
+            </span>
+            <span class="model-name" id="model-name">Atom-lite</span>
+            <svg class="icon model-chevron" aria-hidden="true">
+              <use href="#i-chevron-down"></use>
+            </svg>
+          </button>
+          <div class="head-right">
+            <div class="role" id="role" hidden></div>
+          </div>
+        </header>
+
+        <main class="transcript" id="transcript" aria-live="polite"></main>
+
+        <footer class="composer-area">
+          <div class="composer-wrap">
+            <div class="home" id="home">
+              <h2 class="home-title">What can I help with?</h2>
+            </div>
+
+            <div
+              class="queued"
+              id="queued"
+              aria-live="polite"
+              aria-label="Queued messages"
+              hidden
+            ></div>
+
+            <div
+              class="attachments"
+              id="attachments"
+              aria-live="polite"
+              aria-label="Attached files"
+              hidden
+            ></div>
+            <input
+              id="file-input"
+              class="file-input"
+              type="file"
+              multiple
+              tabindex="-1"
+            />
+
+            <form class="composer" id="composer">
+              <textarea
+                id="input"
+                class="input"
+                rows="1"
+                placeholder="Ask anything"
+                autocomplete="off"
+                spellcheck="false"
+                aria-label="Message the agent"
+              ></textarea>
+              <div class="composer-bar">
+                <div class="composer-left">
+                  <button
+                    class="composer-attach"
+                    id="attach-button"
+                    type="button"
+                    aria-label="Attach files"
+                    title="Attach files"
+                  >
+                    <svg class="icon" aria-hidden="true">
+                      <use href="#i-plus"></use>
+                    </svg>
+                  </button>
+                  <div class="composer-chips">
+                    <button
+                      class="composer-chip"
+                      id="effort-button"
+                      type="button"
+                      aria-haspopup="menu"
+                      aria-expanded="false"
+                    >
+                      <svg class="icon" aria-hidden="true">
+                        <use href="#i-gauge"></use>
+                      </svg>
+                      <span id="effort-label">Medium</span>
+                      <svg class="icon chip-chevron" aria-hidden="true">
+                        <use href="#i-chevron-down"></use>
+                      </svg>
+                    </button>
+                    <button
+                      class="composer-chip"
+                      id="mode-button"
+                      type="button"
+                      aria-haspopup="menu"
+                      aria-expanded="false"
+                    >
+                      <svg class="icon" aria-hidden="true">
+                        <use href="#i-shield"></use>
+                      </svg>
+                      <span id="mode-label">YOLO</span>
+                    </button>
+                  </div>
+                </div>
+                <button
+                  class="send"
+                  id="send"
+                  type="submit"
+                  aria-label="Send message"
+                  disabled
+                >
+                  <svg class="icon" aria-hidden="true">
+                    <use href="#i-arrow-up"></use>
+                  </svg>
+                </button>
+              </div>
+            </form>
+
+            <div class="suggestions" id="suggestions">
+              <button
+                class="suggestion"
+                type="button"
+                data-prompt="Explain this codebase"
+              >
+                Explain this codebase
+              </button>
+              <button
+                class="suggestion"
+                type="button"
+                data-prompt="Find a bug in the current changes"
+              >
+                Find a bug
+              </button>
+              <button
+                class="suggestion"
+                type="button"
+                data-prompt="Write tests for the module I am working on"
+              >
+                Write tests
+              </button>
+              <button
+                class="suggestion"
+                type="button"
+                data-prompt="Review my latest changes"
+              >
+                Review my changes
+              </button>
+            </div>
+
+            <p class="disclaimer">
+              Atom-lite can make mistakes. Check important info.
+            </p>
+          </div>
+        </footer>
       </div>
-
-      <form class="composer" id="composer">
-        <textarea
-          id="input"
-          class="input"
-          rows="1"
-          placeholder="Send a message…  (enter to send, shift+enter for a new line)"
-          autocomplete="off"
-          spellcheck="false"
-        ></textarea>
-        <button class="send" id="send" type="submit" aria-label="Send">
-          Send
-        </button>
-      </form>
-
-      <div
-        class="queued"
-        id="queued"
-        aria-live="polite"
-        aria-label="Queued messages"
-        hidden
-      ></div>
     </div>
 
+    <div
+      class="popover session-menu"
+      id="session-menu"
+      role="menu"
+      aria-label="Chat options"
+      hidden
+    >
+      <button
+        class="popover-item"
+        type="button"
+        data-session-action="rename"
+        role="menuitem"
+      >
+        <svg class="icon" aria-hidden="true"><use href="#i-edit"></use></svg>
+        <span>Rename</span>
+      </button>
+      <button
+        class="popover-item danger"
+        type="button"
+        data-session-action="delete"
+        role="menuitem"
+      >
+        <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>
+        <span>Delete</span>
+      </button>
+    </div>
+
+    <div
+      class="popover theme-menu"
+      id="theme-menu"
+      role="menu"
+      aria-label="Theme"
+      hidden
+    >
+      <button
+        class="popover-item"
+        type="button"
+        data-theme-mode="system"
+        role="menuitemradio"
+      >
+        <svg class="icon" aria-hidden="true"><use href="#i-monitor"></use></svg>
+        <span>System</span>
+        <svg class="icon popover-check" aria-hidden="true">
+          <use href="#i-check"></use>
+        </svg>
+      </button>
+      <button
+        class="popover-item"
+        type="button"
+        data-theme-mode="light"
+        role="menuitemradio"
+      >
+        <svg class="icon" aria-hidden="true"><use href="#i-sun"></use></svg>
+        <span>Light</span>
+        <svg class="icon popover-check" aria-hidden="true">
+          <use href="#i-check"></use>
+        </svg>
+      </button>
+      <button
+        class="popover-item"
+        type="button"
+        data-theme-mode="dark"
+        role="menuitemradio"
+      >
+        <svg class="icon" aria-hidden="true"><use href="#i-moon"></use></svg>
+        <span>Dark</span>
+        <svg class="icon popover-check" aria-hidden="true">
+          <use href="#i-check"></use>
+        </svg>
+      </button>
+    </div>
+
+    <div
+      class="popover slash-menu"
+      id="slash-menu"
+      role="listbox"
+      aria-label="Slash commands"
+      hidden
+    ></div>
+
+    <div
+      class="popover effort-menu"
+      id="effort-menu"
+      role="menu"
+      aria-label="Effort"
+      hidden
+    ></div>
+    <div
+      class="popover mode-menu"
+      id="mode-menu"
+      role="menu"
+      aria-label="Mode"
+      hidden
+    ></div>
+
+    <div class="modal-layer" id="image-modal" hidden>
+      <div
+        class="modal image-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="image-title"
+        tabindex="-1"
+      >
+        <div class="modal-head">
+          <h2 id="image-title">Image</h2>
+          <button
+            class="icon-btn modal-close"
+            type="button"
+            data-close-modal="image-modal"
+            aria-label="Close"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>
+          </button>
+        </div>
+        <img class="image-preview" id="image-preview" alt="" />
+        <p class="image-caption" id="image-caption"></p>
+      </div>
+    </div>
+
+    <div class="modal-layer" id="model-modal" hidden>
+      <div
+        class="modal modal-wide overlay-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="model-modal-title"
+        tabindex="-1"
+      >
+        <div class="modal-head">
+          <h2 id="model-modal-title">Models</h2>
+          <button
+            class="icon-btn modal-close"
+            type="button"
+            data-close-modal="model-modal"
+            aria-label="Close"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>
+          </button>
+        </div>
+        <div class="overlay-tools">
+          <div class="palette-search">
+            <svg class="icon" aria-hidden="true">
+              <use href="#i-search"></use>
+            </svg>
+            <input
+              id="model-search"
+              aria-label="Search models"
+              placeholder="Search models…"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <button class="btn" id="model-refresh" type="button">Refresh</button>
+        </div>
+        <div class="overlay-list" id="model-list"></div>
+        <div class="palette-foot">
+          ↑↓ navigate · ↵ switch · esc close · fetched live from configured
+          providers
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-layer" id="skills-modal" hidden>
+      <div
+        class="modal modal-wide overlay-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="skills-modal-title"
+        tabindex="-1"
+      >
+        <div class="modal-head">
+          <h2 id="skills-modal-title">Skills</h2>
+          <button
+            class="icon-btn modal-close"
+            type="button"
+            data-close-modal="skills-modal"
+            aria-label="Close"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>
+          </button>
+        </div>
+        <div class="overlay-list" id="skills-list"></div>
+        <div class="palette-foot">Skills available in this workspace</div>
+      </div>
+    </div>
+
+    <div class="modal-layer" id="mcp-modal" hidden>
+      <div
+        class="modal modal-wide overlay-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mcp-modal-title"
+        tabindex="-1"
+      >
+        <div class="modal-head">
+          <h2 id="mcp-modal-title">MCP servers</h2>
+          <button
+            class="icon-btn modal-close"
+            type="button"
+            data-close-modal="mcp-modal"
+            aria-label="Close"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>
+          </button>
+        </div>
+        <div class="overlay-list" id="mcp-list"></div>
+        <div class="palette-foot">
+          Connected servers and their exposed tools
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-layer" id="rename-modal" hidden>
+      <div
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rename-title"
+        tabindex="-1"
+      >
+        <div class="modal-head">
+          <h2 id="rename-title">Rename chat</h2>
+          <button
+            class="icon-btn modal-close"
+            type="button"
+            data-close-modal="rename-modal"
+            aria-label="Close"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>
+          </button>
+        </div>
+        <form id="rename-form">
+          <label class="field-label" for="rename-input">Title</label>
+          <input
+            class="field"
+            id="rename-input"
+            maxlength="120"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div class="modal-actions">
+            <button class="btn" type="button" data-close-modal="rename-modal">
+              Cancel
+            </button>
+            <button class="btn btn-primary" type="submit">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-layer" id="delete-modal" hidden>
+      <div
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-title"
+        tabindex="-1"
+      >
+        <div class="modal-head">
+          <h2 id="delete-title">Delete chat</h2>
+          <button
+            class="icon-btn modal-close"
+            type="button"
+            data-close-modal="delete-modal"
+            aria-label="Close"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>
+          </button>
+        </div>
+        <p class="modal-desc" id="delete-desc">
+          This chat will be permanently removed.
+        </p>
+        <div class="modal-actions">
+          <button class="btn" type="button" data-close-modal="delete-modal">
+            Cancel
+          </button>
+          <button class="btn btn-danger" id="delete-confirm" type="button">
+            Delete chat
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-layer" id="workspace-modal" hidden>
+      <div
+        class="modal modal-wide"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="workspace-title"
+        tabindex="-1"
+      >
+        <div class="modal-head">
+          <h2 id="workspace-title">Working directory</h2>
+          <button
+            class="icon-btn modal-close"
+            type="button"
+            data-close-modal="workspace-modal"
+            aria-label="Close"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>
+          </button>
+        </div>
+        <div class="workspace-row">
+          <button
+            class="icon-btn"
+            id="workspace-up"
+            type="button"
+            aria-label="Parent folder"
+            disabled
+          >
+            <svg class="icon" aria-hidden="true">
+              <use href="#i-up-left"></use>
+            </svg>
+          </button>
+          <input
+            class="field"
+            id="workspace-path-input"
+            aria-label="Directory path"
+            spellcheck="false"
+            autocomplete="off"
+          />
+          <button class="btn" id="workspace-go" type="button">Go</button>
+        </div>
+        <div
+          class="dir-list"
+          id="dir-list"
+          role="listbox"
+          aria-label="Folders"
+        ></div>
+        <p class="modal-hint">
+          Only the chosen folder is offered to the agent's tools. Switching
+          opens a new chat.
+        </p>
+        <div class="modal-actions">
+          <button class="btn" type="button" data-close-modal="workspace-modal">
+            Cancel
+          </button>
+          <button class="btn btn-primary" id="workspace-use" type="button">
+            Use this folder
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-layer" id="palette-modal" hidden>
+      <div
+        class="modal modal-wide palette"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="palette-title"
+        tabindex="-1"
+      >
+        <h2 class="sr-only" id="palette-title">Commands</h2>
+        <div class="palette-search">
+          <svg class="icon" aria-hidden="true">
+            <use href="#i-search"></use>
+          </svg>
+          <input
+            id="palette-input"
+            aria-label="Search commands"
+            placeholder="Search commands…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </div>
+        <div
+          class="palette-list"
+          id="palette-list"
+          role="listbox"
+          aria-label="Commands"
+        ></div>
+        <div class="palette-foot">↑↓ navigate · ↵ run · esc close</div>
+      </div>
+    </div>
+
+    <div class="approval-layer" id="approval-layer" hidden>
+      <div
+        class="approval"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="approval-title"
+        tabindex="-1"
+      >
+        <div class="approval-head" id="approval-title">Approval required</div>
+        <div class="approval-tool" id="approval-tool"></div>
+        <pre class="approval-command" id="approval-command"></pre>
+        <div class="approval-cwd" id="approval-cwd"></div>
+        <div class="approval-actions">
+          <button class="btn btn-primary" data-decision="approve">
+            Approve
+          </button>
+          <button class="btn" data-decision="deny">Deny</button>
+          <button class="btn btn-quiet" data-decision="trust-session">
+            Trust for session
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status" hidden></div>
+
     <script>
-      window.__ATOM_LITE_TOKEN__ = "__ATOM_LITE_TOKEN__";
+      window.__ATOM_TOKEN__ = "__ATOM_LITE_TOKEN__";
     </script>
     <script src="/vendor/highlight.min.js"></script>
     <script src="/vendor/markdown-it.min.js"></script>

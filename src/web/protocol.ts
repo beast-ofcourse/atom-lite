@@ -7,6 +7,39 @@ import type { SessionEvent, SessionSummary } from "../sessions/events.js";
  * client (`web/app.js`) mirrors it in the comment at the top of the file.
  */
 
+/** One selectable provider/model pair for the web model picker. */
+export interface WebModel {
+  provider: string;
+  model: string;
+  /** Human label such as a provider name, when the server has one. */
+  label?: string;
+}
+
+/** One directory level returned by the workspace explorer. */
+export interface DirectoryListing {
+  path: string;
+  parent: string | null;
+  directories: Array<{ name: string; path: string }>;
+}
+
+/** One skill exposed by the runtime's skill registry. */
+export interface WebSkill {
+  name: string;
+  description: string;
+  scope?: "global" | "project";
+}
+
+/** One MCP server as reported by the live manager. */
+export interface WebMcpServer {
+  name: string;
+  state: string;
+  enabled: boolean;
+  requiresApproval: boolean;
+  toolCount: number;
+  tools: string[];
+  lastError?: string;
+}
+
 export type ClientMessage =
   | { type: "input"; text: string }
   | {
@@ -18,7 +51,25 @@ export type ClientMessage =
     }
   | { type: "list_sessions" }
   | { type: "new_session" }
-  | { type: "resume_session"; id: string };
+  | { type: "resume_session"; id: string }
+  | { type: "rename_session"; id: string; title: string }
+  | { type: "delete_session"; id: string }
+  | { type: "switch_model"; provider: string; model: string }
+  | { type: "browse_directory"; path?: string }
+  | { type: "switch_workspace"; path: string }
+  | { type: "set_effort"; effort: string }
+  | { type: "set_mode"; mode: "plan" | "yolo" }
+  | { type: "refresh_models" }
+  | {
+      type: "attach_file";
+      id?: string;
+      name: string;
+      mime: string;
+      data: string;
+    }
+  | { type: "remove_attachment"; path: string }
+  | { type: "list_skills" }
+  | { type: "list_mcp" };
 
 export type SessionListing = Pick<
   SessionSummary,
@@ -36,6 +87,10 @@ export type ServerMessage =
       sessionId: string;
       provider: string;
       model: string;
+      workspace: string;
+      models: WebModel[];
+      mode: "plan" | "yolo";
+      effort: string;
       readOnly: boolean;
       history: SessionEvent[];
     }
@@ -45,6 +100,8 @@ export type ServerMessage =
       turnId: number;
       prompts: string[];
       events: AgentEvent[];
+      /** True when the active turn exceeded the server's replay budget. */
+      truncated: boolean;
     }
   | { type: "user_input"; text: string }
   | { type: "turn_start"; turnId: number }
@@ -64,6 +121,27 @@ export type ServerMessage =
     }
   | { type: "sessions"; sessions: SessionListing[] }
   | ({ type: "session_changed" } & SessionState)
+  | ({ type: "workspace_changed"; workspace: string } & SessionState)
+  | {
+      type: "model_changed";
+      provider: string;
+      model: string;
+      models: WebModel[];
+    }
+  | { type: "runtime_state"; mode: "plan" | "yolo"; effort: string }
+  | { type: "models"; models: WebModel[] }
+  | {
+      type: "attachment";
+      id?: string;
+      name: string;
+      path: string;
+      size: number;
+      mime: string;
+    }
+  | { type: "attachment_removed"; path: string }
+  | { type: "skills"; skills: WebSkill[] }
+  | { type: "mcp"; servers: WebMcpServer[] }
+  | { type: "directory"; listing: DirectoryListing }
   | { type: "control"; readOnly: boolean }
   | { type: "error"; message: string };
 
@@ -118,6 +196,94 @@ export function parseClientMessage(raw: string): ClientParseResult {
         return { error: "resume_session id must be a string" };
       }
       return { message: { type: "resume_session", id: value.id } };
+    case "rename_session":
+      if (typeof value.id !== "string" || !value.id) {
+        return { error: "rename_session id must be a string" };
+      }
+      if (typeof value.title !== "string" || !value.title.trim()) {
+        return { error: "rename_session title must be a non-empty string" };
+      }
+      return {
+        message: { type: "rename_session", id: value.id, title: value.title },
+      };
+    case "delete_session":
+      if (typeof value.id !== "string" || !value.id) {
+        return { error: "delete_session id must be a string" };
+      }
+      return { message: { type: "delete_session", id: value.id } };
+    case "switch_model":
+      if (
+        typeof value.provider !== "string" ||
+        !value.provider.trim() ||
+        typeof value.model !== "string" ||
+        !value.model.trim()
+      ) {
+        return { error: "switch_model needs a provider and model" };
+      }
+      return {
+        message: {
+          type: "switch_model",
+          provider: value.provider,
+          model: value.model,
+        },
+      };
+    case "browse_directory":
+      if (value.path !== undefined && typeof value.path !== "string") {
+        return { error: "browse_directory path must be a string" };
+      }
+      return {
+        message: {
+          type: "browse_directory",
+          path: typeof value.path === "string" ? value.path : undefined,
+        },
+      };
+    case "switch_workspace":
+      if (typeof value.path !== "string" || !value.path.trim()) {
+        return { error: "switch_workspace path must be a non-empty string" };
+      }
+      return { message: { type: "switch_workspace", path: value.path } };
+    case "set_effort":
+      if (typeof value.effort !== "string" || !value.effort.trim()) {
+        return { error: "set_effort needs a level" };
+      }
+      return { message: { type: "set_effort", effort: value.effort } };
+    case "set_mode":
+      if (value.mode !== "plan" && value.mode !== "yolo") {
+        return { error: "set_mode must be plan or yolo" };
+      }
+      return { message: { type: "set_mode", mode: value.mode } };
+    case "refresh_models":
+      return { message: { type: "refresh_models" } };
+    case "attach_file":
+      if (
+        typeof value.name !== "string" ||
+        !value.name.trim() ||
+        typeof value.data !== "string" ||
+        !value.data
+      ) {
+        return { error: "attach_file needs a name and file data" };
+      }
+      return {
+        message: {
+          type: "attach_file",
+          id: typeof value.id === "string" ? value.id : undefined,
+          name: value.name,
+          mime:
+            typeof value.mime === "string"
+              ? value.mime
+              : "application/octet-stream",
+          data: value.data,
+        },
+      };
+    case "remove_attachment":
+      if (typeof value.path !== "string" || !value.path) {
+        return { error: "remove_attachment needs a path" };
+      }
+      return { message: { type: "remove_attachment", path: value.path } };
+    case "list_skills":
+      return { message: { type: "list_skills" } };
+    case "list_mcp":
+      return { message: { type: "list_mcp" } };
     default:
       return { error: "unknown message type" };
   }

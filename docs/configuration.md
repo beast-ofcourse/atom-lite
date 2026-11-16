@@ -124,6 +124,17 @@ the holder. A lock left behind by a killed process is reclaimed automatically.
 environment variable force the `ansi` theme. The transcript, status line,
 banner, and pickers read semantic tokens rather than hardcoded escapes.
 
+### Web surface
+
+`atom-lite --serve [port]` uses the same configuration. The configured theme
+seeds the browser: `light`, `solarized`, `ansi`, or a forced no-colour run gives
+the light web theme; every other theme is dark. An in-page System/Light/Dark
+choice is stored in browser `localStorage` without changing the config. The web
+server inherits the session settings above and takes the same per-session lock
+as the terminal. Files attached from the composer are written under
+`<workspace>/.atom-lite/attachments/<session>/` so the agent's tools can read
+them; they are not uploaded anywhere.
+
 ## Recovery
 
 Automatic pre-mutation checkpoints were removed (see

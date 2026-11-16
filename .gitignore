@@ -15,3 +15,8 @@ temp/
 .github/agents/
 .github/hooks/
 .github/skills/
+
+.playwright-mcp/
+.impeccable/
+web/.impeccable/
+.atom-lite/attachments/

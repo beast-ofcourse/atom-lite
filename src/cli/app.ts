@@ -7,6 +7,10 @@ import {
 } from "../config/paths.js";
 import { saveProviderSelection, saveTheme } from "../config/write.js";
 import { resolveApiKey, saveApiKey } from "../config/credentials.js";
+import {
+  DefaultSkillRegistry,
+  skillCacheSignature,
+} from "../skills/registry.js";
 import { join } from "node:path";
 import { writeFileSync, existsSync } from "node:fs";
 import { execSync, spawn } from "node:child_process";
@@ -223,6 +227,11 @@ export async function run(args: string[]): Promise<void> {
   }
   let provider = createProvider(config, providerOverride, modelOverride);
   const modelByProvider = new Map<string, string>();
+  let effortLevel = "medium";
+  let currentMode: "plan" | "yolo" = config.runtime.mode;
+  let tuiReady = false;
+  const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
+  const modelCache = new Map<string, { models: string[]; at: number }>();
   if (modelOverride) modelByProvider.set(provider.id, modelOverride);
   const useTools = !positional.includes("__notools__");
   const builtInTools = useTools
@@ -504,6 +513,48 @@ export async function run(args: string[]): Promise<void> {
         "atom-lite: a task argument is ignored in --serve mode; type it in the browser\n",
       );
     }
+    const webModels = () =>
+      buildModelItems().map((item) => {
+        const [profile, model] = item.value.split("\u0000");
+        return {
+          provider: profile,
+          model,
+          label: item.description ?? providerLabel(profile),
+        };
+      });
+    const webSwitchModel = (profile: string, model: string) => {
+      const pcfg = ensureProfile(profile);
+      if (!pcfg) return { error: `unknown provider: ${profile}` };
+      pcfg.model = model;
+      config.defaultProvider = profile;
+      try {
+        saveProviderSelection(profile, { model }, { defaultProvider: profile });
+      } catch (err) {
+        // A read-only config must not block the live switch.
+        process.stderr.write(
+          `atom-lite: could not persist model choice: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      }
+      modelByProvider.set(profile, model);
+      modelOverride = model;
+      provider = createProvider(config, profile, model);
+      runtime.switchModel(provider, model);
+      try {
+        refreshContextWindow();
+      } catch (err) {
+        // The live switch already succeeded; metadata refresh is best effort.
+        process.stderr.write(
+          `atom-lite: could not refresh model metadata: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      }
+      void extensionDispatch("config_change", {
+        type: "config_change",
+        scope: "model",
+        provider: profile,
+        model,
+      });
+      return { provider: profile, model, models: webModels() };
+    };
     const { startWebServer, webThemeFor } = await import("../web/server.js");
     const server = await startWebServer({
       runtime,
@@ -511,6 +562,76 @@ export async function run(args: string[]): Promise<void> {
       approvals,
       providerName: provider.id,
       model: provider.model ?? "",
+      models: webModels(),
+      switchModel: webSwitchModel,
+      refreshModels: async () => {
+        const names = availableProviderNames(config);
+        if (!names.includes(provider.id) && profileConfig(provider.id)) {
+          names.unshift(provider.id);
+        }
+        const batches = await Promise.all(
+          names.map(async (name) => {
+            let pcfg = profileConfig(name);
+            if (!pcfg) {
+              const preset = getPreset(name);
+              if (!preset) return [] as string[];
+              pcfg = materializeProviderConfig(preset);
+              (config.providers as Record<string, unknown>)[name] = pcfg;
+            }
+            const configured = pcfg?.model ? [String(pcfg.model)] : [];
+            const live = await listModelsForProvider(config, name, 8000);
+            return [...new Set([...configured, ...live])].map(
+              (model) => `${name}\u0000${model}`,
+            );
+          }),
+        );
+        const seen = new Set<string>();
+        const found: { provider: string; model: string; label?: string }[] = [];
+        for (const key of batches.flat()) {
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const [profile, model] = key.split("\u0000");
+          found.push({
+            provider: profile,
+            model,
+            label: providerLabel(profile),
+          });
+        }
+        return found;
+      },
+      skills: (() => {
+        let cachedRoot = "";
+        let cachedSignature = "";
+        let registry: InstanceType<typeof DefaultSkillRegistry> | undefined;
+        return (root: string) => {
+          const signature = skillCacheSignature(root);
+          if (
+            !registry ||
+            root !== cachedRoot ||
+            signature !== cachedSignature
+          ) {
+            registry = new DefaultSkillRegistry(root);
+            cachedRoot = root;
+            cachedSignature = signature;
+          }
+          return registry.list().map((skill) => ({
+            name: skill.name,
+            description: skill.description,
+            scope: skill.scope,
+          }));
+        };
+      })(),
+      mcpStatus: () => mcpManager.status(),
+      mode: currentMode,
+      effort: effortLevel,
+      setMode: (mode) => {
+        currentMode = mode;
+        runtime.setMode(mode);
+      },
+      setEffort: (effort) => {
+        effortLevel = effort;
+        runtime.setEffort(effort);
+      },
       store: sessionsEnabled ? store : undefined,
       workspace: process.cwd(),
       theme: webThemeFor(
@@ -605,7 +726,6 @@ export async function run(args: string[]): Promise<void> {
   });
   const mouseCapture = createMouseCapture((data) => terminal.write(data));
 
-  let effortLevel = "medium";
   runtime.setEffort(effortLevel);
 
   let themeName = themeOverride ?? config.ui.theme;
@@ -669,7 +789,7 @@ export async function run(args: string[]): Promise<void> {
 
   const statusBar = new StatusLine(theme);
   const activity = new Activity({ theme, onChange: () => updateStatus() });
-  let currentMode: "plan" | "yolo" = config.runtime.mode;
+  tuiReady = true;
   statusBar.setParts({
     left: `${provider.id}/${(provider as any).model ?? "default"}`,
     tokens: "tokens: ?",
@@ -693,8 +813,6 @@ export async function run(args: string[]): Promise<void> {
   const input = new Editor(tui, editorTheme, {});
   const { CombinedAutocompleteProvider } =
     await import("@earendil-works/pi-tui");
-  const { DefaultSkillRegistry, skillCacheSignature } =
-    await import("../skills/registry.js");
   let skillSignature = skillCacheSignature(process.cwd());
   let skillReg = new DefaultSkillRegistry(process.cwd());
   function cachedSkillRegistry(): InstanceType<typeof DefaultSkillRegistry> {
@@ -1213,7 +1331,7 @@ export async function run(args: string[]): Promise<void> {
       const guessed = knownVisionModel(model);
       if (typeof guessed === "boolean") runtime.setSupportsVision(guessed);
     }
-    updateStatus();
+    if (tuiReady) updateStatus();
 
     const getModelInfo = (provider as any).getModelInfo;
     if (typeof getModelInfo !== "function") return;
@@ -1232,7 +1350,7 @@ export async function run(args: string[]): Promise<void> {
           // the configured/static floor.
           if (current === undefined || resolved > (current ?? 0)) {
             runtime.setContextWindow(Math.max(floor, resolved));
-            updateStatus();
+            if (tuiReady) updateStatus();
           }
         }
         if (
@@ -1250,8 +1368,6 @@ export async function run(args: string[]): Promise<void> {
   // Resolve the initial model's window before the first response.
   refreshContextWindow();
 
-  const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
-  const modelCache = new Map<string, { models: string[]; at: number }>();
   for (const loaded of extensionLoader.list()) {
     for (const [name, provider] of loaded.registries?.providers ?? new Map()) {
       const cfg = (provider as any)?.config ?? {};

@@ -90,13 +90,15 @@ than a lock-in.
   that can be disabled, and no-colour fallbacks.
 - **Web UI (v1 scope):** browser client over WebSocket against the same
   `AgentRuntime`; streaming chat text, markdown with syntax-highlighted code,
-  fenced code fallback, foldable thinking blocks, tool cards with live output
-  and final result/diff, approval dialogs (approve / deny / trust-session),
-  session list/resume/new over the same JSONL logs, multiple tabs with one
-  controller, mid-turn input queued into the steering queue, reconnect with
-  active-turn replay, and a light/dark theme mapped from the configured TUI
-  theme. Deferred: model pickers (config-only), mermaid/ANSI rendering,
-  `/export`, shell mode, extension widgets.
+  local image rendering with a lightbox, Mermaid SVG diagrams, foldable thinking
+  blocks, tool cards with live output and final result/diff, approval dialogs
+  (approve / deny / trust-session), session list/resume/new/rename/delete over
+  the same JSONL logs, multiple tabs with one controller, mid-turn input queued
+  into the steering queue, reconnect with active-turn replay, a live provider
+  model overlay, effort and plan/yolo switching in the composer, native file
+  attachments, skills and MCP overlays, a workspace explorer, slash commands and
+  a command palette, and System/Light/Dark theming. Deferred: ANSI rendering,
+  shell mode, extension widgets, and cross-machine access.
 - **Constraints:** TypeScript strict on NodeNext ESM; the small-core principle
   (new built-in tools need strong justification against ADR 0001); local-first
   with no telemetry or hosted database (ADR 0004); the web server binds

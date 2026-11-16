@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { once } from "node:events";
@@ -73,6 +79,18 @@ async function start(
     store?: JsonlSessionStore;
     theme?: "light" | "dark";
     approvalGraceMs?: number;
+    maxClients?: number;
+    maxMessageBytes?: number;
+    maxReplayBytes?: number;
+    models?: { provider: string; model: string; label?: string }[];
+    switchModel?: (provider: string, model: string) => any;
+    mode?: "plan" | "yolo";
+    effort?: string;
+    setMode?: (mode: "plan" | "yolo") => void;
+    setEffort?: (effort: string) => void;
+    refreshModels?: () => Promise<any[]>;
+    skills?: () => any[];
+    mcpStatus?: () => any[];
   } = {},
 ) {
   return startWebServer({
@@ -84,7 +102,19 @@ async function start(
     store: extras.store,
     workspace: built.workspace,
     theme: extras.theme,
+    models: extras.models,
+    switchModel: extras.switchModel,
+    mode: extras.mode,
+    effort: extras.effort,
+    setMode: extras.setMode,
+    setEffort: extras.setEffort,
+    refreshModels: extras.refreshModels,
+    skills: extras.skills,
+    mcpStatus: extras.mcpStatus,
     approvalGraceMs: extras.approvalGraceMs,
+    maxClients: extras.maxClients,
+    maxMessageBytes: extras.maxMessageBytes,
+    maxReplayBytes: extras.maxReplayBytes,
     port: 0,
     openBrowser: false,
   });
@@ -103,6 +133,7 @@ class Client {
 
   constructor(url: string) {
     this.ws = new WebSocket(url);
+    this.ws.on("error", () => {});
     this.ws.on("message", (data) => {
       const msg = JSON.parse(data.toString());
       this.messages.push(msg);
@@ -117,6 +148,7 @@ class Client {
   }
 
   async open(): Promise<void> {
+    if (this.ws.readyState === WebSocket.OPEN) return;
     await once(this.ws, "open");
   }
 
@@ -148,6 +180,16 @@ class Client {
       }, timeoutMs);
       this.waiters.push({ matches, resolve, reject, timer });
     });
+  }
+
+  /** Resolve with a past or future message matching an arbitrary predicate. */
+  waitForMatchingIncludingPast(
+    matches: (message: any) => boolean,
+    timeoutMs = 5000,
+  ): Promise<any> {
+    const existing = this.messages.find(matches);
+    if (existing) return Promise.resolve(existing);
+    return this.waitForMatching(matches, timeoutMs);
   }
 
   close(): void {
@@ -249,6 +291,43 @@ class FailingProvider implements ProviderAdapter {
 
   async generate(_request: ModelRequest): Promise<ModelResponse> {
     throw new Error("provider exploded");
+  }
+}
+
+/** A provider that bursts output, then holds the turn open. */
+class BurstProvider implements ProviderAdapter {
+  readonly id = "burst";
+  readonly model = "burst-model";
+  private openGate!: () => void;
+  private gate = new Promise<void>((resolve) => {
+    this.openGate = resolve;
+  });
+
+  open(): void {
+    this.openGate();
+  }
+
+  async generate(_request: ModelRequest): Promise<ModelResponse> {
+    throw new Error("unused");
+  }
+
+  async *stream(): AsyncIterable<ModelStreamEvent> {
+    const text = "x".repeat(100);
+    for (let i = 0; i < 50; i++) {
+      yield { type: "text", text };
+    }
+    await this.gate;
+    yield {
+      type: "done",
+      response: {
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: text.repeat(50) }],
+        },
+        toolCalls: [],
+        finishReason: "stop",
+      },
+    };
   }
 }
 
@@ -447,6 +526,15 @@ test("the page is served only with the run token", async () => {
     const html = await withToken.text();
     assert.match(html, /<html/i);
     assert.match(html, /data-theme="dark"/);
+    assert.match(
+      html,
+      new RegExp(`window\\.__ATOM_TOKEN__ = "${server.token}";`),
+      "the token is injected as a string value",
+    );
+    assert.ok(
+      !html.includes(`window.${server.token}`),
+      "the token is never spliced into an identifier",
+    );
     assert.ok(
       !html.includes("__ATOM_LITE_TOKEN__"),
       "token placeholder replaced",
@@ -996,6 +1084,154 @@ test("the stylesheet keeps hidden elements hidden", async () => {
   }
 });
 
+// Reason: spec (ticket 11) — an oversized frame is refused at the socket
+// boundary without taking the server down for the next client.
+test("oversized client messages are rejected without destabilising", async () => {
+  const built = buildRuntime([{ text: "still here" }]);
+  const server = await start(built, { maxMessageBytes: 1024 });
+  const noisy = new Client(server.wsUrl);
+  let healthy: Client | undefined;
+  try {
+    await noisy.open();
+    const closed = once(noisy.ws, "close");
+    noisy.send({ type: "input", text: "x".repeat(4096) });
+    const [code] = (await closed) as [number];
+    assert.equal(code, 1009);
+    noisy.close();
+
+    healthy = new Client(server.wsUrl);
+    await healthy.open();
+    const hello = await healthy.waitFor("hello");
+    if (hello.readOnly) await healthy.waitFor("control");
+    healthy.send({ type: "input", text: "ping" });
+    await healthy.waitFor("turn_end");
+    assert.equal(assistantTextOf(healthy), "still here");
+  } finally {
+    noisy.close();
+    healthy?.close();
+    await server.close();
+  }
+});
+
+// Reason: spec (ticket 11) — concurrent connections are bounded, and a freed
+// slot lets a new client in.
+test("simultaneous connections are bounded", async () => {
+  const built = buildRuntime([{ text: "hi" }]);
+  const server = await start(built, { maxClients: 2 });
+  const a = new Client(server.wsUrl);
+  const b = new Client(server.wsUrl);
+  const c = new Client(server.wsUrl);
+  let d: Client | undefined;
+  try {
+    await a.open();
+    await a.waitFor("hello");
+    await b.open();
+    await b.waitFor("hello");
+
+    const closed = once(c.ws, "close");
+    await c.open();
+    const [code] = (await closed) as [number];
+    assert.equal(code, 1013);
+
+    b.close();
+    await once(b.ws, "close");
+    d = new Client(server.wsUrl);
+    await d.open();
+    const hello = await d.waitFor("hello");
+    assert.equal(hello.sessionId, built.session.id);
+  } finally {
+    a.close();
+    b.close();
+    c.close();
+    d?.close();
+    await server.close();
+  }
+});
+
+// Reason: spec (ticket 11) — Ctrl+C must cancel the in-flight work, flush the
+// log, release the lock, and leave the session resumable.
+test("shutdown cancels a running turn and the log stays resumable", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-ws-"));
+  const store = new JsonlSessionStore(
+    mkdtempSync(join(tmpdir(), "web-store-")),
+  );
+  const session = store.create(workspace, "fake");
+  const waitingTool = {
+    definition: {
+      name: "wait",
+      description: "wait for cancellation",
+      parameters: { type: "object", properties: {} },
+    },
+    annotations: { readOnlyHint: true },
+    execute(call: any, ctx: any) {
+      return new Promise((resolve) => {
+        ctx.signal.addEventListener(
+          "abort",
+          () =>
+            resolve({
+              toolCallId: call.id,
+              name: "wait",
+              content: "cancelled",
+              isError: true,
+            }),
+          { once: true },
+        );
+      });
+    },
+  };
+  const built = buildRuntime(
+    [
+      { toolCalls: [{ id: "w1", name: "wait", arguments: {} }] },
+      { text: "after cancel" },
+    ],
+    { tools: [waitingTool], workspace, session },
+  );
+  const server = await start(built, { store });
+  const client = new Client(server.wsUrl);
+  await client.open();
+  client.send({ type: "input", text: "wait please" });
+  await waitForEvent(client, "tool_call");
+
+  await server.close();
+  client.close();
+
+  const resumed = store.resume(session.id);
+  assert.ok(resumed, "lock released and log resumable");
+  const userMessage = resumed.messages.find((m) => m.role === "user");
+  assert.equal(userMessage?.content[0].text, "wait please");
+  const toolResult = resumed.messages.find((m) => m.role === "tool");
+  assert.ok(toolResult, "the cancelled tool result was flushed");
+  resumed.releaseLock();
+});
+
+// Reason: spec (ticket 11) — a huge turn cannot grow the replay buffer
+// without bound; a reconnect is told the replay is partial.
+test("the active-turn replay buffer is bounded", async () => {
+  const provider = new BurstProvider();
+  const built = buildRuntime([], { provider });
+  const server = await start(built, { maxReplayBytes: 1024 });
+  const a = new Client(server.wsUrl);
+  let b: Client | undefined;
+  try {
+    await a.open();
+    a.send({ type: "input", text: "burst" });
+    await waitForEvent(a, "assistant_delta");
+
+    b = new Client(server.wsUrl);
+    await b.open();
+    const replay = await b.waitFor("replay");
+    assert.equal(replay.truncated, true);
+    assert.ok(replay.events.length < 50, `buffered ${replay.events.length}`);
+
+    provider.open();
+    await a.waitFor("turn_end");
+  } finally {
+    a.close();
+    b?.close();
+    await server.close();
+  }
+});
+
 // Reason: spec (ticket 03) — a mutating tool must block on the browser
 // answer, carry the request details and waiting turn, then proceed.
 test("an approval request blocks the turn until approved", async () => {
@@ -1268,6 +1504,361 @@ test("sessions are listed, created, resumed, and persisted", async () => {
       .map((m) => m.content[0].text)
       .join("\n");
     assert.match(newText, /new question/);
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: the browser sidebar can rename and delete sessions; deleting the
+// active chat must open a fresh one so no client is left pointing at a gone log.
+test("a session can be renamed and deleted from the browser", async () => {
+  const storeRoot = mkdtempSync(join(tmpdir(), "web-store-"));
+  const workspace = mkdtempSync(join(tmpdir(), "web-workspace-"));
+  const store = new JsonlSessionStore(storeRoot);
+  const session = store.create(workspace, "fake", "s1");
+  session.appendMessage({
+    role: "user",
+    content: [{ type: "text", text: "hello" }],
+  });
+  await session.flush();
+  const built = buildRuntime([], { workspace, session });
+  const server = await start(built, { store });
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    await client.waitFor("hello");
+
+    client.send({ type: "rename_session", id: "s1", title: "Renamed chat" });
+    const renamed = await client.waitForMatchingIncludingPast(
+      (m) =>
+        m.type === "sessions" &&
+        m.sessions.some(
+          (item: any) => item.id === "s1" && item.title === "Renamed chat",
+        ),
+    );
+    assert.ok(renamed);
+
+    client.send({
+      type: "attach_file",
+      id: "delete-upload",
+      name: "note.txt",
+      mime: "text/plain",
+      data: Buffer.from("delete me", "utf8").toString("base64"),
+    });
+    const attached = await client.waitFor("attachment");
+    assert.equal(existsSync(attached.path), true);
+    const attachmentRoot = join(workspace, ".atom-lite", "attachments", "s1");
+    assert.equal(existsSync(attachmentRoot), true);
+
+    client.send({ type: "delete_session", id: "s1" });
+    const changed = await client.waitForMatchingIncludingPast(
+      (m) => m.type === "session_changed" && m.sessionId !== "s1",
+    );
+    assert.ok(changed.sessionId);
+    await client.waitForMatchingIncludingPast(
+      (m) =>
+        m.type === "sessions" &&
+        !m.sessions.some((item: any) => item.id === "s1"),
+    );
+    assert.equal(existsSync(join(storeRoot, "s1.jsonl")), false);
+    assert.equal(
+      existsSync(attachmentRoot),
+      false,
+      "deleting a session removes its attachment directory",
+    );
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: /model and the header picker switch the live runtime and every tab
+// sees the new provider, including the next client that joins.
+test("model switching updates the live runtime and broadcast state", async () => {
+  const built = buildRuntime([]);
+  const seen: string[] = [];
+  const server = await start(built, {
+    models: [
+      { provider: "fake", model: "fake-model", label: "Fake" },
+      { provider: "other", model: "other-model", label: "Other" },
+    ],
+    switchModel: (provider, model) => {
+      seen.push(`${provider}/${model}`);
+      return {
+        provider,
+        model,
+        models: [{ provider, model, label: "Other" }],
+      };
+    },
+  });
+  const client = new Client(server.wsUrl);
+  let second: Client | undefined;
+  try {
+    await client.open();
+    await client.waitFor("hello");
+
+    client.send({
+      type: "switch_model",
+      provider: "other",
+      model: "other-model",
+    });
+    const changed = await client.waitFor("model_changed");
+    assert.equal(changed.provider, "other");
+    assert.equal(changed.model, "other-model");
+    assert.deepEqual(changed.models, [
+      { provider: "other", model: "other-model", label: "Other" },
+    ]);
+    assert.deepEqual(seen, ["other/other-model"]);
+
+    second = new Client(server.wsUrl);
+    await second.open();
+    const hello = await second.waitFor("hello");
+    assert.equal(hello.provider, "other");
+    assert.equal(hello.model, "other-model");
+  } finally {
+    client.close();
+    second?.close();
+    await server.close();
+  }
+});
+
+// Reason: Ctrl+O opens the server directory explorer and /cwd switches the
+// workspace, session scope, and runtime together.
+test("the workspace explorer lists directories and switches the workspace", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-ws-a-"));
+  const nextWorkspace = mkdtempSync(join(tmpdir(), "web-ws-b-"));
+  mkdirSync(join(nextWorkspace, "nested"));
+  const filePath = join(nextWorkspace, "not-a-dir.txt");
+  writeFileSync(filePath, "x");
+  const built = buildRuntime([], { workspace });
+  const server = await start(built);
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    await client.waitFor("hello");
+
+    client.send({ type: "browse_directory", path: nextWorkspace });
+    const directory = await client.waitFor("directory");
+    assert.equal(directory.listing.path, nextWorkspace);
+    assert.deepEqual(
+      directory.listing.directories.map((item: any) => item.name),
+      ["nested"],
+    );
+    assert.equal(directory.listing.parent, tmpdir());
+
+    client.send({ type: "switch_workspace", path: nextWorkspace });
+    const changed = await client.waitFor("workspace_changed");
+    assert.equal(changed.workspace, nextWorkspace);
+    assert.ok(changed.sessionId);
+
+    client.send({ type: "browse_directory", path: filePath });
+    const error = await client.waitFor("error");
+    assert.match(error.message, /not a directory/);
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: the composer effort/mode chips must drive the real runtime and every
+// tab sees the state; a viewer cannot change it.
+test("effort and mode switch through the protocol and broadcast state", async () => {
+  const built = buildRuntime([]);
+  const applied: string[] = [];
+  const server = await start(built, {
+    mode: "yolo",
+    effort: "medium",
+    setMode: (mode) => applied.push(`mode:${mode}`),
+    setEffort: (effort) => applied.push(`effort:${effort}`),
+  });
+  const client = new Client(server.wsUrl);
+  let viewer: Client | undefined;
+  try {
+    await client.open();
+    const hello = await client.waitFor("hello");
+    assert.equal(hello.mode, "yolo");
+    assert.equal(hello.effort, "medium");
+
+    client.send({ type: "set_effort", effort: "high" });
+    const high = await client.waitForMatchingIncludingPast(
+      (m) => m.type === "runtime_state" && m.effort === "high",
+    );
+    assert.equal(high.mode, "yolo");
+
+    client.send({ type: "set_mode", mode: "plan" });
+    const plan = await client.waitForMatchingIncludingPast(
+      (m) => m.type === "runtime_state" && m.mode === "plan",
+    );
+    assert.equal(plan.effort, "high");
+    assert.deepEqual(applied, ["effort:high", "mode:plan"]);
+
+    viewer = new Client(server.wsUrl);
+    await viewer.open();
+    const viewerHello = await viewer.waitFor("hello");
+    assert.equal(viewerHello.mode, "plan");
+    assert.equal(viewerHello.effort, "high");
+    viewer.send({ type: "set_mode", mode: "yolo" });
+    const refused = await viewer.waitFor("error");
+    assert.match(refused.message, /read-only viewer/);
+  } finally {
+    client.close();
+    viewer?.close();
+    await server.close();
+  }
+});
+
+// Reason: directory enumeration and provider network calls are controller
+// actions, not something a read-only viewer may trigger.
+test("a read-only viewer cannot browse directories or refresh models", async () => {
+  const built = buildRuntime([]);
+  const server = await start(built, { refreshModels: async () => [] });
+  const a = new Client(server.wsUrl);
+  const b = new Client(server.wsUrl);
+  try {
+    await a.open();
+    await a.waitFor("hello");
+    await b.open();
+    const hello = await b.waitFor("hello");
+    assert.equal(hello.readOnly, true);
+
+    b.send({ type: "browse_directory" });
+    const browseError = await b.waitForNext("error");
+    assert.match(browseError.message, /read-only viewer/);
+
+    b.send({ type: "refresh_models" });
+    const refreshError = await b.waitForNext("error");
+    assert.match(refreshError.message, /read-only viewer/);
+  } finally {
+    a.close();
+    b.close();
+    await server.close();
+  }
+});
+
+// Reason: assistant markdown can contain local images; the server serves only
+// workspace images behind the run token and refuses path escapes.
+test("local images are served from the workspace behind the token", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-image-ws-"));
+  mkdirSync(join(workspace, "assets"));
+  const pixel = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/AF+G3FFAAAAAElFTkSuQmCC",
+    "base64",
+  );
+  writeFileSync(join(workspace, "assets", "pixel.png"), pixel);
+  writeFileSync(join(workspace, "notes.txt"), "not an image");
+  const built = buildRuntime([], { workspace });
+  const server = await start(built);
+  try {
+    const endpoint = new URL("/image", server.url);
+    endpoint.searchParams.set("token", server.token);
+    endpoint.searchParams.set("path", "assets/pixel.png");
+    const ok = await fetch(endpoint);
+    assert.equal(ok.status, 200);
+    assert.match(ok.headers.get("content-type") ?? "", /^image\/png/);
+    assert.deepEqual(Buffer.from(await ok.arrayBuffer()), pixel);
+
+    endpoint.searchParams.set("path", "../../etc/passwd");
+    assert.equal((await fetch(endpoint)).status, 404);
+    endpoint.searchParams.set("path", "notes.txt");
+    assert.equal((await fetch(endpoint)).status, 404);
+    symlinkSync("/etc/hosts", join(workspace, "leak.png"));
+    endpoint.searchParams.set("path", "leak.png");
+    assert.equal(
+      (await fetch(endpoint)).status,
+      404,
+      "a symlink cannot escape the workspace",
+    );
+    endpoint.searchParams.delete("token");
+    endpoint.searchParams.set("path", "assets/pixel.png");
+    assert.equal((await fetch(endpoint)).status, 401);
+  } finally {
+    await server.close();
+  }
+});
+
+// Reason: /model must show live provider models, and /skills and /mcp must be
+// backed by the runtime registries rather than hardcoded browser data.
+test("overlay data is fetched from the runtime on demand", async () => {
+  const built = buildRuntime([]);
+  const server = await start(built, {
+    refreshModels: async () => [
+      { provider: "live", model: "live-model", label: "Live" },
+    ],
+    skills: () => [
+      { name: "review", description: "Review changes", scope: "global" },
+    ],
+    mcpStatus: () => [
+      {
+        name: "filesystem",
+        state: "ready",
+        enabled: true,
+        requiresApproval: false,
+        toolCount: 2,
+        tools: ["read", "list"],
+      },
+    ],
+  });
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    await client.waitFor("hello");
+
+    client.send({ type: "refresh_models" });
+    const models = await client.waitFor("models");
+    assert.deepEqual(models.models, [
+      { provider: "live", model: "live-model", label: "Live" },
+    ]);
+
+    client.send({ type: "list_skills" });
+    const skills = await client.waitFor("skills");
+    assert.equal(skills.skills[0].name, "review");
+
+    client.send({ type: "list_mcp" });
+    const mcp = await client.waitFor("mcp");
+    assert.equal(mcp.servers[0].name, "filesystem");
+    assert.equal(mcp.servers[0].toolCount, 2);
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: attachments are saved inside the workspace and referenced by the
+// next turn so the agent's read tool can inspect them like local files.
+test("attached files are saved and referenced by the next turn", async () => {
+  const built = buildRuntime([{ text: "done" }]);
+  const server = await start(built);
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    await client.waitFor("hello");
+
+    client.send({
+      type: "attach_file",
+      id: "upload-1",
+      name: "notes.txt",
+      mime: "text/plain",
+      data: Buffer.from("hello attachment", "utf8").toString("base64"),
+    });
+    const attachment = await client.waitFor("attachment");
+    assert.equal(attachment.id, "upload-1");
+    assert.match(attachment.name, /^notes\.txt$/);
+    assert.ok(attachment.path.includes(built.workspace));
+    assert.equal(attachment.size, 16);
+
+    client.send({ type: "input", text: "read the attachment" });
+    await client.waitFor("turn_end");
+    const user = built.session.events.find(
+      (event) => event.type === "user_message",
+    );
+    assert.match(JSON.stringify(user), /Attached local files/);
+    assert.match(JSON.stringify(user), /notes\.txt/);
+
+    client.send({ type: "remove_attachment", path: attachment.path });
+    const removed = await client.waitFor("attachment_removed");
+    assert.equal(removed.path, attachment.path);
+    assert.equal(existsSync(attachment.path), false);
   } finally {
     client.close();
     await server.close();

@@ -1,7 +1,17 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { join, extname } from "node:path";
+import {
+  mkdirSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { AgentRuntime } from "../agent/loop.js";
@@ -21,9 +31,16 @@ import type {
 import {
   parseClientMessage,
   type ClientMessage,
+  type DirectoryListing,
   type ServerMessage,
   type SessionListing,
+  type WebMcpServer,
+  type WebModel,
+  type WebSkill,
 } from "./protocol.js";
+
+export type WebModelSwitchResult =
+  { provider: string; model: string; models?: WebModel[] } | { error: string };
 
 export interface WebServerOptions {
   runtime: AgentRuntime;
@@ -38,11 +55,38 @@ export interface WebServerOptions {
   workspace?: string;
   /** Web colour theme; the CLI maps config.ui.theme into this. */
   theme?: "light" | "dark";
+  /** Provider/model pairs offered by the web picker. */
+  models?: WebModel[];
+  /** Switch the live runtime model; persistence belongs to the caller. */
+  switchModel?: (
+    provider: string,
+    model: string,
+  ) => WebModelSwitchResult | Promise<WebModelSwitchResult>;
+  /** Initial agent mode shown and switchable from the composer. */
+  mode?: "plan" | "yolo";
+  /** Initial thinking effort shown and switchable from the composer. */
+  effort?: string;
+  /** Apply a new plan/yolo mode to the live runtime. */
+  setMode?: (mode: "plan" | "yolo") => void;
+  /** Apply a new thinking effort to the live runtime. */
+  setEffort?: (effort: string) => void;
+  /** Fetch a live model list from every configured provider. */
+  refreshModels?: () => Promise<WebModel[]>;
+  /** Skills available to the runtime, for the /skills overlay. */
+  skills?: (workspace: string) => WebSkill[];
+  /** Live MCP server status, for the /mcp overlay. */
+  mcpStatus?: () => WebMcpServer[];
   /**
    * How long a pending approval waits for its client to come back before it
    * fails safe as a denial. Zero denies immediately.
    */
   approvalGraceMs?: number;
+  /** Maximum concurrent browser connections. */
+  maxClients?: number;
+  /** Maximum size of one client WebSocket frame. */
+  maxMessageBytes?: number;
+  /** Approximate cap on the active-turn replay buffer. */
+  maxReplayBytes?: number;
   /** 0 (default) asks the OS for a free port. */
   port?: number;
   /** Open the default browser once the server is listening. */
@@ -65,7 +109,20 @@ const MIME: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".svg": "image/svg+xml",
   ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".avif": "image/avif",
+  ".bmp": "image/bmp",
 };
+
+const IMAGE_EXTENSIONS = new Set(
+  Object.keys(MIME).filter(
+    (ext) => ext.startsWith(".") && MIME[ext].startsWith("image/"),
+  ),
+);
 
 const TOKEN_PLACEHOLDER = "__ATOM_LITE_TOKEN__";
 const THEME_PLACEHOLDER = "__ATOM_LITE_THEME__";
@@ -144,7 +201,20 @@ export async function startWebServer(
   const host = "127.0.0.1";
   const clientDir = defaultClientDir();
   const theme = options.theme === "light" ? "light" : "dark";
-  const workspace = options.workspace ?? options.session.workspace;
+  const maxClients = Math.max(1, options.maxClients ?? 32);
+  // Attachments travel as base64 in one frame; 20 MB of file is ~27 MB of
+  // text, so the default frame budget is larger than the text-only protocol.
+  const maxMessageBytes = Math.max(1024, options.maxMessageBytes ?? 33_554_432);
+  const maxReplayBytes = Math.max(1024, options.maxReplayBytes ?? 4_194_304);
+  let workspace = options.workspace ?? options.session.workspace;
+  let providerName = options.providerName;
+  let currentModel = options.model;
+  let currentMode: "plan" | "yolo" = options.mode ?? "yolo";
+  let currentEffort = options.effort ?? "medium";
+  let models: WebModel[] =
+    options.models && options.models.length > 0
+      ? [...options.models]
+      : [{ provider: providerName, model: currentModel }];
   const clients = new Set<WebSocket>();
   const pendingApprovals = new Map<string, PendingApproval>();
   const steeringQueue: string[] = [];
@@ -158,6 +228,14 @@ export async function startWebServer(
   let turnSessionStart = 0;
   let turnInput = "";
   let approvalTimer: NodeJS.Timeout | undefined;
+  let replayBytes = 0;
+  let replayTruncated = false;
+  let closing = false;
+  let activeAbort: AbortController | undefined;
+  let turnPromise: Promise<void> | undefined;
+  let closePromise: Promise<void> | undefined;
+  /** Attachment paths waiting to be referenced by the next turn, per session. */
+  const sessionAttachments = new Map<string, string[]>();
 
   options.runtime.setSteeringQueue(steeringQueue);
 
@@ -173,7 +251,21 @@ export async function startWebServer(
   };
 
   const emitEvent = (event: AgentEvent): void => {
-    if (turnRunning) turnEvents.push(event);
+    if (turnRunning) {
+      // Bound the active-turn buffer: a single enormous turn must not grow
+      // server memory without limit. Dropped events only affect live replay
+      // detail; the session log still records messages and tool results.
+      const text =
+        "text" in event && typeof event.text === "string"
+          ? event.text.length
+          : 256;
+      if (replayBytes + text <= maxReplayBytes) {
+        turnEvents.push(event);
+        replayBytes += text;
+      } else {
+        replayTruncated = true;
+      }
+    }
     broadcast({ type: "event", event });
   };
 
@@ -206,6 +298,249 @@ export async function startWebServer(
   const listSessions = (): SessionListing[] =>
     options.store?.listSessions(workspace) ?? [];
 
+  const errorText = (err: unknown): string =>
+    err instanceof Error ? err.message : String(err);
+
+  const fail = (client: WebSocket, err: unknown): void => {
+    sendTo(client, { type: "error", message: errorText(err) });
+  };
+
+  /** Expand `~`, resolve relative paths against the current workspace. */
+  const expandPath = (input: string): string => {
+    const trimmed = input.trim();
+    if (!trimmed) return resolve(workspace);
+    if (trimmed === "~") return homedir();
+    if (trimmed.startsWith("~/")) {
+      return resolve(join(homedir(), trimmed.slice(2)));
+    }
+    return resolve(workspace, trimmed);
+  };
+
+  /** One directory level for the Ctrl+O workspace explorer. */
+  const browseDirectory = (input?: string): DirectoryListing => {
+    const target = input?.trim() ? expandPath(input) : resolve(workspace);
+    const stat = statSync(target);
+    if (!stat.isDirectory()) throw new Error(`not a directory: ${target}`);
+    const directories = readdirSync(target, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => ({ name: entry.name, path: join(target, entry.name) }))
+      .sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        }),
+      )
+      .slice(0, 500);
+    const parent = dirname(target);
+    return {
+      path: target,
+      parent: parent === target ? null : parent,
+      directories,
+    };
+  };
+
+  const renameSession = async (id: string, title: string): Promise<void> => {
+    const trimmed = title.trim().slice(0, 120);
+    if (!trimmed) throw new Error("title cannot be empty");
+    if (id === session.id) {
+      session.appendEvent?.({ type: "session_renamed", title: trimmed });
+      await session.flush?.();
+    } else {
+      if (!options.store) throw new Error("sessions are disabled");
+      const target = options.store.resume(id);
+      if (!target) throw new Error(`no session ${id}`);
+      try {
+        if (target.workspace !== workspace) {
+          throw new Error("session belongs to another workspace");
+        }
+        target.appendEvent?.({ type: "session_renamed", title: trimmed });
+        await target.flush?.();
+      } finally {
+        target.releaseLock?.();
+      }
+    }
+    broadcast({ type: "sessions", sessions: listSessions() });
+  };
+
+  const deleteSession = async (id: string): Promise<void> => {
+    if (!options.store) throw new Error("sessions are disabled");
+    if (!options.store.listSessions(workspace).some((item) => item.id === id)) {
+      throw new Error(`no session ${id}`);
+    }
+    sessionAttachments.delete(id);
+    removeAttachmentDirectory(id);
+    if (id === session.id) {
+      // The user asked for deleting the current chat to start a fresh one.
+      const previous = session;
+      const next = newSession();
+      session = next;
+      steeringQueue.length = 0;
+      broadcast({
+        type: "session_changed",
+        sessionId: session.id,
+        history: historyOf(session),
+      });
+      try {
+        await previous.flush?.();
+      } finally {
+        previous.releaseLock?.();
+      }
+      options.store.deleteSession(id);
+    } else {
+      options.store.deleteSession(id);
+    }
+    broadcast({ type: "sessions", sessions: listSessions() });
+  };
+
+  const switchWorkspace = async (path: string): Promise<void> => {
+    const target = expandPath(path);
+    const stat = statSync(target);
+    if (!stat.isDirectory()) throw new Error(`not a directory: ${target}`);
+    const next = createSessionIn(target);
+    const previous = session;
+    sessionAttachments.delete(previous.id);
+    removeAttachmentDirectory(previous.id);
+    workspace = target;
+    options.runtime.setWorkspace(target);
+    options.approvals.resetTrust?.();
+    steeringQueue.length = 0;
+    session = next;
+    broadcast({
+      type: "workspace_changed",
+      workspace,
+      sessionId: session.id,
+      history: historyOf(session),
+    });
+    broadcast({ type: "sessions", sessions: listSessions() });
+    try {
+      await previous.flush?.();
+    } finally {
+      previous.releaseLock?.();
+    }
+  };
+
+  const setRuntimeMode = (mode: "plan" | "yolo"): void => {
+    if (mode === currentMode) return;
+    if (!options.setMode) throw new Error("mode switching is disabled");
+    options.setMode(mode);
+    currentMode = mode;
+    broadcast({
+      type: "runtime_state",
+      mode: currentMode,
+      effort: currentEffort,
+    });
+  };
+
+  const setRuntimeEffort = (effort: string): void => {
+    const normalized = effort.trim().slice(0, 32);
+    if (!normalized || normalized === currentEffort) return;
+    if (!options.setEffort) throw new Error("effort switching is disabled");
+    options.setEffort(normalized);
+    currentEffort = normalized;
+    broadcast({
+      type: "runtime_state",
+      mode: currentMode,
+      effort: currentEffort,
+    });
+  };
+
+  const attachmentDir = (): string =>
+    join(workspace, ".atom-lite", "attachments", session.id);
+
+  const removeAttachmentDirectory = (sessionId: string): void => {
+    try {
+      rmSync(join(workspace, ".atom-lite", "attachments", sessionId), {
+        recursive: true,
+        force: true,
+      });
+    } catch {
+      // best effort: a stale attachment directory is harmless
+    }
+  };
+
+  const attachFile = (
+    id: string | undefined,
+    name: string,
+    mime: string,
+    data: string,
+  ): {
+    id?: string;
+    name: string;
+    path: string;
+    size: number;
+    mime: string;
+  } => {
+    const safe = basename(name)
+      .replace(/[^A-Za-z0-9._-]+/g, "_")
+      .slice(0, 100);
+    if (!safe || safe === "." || safe === "..") {
+      throw new Error("invalid attachment name");
+    }
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(data)) {
+      throw new Error("attachment data is not valid base64");
+    }
+    const bytes = Buffer.from(data, "base64");
+    if (bytes.length === 0 || bytes.length > 20 * 1024 * 1024) {
+      throw new Error("attachment must be between 1 byte and 20 MB");
+    }
+    const directory = attachmentDir();
+    mkdirSync(directory, { recursive: true });
+    const path = join(directory, `${Date.now()}-${safe}`);
+    writeFileSync(path, bytes);
+    const paths = sessionAttachments.get(session.id) ?? [];
+    if (paths.length >= 10) {
+      unlinkSync(path);
+      throw new Error("at most 10 attachments per message");
+    }
+    paths.push(path);
+    sessionAttachments.set(session.id, paths);
+    return { id, name: safe, path, size: bytes.length, mime };
+  };
+
+  const removeAttachment = (path: string): void => {
+    const directory = resolve(attachmentDir());
+    const resolved = resolve(path);
+    if (!resolved.startsWith(directory + sep)) {
+      throw new Error("attachment belongs to another session");
+    }
+    const paths = sessionAttachments.get(session.id) ?? [];
+    const next = paths.filter((item) => item !== resolved);
+    if (next.length > 0) sessionAttachments.set(session.id, next);
+    else sessionAttachments.delete(session.id);
+    try {
+      unlinkSync(resolved);
+    } catch {
+      // already gone
+    }
+    broadcast({ type: "attachment_removed", path: resolved });
+  };
+
+  const refreshModels = async (): Promise<void> => {
+    if (options.refreshModels) {
+      const next = await options.refreshModels();
+      if (next.length > 0) models = next;
+    }
+    broadcast({ type: "models", models });
+  };
+
+  const switchModel = async (
+    provider: string,
+    model: string,
+  ): Promise<void> => {
+    if (!options.switchModel) throw new Error("model switching is disabled");
+    const result = await options.switchModel(provider, model);
+    if ("error" in result) throw new Error(result.error);
+    providerName = result.provider;
+    currentModel = result.model;
+    if (result.models && result.models.length > 0) models = result.models;
+    broadcast({
+      type: "model_changed",
+      provider: providerName,
+      model: currentModel,
+      models,
+    });
+  };
+
   const denyPendingApprovals = (): void => {
     for (const pending of pendingApprovals.values()) pending.resolve("deny");
     pendingApprovals.clear();
@@ -237,11 +572,19 @@ export async function startWebServer(
   const runTurn = async (initial: string): Promise<void> => {
     turnRunning = true;
     turnEvents = [];
+    replayBytes = 0;
+    replayTruncated = false;
     turnSessionStart = session.events.length;
-    turnInput = initial;
+    const attachments = sessionAttachments.get(session.id) ?? [];
+    sessionAttachments.delete(session.id);
+    const prompt = attachments.length
+      ? `${initial}\n\n[Attached local files]\n${attachments.map((path) => `- ${path}`).join("\n")}`
+      : initial;
+    turnInput = prompt;
     const controllerAbort = new AbortController();
+    activeAbort = controllerAbort;
     broadcast({ type: "turn_start", turnId: ++turnCounter });
-    let next: string | undefined = initial;
+    let next: string | undefined = prompt;
     try {
       while (next !== undefined) {
         await options.runtime.runAgentTurn(
@@ -271,25 +614,37 @@ export async function startWebServer(
       // No awaits between the final queue check and turn_end: a message
       // arriving after this point starts a new turn, never a stranded queue.
       turnRunning = false;
+      activeAbort = undefined;
       broadcast({ type: "turn_end" });
       turnEvents = [];
+      replayBytes = 0;
+      replayTruncated = false;
       turnSessionStart = 0;
       turnInput = "";
     }
   };
 
   const handleInput = (client: WebSocket, text: string): void => {
+    if (closing) {
+      sendTo(client, { type: "error", message: "server is shutting down" });
+      return;
+    }
     const trimmed = text.trim();
     if (!trimmed) return;
     // Every tab sees the prompt, including viewer tabs that cannot send one.
     broadcast({ type: "user_input", text: trimmed });
     if (turnRunning) {
-      steeringQueue.push(trimmed);
+      const attachments = sessionAttachments.get(session.id) ?? [];
+      sessionAttachments.delete(session.id);
+      const queued = attachments.length
+        ? `${trimmed}\n\n[Attached local files]\n${attachments.map((path) => `- ${path}`).join("\n")}`
+        : trimmed;
+      steeringQueue.push(queued);
       // Only the sender needs the pending row.
       sendTo(client, { type: "input_queued", text: trimmed });
       return;
     }
-    void runTurn(trimmed);
+    turnPromise = runTurn(trimmed);
   };
 
   /**
@@ -305,6 +660,8 @@ export async function startWebServer(
       return;
     }
     const previous = session;
+    sessionAttachments.delete(previous.id);
+    removeAttachmentDirectory(previous.id);
     session = next;
     steeringQueue.length = 0;
     broadcast({
@@ -313,7 +670,11 @@ export async function startWebServer(
       history: historyOf(session),
     });
     broadcast({ type: "sessions", sessions: listSessions() });
-    void previous.flush?.().finally(() => previous.releaseLock?.());
+    void Promise.resolve(previous.flush?.())
+      .catch(() => {
+        // The turn already surfaced the write failure; never keep the lock.
+      })
+      .finally(() => previous.releaseLock?.());
   };
 
   /**
@@ -340,12 +701,15 @@ export async function startWebServer(
     return { session: next };
   };
 
+  const createSessionIn = (path: string): Session =>
+    options.store
+      ? options.store.create(path, providerName)
+      : new InMemorySession(randomUUID(), path, providerName);
+
   const newSession = (): Session => {
     // Trust-for-session is per conversation, matching the terminal.
     options.approvals.resetTrust?.();
-    return options.store
-      ? options.store.create(workspace, options.providerName)
-      : new InMemorySession(randomUUID(), workspace, options.providerName);
+    return createSessionIn(workspace);
   };
 
   // Approvals block the agent until a browser answers. The id matches the
@@ -389,6 +753,45 @@ export async function startWebServer(
         res.end("missing or invalid token\n");
         return;
       }
+      if (url.pathname === "/image") {
+        const raw = url.searchParams.get("path") ?? "";
+        let target = raw.trim();
+        if (target === "~") target = homedir();
+        else if (target.startsWith("~/"))
+          target = join(homedir(), target.slice(2));
+        const absolute = resolve(workspace, target);
+        const type = MIME[extname(absolute).toLowerCase()] ?? "";
+        if (!IMAGE_EXTENSIONS.has(extname(absolute).toLowerCase())) {
+          res.writeHead(404, { "content-type": "text/plain" });
+          res.end("not found\n");
+          return;
+        }
+        try {
+          // Resolve symlinks before the containment check: a link inside the
+          // workspace must not become a read primitive for files outside it.
+          const root = realpathSync(workspace);
+          const real = realpathSync(absolute);
+          if (real !== root && !real.startsWith(root + sep)) {
+            res.writeHead(404, { "content-type": "text/plain" });
+            res.end("not found\n");
+            return;
+          }
+          const bytes = await readFile(real);
+          res.writeHead(200, {
+            "content-type": type,
+            "content-length": bytes.length,
+            "cache-control": "no-store",
+            "x-content-type-options": "nosniff",
+            "content-security-policy": "default-src 'none'",
+          });
+          res.end(bytes);
+        } catch {
+          res.writeHead(404, { "content-type": "text/plain" });
+          res.end("not found\n");
+        }
+        return;
+      }
+
       const name = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
       const safeName =
         /^[A-Za-z0-9._-]+$/.test(name) ||
@@ -429,8 +832,15 @@ export async function startWebServer(
     })();
   });
 
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: maxMessageBytes,
+  });
   httpServer.on("upgrade", (req, socket, head) => {
+    if (closing) {
+      socket.destroy();
+      return;
+    }
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? host}`);
     if (!isLocalRequest(req) || requestToken(req, url) !== token) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
@@ -483,6 +893,10 @@ export async function startWebServer(
     client: WebSocket,
     message: ClientMessage,
   ): void => {
+    if (closing) {
+      sendTo(client, { type: "error", message: "server is shutting down" });
+      return;
+    }
     switch (message.type) {
       case "input":
         if (!requireController(client)) return;
@@ -512,17 +926,129 @@ export async function startWebServer(
       case "resume_session":
         switchSessionIfIdle(client, () => resumeSession(message.id));
         return;
+      case "rename_session":
+        if (!requireController(client)) return;
+        if (rejectWhileTurnRunning(client)) return;
+        void renameSession(message.id, message.title).catch((err) =>
+          fail(client, err),
+        );
+        return;
+      case "delete_session":
+        if (!requireController(client)) return;
+        if (rejectWhileTurnRunning(client)) return;
+        void deleteSession(message.id).catch((err) => fail(client, err));
+        return;
+      case "switch_model":
+        if (!requireController(client)) return;
+        if (rejectWhileTurnRunning(client)) return;
+        void switchModel(message.provider, message.model).catch((err) =>
+          fail(client, err),
+        );
+        return;
+      case "browse_directory":
+        if (!requireController(client)) return;
+        void (async () => {
+          try {
+            sendTo(client, {
+              type: "directory",
+              listing: browseDirectory(message.path),
+            });
+          } catch (err) {
+            fail(client, err);
+          }
+        })();
+        return;
+      case "switch_workspace":
+        if (!requireController(client)) return;
+        if (rejectWhileTurnRunning(client)) return;
+        void switchWorkspace(message.path).catch((err) => fail(client, err));
+        return;
+      case "set_effort":
+        if (!requireController(client)) return;
+        if (rejectWhileTurnRunning(client)) return;
+        try {
+          setRuntimeEffort(message.effort);
+        } catch (err) {
+          fail(client, err);
+        }
+        return;
+      case "set_mode":
+        if (!requireController(client)) return;
+        if (rejectWhileTurnRunning(client)) return;
+        try {
+          setRuntimeMode(message.mode);
+        } catch (err) {
+          fail(client, err);
+        }
+        return;
+      case "refresh_models":
+        if (!requireController(client)) return;
+        void refreshModels().catch((err) => fail(client, err));
+        return;
+      case "attach_file":
+        if (!requireController(client)) return;
+        try {
+          const attachment = attachFile(
+            message.id,
+            message.name,
+            message.mime,
+            message.data,
+          );
+          sendTo(client, { type: "attachment", ...attachment });
+        } catch (err) {
+          fail(client, err);
+        }
+        return;
+      case "remove_attachment":
+        if (!requireController(client)) return;
+        try {
+          removeAttachment(message.path);
+        } catch (err) {
+          fail(client, err);
+        }
+        return;
+      case "list_skills":
+        try {
+          sendTo(client, {
+            type: "skills",
+            skills: options.skills?.(workspace) ?? [],
+          });
+        } catch (err) {
+          fail(client, err);
+        }
+        return;
+      case "list_mcp":
+        try {
+          sendTo(client, {
+            type: "mcp",
+            servers: options.mcpStatus?.() ?? [],
+          });
+        } catch (err) {
+          fail(client, err);
+        }
+        return;
     }
   };
 
   wss.on("connection", (ws: WebSocket) => {
+    if (closing || clients.size >= maxClients) {
+      ws.close(1013, "server is not accepting connections");
+      return;
+    }
+    // A malformed or oversized frame is a socket-level error; it must not
+    // become an uncaught exception that takes the server down.
+    ws.on("error", () => {});
     clients.add(ws);
     if (!controller) controller = ws;
     sendTo(ws, {
       type: "hello",
       sessionId: session.id,
-      provider: options.providerName,
-      model: options.model,
+      provider: providerName,
+      model: currentModel,
+      workspace,
+      models,
+      mode: currentMode,
+      effort: currentEffort,
       readOnly: controller !== ws,
       history: visibleHistory(),
     });
@@ -534,6 +1060,7 @@ export async function startWebServer(
         turnId: turnCounter,
         prompts: turnPrompts(),
         events: turnEvents,
+        truncated: replayTruncated,
       });
     }
     // A prompt that was pending when the previous client dropped is handed
@@ -581,25 +1108,63 @@ export async function startWebServer(
     wsUrl,
     port,
     token,
-    close: async () => {
-      for (const client of clients) {
-        try {
-          client.close();
-        } catch {
-          // best effort
+    close: () => {
+      if (closePromise) return closePromise;
+      closePromise = (async () => {
+        closing = true;
+        const httpClosed = new Promise<void>((resolve) =>
+          httpServer.close(() => resolve()),
+        );
+
+        // Cancel the turn before closing sockets so its final writes flush and
+        // the session log stays resumable. A turn that ignores the signal is
+        // bounded by a short shutdown timeout rather than blocking exit.
+        activeAbort?.abort();
+        // A tool may be blocked on an approval; denying it unblocks the turn
+        // instead of making shutdown wait for the timeout.
+        denyPendingApprovals();
+        if (turnPromise) {
+          await Promise.race([
+            turnPromise.catch(() => {}),
+            new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, 5_000);
+              timer.unref?.();
+            }),
+          ]);
         }
-      }
-      clients.clear();
-      if (approvalTimer) {
-        clearTimeout(approvalTimer);
-        approvalTimer = undefined;
-      }
-      denyPendingApprovals();
-      options.runtime.setEventSink(undefined);
-      await session.flush?.();
-      session.releaseLock?.();
-      wss.close();
-      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+
+        const closingClients = [...clients];
+        for (const client of closingClients) {
+          try {
+            client.close();
+          } catch {
+            // best effort
+          }
+        }
+        clients.clear();
+        const forceClose = setTimeout(() => {
+          for (const client of closingClients) {
+            try {
+              client.terminate();
+            } catch {
+              // already gone
+            }
+          }
+        }, 250);
+        forceClose.unref?.();
+
+        if (approvalTimer) {
+          clearTimeout(approvalTimer);
+          approvalTimer = undefined;
+        }
+        denyPendingApprovals();
+        options.runtime.setEventSink(undefined);
+        wss.close();
+        await httpClosed;
+        await session.flush?.();
+        session.releaseLock?.();
+      })();
+      return closePromise;
     },
   };
 }

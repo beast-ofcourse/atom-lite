@@ -128,6 +128,52 @@ once.
 
 In the TUI, type `/help` for every command grouped by category, or press `ctrl+p` for the fuzzy command palette. `/theme` opens a live-preview picker and persists your choice; `NO_COLOR` and `--no-color` always win. `/sessions` opens a searchable picker scoped to the current workspace; `/search <query>` prints matching sessions with snippets. Mouse wheel scrolling and click-to-focus are enabled for interactive terminals and can be disabled with `ui.mouse: false`.
 
+## Web UI
+
+```
+atom-lite --serve [port]
+```
+
+Starts a local server (default `127.0.0.1:7317`, or the next free port), prints
+the URL with its per-run token, and opens it. The browser drives the same
+runtime, tools, sessions, and approvals as the terminal; there is no second
+agent.
+
+- **Localhost only.** The server binds `127.0.0.1`, and the page and every
+  asset carry the run token. Requests with a foreign `Origin` or `Host` are
+  rejected. Treat the printed URL as a secret while the server runs.
+- **One live owner per session.** The terminal and the server both take
+  `<sessionId>.jsonl.lock`. Opening a session another process holds is refused
+  and names the holder; an unsaved session is protected too. A lock left by a
+  killed process is reclaimed automatically.
+- **Tabs.** The first tab controls the session; later tabs are read-only
+  viewers and take over if the controller leaves.
+- **Reconnects.** A dropped socket reconnects on its own and replays the
+  in-flight turn exactly once. A pending approval survives the drop and
+  returns to the reconnecting tab; it fails safe as a denial if nobody comes
+  back within the grace period.
+- **Input.** Messages typed while a turn runs join the steering queue and are
+  delivered in order before the turn ends.
+- **Rendering.** Assistant text is markdown with syntax-highlighted fenced
+  code, local workspace images with a lightbox, and Mermaid diagrams rendered as
+  themed SVG (source and Copy remain as the fallback); thinking is folded into a
+  disclosure. The sidebar lists, resumes, renames, and deletes workspace
+  sessions.
+- **Controls.** The header model chip opens a searchable overlay whose catalog
+  is refreshed live from every configured provider. The composer shows and
+  switches effort (`low`/`medium`/`high`) and mode (`plan`/`yolo`), and its plus
+  button opens the native file picker for attachments on every platform.
+  `Ctrl/Cmd+O` opens the working-directory explorer and `Ctrl/Cmd+K` the command
+  palette. Typing `/` offers `/new`, `/help`, `/model`, `/theme`, `/cwd`,
+  `/rename`, `/delete`, `/search`, `/export`, `/effort`, `/mode`, `/skills`, and
+  `/mcp`.
+- **Theme.** The configured `ui.theme` seeds the web theme; the sidebar footer
+  can then switch between System, Light, and Dark and remembers the choice.
+- **Not yet.** ANSI rendering, shell mode, extension widgets, and cross-machine
+  access. The terminal remains the primary surface.
+
+The visual system is documented in [`web/DESIGN.md`](./web/DESIGN.md).
+
 ## Tools
 
 Ten built-in tools — the four core tools from [ADR 0001](./docs/adr/0001-four-built-in-tools-only.md), file search, network tools from [ADR 0006](./docs/adr/0006-expanded-toolset.md), `task` for background work from [ADR 0013](./docs/adr/0013-advanced-tool-features.md), and the session task ledger from [ADR 0016](./docs/adr/0016-session-task-ledger.md):

@@ -561,6 +561,27 @@ export class JsonlSessionStore {
     return this.listSessions();
   }
 
+  /**
+   * Delete one session log. The temporary lock refuses the delete while a
+   * live owner (the TUI or another server) holds the session.
+   */
+  deleteSession(id: string): boolean {
+    const filePath = this.sessionPath(id);
+    if (!existsSync(filePath)) return false;
+    const lock = acquireSessionLock(`${filePath}.lock`, id);
+    try {
+      if (!existsSync(filePath)) return false;
+      unlinkSync(filePath);
+      return true;
+    } finally {
+      lock.release();
+    }
+  }
+
+  delete(id: string): boolean {
+    return this.deleteSession(id);
+  }
+
   appendEvent(
     sessionId: string,
     partial: Partial<SessionEvent>,

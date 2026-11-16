@@ -108,6 +108,11 @@ export class AgentRuntime {
     this.emitContextUsage();
   }
 
+  /** Point subsequent tools and approvals at a different workspace. */
+  setWorkspace(workspace: string): void {
+    this.workspace = workspace;
+  }
+
   /** Update the context window for the selected model (metadata may arrive late). */
   setContextWindow(window: number | undefined): void {
     const next =
