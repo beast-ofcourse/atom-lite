@@ -443,8 +443,10 @@ test("a streamed reply arrives as ordered deltas before turn_end", async () => {
     });
     assert.ok(lastDeltaIndex >= 0 && lastDeltaIndex < turnEndIndex);
 
-    assert.equal(built.session.messages[0].role, "user");
-    assert.equal(built.session.messages[0].content[0].text, "ping");
+    const prompts = client.messages
+      .filter((m) => m.type === "user_input")
+      .map((m) => m.text);
+    assert.deepEqual(prompts, ["ping"]);
   } finally {
     client.close();
     await server.close();
@@ -572,8 +574,8 @@ test("two tabs share events and only the controller may drive", async () => {
     // turn_end is ordered after the reply on the same socket, so once the
     // viewer sees it, its transcript text is complete.
     await b.waitFor("turn_end");
-    assert.match(assistantTextOf(a), /from controller/);
-    assert.match(assistantTextOf(b), /from controller/);
+    assert.equal(assistantTextOf(a), "from controller");
+    assert.equal(assistantTextOf(b), "from controller");
     for (const client of [a, b]) {
       const prompts = client.messages
         .filter((m) => m.type === "user_input")
@@ -591,7 +593,10 @@ test("two tabs share events and only the controller may drive", async () => {
 
     b.send({ type: "input", text: "now allowed" });
     await b.waitForNext("turn_end");
-    assert.match(assistantTextOf(b), /from new controller/);
+    const replies = b.messages
+      .filter((m) => m.type === "event" && m.event.type === "assistant_text")
+      .map((m) => m.event.text);
+    assert.deepEqual(replies, ["from controller", "from new controller"]);
   } finally {
     a.close();
     b.close();
@@ -722,9 +727,11 @@ test("an approval request blocks the turn until approved", async () => {
     await client.waitFor("turn_end");
 
     assert.deepEqual(log, ["allowed"]);
-    const toolMessage = built.session.messages.find((m) => m.role === "tool");
-    assert.equal(toolMessage.content, "mutated");
-    assert.ok(!toolMessage.isError);
+    const result = client.messages.find(
+      (m) => m.type === "event" && m.event.type === "tool_result",
+    );
+    assert.equal(result.event.content, "mutated");
+    assert.ok(!result.event.isError);
   } finally {
     client.close();
     await server.close();
@@ -757,18 +764,12 @@ test("deny stops the tool and the turn continues", async () => {
     await client.waitFor("turn_end");
 
     assert.deepEqual(log, ["denied"]);
-    const toolMessage = built.session.messages.find((m) => m.role === "tool");
-    assert.equal(toolMessage.content, "MUTATION_DENIED");
-    assert.equal(toolMessage.isError, true);
-    const finalText = built.session.messages
-      .filter((m) => m.role === "assistant")
-      .map((m) =>
-        Array.isArray(m.content)
-          ? m.content.map((p: any) => p.text ?? "").join("")
-          : String(m.content ?? ""),
-      )
-      .join("");
-    assert.match(finalText, /continuing after denial/);
+    const result = client.messages.find(
+      (m) => m.type === "event" && m.event.type === "tool_result",
+    );
+    assert.equal(result.event.content, "MUTATION_DENIED");
+    assert.equal(result.event.isError, true);
+    assert.match(assistantTextOf(client), /continuing after denial/);
   } finally {
     client.close();
     await server.close();
@@ -784,6 +785,8 @@ test("trust-for-session lets later matching requests through", async () => {
       { toolCalls: [{ id: "a1", name: "mutate", arguments: {} }] },
       { toolCalls: [{ id: "a2", name: "mutate", arguments: {} }] },
       { text: "done" },
+      { toolCalls: [{ id: "a3", name: "mutate", arguments: {} }] },
+      { text: "after reset" },
     ],
     { tools: [mutatingTool(log)] },
   );
@@ -802,17 +805,26 @@ test("trust-for-session lets later matching requests through", async () => {
     await client.waitFor("turn_end");
 
     assert.deepEqual(log, ["allowed", "allowed"]);
-    const requests = client.messages.filter(
-      (m) => m.type === "approval_request",
+    assert.equal(
+      client.messages.filter((m) => m.type === "approval_request").length,
+      1,
     );
-    assert.equal(requests.length, 1);
-    assert.equal(built.approvals.isTrusted(), true);
 
-    // Trust belongs to the conversation, matching the terminal: starting a
-    // fresh session asks again.
+    // Trust belongs to the conversation, matching the terminal: a fresh
+    // session asks again instead of inheriting blanket approval.
     client.send({ type: "new_session" });
     await client.waitForNext("session_changed");
-    assert.equal(built.approvals.isTrusted(), false);
+    client.send({ type: "input", text: "mutate after reset" });
+    const promptedAgain = await client.waitForNext("approval_request");
+    assert.equal(promptedAgain.request.tool, "mutate");
+    client.send({
+      type: "approval",
+      id: promptedAgain.id,
+      turnId: promptedAgain.turnId,
+      decision: "deny",
+    });
+    await client.waitForNext("turn_end");
+    assert.deepEqual(log, ["allowed", "allowed", "denied"]);
   } finally {
     client.close();
     await server.close();
@@ -844,6 +856,7 @@ test("a pending approval fails safe when the only client disconnects", async () 
     );
     assert.deepEqual(log, ["denied"]);
     const toolMessage = built.session.messages.find((m) => m.role === "tool");
+    assert.equal(toolMessage.content, "MUTATION_DENIED");
     assert.equal(toolMessage.isError, true);
   } finally {
     client.close();
@@ -894,12 +907,12 @@ test("sessions are listed, created, resumed, and persisted", async () => {
     const summary = listing.sessions[0];
     assert.equal(summary.id, session.id);
     assert.equal(summary.title, "first question");
-    assert.ok(summary.messageCount >= 3);
+    assert.equal(summary.messageCount, 4);
     assert.ok(summary.updatedAt);
 
     client.send({ type: "resume_session", id: other.id });
     const foreignError = await client.waitForNext("error");
-    assert.match(foreignError.message, /another workspace|no session/);
+    assert.equal(foreignError.message, "session belongs to another workspace");
 
     client.send({ type: "new_session" });
     const changed = await client.waitForNext("session_changed");
@@ -914,10 +927,15 @@ test("sessions are listed, created, resumed, and persisted", async () => {
     client.send({ type: "resume_session", id: session.id });
     const resumed = await client.waitForNext("session_changed");
     assert.equal(resumed.sessionId, session.id);
-    const historyKinds = resumed.history.map((e: any) => e.type);
-    assert.ok(historyKinds.includes("user_message"));
-    assert.ok(historyKinds.includes("assistant_message"));
-    assert.ok(historyKinds.includes("tool_result"));
+    const historyKinds = historyMessages(resumed.history).map(
+      (e: any) => e.type,
+    );
+    assert.deepEqual(historyKinds, [
+      "user_message",
+      "assistant_message",
+      "tool_result",
+      "assistant_message",
+    ]);
     const userEvent = resumed.history.find(
       (e: any) => e.type === "user_message",
     );
