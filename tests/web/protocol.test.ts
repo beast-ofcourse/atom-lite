@@ -362,6 +362,39 @@ class GatedProvider implements ProviderAdapter {
   }
 }
 
+/** A streaming provider whose thinking is folded into the final message. */
+class ThinkingProvider implements ProviderAdapter {
+  readonly id = "thinking";
+  readonly model = "thinking-model";
+
+  async generate(request: ModelRequest): Promise<ModelResponse> {
+    return {
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "answer" }],
+      },
+      toolCalls: [],
+      finishReason: "stop",
+    };
+  }
+
+  async *stream(): AsyncGenerator<ModelStreamEvent> {
+    yield { type: "thinking", text: "Weigh the options." };
+    yield { type: "text", text: "answer" };
+    yield {
+      type: "done",
+      response: {
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "answer" }],
+        },
+        toolCalls: [],
+        finishReason: "stop",
+      },
+    };
+  }
+}
+
 /**
  * A provider whose first request blocks until the turn is aborted. The signal
  * rejection uses the browser/fetch abort wording rather than USER_CANCELLED,
@@ -1627,6 +1660,48 @@ test("a session can be renamed and deleted from the browser", async () => {
       false,
       "deleting a session removes its attachment directory",
     );
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: the browser now restores thinking from the durable assistant message,
+// so the text must survive a resume without relying on a client-side cache.
+test("thinking is part of the durable resume history", async () => {
+  const storeRoot = mkdtempSync(join(tmpdir(), "web-think-store-"));
+  const workspace = mkdtempSync(join(tmpdir(), "web-think-ws-"));
+  const store = new JsonlSessionStore(storeRoot);
+  const session = store.create(workspace, "fake", "think-1");
+  const built = buildRuntime([], {
+    provider: new ThinkingProvider(),
+    workspace,
+    session,
+  });
+  const server = await start(built, { store });
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    await client.waitFor("hello");
+
+    client.send({ type: "input", text: "think first" });
+    await client.waitFor("turn_end");
+
+    client.send({ type: "new_session" });
+    await client.waitForMatchingIncludingPast(
+      (message) =>
+        message.type === "session_changed" && message.sessionId !== "think-1",
+    );
+
+    client.send({ type: "resume_session", id: "think-1" });
+    const resumed = await client.waitForMatchingIncludingPast(
+      (message) =>
+        message.type === "session_changed" && message.sessionId === "think-1",
+    );
+    const thoughts = (resumed.history as any[])
+      .filter((event) => event.type === "assistant_message")
+      .map((event) => event.message?.thinking);
+    assert.deepEqual(thoughts, ["Weigh the options."]);
   } finally {
     client.close();
     await server.close();

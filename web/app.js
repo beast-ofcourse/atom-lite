@@ -3,7 +3,6 @@
 // Protocol (JSON over WebSocket), mirrored by src/web/protocol.ts:
 //   server -> hello | event | replay | turn_start | turn_stopping | turn_end
 //             | input_queued | approval_request | sessions | session_changed
-//             | approval_request | sessions | session_changed
 //             | workspace_changed | model_changed | runtime_state | models
 //             | attachment | attachment_removed | skills | mcp
 //             | directory | control | error
@@ -13,8 +12,11 @@
 //             | refresh_models | attach_file | remove_attachment
 //             | list_skills | list_mcp
 
+import { buildDiffModel } from "./diff.js";
+
 const TOKEN = window.__ATOM_TOKEN__ || "";
 const transcriptEl = document.getElementById("transcript");
+let renderTarget = transcriptEl;
 const metaEl = document.getElementById("meta");
 const modelNameEl = document.getElementById("model-name");
 const roleEl = document.getElementById("role");
@@ -90,6 +92,12 @@ const MAX_TOOL_OUTPUT_CHARS = 60_000;
 const MAX_TOOL_OUTPUT_LINES = 400;
 const MAX_INPUT_HEIGHT = 200;
 const SIDEBAR_KEY = "atom-lite.web.sidebar";
+const STREAM_FRAME_MS = 48;
+const STREAM_CHARS_PER_FRAME = 64;
+const STREAM_FINAL_MULTIPLIER = 4;
+const MARKDOWN_CACHE_LIMIT = 300;
+const MARKDOWN_CACHE_MAX_CHARS = 20_000;
+const HISTORY_PAGE_EVENTS = 80;
 
 const hljs = window.hljs ?? null;
 const markdown = window.markdownit
@@ -111,8 +119,6 @@ let thinkingNode = null;
 let currentSessionId = null;
 let sessionsCache = [];
 let queuedMessages = [];
-let renderTimer = null;
-let renderBody = null;
 let approvalReturnFocus = null;
 let toastTimer = null;
 let currentProvider = "";
@@ -133,7 +139,6 @@ let scrollFrame = null;
 let themeMode = "system";
 let currentEffort = "medium";
 let currentMode = "yolo";
-const thinkingCache = new Map();
 let mermaidPromise = null;
 let mermaidSequence = 0;
 let attachments = [];
@@ -142,6 +147,13 @@ let modelIndex = 0;
 let pendingRename = null;
 let pendingDelete = null;
 let turnActive = false;
+let viewToken = 0;
+let stickToBottom = true;
+const streamSinks = new WeakMap();
+const toolCards = new Map();
+const markdownCache = new Map();
+let historyEvents = [];
+let historyLimit = HISTORY_PAGE_EVENTS;
 
 const ACTIVITY_VERBS = {
   formulating: ["formulating", "planning", "lining things up"],
@@ -366,8 +378,21 @@ if (markdown) {
 }
 
 function renderMarkdown(text) {
-  if (!markdown) return escapeHtml(text).replaceAll("\n", "<br>");
-  return markdown.render(text);
+  if (text.length > MARKDOWN_CACHE_MAX_CHARS) {
+    return markdown
+      ? markdown.render(text)
+      : escapeHtml(text).replaceAll("\n", "<br>");
+  }
+  const cached = markdownCache.get(text);
+  if (cached !== undefined) return cached;
+  const html = markdown
+    ? markdown.render(text)
+    : escapeHtml(text).replaceAll("\n", "<br>");
+  if (markdownCache.size >= MARKDOWN_CACHE_LIMIT) {
+    markdownCache.delete(markdownCache.keys().next().value);
+  }
+  markdownCache.set(text, html);
+  return html;
 }
 
 /* ---------------- mermaid ---------------- */
@@ -406,42 +431,65 @@ function loadMermaid() {
   return mermaidPromise;
 }
 
-function renderMermaidBlocks() {
-  const blocks = [
-    ...transcriptEl.querySelectorAll(".mermaid-block:not([data-rendered])"),
-  ];
-  if (blocks.length === 0) return;
+let mermaidObserver = null;
+
+function renderMermaidBlock(block) {
+  const source = block.dataset.mermaid ?? "";
+  if (!source.trim() || block.dataset.rendering === "1" || !block.isConnected) {
+    return;
+  }
+  block.dataset.rendering = "1";
   void loadMermaid()
     .then((mermaid) => {
-      for (const block of blocks) {
-        const source = block.dataset.mermaid ?? "";
-        if (!source.trim() || block.dataset.rendering === "1") continue;
-        block.dataset.rendering = "1";
-        try {
-          const id = `atom-mermaid-${++mermaidSequence}`;
-          const result = mermaid.render(id, source);
-          if (result && typeof result.then === "function") {
-            void result
-              .then((value) => applyMermaidSvg(block, value?.svg ?? value))
-              .catch(() => {
-                block.classList.add("failed");
-                delete block.dataset.rendering;
-              });
-          } else {
-            applyMermaidSvg(block, result?.svg ?? result);
-          }
-        } catch {
-          block.classList.add("failed");
-          delete block.dataset.rendering;
-        }
+      if (!block.isConnected) return;
+      const id = `atom-mermaid-${++mermaidSequence}`;
+      const result = mermaid.render(id, source);
+      if (result && typeof result.then === "function") {
+        void result
+          .then((value) => applyMermaidSvg(block, value?.svg ?? value))
+          .catch(() => {
+            block.classList.add("failed");
+            delete block.dataset.rendering;
+          });
+      } else {
+        applyMermaidSvg(block, result?.svg ?? result);
       }
     })
     .catch(() => {
-      for (const block of blocks) block.classList.add("failed");
+      if (!block.isConnected) return;
+      block.classList.add("failed");
+      delete block.dataset.rendering;
     });
 }
 
+function renderMermaidBlocks() {
+  const blocks = [
+    ...transcriptEl.querySelectorAll(
+      ".mermaid-block:not([data-rendered]):not([data-rendering])",
+    ),
+  ];
+  if (blocks.length === 0) return;
+  if (!("IntersectionObserver" in window)) {
+    for (const block of blocks) renderMermaidBlock(block);
+    return;
+  }
+  if (!mermaidObserver) {
+    mermaidObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          mermaidObserver.unobserve(entry.target);
+          renderMermaidBlock(entry.target);
+        }
+      },
+      { root: transcriptEl, rootMargin: "600px 0px" },
+    );
+  }
+  for (const block of blocks) mermaidObserver.observe(block);
+}
+
 function applyMermaidSvg(block, svg) {
+  if (!block.isConnected || typeof svg !== "string") return;
   block.querySelector(".mermaid-svg")?.remove();
   const holder = document.createElement("div");
   holder.className = "mermaid-svg";
@@ -464,31 +512,83 @@ function resetMermaidBlocks() {
   renderMermaidBlocks();
 }
 
-function queueAssistantRender(body) {
-  renderBody = body;
-  if (renderTimer) return;
-  renderTimer = setTimeout(() => {
-    renderTimer = null;
-    const target = renderBody;
-    renderBody = null;
-    if (target) {
-      target.innerHTML = renderMarkdown(target.dataset.raw ?? "");
-      renderMermaidBlocks();
-      scrollToEnd();
-    }
-  }, 40);
-}
+/**
+ * Present text at a bounded pace without holding data hostage. Arrival is
+ * immediate; only the visible tail is scheduled. A finalizing stream drains
+ * faster so `turn_end` still settles quickly.
+ */
+function createPacedText({ onUpdate, onFinalize }) {
+  let queue = [];
+  let visible = "";
+  let raw = "";
+  let timer = null;
+  let finalizing = false;
+  let done = false;
 
-function flushAssistantRender() {
-  if (renderTimer) {
-    clearTimeout(renderTimer);
-    renderTimer = null;
+  function schedule() {
+    if (timer === null && queue.length > 0) {
+      timer = setTimeout(drain, STREAM_FRAME_MS);
+    }
   }
-  if (renderBody) {
-    renderBody.innerHTML = renderMarkdown(renderBody.dataset.raw ?? "");
-    renderBody = null;
-    renderMermaidBlocks();
+
+  function drain() {
+    timer = null;
+    const budget =
+      STREAM_CHARS_PER_FRAME * (finalizing ? STREAM_FINAL_MULTIPLIER : 1);
+    let remaining = budget;
+    while (remaining > 0 && queue.length > 0) {
+      const head = queue[0];
+      if (head.length <= remaining) {
+        visible += head;
+        queue.shift();
+        remaining -= head.length;
+      } else {
+        visible += head.slice(0, remaining);
+        queue[0] = head.slice(remaining);
+        remaining = 0;
+      }
+    }
+    onUpdate?.(visible);
+    if (queue.length > 0) {
+      schedule();
+    } else if (finalizing) {
+      finalizing = false;
+      done = true;
+      onFinalize?.(raw);
+    }
   }
+
+  return {
+    push(text) {
+      if (!text || done) return;
+      raw += text;
+      queue.push(text);
+      schedule();
+    },
+    finalize() {
+      if (done) return;
+      finalizing = true;
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (queue.length === 0) {
+        done = true;
+        onFinalize?.(raw);
+        return;
+      }
+      drain();
+    },
+    cancel() {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      queue = [];
+      visible = "";
+      raw = "";
+      finalizing = false;
+      done = true;
+    },
+  };
 }
 
 /* ---------------- clipboard ---------------- */
@@ -549,25 +649,36 @@ function resizeInput() {
 
 /* ---------------- rendering ---------------- */
 
-function resetTranscript() {
-  // Apply a pending stream batch before discarding its node; otherwise a
-  // session switch can drop the last delta of the outgoing conversation.
-  flushAssistantRender();
+/**
+ * One central reset for every transcript view. Incrementing the token makes
+ * queued stream frames and late event handlers from the outgoing session
+ * inert before their DOM nodes are removed.
+ */
+function beginTranscriptView() {
+  viewToken += 1;
+  renderTarget = transcriptEl;
+  cancelAssistantStream();
+  if (thinkingNode) {
+    streamSinks.get(thinkingNode)?.cancel();
+    thinkingNode = null;
+  }
+  mermaidObserver?.disconnect();
+  mermaidObserver = null;
   if (scrollFrame) {
     cancelAnimationFrame(scrollFrame);
     scrollFrame = null;
   }
   closePopovers();
   transcriptEl.replaceChildren();
+  toolCards.clear();
   setHome(true);
-  assistantNode = null;
-  thinkingNode = null;
-  if (renderTimer) {
-    clearTimeout(renderTimer);
-    renderTimer = null;
-  }
-  renderBody = null;
   clearQueued();
+  stickToBottom = true;
+  return viewToken;
+}
+
+function resetTranscript() {
+  beginTranscriptView();
 }
 
 function clearQueued() {
@@ -721,7 +832,7 @@ function textFromMessage(message) {
     .join("");
 }
 
-function addUserMessage(text) {
+function addUserMessage(text, forceScroll = false) {
   setHome(false);
   const wrap = document.createElement("div");
   wrap.className = "msg msg-user";
@@ -729,15 +840,15 @@ function addUserMessage(text) {
   body.className = "msg-body";
   body.textContent = displayText(text);
   wrap.append(body);
-  transcriptEl.append(wrap);
-  scrollToEnd();
+  renderTarget.append(wrap);
+  scrollToEnd(forceScroll);
 }
 
 function assistantBlock() {
   setHome(false);
   if (!assistantNode) {
     const wrap = document.createElement("div");
-    wrap.className = "msg msg-assistant";
+    wrap.className = "msg msg-assistant live";
 
     const avatar = document.createElement("div");
     avatar.className = "msg-avatar";
@@ -747,8 +858,27 @@ function assistantBlock() {
     content.className = "msg-content";
 
     const body = document.createElement("div");
-    body.className = "msg-body msg-markdown";
+    body.className = "msg-body msg-markdown streaming";
     body.dataset.raw = "";
+    const token = viewToken;
+    streamSinks.set(
+      body,
+      createPacedText({
+        onUpdate(visible) {
+          if (token !== viewToken || !body.isConnected) return;
+          body.textContent = visible;
+          scrollToEnd();
+        },
+        onFinalize(raw) {
+          if (token !== viewToken || !body.isConnected) return;
+          body.innerHTML = renderMarkdown(raw);
+          body.classList.remove("streaming");
+          wrap.classList.remove("live");
+          renderMermaidBlocks();
+          scrollToEnd();
+        },
+      }),
+    );
 
     const actions = document.createElement("div");
     actions.className = "msg-actions";
@@ -765,7 +895,7 @@ function assistantBlock() {
 
     content.append(body, actions);
     wrap.append(avatar, content);
-    transcriptEl.append(wrap);
+    renderTarget.append(wrap);
     assistantNode = body;
   }
   return assistantNode;
@@ -774,45 +904,88 @@ function assistantBlock() {
 function appendAssistantText(text) {
   const body = assistantBlock();
   body.dataset.raw = (body.dataset.raw ?? "") + text;
-  queueAssistantRender(body);
+  streamSinks.get(body)?.push(text);
 }
 
 function endAssistantBlock() {
-  flushAssistantRender();
+  if (assistantNode) streamSinks.get(assistantNode)?.finalize();
   assistantNode = null;
+}
+
+function cancelAssistantStream() {
+  if (assistantNode) streamSinks.get(assistantNode)?.cancel();
+  assistantNode = null;
+}
+
+/** One builder for live, restored, and replayed thinking blocks. */
+function createThinkingBlock(
+  text,
+  { open = false, live = false, elapsed = 0 } = {},
+) {
+  const wrap = document.createElement("div");
+  wrap.className = "thinking";
+  wrap.dataset.state = live ? "live" : "done";
+  const details = document.createElement("details");
+  details.open = open;
+  const summary = document.createElement("summary");
+  const label = document.createElement("span");
+  label.className = "thinking-label";
+  label.textContent = live
+    ? "Thinking"
+    : elapsed > 0
+      ? `Thought for ${formatElapsed(elapsed)}`
+      : "Thought";
+  summary.append(label);
+  const body = document.createElement("div");
+  body.className = "thinking-body";
+  body.textContent = text ?? "";
+  details.append(summary, body);
+  wrap.append(details);
+  return { wrap, details, body, label };
 }
 
 function showThinking(text) {
   setHome(false);
   if (!thinkingNode) {
-    const wrap = document.createElement("div");
-    wrap.className = "thinking";
-    const details = document.createElement("details");
-    details.open = true;
-    const summary = document.createElement("summary");
-    summary.textContent = "Thinking";
-    const body = document.createElement("div");
-    body.className = "thinking-body";
-    details.append(summary, body);
-    wrap.append(details);
+    const token = viewToken;
+    const startedAt = Date.now();
+    const { wrap, details, body, label } = createThinkingBlock("", {
+      open: true,
+      live: true,
+    });
     transcriptEl.append(wrap);
     thinkingNode = body;
+    streamSinks.set(
+      body,
+      createPacedText({
+        onUpdate(visible) {
+          if (token !== viewToken || !body.isConnected) return;
+          body.textContent = visible;
+          scrollToEnd();
+        },
+        onFinalize(raw) {
+          if (token !== viewToken || !body.isConnected) return;
+          body.textContent = raw;
+          const elapsed = Date.now() - startedAt;
+          label.textContent =
+            elapsed >= 1000
+              ? `Thought for ${formatElapsed(elapsed)}`
+              : "Thought";
+          wrap.dataset.state = "done";
+          details.open = false;
+          scrollToEnd();
+        },
+      }),
+    );
   }
-  thinkingNode.textContent += text;
-  if (currentSessionId) {
-    thinkingCache.set(currentSessionId, {
-      text: thinkingNode.textContent ?? "",
-    });
-  }
-  scrollToEnd();
+  streamSinks.get(thinkingNode)?.push(text);
 }
 
 function endThinkingBlock() {
   if (thinkingNode) {
-    const details = thinkingNode.closest("details");
-    if (details) details.open = false;
+    streamSinks.get(thinkingNode)?.finalize();
+    thinkingNode = null;
   }
-  thinkingNode = null;
 }
 
 function toolStatusText(status) {
@@ -827,6 +1000,14 @@ function toolStatusClass(status) {
   return "running";
 }
 
+function toolPath(args) {
+  if (!args || typeof args !== "object") return "";
+  for (const key of ["path", "file_path", "file"]) {
+    if (typeof args[key] === "string" && args[key]) return args[key];
+  }
+  return "";
+}
+
 function toolCard(toolCallId, name, args, status = "running") {
   setHome(false);
   const card = document.createElement("div");
@@ -834,6 +1015,7 @@ function toolCard(toolCallId, name, args, status = "running") {
   card.dataset.toolCallId = toolCallId;
   card.dataset.outputText = "";
   card.dataset.outputExtra = "";
+  card.dataset.toolPath = toolPath(args);
 
   const head = document.createElement("button");
   head.className = "tool-head";
@@ -866,14 +1048,19 @@ function toolCard(toolCallId, name, args, status = "running") {
     head.setAttribute("aria-expanded", String(!collapsed));
   });
   card.append(head, body);
-  transcriptEl.append(card);
+  renderTarget.append(card);
+  toolCards.set(toolCallId, card);
   scrollToEnd();
   return card;
 }
 
 function findToolCard(toolCallId) {
-  return transcriptEl.querySelector(
-    `[data-tool-call-id="${CSS.escape(toolCallId)}"]`,
+  const tracked = toolCards.get(toolCallId);
+  if (tracked?.isConnected) return tracked;
+  return (
+    renderTarget.querySelector(
+      `[data-tool-call-id="${CSS.escape(toolCallId)}"]`,
+    ) ?? null
   );
 }
 
@@ -894,30 +1081,123 @@ function renderToolOutput(card) {
   output.textContent = prefix + text;
 }
 
+const toolOutputFrames = new WeakMap();
+
 function appendToolOutput(card, text) {
-  card.dataset.outputText = (card.dataset.outputText ?? "") + text;
-  renderToolOutput(card);
+  const combined = (card.dataset.outputText ?? "") + text;
+  card.dataset.outputText =
+    combined.length > MAX_TOOL_OUTPUT_CHARS
+      ? combined.slice(-MAX_TOOL_OUTPUT_CHARS)
+      : combined;
+  if (!toolOutputFrames.has(card)) {
+    const frame = requestAnimationFrame(() => {
+      toolOutputFrames.delete(card);
+      renderToolOutput(card);
+    });
+    toolOutputFrames.set(card, frame);
+  }
   scrollToEnd();
 }
 
-function appendToolExtra(card, text) {
-  card.dataset.outputExtra = (card.dataset.outputExtra ?? "") + text;
-  let extra = card.querySelector(".tool-extra");
-  if (!extra) {
-    extra = document.createElement("pre");
-    extra.className = "tool-output tool-extra";
-    card.querySelector(".tool-body")?.append(extra);
+function appendDiffSegments(code, segments, text) {
+  if (!segments?.length) {
+    code.textContent = text;
+    return;
   }
-  extra.textContent = card.dataset.outputExtra;
+  for (const part of segments) {
+    if (part.changed) {
+      const mark = document.createElement("mark");
+      mark.className = "diff-word";
+      mark.textContent = part.text;
+      code.append(mark);
+    } else {
+      code.append(document.createTextNode(part.text));
+    }
+  }
+}
+
+/** Render a runtime `string[]` diff as an inline unified block. */
+function appendToolDiff(card, lines) {
+  card.dataset.outputExtra = Array.isArray(lines)
+    ? lines.join("\n")
+    : String(lines ?? "");
+  const model = buildDiffModel(lines, { path: card.dataset.toolPath });
+  let block = card.querySelector(".diff-block");
+  if (!block) {
+    block = document.createElement("div");
+    block.className = "diff-block";
+    card.querySelector(".tool-body")?.append(block);
+  }
+  block.replaceChildren();
+
+  const head = document.createElement("div");
+  head.className = "diff-head";
+  const label = document.createElement("span");
+  label.className = "diff-label";
+  label.textContent = "diff";
+  const path = document.createElement("span");
+  path.className = "diff-path";
+  path.textContent = model.path || "changes";
+  path.title = path.textContent;
+  const stat = document.createElement("span");
+  stat.className = "diff-stat";
+  const added = document.createElement("span");
+  added.className = "diff-stat-add";
+  added.textContent = `+${model.added}`;
+  const removed = document.createElement("span");
+  removed.className = "diff-stat-del";
+  removed.textContent = `−${model.removed}`;
+  stat.append(added, removed);
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "code-copy";
+  copy.dataset.diffCopy = "";
+  copy.textContent = "Copy";
+  head.append(label, path, stat, copy);
+
+  const body = document.createElement("div");
+  body.className = "diff-body";
+  for (const row of model.rows) {
+    const line = document.createElement("div");
+    line.className = `diff-line diff-${row.kind}`;
+    if (row.kind === "add" || row.kind === "del") {
+      line.setAttribute(
+        "aria-label",
+        `${row.kind === "add" ? "Added" : "Removed"}: ${row.text}`,
+      );
+    }
+    const sign = document.createElement("span");
+    sign.className = "diff-sign";
+    sign.setAttribute("aria-hidden", "true");
+    sign.textContent =
+      row.kind === "add" ? "+" : row.kind === "del" ? "−" : " ";
+    const code = document.createElement("code");
+    code.className = "diff-text";
+    appendDiffSegments(code, row.segments, row.text);
+    line.append(sign, code);
+    body.append(line);
+  }
+  if (model.truncated) {
+    const meta = document.createElement("div");
+    meta.className = "diff-line diff-meta";
+    meta.textContent = `… ${model.total - model.rows.length} more lines (Copy for the full diff)`;
+    body.append(meta);
+  }
+  block.append(head, body);
 }
 
 function finishToolCard(card, result) {
+  const outputFrame = toolOutputFrames.get(card);
+  if (outputFrame !== undefined) {
+    cancelAnimationFrame(outputFrame);
+    toolOutputFrames.delete(card);
+  }
   if (!card.dataset.outputText && typeof result.content === "string") {
     card.dataset.outputText = result.content;
-    renderToolOutput(card);
   }
+  renderToolOutput(card);
   if (Array.isArray(result.diff) && result.diff.length > 0) {
-    appendToolExtra(card, result.diff.join("\n"));
+    appendToolDiff(card, result.diff);
   }
   const status = card.querySelector(".tool-status");
   if (status) {
@@ -928,10 +1208,14 @@ function finishToolCard(card, result) {
   scrollToEnd();
 }
 
-function scrollToEnd() {
+function scrollToEnd(force = false) {
+  if (renderTarget !== transcriptEl) return;
+  if (force) stickToBottom = true;
+  if (!stickToBottom) return;
   if (scrollFrame) return;
   scrollFrame = requestAnimationFrame(() => {
     scrollFrame = null;
+    if (!stickToBottom) return;
     transcriptEl.scrollTop = transcriptEl.scrollHeight;
   });
 }
@@ -944,58 +1228,107 @@ function messageOf(event) {
   );
 }
 
-/** Thinking deltas are transient in the log; restore them from the local cache. */
-function restoreThinking(sessionId) {
-  const cached = thinkingCache.get(sessionId);
-  if (!cached?.text?.trim() || transcriptEl.querySelector(".thinking")) return;
-  const wrap = document.createElement("div");
-  wrap.className = "thinking";
-  const details = document.createElement("details");
-  const summary = document.createElement("summary");
-  summary.textContent = "Thinking";
-  const body = document.createElement("div");
-  body.className = "thinking-body";
-  body.textContent = cached.text;
-  details.append(summary, body);
-  wrap.append(details);
-  const assistants = [...transcriptEl.querySelectorAll(".msg-assistant")];
-  const last = assistants[assistants.length - 1];
-  if (last) transcriptEl.insertBefore(wrap, last);
-  else transcriptEl.append(wrap);
-}
-
-function renderHistory(events) {
-  resetTranscript();
+function appendHistoryEvents(events) {
   for (const event of events) {
     if (!event || typeof event !== "object") continue;
     if (event.type === "user_message") {
       const text = textFromMessage(messageOf(event));
-      if (text) addUserMessage(text);
+      if (text) addUserMessage(text, true);
     } else if (event.type === "assistant_message") {
       const message = messageOf(event);
+      const thinking =
+        typeof message.thinking === "string" ? message.thinking.trim() : "";
+      if (thinking) {
+        renderTarget.append(createThinkingBlock(thinking).wrap);
+      }
       const text = textFromMessage(message);
       if (text) {
         const body = assistantBlock();
+        streamSinks.get(body)?.cancel();
         body.dataset.raw = text;
         body.innerHTML = renderMarkdown(text);
+        body.classList.remove("streaming");
+        body.closest(".msg-assistant")?.classList.remove("live");
+        assistantNode = null;
       }
       const calls = Array.isArray(message.toolCalls) ? message.toolCalls : [];
       for (const call of calls) {
         toolCard(call.id, call.name, call.arguments, "done");
       }
-      endAssistantBlock();
     } else if (event.type === "tool_result") {
       let card = findToolCard(event.toolCallId);
       if (!card) card = toolCard(event.toolCallId, event.name, {}, "done");
       finishToolCard(card, event);
     }
   }
+}
+
+function loadEarlierHistory() {
+  if (historyLimit >= historyEvents.length) return;
+  const oldHeight = transcriptEl.scrollHeight;
+  const oldTop = transcriptEl.scrollTop;
+  const oldLimit = historyLimit;
+  historyLimit = Math.min(
+    historyLimit + HISTORY_PAGE_EVENTS,
+    historyEvents.length,
+  );
+  const older = historyEvents.slice(
+    historyEvents.length - historyLimit,
+    historyEvents.length - oldLimit,
+  );
+  const container = document.createElement("div");
+  renderTarget = container;
+  try {
+    appendHistoryEvents(older);
+  } finally {
+    renderTarget = transcriptEl;
+  }
+  transcriptEl.querySelector(".load-earlier-row")?.remove();
+  const fragment = document.createDocumentFragment();
+  while (container.firstChild) fragment.append(container.firstChild);
+  transcriptEl.insertBefore(fragment, transcriptEl.firstChild);
+  const boundary = loadEarlierBoundary();
+  if (boundary) transcriptEl.insertBefore(boundary, transcriptEl.firstChild);
+  stickToBottom = false;
+  renderMermaidBlocks();
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      transcriptEl.scrollTop = oldTop + (transcriptEl.scrollHeight - oldHeight);
+    });
+  });
+}
+
+function loadEarlierBoundary() {
+  const remaining = historyEvents.length - historyLimit;
+  if (remaining <= 0) return null;
+  const row = document.createElement("div");
+  row.className = "load-earlier-row";
+  const button = document.createElement("button");
+  button.className = "load-earlier";
+  button.type = "button";
+  const count = Math.min(HISTORY_PAGE_EVENTS, remaining);
+  button.textContent = `Load ${count} earlier message${count === 1 ? "" : "s"}`;
+  button.addEventListener("click", loadEarlierHistory);
+  row.append(button);
+  return row;
+}
+
+function renderHistoryPage() {
+  beginTranscriptView();
+  const boundary = loadEarlierBoundary();
+  if (boundary) transcriptEl.append(boundary);
+  appendHistoryEvents(historyEvents.slice(-historyLimit));
   endAssistantBlock();
   endThinkingBlock();
-  restoreThinking(currentSessionId);
   setHome(!transcriptEl.querySelector(".msg, .tool, .thinking"));
   renderMermaidBlocks();
-  scrollToEnd();
+  scrollToEnd(true);
+}
+
+function renderHistory(events) {
+  historyEvents = Array.isArray(events) ? events : [];
+  historyLimit = Math.min(HISTORY_PAGE_EVENTS, historyEvents.length);
+  renderHistoryPage();
 }
 
 /** Rebuild the active turn after a reconnect; hello already rendered history. */
@@ -1004,21 +1337,15 @@ function renderReplay(message) {
   // The replay is the only signal that a turn is still running after a
   // reconnect, so restore the activity hint alongside the events.
   startActivity();
-  // A cached completed-turn thinking block must not survive beside the
-  // reconnecting turn's live thinking block.
-  if (events.some((event) => event.type === "thinking_delta")) {
-    for (const node of transcriptEl.querySelectorAll(".thinking"))
-      node.remove();
-  }
   if (message.truncated) {
     showToast(
       "Reconnect replay was truncated; some live output may be missing.",
       "warn",
     );
   }
-  for (const prompt of message.prompts ?? []) addUserMessage(prompt);
+  for (const prompt of message.prompts ?? []) addUserMessage(prompt, true);
   for (const event of events) handleEvent(event);
-  scrollToEnd();
+  scrollToEnd(true);
 }
 
 /* ---------------- sessions ---------------- */
@@ -2264,7 +2591,7 @@ function handleMessage(message) {
       renderReplay(message);
       break;
     case "user_input":
-      addUserMessage(message.text);
+      addUserMessage(message.text, true);
       break;
     case "turn_start":
       endAssistantBlock();
@@ -2482,6 +2809,19 @@ transcriptEl.addEventListener("click", (event) => {
 transcriptEl.addEventListener("click", async (event) => {
   const target = event.target;
   if (!(target instanceof Element)) return;
+  if (target.closest("[data-diff-copy]")) {
+    const card = target.closest(".tool");
+    const text = card?.dataset.outputExtra ?? "";
+    if (!text) return;
+    const ok = await copyText(text);
+    if (!ok) return;
+    const previous = target.textContent;
+    target.textContent = "Copied";
+    setTimeout(() => {
+      target.textContent = previous;
+    }, 1200);
+    return;
+  }
   const copy = target.closest("[data-code-copy]");
   if (!copy) return;
   const block = copy.closest(".code-block");
@@ -2516,7 +2856,7 @@ function connect() {
     pendingApproval = null;
     lastApproval = null;
     approvalLayer.hidden = true;
-    clearQueued();
+    resetTranscript();
     markOffline();
     setTimeout(connect, 1000);
   });
@@ -2735,7 +3075,6 @@ renameForm.addEventListener("submit", (event) => {
 
 deleteConfirm.addEventListener("click", () => {
   if (!deleteTargetId) return;
-  thinkingCache.delete(deleteTargetId);
   pendingDelete = deleteTargetId;
   send({ type: "delete_session", id: deleteTargetId });
   closeModal(deleteModal);
@@ -2796,9 +3135,18 @@ document.addEventListener("click", (event) => {
 });
 
 window.addEventListener("resize", () => closePopovers());
-transcriptEl.addEventListener("scroll", () => closePopovers(), {
-  passive: true,
-});
+transcriptEl.addEventListener(
+  "scroll",
+  () => {
+    closePopovers();
+    const remaining =
+      transcriptEl.scrollHeight -
+      transcriptEl.scrollTop -
+      transcriptEl.clientHeight;
+    stickToBottom = remaining <= 120;
+  },
+  { passive: true },
+);
 sessionsEl.addEventListener("scroll", () => closePopovers(), { passive: true });
 
 document.addEventListener("keydown", (event) => {

@@ -101,6 +101,10 @@ All values live in `styles.css` as custom properties on `:root` (dark) with a
 | `--code-bg`       | `#0d0d0d`                   | `#f7f7f7`                    | fenced code ground             |
 | `--code-head`     | `#171717`                   | `#efefef`                    | code block header              |
 | `--inline-bg`     | `rgba(255,255,255,.08)`     | `rgba(13,13,13,.06)`         | inline code                    |
+| `--diff-add-bg`   | `rgba(88,205,120,.10)`      | `rgba(25,128,56,.08)`        | added diff line                |
+| `--diff-add-fg`   | `#b7e4c4`                   | `#17603a`                    | added diff text                |
+| `--diff-del-bg`   | `rgba(255,105,97,.10)`      | `rgba(192,57,43,.07)`        | removed diff line              |
+| `--diff-del-fg`   | `#f0b8b4`                   | `#8f2b22`                    | removed diff text              |
 | `--overlay`       | `rgba(0,0,0,.5)`            | `rgba(0,0,0,.4)`             | modal and drawer scrim         |
 | `--shadow`        | `0 8px 32px rgba(0,0,0,.4)` | `0 8px 32px rgba(0,0,0,.14)` | floating elevation only        |
 | `--selection`     | `rgba(168,199,250,.3)`      | `rgba(2,103,255,.18)`        | text selection                 |
@@ -248,7 +252,13 @@ and Copy button remain usable with a quiet "preview unavailable" note.
 A borderless disclosure inside the assistant flow: 14px secondary text with a
 drawn chevron that rotates on open. Expanded content is 14px/1.65 secondary
 copy on the canvas, indented by a quiet hairline rule. It is subordinate to the
-answer and never looks like a response bubble.
+answer and never looks like a response bubble. Live thinking stays open and
+adds a small amber dot to `Thinking`; the activity row owns all motion while it
+runs. On completion the label becomes `Thought for Ns` and the disclosure
+collapses. Restored thoughts come from the durable `message.thinking` field in
+session history and use the quieter `Thought` label; no client-side cache is
+involved. Expanding an already-visible block uses a 180ms opacity/translation
+settle, with reduced motion keeping only the state change.
 
 ### Tool cards
 
@@ -256,8 +266,16 @@ A 12px-radius card on `--surface` with a hairline border. Header is a button:
 drawn tool glyph, tool name at 14px/500 (not accent-coloured), one-line
 monospace argument summary at 12px, and a state marker (`Running`, `Done`,
 `Failed`) with colour plus text. The body contains a scrollable output tail
-(60k chars / 400 lines cap with an "earlier lines" marker) on `--code-bg`, plus
-an optional diff block. Headers toggle the body and expose `aria-expanded`.
+(60k chars / 400 lines cap with an "earlier lines" marker) on `--code-bg`.
+
+A `write`/`edit` diff replaces the old plain-text extra with an inline unified
+diff: a code-head-style bar carries `diff`, the path, `+N −M`, and Copy; the body
+uses one row per line with a sign column, hunk separators, quiet context, and
+subtle add/remove background tints from `--diff-*`. Adjacent remove/add runs are
+paired so changed words carry a slightly stronger tint. Signs and labels carry
+the meaning without colour. The full diff stays in the card's data for Copy;
+rendering is capped at 400 lines/60k chars with an explicit more-lines marker.
+Headers toggle the body and expose `aria-expanded`.
 
 ### Approval
 
@@ -437,6 +455,18 @@ authored inline SVG (24×24 viewBox, 1.75 stroke) in the page's sprite.
 - Scrolling and streaming rendering are coalesced into one animation frame;
   the sidebar is rebuilt only on session data changes, never on control
   changes or every keystroke.
+- Assistant and thinking deltas are presented from a bounded queue. Arrival is
+  never delayed or dropped, but the visible tail advances at a readable pace;
+  a finalizing turn drains faster so `turn_end` still settles promptly. While
+  text streams, the body is plain text with a quiet caret and gets one full
+  markdown render at the end, avoiding a reparse of the whole answer per frame.
+- History is windowed to the latest 80 events with an explicit `Load earlier
+messages` boundary. Loading more preserves scroll position. Markdown HTML and
+  tool-card lookups are cached, Mermaid diagrams render only near the viewport,
+  and live blocks opt out of `content-visibility` containment.
+- Motion explains state: the stream caret, the live thinking dot, the
+  activity spinner, and the user-triggered disclosure settle are the whole
+  vocabulary. No section reveals, stagger, bounce, or parallax.
 - New surfaces add a token before adding a one-off value.
 
 ## Audit record
@@ -454,10 +484,12 @@ and the fake provider, dark and light, 1440×900 and 390×844.
   copy meet 4.5:1. Focus rings meet 3:1 against the canvas. Hairline card and
   control boundaries stay deliberately quiet, matching ChatGPT; controls are
   also identified by surface and text.
-- **Responsive:** no horizontal overflow at 1440 or 390; the drawer and scrim
-  behave; long session titles and workspace paths ellipsize; the desktop
+- **Responsive:** no horizontal overflow at 1440, 390, or 320; the drawer and
+  scrim behave; long session titles and workspace paths ellipsize; the desktop
   composer measures 768px and the mobile composer fills the 390px column with
-  its 28px radius intact; the mobile model overlay is 366px wide at 390.
+  its 28px radius intact; inline diffs scroll inside their own body rather than
+  widening the page; safe-area padding keeps the composer and header usable on
+  notched devices, and coarse pointers get larger primary controls.
 - **Interaction:** new chat, session resume, search filter, rename, delete of
   an active session (fresh chat opened), live model refresh from four provider
   models, model switch, local attachment upload and removal, skills and MCP
@@ -466,19 +498,26 @@ and the fake provider, dark and light, 1440×900 and 390×844.
   turn with Escape and `/stop` were driven in the real page; the activity hint
   moved through `Formulating`, `Thinking`, and `Stopped` and returned to
   `Ready`. Switching away from a thinking turn and back restored Markdown,
-  the Mermaid diagram, and the thinking block. The full suite passes 484 tests.
+  the Mermaid diagram, and the thinking block; reconnecting mid-thought produced
+  exactly one live block. `Load earlier messages` added history without losing
+  scroll position. The full suite passes 490 tests.
 - **Keyboard:** focus rings visible; approval traps focus and returns it; Enter
   sends and Shift+Enter breaks; slash autocomplete and command palette support
   arrows, Tab, Enter and Escape; the model overlay supports search, arrows,
   Enter and Escape; `Ctrl/Cmd+K` and `Ctrl/Cmd+O` open the palette and explorer;
   Escape denies, closes dialogs, stops a running turn, and closes the mobile
   drawer.
-- **Performance (Brave, local server):** page load to network idle ~1.1s; live
-  model overlay open ~198ms; skills overlay ~37ms; session switch with a
-  Mermaid SVG ~8ms; 0 console errors.
-- **Streaming:** prose renders through a 40ms markdown batch inside one rAF;
-  no entrance animation is attached to streamed text. Scroll updates are
-  coalesced to one frame and session search renders are debounced.
+- **Performance (Chromium, local server):** page load to network idle ~1.1s;
+  live model overlay open ~198ms; skills overlay ~37ms. A seeded 300-turn
+  transcript with code, images, tools, and thinking rendered ~1,600 DOM nodes
+  in the initial window instead of ~10,500 when the same history was built in
+  full; the observed session switch after load was ~23ms. Mermaid diagrams
+  render on approach to the viewport. 0 console errors in an isolated page.
+- **Streaming:** a provider that emits 200 thinking and 200 text deltas in one
+  burst presented them in 18 and 9 visible steps respectively; the final
+  markdown render happens once per answer. The stream caret disappears when
+  the final render settles. No entrance animation is attached to streamed text.
+  Scroll updates are coalesced to one frame and respect user scroll-up.
 
 Accepted limitation: `aria-live="polite"` on the transcript means a screen
 reader may announce streamed updates; this is deliberate for a streaming

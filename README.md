@@ -155,12 +155,15 @@ agent.
 - **Input.** Messages typed while a turn runs join the steering queue and are
   delivered in order before the turn ends. The activity line above the composer
   shows the current phase, rotating verb, elapsed time, and tool; Escape, the
-  inline Stop button, or `/stop` cancels the turn.
+  inline Stop button, or `/stop` cancels the turn. Assistant and thinking text
+  are presented at a readable pace even when a provider emits one large burst.
 - **Rendering.** Assistant text is markdown with syntax-highlighted fenced
   code, local workspace images with a lightbox, and Mermaid diagrams rendered as
   themed SVG (source and Copy remain as the fallback); thinking is folded into a
-  disclosure. The sidebar lists, resumes, renames, and deletes workspace
-  sessions.
+  disclosure labelled with its duration. Tool edits show an inline unified diff
+  with added/removed lines and changed words highlighted. Long sessions render
+  the latest history with an explicit `Load earlier messages` control. The
+  sidebar lists, resumes, renames, and deletes workspace sessions.
 - **Controls.** The header model chip opens a searchable overlay whose catalog
   is refreshed live from every configured provider. The composer shows and
   switches effort (`low`/`medium`/`high`) and mode (`plan`/`yolo`), and its plus

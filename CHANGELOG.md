@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `web`: assistant and thinking deltas are presented through a bounded pacing queue, so a burst provider reveals text in readable steps. A live stream uses plain text with a quiet caret and gets one final markdown render; history renders only the latest 80 events behind a `Load earlier messages` control that preserves scroll position.
+- `web`: `write` and `edit` results render as inline unified diffs with a path/stats header, hunk separators, sign column, subtle add/remove tints, and word-level highlights. The full diff remains available through Copy.
+- `web`: thinking disclosures are restored from durable `message.thinking` in session history instead of a volatile client cache, with explicit live/done labels and a short expand transition. Mobile adds safe-area padding, larger coarse-pointer targets, and internally scrolling code and diff blocks.
+
+### Fixed
+
+- `web`: switching sessions no longer loses, duplicates, or misplaces thinking blocks; a single view token invalidates queued stream frames and late events from the outgoing session. Reconnecting during a thinking turn produces exactly one live block.
+
+### Added
+
 - `web`: a live activity hint above the composer mirrors the terminal status line with a looped spinner, rotating verbs (`thinking`, `cooking`, `building`, `crumbling`, and so on), elapsed time, and the active tool. Waiting-for-approval, disconnected, and stopped states are explicit. Escape, the inline Stop button, or `/stop` cancels the running turn; the server ends it with `stopped` instead of surfacing the cancellation as an error.
 
 ## v0.15.0 — 2026-11-16

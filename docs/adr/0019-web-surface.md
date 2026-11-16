@@ -76,7 +76,14 @@ zero-build browser client.
 - Reconnect replay is an active-turn buffer, not a second session format. The
   server slices session history to before the turn, sends the buffered runtime
   events with the turn's prompts on connect, and releases the buffer at
-  `turn_end`. Completed turns stay readable from the JSONL log.
+  `turn_end`. Completed turns stay readable from the JSONL log. Completed
+  thinking lives in `assistant_message.message.thinking`, so the browser
+  restores it from history; only the in-flight turn is reconstructed from
+  replay events.
+- Presentation pacing and history windowing live in the browser, not the wire
+  protocol. Every delta is delivered; the client queues the visible tail and
+  renders one final markdown pass per answer. All durable events stay in the
+  JSONL log, and `Load earlier messages` reveals them on demand.
 - Session ownership is a `<sessionId>.jsonl.lock` file containing the holder's
   PID and host (ADR 0020). Both the CLI and the server acquire it through
   `src/sessions/lock.ts`; a live holder refuses with its PID, and a lock whose
@@ -84,6 +91,5 @@ zero-build browser client.
   ownership, not a distributed lock: it assumes one machine.
 - Protocol tests in `tests/web/protocol.test.ts` are the regression net for
   token enforcement, stream ordering, tool-card events, approvals, sessions,
-  multi-tab control, mid-turn input, cancellation, and reconnect replay. There is no
-  browser-test dependency for v1. Session ownership has its own cross-process
-  test in `tests/sessions/ownership.test.ts`.
+  multi-tab control, mid-turn input, cancellation, reconnect replay, and durable
+  thinking. `tests/web/diff.test.mjs` covers the pure diff-to-rows transform.
