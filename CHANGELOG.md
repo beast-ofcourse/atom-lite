@@ -5,12 +5,20 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## v0.16.1 — 2026-11-16
 
 ### Added
 
-- `web`: `atom-lite --serve --share` keeps the server on loopback, opens an outbound HTTPS tunnel through cloudflared, and prints a tokenized URL plus a terminal QR code for phone access. `--tunnel-command COMMAND` substitutes another provider with a `{port}` placeholder, and `--no-qr` prints only the URL. The published host is the only extra hostname accepted by the web server's Host and Origin checks; the per-run token remains mandatory. Tunnel and server shut down together.
+- `cli`: `--serve --share` publishes the web surface through an outbound HTTPS tunnel and prints a tokenized URL plus a terminal QR code for phone access.
+- `cli`: `--tunnel-command COMMAND` substitutes another tunnel provider with a `{port}` placeholder, and `--no-qr` prints only the URL.
+- `web`: the server accepts exactly one published tunnel hostname in Host and Origin checks. The per-run token remains mandatory for HTTP and WebSocket requests.
 - `docs`: ADR 0021 records the explicit opt-in cross-machine path and keeps default serve mode localhost-only.
+
+### Changed
+
+- `cli`: tunnel and server shut down together on Ctrl-C, SIGTERM, tunnel failure, or early provider exit.
+- `cli`: share mode does not open a local browser; it prints the local URL for diagnostics instead.
+- `deps`: terminal QR rendering adds `qrcode` to the CLI dependency set.
 
 ## v0.16.0 — 2026-11-16
 
