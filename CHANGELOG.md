@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `atom-lite --serve [port]` starts a local web server (default port 7317, next free port on conflict) and opens a browser UI for the same agent runtime, tools, sessions, and approvals. The server binds localhost only, issues a per-run token that the page and every asset carry, and rejects requests with a foreign origin or host so no other page on the machine can drive the agent.
+- The web surface streams assistant text, renders tool calls as collapsible cards with live output, and shows approval requests with approve / deny / trust-for-session answers.
+
 ## [0.14.0] — 2026-11-12
 
 ### Removed

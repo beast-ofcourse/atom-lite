@@ -1,11 +1,14 @@
 # Product
 
+<!-- impeccable:product-schema 1 -->
+
 ## Platform
 
 web
 
-<!-- Terminal TUI (ANSI) is the only surface today. Recorded as `web` because the
-     product schema has no terminal value; it is not a browser product. -->
+<!-- Dual-surface product: a Terminal TUI (ANSI) as the primary surface plus a
+     browser UI served by `atom-lite --serve` (added 2026-11, secondary). The
+     product schema has no terminal value, so the bare value stays `web`. -->
 
 ## Users
 
@@ -17,7 +20,9 @@ They work in a repository workspace, often against local or self-hosted models
 (Ollama, LM Studio, llama.cpp), and sometimes against hosted OpenAI-compatible
 endpoints, Gemini, or the default Kilo gateway. They value offline operation,
 explicit safety boundaries, and the ability to extend the agent without forking
-the core.
+the core. A secondary use is the same developers reaching the agent from a
+browser (`atom-lite --serve`) — a remote machine, another device, or a quick
+look — without giving up the local-first runtime.
 
 ## Product Purpose
 
@@ -40,10 +45,15 @@ than a lock-in.
 
 ## Operating Context
 
-- Runs in an interactive terminal (TUI) or as a one-shot CLI task; requires
-  Node.js >= 22.19 and is distributed on npm as `atom-lite`.
+- Runs in an interactive terminal (TUI) as the primary surface, as a one-shot
+  CLI task, or as a local web server (`atom-lite --serve [port]`, default
+  7317, localhost-only, no account) driven from a browser; requires Node.js >=
+  22.19 and is distributed on npm as `atom-lite`.
 - Primary workflow: open a repository workspace, talk to the agent, approve or
   run tools, inspect streamed tool output/diffs, and resume sessions later.
+- The web surface reuses the same runtime, tools, sessions, and approval
+  semantics; one live session owner at a time (lockfile) is shared between
+  CLI and server.
 - Configuration lives in `~/.config/atom-lite/config.json` and per-project
   `.atom-lite/config.json`; secrets live in
   `~/.config/atom-lite/credentials.json` (0600) or environment variables.
@@ -78,11 +88,17 @@ than a lock-in.
 - **Terminal UI:** pi-tui-based renderer with streaming text, tool boxes, diff
   view, command palette, pickers, themes (auto/dark/light/ansi), mouse support
   that can be disabled, and no-colour fallbacks.
+- **Web UI (v1 scope):** browser client over WebSocket against the same
+  `AgentRuntime`; streaming chat with markdown and syntax-highlighted code,
+  tool cards with live output, approval dialogs (approve / deny /
+  trust-session), session list/resume/new, reconnect with per-turn replay.
+  Deferred: model pickers (config-only), mermaid/ANSI rendering, `/export`,
+  shell mode, extension widgets.
 - **Constraints:** TypeScript strict on NodeNext ESM; the small-core principle
   (new built-in tools need strong justification against ADR 0001); local-first
-  with no telemetry or hosted database (ADR 0004).
-- **Undecided:** whether the platform ever expands beyond the terminal. The
-  repository contains no browser or native-app surface.
+  with no telemetry or hosted database (ADR 0004); the web server binds
+  localhost only and is token-guarded against localhost CSRF.
+- **Undecided:** whether the browser surface grows toward full TUI parity.
 
 ## Brand Commitments
 

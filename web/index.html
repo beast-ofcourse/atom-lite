@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Atom-lite</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app" id="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="dot" aria-hidden="true"></span>
+          <span class="name">atom-lite</span>
+        </div>
+        <div class="meta" id="meta">connecting…</div>
+        <div class="role" id="role" hidden>read-only viewer</div>
+      </header>
+
+      <main class="transcript" id="transcript" aria-live="polite">
+        <div class="empty" id="empty">
+          <p class="empty-title">
+            Ask the agent to do something in this workspace.
+          </p>
+          <p class="empty-hint">
+            Tools run locally, exactly as they do in the terminal.
+          </p>
+        </div>
+      </main>
+
+      <div class="approval-layer" id="approval-layer" hidden>
+        <div class="approval" role="dialog" aria-modal="true">
+          <div class="approval-head">Approval required</div>
+          <pre class="approval-command" id="approval-command"></pre>
+          <div class="approval-cwd" id="approval-cwd"></div>
+          <div class="approval-actions">
+            <button class="btn btn-primary" data-decision="approve">
+              Approve
+            </button>
+            <button class="btn" data-decision="deny">Deny</button>
+            <button class="btn btn-quiet" data-decision="trust-session">
+              Trust for session
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <form class="composer" id="composer">
+        <textarea
+          id="input"
+          class="input"
+          rows="1"
+          placeholder="Send a message…  (enter to send, shift+enter for a new line)"
+          autocomplete="off"
+          spellcheck="false"
+        ></textarea>
+        <button class="send" id="send" type="submit" aria-label="Send">
+          Send
+        </button>
+      </form>
+
+      <div class="queued" id="queued" hidden></div>
+    </div>
+
+    <script>
+      window.__ATOM_LITE_TOKEN__ = "__ATOM_LITE_TOKEN__";
+    </script>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

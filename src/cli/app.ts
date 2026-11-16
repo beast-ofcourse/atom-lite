@@ -136,6 +136,8 @@ export async function run(args: string[]): Promise<void> {
   let noColor = false;
   let listSessions = false;
   let searchSessionsQuery: string | undefined;
+  let serveMode = false;
+  let servePort: number | undefined;
   const positional: string[] = [];
   const extensionPaths: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -154,9 +156,16 @@ export async function run(args: string[]): Promise<void> {
     else if (a === "--theme") themeOverride = args[++i];
     else if (a === "--no-color") noColor = true;
     else if (a === "--no-tools") positional.push("__notools__");
-    else if (a === "--help") {
+    else if (a === "--serve") {
+      serveMode = true;
+      const next = args[i + 1];
+      if (next && /^\d+$/.test(next)) {
+        servePort = parseInt(next, 10);
+        i++;
+      }
+    } else if (a === "--help") {
       process.stdout.write(
-        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json] [--theme NAME] [--no-color] [-e PATH] [--version] [--help]\n",
+        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json] [--theme NAME] [--no-color] [-e PATH] [--serve [PORT]] [--version] [--help]\n",
       );
       return;
     } else if (a.startsWith("--")) {
@@ -472,6 +481,39 @@ export async function run(args: string[]): Promise<void> {
     type: "session_start",
     reason: "startup",
   });
+
+  if (serveMode) {
+    // Web surface: the same runtime, tools, session, and approvals, driven
+    // from a browser instead of the terminal.
+    if (oneShot) {
+      process.stderr.write(
+        "atom-lite: a task argument is ignored in --serve mode; type it in the browser\n",
+      );
+    }
+    const { startWebServer } = await import("../web/server.js");
+    const server = await startWebServer({
+      runtime,
+      session,
+      approvals,
+      providerName: provider.id,
+      model: provider.model ?? "",
+      port: servePort ?? 7317,
+      openBrowser: true,
+    });
+    process.stdout.write(`atom-lite: web UI at ${server.url}\n`);
+    await new Promise<void>((resolve) => {
+      let closing = false;
+      const shutdown = () => {
+        if (closing) return;
+        closing = true;
+        void server.close().finally(() => resolve());
+      };
+      process.on("SIGINT", shutdown);
+      process.on("SIGTERM", shutdown);
+    });
+    await mcpManager.close().catch(() => {});
+    return;
+  }
 
   if (oneShot || !interactive) {
     // non-interactive / one-shot path
