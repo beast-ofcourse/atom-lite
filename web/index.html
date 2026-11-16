@@ -14,6 +14,20 @@
           <span class="name">atom-lite</span>
         </div>
         <div class="meta" id="meta">connecting…</div>
+        <div class="session-bar">
+          <select
+            id="sessions"
+            class="session-select"
+            aria-label="Workspace sessions"
+          ></select>
+          <button
+            class="btn btn-quiet session-new"
+            id="new-session"
+            type="button"
+          >
+            New
+          </button>
+        </div>
         <div class="role" id="role" hidden>read-only viewer</div>
       </header>
 
@@ -31,6 +45,7 @@
       <div class="approval-layer" id="approval-layer" hidden>
         <div class="approval" role="dialog" aria-modal="true">
           <div class="approval-head">Approval required</div>
+          <div class="approval-tool" id="approval-tool"></div>
           <pre class="approval-command" id="approval-command"></pre>
           <div class="approval-cwd" id="approval-cwd"></div>
           <div class="approval-actions">

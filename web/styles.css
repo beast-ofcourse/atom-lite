@@ -81,6 +81,44 @@ body {
   font-size: 11.5px;
 }
 
+/* ---------- session picker ---------- */
+
+.session-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.session-select {
+  max-width: min(360px, 40vw);
+  min-width: 0;
+  background: var(--bg-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.session-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.session-new {
+  padding: 5px 10px;
+  font-size: 12.5px;
+}
+
+.session-select:disabled,
+.session-new:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 /* ---------- transcript ---------- */
 
 .transcript {
@@ -240,6 +278,13 @@ body {
   color: var(--text);
 }
 
+.tool-extra {
+  margin-top: 8px;
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+  color: var(--text-dim);
+}
+
 .tool-collapsed .tool-body {
   display: none;
 }
@@ -267,6 +312,13 @@ body {
 .approval-head {
   font-weight: 600;
   margin-bottom: 10px;
+}
+
+.approval-tool {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 12px;
+  margin-bottom: 6px;
 }
 
 .approval-command {

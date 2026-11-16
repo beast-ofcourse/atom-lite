@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `atom-lite --serve [port]` starts a local web server (default port 7317, next free port on conflict) and opens a browser UI for the same agent runtime, tools, sessions, and approvals. The server binds localhost only, issues a per-run token that the page and every asset carry, and rejects requests with a foreign origin or host so no other page on the machine can drive the agent.
-- The web surface streams assistant text, renders tool calls as collapsible cards with live output, and shows approval requests with approve / deny / trust-for-session answers.
+- The web surface streams assistant text, renders tool calls as collapsible cards with live output and their final result/diff, and shows approval requests with approve / deny / trust-for-session answers. A pending approval is denied if the browser goes away, so the turn never strands.
+- The web surface lists the workspace's sessions (title, updated time, message count), resumes one into the transcript, and starts a new one. Listings are workspace-scoped, and browser sessions are the same JSONL logs the terminal reads and writes.
 
 ## [0.14.0] — 2026-11-12
 

@@ -95,7 +95,7 @@ See [`docs/configuration.md`](./docs/configuration.md) for every field, default,
 ```
 atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
           [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json]
-          [--theme NAME] [--no-color] [--version] [--help]
+          [--theme NAME] [--no-color] [--serve [PORT]] [--version] [--help]
 ```
 
 | Flag                      | Description                                      |
@@ -112,8 +112,14 @@ atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
 
 | `--theme NAME` | Use `auto`, `dark`, `light`, or `ansi` for this run |
 | `--no-color` | Force the no-colour theme |
+| `--serve [PORT]` | Serve the browser UI on localhost (default port 7317; next free port if taken) |
 | `--version` | Print version |
 | `--help` | Show help |
+
+`--serve` starts the same runtime, tools, sessions, and approvals behind a
+localhost-only web page and opens it in your browser. The page and every asset
+carry a per-run token; requests with a foreign `Origin` or `Host` are rejected.
+The first tab controls the session, later tabs are read-only viewers.
 
 In the TUI, type `/help` for every command grouped by category, or press `ctrl+p` for the fuzzy command palette. `/theme` opens a live-preview picker and persists your choice; `NO_COLOR` and `--no-color` always win. `/sessions` opens a searchable picker scoped to the current workspace; `/search <query>` prints matching sessions with snippets. Mouse wheel scrolling and click-to-focus are enabled for interactive terminals and can be disabled with `ui.mouse: false`.
 

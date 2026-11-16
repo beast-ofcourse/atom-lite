@@ -52,8 +52,8 @@ than a lock-in.
 - Primary workflow: open a repository workspace, talk to the agent, approve or
   run tools, inspect streamed tool output/diffs, and resume sessions later.
 - The web surface reuses the same runtime, tools, sessions, and approval
-  semantics; one live session owner at a time (lockfile) is shared between
-  CLI and server.
+  semantics. Reconnect replay and a shared session lockfile are planned
+  (spec tickets 07 and 08); until then the CLI and server can both open a log.
 - Configuration lives in `~/.config/atom-lite/config.json` and per-project
   `.atom-lite/config.json`; secrets live in
   `~/.config/atom-lite/credentials.json` (0600) or environment variables.
@@ -89,11 +89,12 @@ than a lock-in.
   view, command palette, pickers, themes (auto/dark/light/ansi), mouse support
   that can be disabled, and no-colour fallbacks.
 - **Web UI (v1 scope):** browser client over WebSocket against the same
-  `AgentRuntime`; streaming chat with markdown and syntax-highlighted code,
-  tool cards with live output, approval dialogs (approve / deny /
-  trust-session), session list/resume/new, reconnect with per-turn replay.
-  Deferred: model pickers (config-only), mermaid/ANSI rendering, `/export`,
-  shell mode, extension widgets.
+  `AgentRuntime`; streaming chat text, tool cards with live output and final
+  result/diff, approval dialogs (approve / deny / trust-session), session
+  list/resume/new over the same JSONL logs. Planned: markdown and
+  syntax-highlighted code, reconnect with per-turn replay. Deferred: model
+  pickers (config-only), mermaid/ANSI rendering, `/export`, shell mode,
+  extension widgets.
 - **Constraints:** TypeScript strict on NodeNext ESM; the small-core principle
   (new built-in tools need strong justification against ADR 0001); local-first
   with no telemetry or hosted database (ADR 0004); the web server binds
@@ -116,10 +117,11 @@ than a lock-in.
   sessions, commands, development, and architecture.
 - `docs/README.md`, `docs/configuration.md`, `docs/extensions.md` — supporting
   reference docs.
-- `docs/adr/0001`–`0016` — architectural decisions, including four-tools-only,
+- `docs/adr/0001`–`0019` — architectural decisions, including four-tools-only,
   single agent loop, bash barrier, local-first, pi-tui, expanded toolset, MCP,
   session search, deepened loop, Pi extensions, autonomy primitives, advanced
-  tool features, checkpoints, the eval harness, and the session task ledger.
+  tool features, checkpoints, the eval harness, the session task ledger,
+  primary agent personas, checkpoint removal, and the web surface.
 - `tests/` — behavioral test suite; `scripts/bench.mjs` — non-gating benchmark.
 - `CHANGELOG.md` — release history through 0.9.0.
 - **Absences future work must not fabricate:** no customer testimonials, case

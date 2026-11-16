@@ -64,6 +64,7 @@ export const writeTool: Tool = {
         cwd: ctx.workspace,
         timeoutMs: 0,
         sandboxed: false,
+        tool: "write",
       });
       if (!decision.allowed) {
         return {

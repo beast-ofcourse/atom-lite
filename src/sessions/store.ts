@@ -28,6 +28,12 @@ export interface Session {
   readonly workspace: string;
   readonly provider: string;
   messages: Message[];
+  /**
+   * Full event log. Durable sessions reload it from the JSONL file; the
+   * in-memory session records it as messages arrive. The web client renders
+   * session history from it.
+   */
+  events: SessionEvent[];
   appendMessage(message: Message): void;
   // Back-compat alias.
   append?(message: Message): void;
@@ -45,6 +51,8 @@ export class InMemorySession implements Session {
   readonly workspace: string;
   readonly provider: string;
   messages: Message[] = [];
+  events: SessionEvent[] = [];
+  private seq = 0;
 
   constructor(id: string, workspace: string, provider = "fake") {
     this.id = id;
@@ -54,6 +62,7 @@ export class InMemorySession implements Session {
 
   appendMessage(message: Message): void {
     this.messages.push(message);
+    this.events.push(messageToEvent(message, this.id, ++this.seq));
   }
   append(message: Message): void {
     this.appendMessage(message);
@@ -434,7 +443,10 @@ export class JsonlSessionStore {
       }
       const started = events.find((e) => e.type === "session_started") as any;
       const ws = started?.workspace ?? "";
-      if (workspace && ws && ws !== workspace) continue;
+      // A workspace-scoped listing only includes logs that prove they belong
+      // to that workspace. A log with no workspace metadata is not offered
+      // anywhere, rather than leaking into every workspace.
+      if (workspace && ws !== workspace) continue;
       let stat;
       try {
         stat = statSync(filePath);

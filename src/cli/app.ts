@@ -446,6 +446,9 @@ export async function run(args: string[]): Promise<void> {
     trustSession: () => {
       sessionTrusted = true;
     },
+    resetTrust: () => {
+      sessionTrusted = false;
+    },
     nonInteractive: !interactive,
   };
 
@@ -497,6 +500,8 @@ export async function run(args: string[]): Promise<void> {
       approvals,
       providerName: provider.id,
       model: provider.model ?? "",
+      store: sessionsEnabled ? store : undefined,
+      workspace: process.cwd(),
       port: servePort ?? 7317,
       openBrowser: true,
     });
@@ -2667,7 +2672,7 @@ export async function run(args: string[]): Promise<void> {
     return undefined;
   });
 
-  runtime["onEvent"] = (e: any) => {
+  runtime.setEventSink((e) => {
     if (e.type === "thinking_delta") {
       activity.setPhase("thinking");
       if (!showThinking) return;
@@ -2781,7 +2786,7 @@ export async function run(args: string[]): Promise<void> {
       finalizeText();
       activity.stop();
     }
-  };
+  });
 
   async function runDoctor(): Promise<string> {
     const lines: string[] = ["Doctor:"];

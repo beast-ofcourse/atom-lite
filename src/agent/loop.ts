@@ -228,6 +228,14 @@ export class AgentRuntime {
     return summary;
   }
 
+  /**
+   * Replace the event consumer. The TUI uses this at startup; the web server
+   * uses it when it owns the runtime. One sink at a time, by design.
+   */
+  setEventSink(sink: AgentRuntimeOptions["onEvent"]): void {
+    this.onEvent = sink;
+  }
+
   /** Replace the toolset, e.g. after MCP discovery or a list_changed refresh. */
   setTools(tools: AgentRuntimeOptions["tools"]): void {
     this.tools = tools;
