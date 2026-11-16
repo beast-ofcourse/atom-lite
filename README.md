@@ -153,11 +153,13 @@ agent.
   returns to the reconnecting tab; it fails safe as a denial if nobody comes
   back within the grace period.
 - **Input.** Messages typed while a turn runs join the steering queue and are
-  delivered in order before the turn ends. The activity line above the composer
-  shows the current phase, rotating verb, elapsed time, and tool; Escape, the
-  composer send button (which becomes Stop), the inline Stop button, or `/stop`
-  cancels the turn. Assistant and thinking text
-  are presented at a readable pace even when a provider emits one large burst.
+  delivered in order before the turn ends. The composer send button carries the
+  running state: it becomes a square Stop control with a quiet ring pulse, and
+  clicking it cancels the turn; Escape and `/stop` do the same, while Enter in
+  the textarea still queues a steering message. The mic button uses the
+  browser's speech recognition where available and inserts recognized text at
+  the caret. Assistant and thinking text are presented at a readable pace even
+  when a provider emits one large burst.
 - **Rendering.** Assistant text is markdown with syntax-highlighted fenced
   code, local workspace images with a lightbox, and Mermaid diagrams rendered as
   themed SVG (source and Copy remain as the fallback); thinking is folded into a

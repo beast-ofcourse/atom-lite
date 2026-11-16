@@ -13,14 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`: `write` and `edit` results render as inline unified diffs with a path/stats header, hunk separators, sign column, subtle add/remove tints, and word-level highlights. The full diff remains available through Copy.
 - `web`: thinking disclosures are restored from durable `message.thinking` in session history instead of a volatile client cache, with explicit live/done labels and a short expand transition. Mobile adds safe-area padding, larger coarse-pointer targets, and internally scrolling code and diff blocks.
 - `web`: tool cards start collapsed, thinking blocks stay expanded, the composer send button becomes the stop control while a turn runs with a quiet ring pulse, and selecting a skill in `/skills` inserts `/<name> ` at the composer caret.
+- `web`: live thinking gains a drawn constellation mark, a faint wash, and a pulsing rail; completed thoughts keep the expanded disclosure. A mic button uses browser speech recognition where supported and inserts recognized text at the caret.
+- `web`: Escape, `/stop`, and the server-side stop protocol cancel a running turn and end it with `stopped` instead of an error.
+
+### Removed
+
+- `web`: the separate activity status row above the composer. Running state is now carried by the send button and the live thinking block.
 
 ### Fixed
 
 - `web`: switching sessions no longer loses, duplicates, or misplaces thinking blocks; a single view token invalidates queued stream frames and late events from the outgoing session. Reconnecting during a thinking turn produces exactly one live block.
-
-### Added
-
-- `web`: a live activity hint above the composer mirrors the terminal status line with a looped spinner, rotating verbs (`thinking`, `cooking`, `building`, `crumbling`, and so on), elapsed time, and the active tool. Waiting-for-approval, disconnected, and stopped states are explicit. Escape, the inline Stop button, or `/stop` cancels the running turn; the server ends it with `stopped` instead of surfacing the cancellation as an error.
 
 ## v0.15.0 — 2026-11-16
 

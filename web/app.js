@@ -79,13 +79,8 @@ const modeMenu = document.getElementById("mode-menu");
 const imageModal = document.getElementById("image-modal");
 const imagePreview = document.getElementById("image-preview");
 const imageCaption = document.getElementById("image-caption");
-const activityEl = document.getElementById("activity");
-const activityVerb = document.getElementById("activity-verb");
-const activityElapsed = document.getElementById("activity-elapsed");
-const activityDetail = document.getElementById("activity-detail");
-const activityHint = document.getElementById("activity-hint");
-const activityStop = document.getElementById("activity-stop");
-const activityLive = document.getElementById("activity-live");
+const micButton = document.getElementById("mic-button");
+const micIcon = micButton.querySelector("use");
 
 // Tool cards cap the visible tail, like the terminal caps live output. The
 // full text stays in the card's data until the card is rebuilt.
@@ -156,35 +151,13 @@ const markdownCache = new Map();
 let historyEvents = [];
 let historyLimit = HISTORY_PAGE_EVENTS;
 
-const ACTIVITY_VERBS = {
-  formulating: ["formulating", "planning", "lining things up"],
-  thinking: ["thinking", "pondering", "reasoning", "mulling it over"],
-  working: [
-    "working",
-    "cooking",
-    "crafting",
-    "building",
-    "brewing",
-    "crumbling",
-  ],
-};
-const ACTIVITY_VERB_INTERVAL_MS = 2400;
-const STOPPED_HOLD_MS = 4000;
-const ACTIVITY_ANNOUNCE = {
-  idle: "Agent ready",
-  formulating: "Agent formulating",
-  thinking: "Agent thinking",
-  working: "Agent working",
-  waiting: "Waiting for approval",
-  stopping: "Stopping the agent",
-  stopped: "Agent stopped",
-  offline: "Disconnected from the server",
-};
-
-let activity = { phase: "idle", startedAt: 0, detail: "" };
-let activityTicker = null;
-let stoppedTimer = null;
-let announcedActivity = "";
+const SpeechRecognitionCtor =
+  window.SpeechRecognition || window.webkitSpeechRecognition || null;
+let recognition = null;
+let listening = false;
+let speechBase = "";
+let speechFinal = "";
+let speechInterim = "";
 
 /* ---------------- icons ---------------- */
 
@@ -637,10 +610,31 @@ function setHome(visible) {
 }
 
 function syncSendState() {
+  const running = turnActive && !readOnly;
   sendEl.disabled =
     readOnly ||
     attachments.some((item) => item.pending) ||
-    (!turnActive && inputEl.value.trim().length === 0);
+    (!running && inputEl.value.trim().length === 0);
+  sendEl.classList.toggle("running", running);
+  sendIcon?.setAttribute("href", running ? "#i-stop" : "#i-arrow-up");
+  sendEl.setAttribute(
+    "aria-label",
+    running ? "Stop the agent" : "Send message",
+  );
+  sendEl.title = running ? "Stop the agent (Esc)" : "Send message";
+  micButton.disabled = readOnly || !SpeechRecognitionCtor;
+  micButton.classList.toggle("listening", listening);
+  micIcon?.setAttribute("href", listening ? "#i-stop" : "#i-mic");
+  micButton.setAttribute(
+    "aria-label",
+    listening ? "Stop voice input" : "Start voice input",
+  );
+  micButton.setAttribute("aria-pressed", String(listening));
+  micButton.title = SpeechRecognitionCtor
+    ? listening
+      ? "Stop voice input"
+      : "Voice input"
+    : "Voice input unavailable in this browser";
 }
 
 function resizeInput() {
@@ -705,7 +699,7 @@ function renderQueued() {
   }
 }
 
-/* ---------------- activity ---------------- */
+/* ---------------- turn state ---------------- */
 
 function formatElapsed(ms) {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -717,117 +711,14 @@ function formatElapsed(ms) {
   return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
 
-function renderActivity() {
-  const phase = activity.phase;
-  const active =
-    phase === "formulating" || phase === "thinking" || phase === "working";
-  const elapsed = active ? Math.max(0, Date.now() - activity.startedAt) : 0;
-  let label;
-  if (phase === "waiting") label = "Waiting for approval";
-  else if (phase === "stopping") label = "Stopping";
-  else if (phase === "stopped") label = "Stopped";
-  else if (phase === "offline") label = "Disconnected";
-  else if (active) {
-    const verbs = ACTIVITY_VERBS[phase];
-    const index =
-      Math.floor(elapsed / ACTIVITY_VERB_INTERVAL_MS) % verbs.length;
-    const verb = verbs[index];
-    label = `${verb[0].toUpperCase()}${verb.slice(1)}…`;
-  } else label = "Ready";
-
-  activityEl.dataset.phase = phase;
-  activityVerb.textContent = label;
-  activityElapsed.textContent = active ? formatElapsed(elapsed) : "";
-  activityDetail.textContent = active ? activity.detail : "";
-  const canStop = !readOnly && (active || phase === "waiting");
-  activityHint.hidden = !canStop;
-  activityStop.hidden = !canStop;
-  const running = turnActive && !readOnly;
-  sendEl.classList.toggle("running", running);
-  sendIcon?.setAttribute("href", running ? "#i-stop" : "#i-arrow-up");
-  sendEl.setAttribute(
-    "aria-label",
-    running ? "Stop the agent" : "Send message",
-  );
-  sendEl.title = running ? "Stop the agent (Esc)" : "Send message";
+function setTurnActive(active) {
+  turnActive = active;
   syncSendState();
-  if (phase !== announcedActivity) {
-    announcedActivity = phase;
-    activityLive.textContent = ACTIVITY_ANNOUNCE[phase] ?? "";
-  }
-}
-
-function startActivityTicker() {
-  if (activityTicker) return;
-  activityTicker = setInterval(renderActivity, 250);
-}
-
-function stopActivityTicker() {
-  if (!activityTicker) return;
-  clearInterval(activityTicker);
-  activityTicker = null;
-}
-
-function clearStoppedTimer() {
-  if (!stoppedTimer) return;
-  clearTimeout(stoppedTimer);
-  stoppedTimer = null;
-}
-
-/** Begin a fresh turn: reset elapsed time and switch to the first phase. */
-function startActivity() {
-  clearStoppedTimer();
-  turnActive = true;
-  activity = { phase: "formulating", startedAt: Date.now(), detail: "" };
-  startActivityTicker();
-  renderActivity();
-}
-
-/** Move within an active turn without resetting its elapsed time. */
-function setActivityPhase(phase, detail = "") {
-  if (!turnActive) return;
-  if (activity.phase === "stopping" && phase !== "stopped") return;
-  if (phase === "formulating" || phase === "thinking" || phase === "working") {
-    activity.startedAt = activity.startedAt || Date.now();
-  }
-  activity.phase = phase;
-  activity.detail = detail;
-  renderActivity();
-}
-
-function goIdle() {
-  turnActive = false;
-  activity = { phase: "idle", startedAt: 0, detail: "" };
-  stopActivityTicker();
-  renderActivity();
-}
-
-/** Settle on "Stopped" briefly, then return to the ready state. */
-function markStopped() {
-  turnActive = false;
-  clearStoppedTimer();
-  activity = { phase: "stopped", startedAt: 0, detail: "" };
-  stopActivityTicker();
-  renderActivity();
-  stoppedTimer = setTimeout(() => {
-    stoppedTimer = null;
-    if (activity.phase === "stopped") goIdle();
-  }, STOPPED_HOLD_MS);
-}
-
-function markOffline() {
-  turnActive = false;
-  clearStoppedTimer();
-  activity = { phase: "offline", startedAt: 0, detail: "" };
-  stopActivityTicker();
-  renderActivity();
 }
 
 /** Ask the server to cancel the running turn. Returns false when idle. */
 function stopAgent() {
   if (readOnly || !turnActive) return false;
-  if (activity.phase === "stopping") return true;
-  setActivityPhase("stopping");
   send({ type: "stop" });
   return true;
 }
@@ -938,6 +829,7 @@ function createThinkingBlock(
   const details = document.createElement("details");
   details.open = open;
   const summary = document.createElement("summary");
+  summary.append(icon("thought", "icon thinking-mark"));
   const label = document.createElement("span");
   label.className = "thinking-label";
   label.textContent = live
@@ -1344,8 +1236,8 @@ function renderHistory(events) {
 function renderReplay(message) {
   const events = message.events ?? [];
   // The replay is the only signal that a turn is still running after a
-  // reconnect, so restore the activity hint alongside the events.
-  startActivity();
+  // reconnect, so mark the turn active before rebuilding its events.
+  setTurnActive(true);
   if (message.truncated) {
     showToast(
       "Reconnect replay was truncated; some live output may be missing.",
@@ -1528,6 +1420,7 @@ function scheduleSessionRender() {
 }
 
 function applySession(message) {
+  if (listening) stopVoiceInput();
   currentSessionId = message.sessionId;
   clearAttachments();
   renderHistory(message.history ?? []);
@@ -2515,12 +2408,10 @@ function handleEvent(event) {
   switch (event.type) {
     case "assistant_delta":
     case "assistant_text":
-      setActivityPhase("working");
       appendAssistantText(event.text);
       scrollToEnd();
       break;
     case "thinking_delta":
-      setActivityPhase("thinking");
       showThinking(event.text);
       break;
     case "tool_call": {
@@ -2528,18 +2419,15 @@ function handleEvent(event) {
       // must appear after the card, not above it.
       endAssistantBlock();
       endThinkingBlock();
-      setActivityPhase("working", event.name);
       toolCard(event.id, event.name, event.args, "running");
       break;
     }
     case "tool_output": {
-      setActivityPhase("working", event.name);
       const card = findToolCard(event.toolCallId);
       if (card) appendToolOutput(card, event.text);
       break;
     }
     case "tool_result": {
-      setActivityPhase("working");
       const card = findToolCard(event.toolCallId);
       if (card) finishToolCard(card, event);
       break;
@@ -2575,7 +2463,6 @@ function setReadOnly(next) {
     openApproval(lastApproval);
   }
   syncSendState();
-  renderActivity();
   updateSessionControls();
 }
 
@@ -2596,7 +2483,7 @@ function handleMessage(message) {
       renderWorkspaceLabel();
       if (!modelModal.hidden) renderModelList();
       hideToast();
-      goIdle();
+      setTurnActive(false);
       applySession(message);
       send({ type: "list_sessions" });
       break;
@@ -2615,21 +2502,19 @@ function handleMessage(message) {
     case "turn_start":
       endAssistantBlock();
       endThinkingBlock();
-      startActivity();
+      setTurnActive(true);
       break;
     case "turn_stopping":
       pendingApproval = null;
       lastApproval = null;
       approvalLayer.hidden = true;
-      if (turnActive) setActivityPhase("stopping");
       break;
     case "turn_end":
       endAssistantBlock();
       endThinkingBlock();
       clearQueued();
       renderMermaidBlocks();
-      if (message.stopped) markStopped();
-      else goIdle();
+      setTurnActive(false);
       send({ type: "list_sessions" });
       break;
     case "input_queued":
@@ -2638,7 +2523,6 @@ function handleMessage(message) {
       break;
     case "approval_request":
       lastApproval = message;
-      setActivityPhase("waiting");
       if (!readOnly) openApproval(message);
       break;
     case "sessions":
@@ -2665,13 +2549,13 @@ function handleMessage(message) {
       break;
     case "session_changed":
       closePopovers();
-      goIdle();
+      setTurnActive(false);
       applySession(message);
       break;
     case "workspace_changed":
       workspacePath = message.workspace;
       renderWorkspaceLabel();
-      goIdle();
+      setTurnActive(false);
       applySession(message);
       closeModal(workspaceModal);
       showToast(`Workspace: ${workspacePath}`);
@@ -2755,9 +2639,6 @@ function closeApproval(decision) {
   pendingApproval = null;
   lastApproval = null;
   approvalLayer.hidden = true;
-  if (turnActive && activity.phase === "waiting") {
-    setActivityPhase("working");
-  }
   const target = approvalReturnFocus ?? inputEl;
   approvalReturnFocus = null;
   if (target && typeof target.focus === "function") target.focus();
@@ -2876,13 +2757,14 @@ function connect() {
     lastApproval = null;
     approvalLayer.hidden = true;
     resetTranscript();
-    markOffline();
+    setTurnActive(false);
     setTimeout(connect, 1000);
   });
 }
 
 composerEl.addEventListener("submit", (event) => {
   event.preventDefault();
+  if (listening) stopVoiceInput();
   const text = inputEl.value.trim();
   if (!text || readOnly) return;
   if (attachments.some((item) => item.pending)) {
@@ -2913,15 +2795,85 @@ attachButton.addEventListener("click", () => {
   if (!readOnly) fileInput.click();
 });
 
-activityStop.addEventListener("click", () => {
-  stopAgent();
-});
-
 sendEl.addEventListener("click", (event) => {
   if (!turnActive || readOnly) return;
   event.preventDefault();
   event.stopPropagation();
   stopAgent();
+});
+
+function applySpeechText() {
+  inputEl.value = speechBase + speechFinal + speechInterim;
+  resizeInput();
+  syncSendState();
+  if (inputEl.value.trimStart().startsWith("/")) updateSlashMenu();
+  else slashMenu.hidden = true;
+}
+
+function stopVoiceInput() {
+  if (!recognition) return;
+  try {
+    recognition.stop();
+  } catch {
+    /* already stopped */
+  }
+}
+
+function startVoiceInput() {
+  if (!SpeechRecognitionCtor || readOnly) return;
+  recognition = new SpeechRecognitionCtor();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = navigator.language || "en-US";
+  speechBase = inputEl.value;
+  if (speechBase && !speechBase.endsWith(" ")) speechBase += " ";
+  speechFinal = "";
+  speechInterim = "";
+  listening = true;
+  syncSendState();
+
+  recognition.onresult = (event) => {
+    let finalText = "";
+    let interimText = "";
+    for (let index = event.resultIndex; index < event.results.length; index++) {
+      const result = event.results[index];
+      const text = result[0]?.transcript ?? "";
+      if (result.isFinal) finalText += text;
+      else interimText += text;
+    }
+    if (finalText) speechFinal += `${finalText} `;
+    speechInterim = interimText;
+    applySpeechText();
+  };
+  recognition.onerror = (event) => {
+    const message =
+      event.error === "not-allowed"
+        ? "Microphone permission denied."
+        : `Voice input failed: ${event.error}`;
+    showToast(message, "error");
+  };
+  recognition.onend = () => {
+    listening = false;
+    recognition = null;
+    speechBase = "";
+    speechFinal = "";
+    speechInterim = "";
+    syncSendState();
+  };
+
+  try {
+    recognition.start();
+  } catch {
+    listening = false;
+    recognition = null;
+    syncSendState();
+    showToast("Could not start voice input.", "error");
+  }
+}
+
+micButton.addEventListener("click", () => {
+  if (listening) stopVoiceInput();
+  else startVoiceInput();
 });
 
 fileInput.addEventListener("change", () => {
@@ -3239,6 +3191,5 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-renderActivity();
 syncSendState();
 connect();

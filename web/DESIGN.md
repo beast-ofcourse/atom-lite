@@ -252,11 +252,11 @@ and Copy button remain usable with a quiet "preview unavailable" note.
 A borderless disclosure inside the assistant flow: 14px secondary text with a
 drawn chevron that rotates on open. Expanded content is 14px/1.65 secondary
 copy on the canvas, indented by a quiet hairline rule. It is subordinate to the
-answer and never looks like a response bubble. Live thinking stays open and
-adds a small amber dot to `Thinking`; the activity row owns all motion while it
-runs. On completion the label becomes `Thought for Ns` and the disclosure stays
-expanded, so the reasoning remains readable. Restored thoughts come from the
-durable `message.thinking` field in session history and use the quieter
+answer and never looks like a response bubble. Live thinking lifts the label
+into `--warn` and adds a small dot; the body gets a faint wash and a 2s pulsing
+rail so progress stays legible now that the separate activity row is gone.
+On completion the label becomes `Thought for Ns` and the wash and motion drop
+while the disclosure stays expanded. Restored thoughts come from the durable `message.thinking` field in session history and use the quieter
 `Thought` label; no client-side cache is involved. Expanding a collapsed block
 uses a 180ms opacity/translation settle, with reduced motion keeping only the
 state change.
@@ -294,30 +294,25 @@ Centered 768px shell, 28px radius, `--composer-bg`, 1px `--border` and the
 light composer shadow (dark: inset hairline only). Textarea is 16px with 16px
 padding; Enter sends, Shift+Enter breaks; it grows to 200px. The bottom row
 carries the native file-picker plus button, effort and plan/yolo chips on the
-left, and a 36px circular send button on the right, filled `--send-bg` with an
-up-arrow in `--send-fg`. While a turn runs, the send button becomes the stop
-control: the glyph changes to a square and a quiet 1.8s ring pulse marks the
-active state. Clicking it stops the turn, as does Escape and the inline Stop
-button; Enter in the textarea still queues a steering message. Reduced motion
+left, a 36px mic button, and a 36px circular send button on the right, filled
+`--send-bg` with an up-arrow in `--send-fg`. While a turn runs, the send button
+becomes the stop control: the glyph changes to a square and a quiet 1.8s ring
+pulse marks the active state. Clicking it stops the turn, as does Escape and
+`/stop`; Enter in the textarea still queues a steering message. Reduced motion
 keeps a static ring instead of the pulse.
 Disabled send uses `--send-disabled` and keeps its shape. Queued steering
 messages appear above the composer as small `Queued` rows. The disclaimer below
 is 12px `--text-faint`: "Atom-lite can make mistakes. Check important info."
 
-### Activity and stopping
+### Voice input
 
-A 12px status row sits between the queued rows and the composer and mirrors the
-terminal activity line. Idle is a green dot and `Ready`. A running turn shows a
-looped ring plus a rotating verb — `formulating`, `thinking`, or `working`
-(`working`, `cooking`, `crafting`, `building`, `brewing`, `crumbling`) — the
-elapsed time, and the current tool name when one is active. Waiting for an
-approval swaps to an amber pulse and `Waiting for approval`; a disconnect is a
-red `Disconnected`. The controlling tab can cancel with Escape, the inline Stop
-button, or `/stop`; the server broadcasts `turn_stopping`, denies any pending
-approval so the runtime can unwind, and ends the turn with `stopped: true`.
-The row settles on `Stopped` for four seconds, then returns to `Ready`; the
-cancellation is never shown as an error toast. Reduced-motion users get the
-static phase marker instead of the spin and pulse.
+The mic button is present on every platform and enabled only when the browser
+exposes `SpeechRecognition` or `webkitSpeechRecognition`. Starting it captures
+recognized text at the caret, including interim results; clicking again stops
+recognition. While listening the glyph becomes a square in `--danger` with a
+restrained ring pulse, and reduced motion keeps a static ring. Recognition
+stops on send or session change. When unsupported, the button stays visible but
+disabled with a tooltip explaining why.
 
 ### Home state
 
@@ -472,8 +467,8 @@ authored inline SVG (24×24 viewBox, 1.75 stroke) in the page's sprite.
 messages` boundary. Loading more preserves scroll position. Markdown HTML and
   tool-card lookups are cached, Mermaid diagrams render only near the viewport,
   and live blocks opt out of `content-visibility` containment.
-- Motion explains state: the stream caret, the live thinking dot, the
-  activity spinner, and the user-triggered disclosure settle are the whole
+- Motion explains state: the stream caret, the live thinking rail, the send
+  and mic ring pulses, and the user-triggered disclosure settle are the whole
   vocabulary. No section reveals, stagger, bounce, or parallax.
 - New surfaces add a token before adding a one-off value.
 
@@ -503,10 +498,10 @@ and the fake provider, dark and light, 1440×900 and 390×844.
   models, model switch, local attachment upload and removal, skills and MCP
   overlays, workspace explorer navigation and switch, theme overrides, sidebar
   collapse, approval approve, the read-only viewer state, and stopping a live
-  turn with Escape and `/stop` were driven in the real page; the activity hint
-  moved through `Formulating`, `Thinking`, and `Stopped` and returned to
-  `Ready`. Switching away from a thinking turn and back restored Markdown,
-  the Mermaid diagram, and the thinking block; reconnecting mid-thought produced
+  turn with the send button, Escape, and `/stop` were driven in the real page;
+  the send button swapped to its square stop glyph and settled back after the
+  turn. Switching away from a thinking turn and back restored Markdown, the
+  Mermaid diagram, and the thinking block; reconnecting mid-thought produced
   exactly one live block. `Load earlier messages` added history without losing
   scroll position. The full suite passes 490 tests.
 - **Keyboard:** focus rings visible; approval traps focus and returns it; Enter

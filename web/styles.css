@@ -84,6 +84,8 @@
   --diff-del-bg: rgba(255, 105, 97, 0.1);
   --diff-del-fg: #f0b8b4;
   --diff-del-word: rgba(255, 105, 97, 0.2);
+  --thinking-wash: rgba(226, 178, 90, 0.05);
+  --thinking-rail: rgba(226, 178, 90, 0.5);
   --ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
@@ -133,6 +135,8 @@
   --diff-del-bg: rgba(192, 57, 43, 0.07);
   --diff-del-fg: #8f2b22;
   --diff-del-word: rgba(192, 57, 43, 0.14);
+  --thinking-wash: rgba(138, 90, 0, 0.045);
+  --thinking-rail: rgba(138, 90, 0, 0.35);
 }
 
 * {
@@ -1132,13 +1136,23 @@ body.sidebar-collapsed .sidebar-toggle-main,
 .thinking summary {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   padding: 3px 0;
   color: var(--text-dim);
   font-size: var(--text-ui);
   font-weight: 500;
   list-style: none;
   cursor: pointer;
+}
+
+.thinking[data-state="live"] summary {
+  color: var(--warn);
+}
+
+.thinking .thinking-mark {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.8;
 }
 
 .thinking summary::-webkit-details-marker {
@@ -1171,14 +1185,43 @@ body.sidebar-collapsed .sidebar-toggle-main,
 }
 
 .thinking-body {
-  margin-top: 6px;
-  padding: 2px 0 2px 14px;
-  border-left: 1px solid var(--border);
+  position: relative;
+  margin-top: 8px;
+  padding: 10px 14px 10px 18px;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
   color: var(--text-dim);
   font-size: var(--text-ui);
   line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.thinking[data-state="live"] .thinking-body {
+  background: var(--thinking-wash);
+}
+
+.thinking-body::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+.thinking[data-state="live"] .thinking-body::before {
+  background: var(--thinking-rail);
+  animation: thinking-rail 2s ease-in-out infinite;
+}
+
+@keyframes thinking-rail {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .thinking details[open] .thinking-body {
@@ -1713,6 +1756,76 @@ body.is-empty .suggestions {
   color: var(--warn);
 }
 
+.composer-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mic {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition:
+    background 120ms var(--ease),
+    color 120ms var(--ease);
+}
+
+.mic .icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2;
+}
+
+.mic:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.mic:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mic.listening {
+  color: var(--danger);
+  background: var(--surface);
+}
+
+.mic.listening::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border: 1px solid var(--danger);
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  animation: mic-pulse 1.6s ease-out infinite;
+}
+
+@keyframes mic-pulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.84);
+  }
+  30% {
+    opacity: 0.65;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.18);
+  }
+}
+
 .send {
   position: relative;
   width: 36px;
@@ -1922,172 +2035,6 @@ body.is-empty .suggestions {
 .queued-label {
   color: var(--warn);
   font-weight: 500;
-}
-
-/* ---------- activity ---------- */
-
-.activity {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 24px;
-  margin: 0 6px var(--space-1);
-  overflow: hidden;
-  color: var(--text-faint);
-  font-size: var(--text-xs);
-  line-height: 1.3;
-  white-space: nowrap;
-}
-
-.activity-glyph {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--ok);
-}
-
-.activity[data-phase="formulating"] .activity-glyph,
-.activity[data-phase="thinking"] .activity-glyph,
-.activity[data-phase="working"] .activity-glyph {
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid currentColor;
-  border-right-color: transparent;
-  background: none;
-  animation: activity-spin 0.85s linear infinite;
-}
-
-.activity[data-phase="formulating"] .activity-glyph,
-.activity[data-phase="thinking"] .activity-glyph {
-  color: var(--warn);
-}
-
-.activity[data-phase="working"] .activity-glyph {
-  color: var(--focus);
-}
-
-.activity[data-phase="waiting"] .activity-glyph {
-  background: var(--warn);
-  animation: activity-pulse 1.4s ease-in-out infinite;
-}
-
-.activity[data-phase="stopping"] .activity-glyph {
-  background: var(--warn);
-}
-
-.activity[data-phase="stopped"] .activity-glyph {
-  background: var(--text-faint);
-}
-
-.activity[data-phase="offline"] .activity-glyph {
-  background: var(--danger);
-}
-
-.activity-verb {
-  overflow: hidden;
-  color: var(--text-dim);
-  font-weight: 500;
-  text-overflow: ellipsis;
-}
-
-.activity[data-phase="formulating"] .activity-verb,
-.activity[data-phase="thinking"] .activity-verb,
-.activity[data-phase="waiting"] .activity-verb {
-  color: var(--warn);
-}
-
-.activity[data-phase="working"] .activity-verb {
-  color: var(--focus);
-}
-
-.activity[data-phase="idle"] .activity-verb,
-.activity[data-phase="stopped"] .activity-verb {
-  color: var(--text-faint);
-  font-weight: 400;
-}
-
-.activity[data-phase="offline"] .activity-verb {
-  color: var(--danger);
-}
-
-.activity-elapsed {
-  flex: none;
-  color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
-}
-
-.activity-elapsed:empty,
-.activity-detail:empty {
-  display: none;
-}
-
-.activity-detail {
-  overflow: hidden;
-  color: var(--text-faint);
-  text-overflow: ellipsis;
-}
-
-.activity-detail:not(:empty)::before {
-  content: "·";
-  margin-right: 4px;
-}
-
-.activity-hint {
-  flex: none;
-  margin-left: auto;
-  color: var(--text-faint);
-  opacity: 0.75;
-}
-
-.activity-stop {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--text-dim);
-  font: inherit;
-  cursor: pointer;
-}
-
-.activity-stop:hover {
-  border-color: var(--border-strong);
-  color: var(--text);
-}
-
-.activity-stop .icon {
-  width: 10px;
-  height: 10px;
-}
-
-@keyframes activity-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes activity-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-}
-
-@media (max-width: 480px) {
-  .activity-hint {
-    display: none;
-  }
-
-  .activity-detail {
-    max-width: 90px;
-  }
 }
 
 /* ---------- session row menu ---------- */
@@ -2761,9 +2708,10 @@ body.is-empty .suggestions {
     opacity: 1;
   }
 
-  .activity-stop {
-    min-height: 40px;
-    padding: 0 14px;
+  .mic {
+    width: 40px;
+    height: 40px;
+    flex-basis: 40px;
   }
 
   .send {
@@ -2791,16 +2739,6 @@ body.is-empty .suggestions {
     scroll-behavior: auto !important;
   }
 
-  .activity-glyph {
-    animation: none !important;
-  }
-
-  .activity[data-phase="formulating"] .activity-glyph,
-  .activity[data-phase="thinking"] .activity-glyph,
-  .activity[data-phase="working"] .activity-glyph {
-    border-right-color: currentColor;
-  }
-
   .msg-body.streaming::after {
     animation: none;
     opacity: 1;
@@ -2810,7 +2748,17 @@ body.is-empty .suggestions {
     animation: none;
   }
 
+  .thinking[data-state="live"] .thinking-body::before {
+    animation: none;
+    opacity: 1;
+  }
+
   .send.running::after {
+    animation: none;
+    opacity: 0.55;
+  }
+
+  .mic.listening::after {
     animation: none;
     opacity: 0.55;
   }

@@ -67,6 +67,18 @@
       <symbol id="i-stop" viewBox="0 0 24 24">
         <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
       </symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24">
+        <rect x="9" y="3" width="6" height="11" rx="3" />
+        <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
+        <path d="M12 17.5V21" />
+        <path d="M8.5 21h7" />
+      </symbol>
+      <symbol id="i-thought" viewBox="0 0 24 24">
+        <circle cx="5" cy="13" r="1.6" fill="currentColor" stroke="none" />
+        <circle cx="12" cy="6" r="1.6" fill="currentColor" stroke="none" />
+        <circle cx="19" cy="13" r="1.6" fill="currentColor" stroke="none" />
+        <path d="M6.3 11.8 10.7 7.4M13.3 7.4l4.4 4.4" />
+      </symbol>
       <symbol id="i-copy" viewBox="0 0 24 24">
         <rect x="8" y="8" width="12" height="12" rx="2" />
         <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
@@ -293,37 +305,6 @@
               tabindex="-1"
             />
 
-            <div class="activity" id="activity" data-phase="idle">
-              <span class="activity-glyph" aria-hidden="true"></span>
-              <span class="activity-verb" id="activity-verb">Ready</span>
-              <span
-                class="activity-elapsed"
-                id="activity-elapsed"
-                aria-hidden="true"
-              ></span>
-              <span class="activity-detail" id="activity-detail"></span>
-              <span class="activity-hint" id="activity-hint">esc to stop</span>
-              <button
-                class="activity-stop"
-                id="activity-stop"
-                type="button"
-                title="Stop the agent (Esc)"
-                aria-label="Stop the agent"
-                hidden
-              >
-                <svg class="icon" aria-hidden="true">
-                  <use href="#i-stop"></use>
-                </svg>
-                Stop
-              </button>
-              <span
-                class="sr-only"
-                id="activity-live"
-                role="status"
-                aria-live="polite"
-              ></span>
-            </div>
-
             <form class="composer" id="composer">
               <textarea
                 id="input"
@@ -377,17 +358,32 @@
                     </button>
                   </div>
                 </div>
-                <button
-                  class="send"
-                  id="send"
-                  type="submit"
-                  aria-label="Send message"
-                  disabled
-                >
-                  <svg class="icon" aria-hidden="true">
-                    <use href="#i-arrow-up"></use>
-                  </svg>
-                </button>
+                <div class="composer-right">
+                  <button
+                    class="mic"
+                    id="mic-button"
+                    type="button"
+                    aria-label="Start voice input"
+                    aria-pressed="false"
+                    title="Voice input"
+                    disabled
+                  >
+                    <svg class="icon" aria-hidden="true">
+                      <use href="#i-mic"></use>
+                    </svg>
+                  </button>
+                  <button
+                    class="send"
+                    id="send"
+                    type="submit"
+                    aria-label="Send message"
+                    disabled
+                  >
+                    <svg class="icon" aria-hidden="true">
+                      <use href="#i-arrow-up"></use>
+                    </svg>
+                  </button>
+                </div>
               </div>
             </form>
 
