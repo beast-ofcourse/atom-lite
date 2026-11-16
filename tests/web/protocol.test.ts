@@ -91,6 +91,7 @@ async function start(
     refreshModels?: () => Promise<any[]>;
     skills?: () => any[];
     mcpStatus?: () => any[];
+    allowedHost?: string;
   } = {},
 ) {
   return startWebServer({
@@ -115,6 +116,7 @@ async function start(
     maxClients: extras.maxClients,
     maxMessageBytes: extras.maxMessageBytes,
     maxReplayBytes: extras.maxReplayBytes,
+    allowedHost: extras.allowedHost,
     port: 0,
     openBrowser: false,
   });
@@ -201,10 +203,11 @@ class Client {
 function rawStatus(
   port: number,
   headers: Record<string, string>,
+  path = "/",
 ): Promise<number> {
   return new Promise((resolve, reject) => {
     const req = httpRequest(
-      { host: "127.0.0.1", port, path: "/", headers },
+      { host: "127.0.0.1", port, path, headers },
       (res) => {
         res.resume();
         res.on("end", () => resolve(res.statusCode ?? 0));
@@ -653,6 +656,49 @@ test("requests with a foreign origin or host are rejected", async () => {
     // DNS-rebinding shape.
     const status = await rawStatus(server.port, { Host: "evil.example" });
     assert.equal(status, 403);
+  } finally {
+    await server.close();
+  }
+});
+
+// Reason: share mode publishes one HTTPS hostname. That host and its Origin
+// are accepted; every other host stays forbidden, and the token still gates
+// access.
+test("a published share host is accepted alongside localhost", async () => {
+  const built = buildRuntime([{ text: "hi" }]);
+  const server = await start(built, { allowedHost: "phone.example.test" });
+  const path = `/?token=${encodeURIComponent(server.token)}`;
+  try {
+    assert.equal(
+      await rawStatus(server.port, { Host: "phone.example.test" }, path),
+      200,
+    );
+    assert.equal(
+      await rawStatus(
+        server.port,
+        { Host: "phone.example.test", Origin: "https://phone.example.test" },
+        path,
+      ),
+      200,
+    );
+    assert.equal(
+      await rawStatus(server.port, { Host: "evil.example" }, path),
+      403,
+    );
+    assert.equal(
+      await rawStatus(server.port, { Host: "phone.example.test" }),
+      401,
+    );
+
+    server.setAllowedHost("other.example.test");
+    assert.equal(
+      await rawStatus(server.port, { Host: "phone.example.test" }, path),
+      403,
+    );
+    assert.equal(
+      await rawStatus(server.port, { Host: "other.example.test" }, path),
+      200,
+    );
   } finally {
     await server.close();
   }

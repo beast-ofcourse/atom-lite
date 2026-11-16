@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `web`: `atom-lite --serve --share` keeps the server on loopback, opens an outbound HTTPS tunnel through cloudflared, and prints a tokenized URL plus a terminal QR code for phone access. `--tunnel-command COMMAND` substitutes another provider with a `{port}` placeholder, and `--no-qr` prints only the URL. The published host is the only extra hostname accepted by the web server's Host and Origin checks; the per-run token remains mandatory. Tunnel and server shut down together.
+- `docs`: ADR 0021 records the explicit opt-in cross-machine path and keeps default serve mode localhost-only.
+
 ## v0.16.0 — 2026-11-16
 
 ### Added

@@ -97,8 +97,9 @@ than a lock-in.
   into the steering queue, reconnect with active-turn replay, a live provider
   model overlay, effort and plan/yolo switching in the composer, native file
   attachments, skills and MCP overlays, a workspace explorer, slash commands and
-  a command palette, and System/Light/Dark theming. Deferred: ANSI rendering,
-  shell mode, extension widgets, and cross-machine access.
+  a command palette, and System/Light/Dark theming. Explicit opt-in share mode
+  publishes that surface through an outbound HTTPS tunnel for phone access.
+  Deferred: ANSI rendering, shell mode, and extension widgets.
 - **Constraints:** TypeScript strict on NodeNext ESM; the small-core principle
   (new built-in tools need strong justification against ADR 0001); local-first
   with no telemetry or hosted database (ADR 0004); the web server binds

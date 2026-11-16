@@ -113,6 +113,9 @@ atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
 | `--theme NAME` | Use `auto`, `dark`, `light`, or `ansi` for this run |
 | `--no-color` | Force the no-colour theme |
 | `--serve [PORT]` | Serve the browser UI on localhost (default port 7317; next free port if taken) |
+| `--share` | With `--serve`, publish the UI through an outbound HTTPS tunnel and print a QR code |
+| `--tunnel-command COMMAND` | Tunnel command template; `{port}` is replaced with the local port |
+| `--no-qr` | With `--share`, print the URL without a terminal QR code |
 | `--version` | Print version |
 | `--help` | Show help |
 
@@ -177,8 +180,21 @@ agent.
   `/skills`, and `/mcp`.
 - **Theme.** The configured `ui.theme` seeds the web theme; the sidebar footer
   can then switch between System, Light, and Dark and remembers the choice.
-- **Not yet.** ANSI rendering, shell mode, extension widgets, and cross-machine
-  access. The terminal remains the primary surface.
+- **Not yet.** ANSI rendering, shell mode, and extension widgets. The terminal
+  remains the primary surface.
+
+### Phone access
+
+Install [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/),
+then run `atom-lite --serve --share`. The command keeps the server on
+`127.0.0.1`, opens an outbound HTTPS tunnel, and prints a local URL for
+diagnostics plus a shared URL with a QR code. Scan the code with the phone.
+The shared URL contains the run token; treat it as a secret.
+
+Use `--tunnel-command 'COMMAND {port}'` to substitute another tunnel provider,
+and `--no-qr` when the terminal cannot render the code. The tunnel and server
+close together on Ctrl-C. Default `--serve` stays localhost-only. See
+[ADR 0021](./docs/adr/0021-web-share-mode.md).
 
 The visual system is documented in [`web/DESIGN.md`](./web/DESIGN.md).
 

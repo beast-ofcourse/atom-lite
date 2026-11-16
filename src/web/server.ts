@@ -91,6 +91,8 @@ export interface WebServerOptions {
   port?: number;
   /** Open the default browser once the server is listening. */
   openBrowser?: boolean;
+  /** Extra hostname accepted in Host and Origin checks, for share mode. */
+  allowedHost?: string;
 }
 
 export interface WebServerHandle {
@@ -100,6 +102,8 @@ export interface WebServerHandle {
   wsUrl: string;
   port: number;
   token: string;
+  /** Replace the extra hostname accepted by Host and Origin checks. */
+  setAllowedHost(host?: string): void;
   close(): Promise<void>;
 }
 
@@ -166,26 +170,44 @@ function requestToken(req: IncomingMessage, url: URL): string | undefined {
   return readCookie(req, COOKIE_NAME);
 }
 
+function normalizeHost(hostname: string): string {
+  return hostname.trim().toLowerCase().replace(/:\d+$/, "");
+}
+
 /**
- * Only requests that come from this machine may drive the agent. A page on
- * another origin must not be able to reach the server (localhost CSRF), and a
- * rebound DNS name must not slip past the Host check.
+ * Only requests from the local machine or the one explicitly published tunnel
+ * may drive the agent. A foreign page must not be able to reach the server
+ * (localhost CSRF), and a rebound DNS name must not slip past the Host check.
  */
-function isLocalRequest(req: IncomingMessage): boolean {
-  const hostHeader = req.headers.host ?? "";
-  const hostname = hostHeader.replace(/:\d+$/, "");
-  if (hostname !== "127.0.0.1" && hostname !== "localhost") return false;
-  const origin = req.headers.origin;
-  if (origin) {
-    let originHost = "";
-    try {
-      originHost = new URL(origin).hostname;
-    } catch {
+function createHostCheck(allowedHost?: string) {
+  const extra = allowedHost ? normalizeHost(allowedHost) : "";
+  return (req: IncomingMessage): boolean => {
+    const hostname = normalizeHost(req.headers.host ?? "");
+    if (
+      hostname !== "127.0.0.1" &&
+      hostname !== "localhost" &&
+      hostname !== extra
+    ) {
       return false;
     }
-    if (originHost !== "127.0.0.1" && originHost !== "localhost") return false;
-  }
-  return true;
+    const origin = req.headers.origin;
+    if (origin) {
+      let originHost = "";
+      try {
+        originHost = normalizeHost(new URL(origin).hostname);
+      } catch {
+        return false;
+      }
+      if (
+        originHost !== "127.0.0.1" &&
+        originHost !== "localhost" &&
+        originHost !== extra
+      ) {
+        return false;
+      }
+    }
+    return true;
+  };
 }
 
 interface PendingApproval {
@@ -199,6 +221,10 @@ export async function startWebServer(
 ): Promise<WebServerHandle> {
   const token = randomBytes(24).toString("base64url");
   const host = "127.0.0.1";
+  let isAllowedRequest = createHostCheck(options.allowedHost);
+  const setAllowedHost = (next?: string): void => {
+    isAllowedRequest = createHostCheck(next);
+  };
   const clientDir = defaultClientDir();
   const theme = options.theme === "light" ? "light" : "dark";
   const maxClients = Math.max(1, options.maxClients ?? 32);
@@ -757,7 +783,7 @@ export async function startWebServer(
   const httpServer = createServer((req, res) => {
     void (async () => {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? host}`);
-      if (!isLocalRequest(req)) {
+      if (!isAllowedRequest(req)) {
         res.writeHead(403, { "content-type": "text/plain" });
         res.end("forbidden\n");
         return;
@@ -856,7 +882,7 @@ export async function startWebServer(
       return;
     }
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? host}`);
-    if (!isLocalRequest(req) || requestToken(req, url) !== token) {
+    if (!isAllowedRequest(req) || requestToken(req, url) !== token) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
       return;
@@ -1127,6 +1153,7 @@ export async function startWebServer(
     wsUrl,
     port,
     token,
+    setAllowedHost,
     close: () => {
       if (closePromise) return closePromise;
       closePromise = (async () => {

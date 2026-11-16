@@ -34,6 +34,7 @@ with the code and is readable offline.
 - [0018 — Defer checkpoint removal](./adr/0018-defer-checkpoint-removal.md)
 - [0019 — Web surface](./adr/0019-web-surface.md)
 - [0020 — One live owner per session](./adr/0020-session-ownership.md)
+- [0021 — Web share mode](./adr/0021-web-share-mode.md)
 
 ## Contributing
 
