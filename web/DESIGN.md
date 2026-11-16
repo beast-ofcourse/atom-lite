@@ -254,11 +254,12 @@ drawn chevron that rotates on open. Expanded content is 14px/1.65 secondary
 copy on the canvas, indented by a quiet hairline rule. It is subordinate to the
 answer and never looks like a response bubble. Live thinking stays open and
 adds a small amber dot to `Thinking`; the activity row owns all motion while it
-runs. On completion the label becomes `Thought for Ns` and the disclosure
-collapses. Restored thoughts come from the durable `message.thinking` field in
-session history and use the quieter `Thought` label; no client-side cache is
-involved. Expanding an already-visible block uses a 180ms opacity/translation
-settle, with reduced motion keeping only the state change.
+runs. On completion the label becomes `Thought for Ns` and the disclosure stays
+expanded, so the reasoning remains readable. Restored thoughts come from the
+durable `message.thinking` field in session history and use the quieter
+`Thought` label; no client-side cache is involved. Expanding a collapsed block
+uses a 180ms opacity/translation settle, with reduced motion keeping only the
+state change.
 
 ### Tool cards
 
@@ -275,7 +276,8 @@ subtle add/remove background tints from `--diff-*`. Adjacent remove/add runs are
 paired so changed words carry a slightly stronger tint. Signs and labels carry
 the meaning without colour. The full diff stays in the card's data for Copy;
 rendering is capped at 400 lines/60k chars with an explicit more-lines marker.
-Headers toggle the body and expose `aria-expanded`.
+Tool cards start collapsed to keep long transcripts scannable; the header
+stays visible with its status and toggles the body, exposing `aria-expanded`.
 
 ### Approval
 
@@ -293,7 +295,11 @@ light composer shadow (dark: inset hairline only). Textarea is 16px with 16px
 padding; Enter sends, Shift+Enter breaks; it grows to 200px. The bottom row
 carries the native file-picker plus button, effort and plan/yolo chips on the
 left, and a 36px circular send button on the right, filled `--send-bg` with an
-up-arrow in `--send-fg`.
+up-arrow in `--send-fg`. While a turn runs, the send button becomes the stop
+control: the glyph changes to a square and a quiet 1.8s ring pulse marks the
+active state. Clicking it stops the turn, as does Escape and the inline Stop
+button; Enter in the textarea still queues a steering message. Reduced motion
+keeps a static ring instead of the pulse.
 Disabled send uses `--send-disabled` and keeps its shape. Queued steering
 messages appear above the composer as small `Queued` rows. The disclaimer below
 is 12px `--text-faint`: "Atom-lite can make mistakes. Check important info."
@@ -371,10 +377,12 @@ user bubble. Removing a chip deletes the stored file.
 
 `/skills` requests `list_skills` and opens a centered overlay listing every
 skill from the runtime registry with its description and `project`/`global`
-scope. `/mcp` requests `list_mcp` and lists each server with a state dot, state
-label, tool count, tool names, and the last error when failed. Both are
-read-only overlays; they are available to viewer tabs and always reflect the
-live manager rather than a cached browser list.
+scope. Each skill row is a button: selecting it closes the overlay, inserts
+`/<name> ` at the composer caret, and focuses the input so the slash
+autocomplete can take over. `/mcp` requests `list_mcp` and lists each server
+with a state dot, state label, tool count, tool names, and the last error when
+failed. MCP is read-only; both overlays are available to viewer tabs and always
+reflect the live manager rather than a cached browser list.
 
 ### Slash commands and command palette
 

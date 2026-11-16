@@ -1714,6 +1714,7 @@ body.is-empty .suggestions {
 }
 
 .send {
+  position: relative;
   width: 36px;
   height: 36px;
   flex: 0 0 36px;
@@ -1734,6 +1735,36 @@ body.is-empty .suggestions {
   width: 20px;
   height: 20px;
   stroke-width: 2.2;
+  transition: transform 140ms var(--ease);
+}
+
+.send.running .icon {
+  transform: scale(0.78);
+}
+
+.send.running::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border: 1px solid var(--warn);
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  animation: send-pulse 1.8s ease-out infinite;
+}
+
+@keyframes send-pulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  25% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.2);
+  }
 }
 
 .send:hover:not(:disabled) {
@@ -2777,5 +2808,10 @@ body.is-empty .suggestions {
 
   .thinking details[open] .thinking-body {
     animation: none;
+  }
+
+  .send.running::after {
+    animation: none;
+    opacity: 0.55;
   }
 }

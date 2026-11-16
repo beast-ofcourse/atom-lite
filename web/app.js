@@ -26,6 +26,7 @@ const newSessionEl = document.getElementById("new-session");
 const composerEl = document.getElementById("composer");
 const inputEl = document.getElementById("input");
 const sendEl = document.getElementById("send");
+const sendIcon = sendEl.querySelector("use");
 const queuedEl = document.getElementById("queued");
 const suggestionsEl = document.getElementById("suggestions");
 const sidebarToggle = document.getElementById("sidebar-toggle");
@@ -638,8 +639,8 @@ function setHome(visible) {
 function syncSendState() {
   sendEl.disabled =
     readOnly ||
-    inputEl.value.trim().length === 0 ||
-    attachments.some((item) => item.pending);
+    attachments.some((item) => item.pending) ||
+    (!turnActive && inputEl.value.trim().length === 0);
 }
 
 function resizeInput() {
@@ -741,6 +742,15 @@ function renderActivity() {
   const canStop = !readOnly && (active || phase === "waiting");
   activityHint.hidden = !canStop;
   activityStop.hidden = !canStop;
+  const running = turnActive && !readOnly;
+  sendEl.classList.toggle("running", running);
+  sendIcon?.setAttribute("href", running ? "#i-stop" : "#i-arrow-up");
+  sendEl.setAttribute(
+    "aria-label",
+    running ? "Stop the agent" : "Send message",
+  );
+  sendEl.title = running ? "Stop the agent (Esc)" : "Send message";
+  syncSendState();
   if (phase !== announcedActivity) {
     announcedActivity = phase;
     activityLive.textContent = ACTIVITY_ANNOUNCE[phase] ?? "";
@@ -920,7 +930,7 @@ function cancelAssistantStream() {
 /** One builder for live, restored, and replayed thinking blocks. */
 function createThinkingBlock(
   text,
-  { open = false, live = false, elapsed = 0 } = {},
+  { open = true, live = false, elapsed = 0 } = {},
 ) {
   const wrap = document.createElement("div");
   wrap.className = "thinking";
@@ -949,7 +959,7 @@ function showThinking(text) {
   if (!thinkingNode) {
     const token = viewToken;
     const startedAt = Date.now();
-    const { wrap, details, body, label } = createThinkingBlock("", {
+    const { wrap, body, label } = createThinkingBlock("", {
       open: true,
       live: true,
     });
@@ -972,7 +982,6 @@ function showThinking(text) {
               ? `Thought for ${formatElapsed(elapsed)}`
               : "Thought";
           wrap.dataset.state = "done";
-          details.open = false;
           scrollToEnd();
         },
       }),
@@ -1011,7 +1020,7 @@ function toolPath(args) {
 function toolCard(toolCallId, name, args, status = "running") {
   setHome(false);
   const card = document.createElement("div");
-  card.className = "tool";
+  card.className = "tool tool-collapsed";
   card.dataset.toolCallId = toolCallId;
   card.dataset.outputText = "";
   card.dataset.outputExtra = "";
@@ -1020,7 +1029,7 @@ function toolCard(toolCallId, name, args, status = "running") {
   const head = document.createElement("button");
   head.className = "tool-head";
   head.type = "button";
-  head.setAttribute("aria-expanded", "true");
+  head.setAttribute("aria-expanded", "false");
   head.append(icon(name === "bash" ? "terminal" : "tool"));
 
   const toolName = document.createElement("span");
@@ -2098,8 +2107,9 @@ function renderSkills(skills) {
     skillsList.append(overlayEmpty("No skills discovered in this workspace."));
   } else {
     for (const skill of skills) {
-      const item = document.createElement("div");
+      const item = document.createElement("button");
       item.className = "overlay-item";
+      item.type = "button";
       const main = document.createElement("div");
       main.className = "overlay-item-main";
       const title = document.createElement("div");
@@ -2113,6 +2123,15 @@ function renderSkills(skills) {
       meta.className = "overlay-item-meta";
       meta.textContent = skill.scope ?? "";
       item.append(main, meta);
+      item.addEventListener("click", () => {
+        const insert = `/${skill.name} `;
+        const start = inputEl.selectionStart ?? inputEl.value.length;
+        const end = inputEl.selectionEnd ?? start;
+        inputEl.setRangeText(insert, start, end, "end");
+        inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+        closeModal(skillsModal);
+        inputEl.focus();
+      });
       skillsList.append(item);
     }
   }
@@ -2895,6 +2914,13 @@ attachButton.addEventListener("click", () => {
 });
 
 activityStop.addEventListener("click", () => {
+  stopAgent();
+});
+
+sendEl.addEventListener("click", (event) => {
+  if (!turnActive || readOnly) return;
+  event.preventDefault();
+  event.stopPropagation();
   stopAgent();
 });
 

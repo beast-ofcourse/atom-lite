@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`: assistant and thinking deltas are presented through a bounded pacing queue, so a burst provider reveals text in readable steps. A live stream uses plain text with a quiet caret and gets one final markdown render; history renders only the latest 80 events behind a `Load earlier messages` control that preserves scroll position.
 - `web`: `write` and `edit` results render as inline unified diffs with a path/stats header, hunk separators, sign column, subtle add/remove tints, and word-level highlights. The full diff remains available through Copy.
 - `web`: thinking disclosures are restored from durable `message.thinking` in session history instead of a volatile client cache, with explicit live/done labels and a short expand transition. Mobile adds safe-area padding, larger coarse-pointer targets, and internally scrolling code and diff blocks.
+- `web`: tool cards start collapsed, thinking blocks stay expanded, the composer send button becomes the stop control while a turn runs with a quiet ring pulse, and selecting a skill in `/skills` inserts `/<name> ` at the composer caret.
 
 ### Fixed
 

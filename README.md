@@ -155,7 +155,8 @@ agent.
 - **Input.** Messages typed while a turn runs join the steering queue and are
   delivered in order before the turn ends. The activity line above the composer
   shows the current phase, rotating verb, elapsed time, and tool; Escape, the
-  inline Stop button, or `/stop` cancels the turn. Assistant and thinking text
+  composer send button (which becomes Stop), the inline Stop button, or `/stop`
+  cancels the turn. Assistant and thinking text
   are presented at a readable pace even when a provider emits one large burst.
 - **Rendering.** Assistant text is markdown with syntax-highlighted fenced
   code, local workspace images with a lightbox, and Mermaid diagrams rendered as
