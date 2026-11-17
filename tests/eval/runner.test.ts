@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeProvider } from "../../dist/providers/fake.js";
@@ -166,4 +166,91 @@ test("compareBaseline computes deltas", async () => {
   const cmp = compareBaseline(cur, base);
   assert.equal(cmp.newlyPassing.includes("a"), true);
   assert.equal(cmp.deltaPassRate, 1);
+});
+
+// Build a self-contained task directory. A manifest is only written when the
+// caller supplies a suite, so unmanifested tasks exercise the legacy path.
+function makeTask(
+  tasksDir: string,
+  name: string,
+  options: { suite?: string } = {},
+): void {
+  const dir = join(tasksDir, name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "prompt.txt"), "do the thing\n");
+  writeFileSync(join(dir, "check.cjs"), "process.exit(0);\n");
+  if (options.suite) {
+    writeFileSync(
+      join(dir, "manifest.json"),
+      JSON.stringify({ suite: options.suite }),
+    );
+  }
+}
+
+function smokeProvider(): FakeProvider {
+  return new FakeProvider([{ text: "done" }, { text: "done" }]);
+}
+
+test("runEval runs only capability tasks when the capability suite is selected", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  try {
+    makeTask(tasksDir, "legacy-task");
+    makeTask(tasksDir, "cap-task", { suite: "capability" });
+    const report = await runEval({
+      provider: smokeProvider(),
+      tasksDir,
+      suite: "capability",
+    });
+    assert.deepEqual(
+      report.tasks.map((t) => t.name),
+      ["cap-task"],
+    );
+    assert.equal(report.tasks[0].suite, "capability");
+    assert.equal(report.suite, "capability");
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+  }
+});
+
+test("runEval includes manifest-declared and manifest-less regression tasks", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  try {
+    makeTask(tasksDir, "legacy-task");
+    makeTask(tasksDir, "declared-regression", { suite: "regression" });
+    makeTask(tasksDir, "cap-task", { suite: "capability" });
+    const report = await runEval({
+      provider: smokeProvider(),
+      tasksDir,
+      suite: "regression",
+    });
+    assert.deepEqual(
+      report.tasks.map((t) => t.name),
+      ["declared-regression", "legacy-task"],
+    );
+    assert.equal(report.tasks.every((t) => t.suite === "regression"), true);
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+  }
+});
+
+test("runEval runs all tasks with no suite selector and names the report all", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  try {
+    makeTask(tasksDir, "legacy-task");
+    makeTask(tasksDir, "cap-task", { suite: "capability" });
+    const report = await runEval({
+      provider: smokeProvider(),
+      tasksDir,
+    });
+    assert.deepEqual(
+      report.tasks.map((t) => t.name),
+      ["cap-task", "legacy-task"],
+    );
+    const byName = new Map(report.tasks.map((t) => [t.name, t.suite]));
+    assert.equal(byName.get("legacy-task"), "regression");
+    assert.equal(byName.get("cap-task"), "capability");
+    assert.equal(report.suite, "all");
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+  }
 });
