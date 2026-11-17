@@ -2,7 +2,7 @@
 import { parseArgs } from "node:util";
 import { loadConfig } from "../dist/config/load.js";
 import { createProvider } from "../dist/providers/factory.js";
-import { runEval } from "../dist/eval/runner.js";
+import { runEval, reviewEval } from "../dist/eval/runner.js";
 import { join } from "node:path";
 
 const { values } = parseArgs({
@@ -15,9 +15,25 @@ const { values } = parseArgs({
     suite: { type: "string" },
     trials: { type: "string" },
     baseline: { type: "boolean", default: false },
+    review: { type: "string" },
   },
   strict: false,
 });
+
+// Review mode: select failed trials from a stored run (default: latest) and
+// print their transcript and grader detail without re-running any tasks.
+if (values.review !== undefined) {
+  const runId = typeof values.review === "string" ? values.review : undefined;
+  const review = await reviewEval({
+    outDir: values.out,
+    runId,
+    printer: (line) => console.log(line),
+  });
+  console.log(
+    `reviewed ${review.failed.length} failed trial(s) from ${review.runId}`,
+  );
+  process.exit(0);
+}
 
 const config = loadConfig();
 const provider = createProvider(config, values.provider, values.model);
