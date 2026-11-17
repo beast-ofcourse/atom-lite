@@ -10,24 +10,24 @@ atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
 
 ## Flags
 
-| Flag                      | Behavior                                                  |
-| ------------------------- | --------------------------------------------------------- |
-| `task`                    | One-shot task; the agent runs it and exits.               |
-| `--provider NAME`         | Select a provider profile.                                |
-| `--model MODEL`           | Override the model for this run.                          |
-| `--continue`              | Resume the most recent session in this workspace.         |
-| `--session ID`            | Resume a specific session.                                |
-| `--list-sessions`         | Print the session index and exit.                         |
-| `--search-sessions QUERY` | Print matching sessions with snippets and exit.           |
-| `--no-tools`              | Disable all tools; model-only chat.                       |
-| `--json`                  | Non-interactive JSON output.                              |
-| `--theme NAME`            | `auto`, `dark`, `light`, or `ansi` for this run.          |
-| `--no-color`              | Force the no-colour theme.                                |
-| `--serve [PORT]`          | Serve the browser UI on localhost.                        |
-| `--share`                 | With `--serve`, publish through an outbound HTTPS tunnel. |
-| `--no-qr`                 | With `--share`, print the URL without a QR code.          |
-| `--version`               | Print the version.                                        |
-| `--help`                  | Print usage.                                              |
+| Flag                      | Behavior                                                    |
+| ------------------------- | ----------------------------------------------------------- |
+| `task`                    | One-shot task; the agent runs it and exits.                 |
+| `--provider NAME`         | Select a provider profile.                                  |
+| `--model MODEL`           | Override the model for this run.                            |
+| `--continue`              | Resume the most recent session in this workspace.           |
+| `--session ID`            | Resume a specific session.                                  |
+| `--list-sessions`         | Print the session index and exit.                           |
+| `--search-sessions QUERY` | Print matching sessions with snippets and exit.             |
+| `--no-tools`              | Disable all tools; model-only chat.                         |
+| `--json`                  | Non-interactive JSON output.                                |
+| `--theme NAME`            | `auto`, `dark`, `light`, or `ansi` for this run.            |
+| `--no-color`              | Force the no-colour theme.                                  |
+| `--serve [PORT]`          | Serve the browser UI on localhost.                          |
+| `--share`                 | With `--serve`, bind the UI on the LAN and print a QR code. |
+| `--no-qr`                 | With `--share`, print the URL without a QR code.            |
+| `--version`               | Print the version.                                          |
+| `--help`                  | Print usage.                                                |
 
 ## Terminal interface
 

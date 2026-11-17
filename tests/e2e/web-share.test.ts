@@ -1,10 +1,9 @@
-// E2E: share mode keeps the runtime on loopback but publishes the web UI
-// through an outbound tunnel. The tunnel command is faked so CI never needs a
-// third-party service.
+// E2E: share mode binds the web UI to the LAN and prints a QR-ready URL.
+// No tunnel process or third-party service is involved.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
@@ -17,8 +16,6 @@ interface Fixture {
   home: string;
   configHome: string;
   agentDir: string;
-  marker: string;
-  tunnelScript: string;
 }
 
 function fixture(): Fixture {
@@ -32,32 +29,10 @@ function fixture(): Fixture {
     mkdirSync(dir, { recursive: true });
   }
   writeFileSync(join(configDir, "config.json"), "{}");
-  const marker = join(root, "marker.txt");
-  const tunnelScript = join(root, "fake-tunnel.mjs");
-  writeFileSync(
-    tunnelScript,
-    [
-      'import { writeFileSync } from "node:fs";',
-      "const [marker, port] = process.argv.slice(2);",
-      'writeFileSync(marker, "started");',
-      "console.error(`https://phone-${port}.trycloudflare.com`);",
-      'process.on("SIGTERM", () => { writeFileSync(marker, "stopped"); process.exit(0); });',
-      "setInterval(() => {}, 1000);",
-      "",
-    ].join("\n"),
-  );
-  return {
-    root,
-    project,
-    home,
-    configHome,
-    agentDir,
-    marker,
-    tunnelScript,
-  };
+  return { root, project, home, configHome, agentDir };
 }
 
-function launch(env: Fixture, tunnelCommand: string): ChildProcess {
+function launch(env: Fixture): ChildProcess {
   return spawn(
     process.execPath,
     [
@@ -65,8 +40,6 @@ function launch(env: Fixture, tunnelCommand: string): ChildProcess {
       "--serve",
       "0",
       "--share",
-      "--tunnel-command",
-      tunnelCommand,
       "--no-qr",
     ],
     {
@@ -131,31 +104,35 @@ function rawStatus(
   });
 }
 
-test("share mode accepts only the published tunnel host", async () => {
+test("share mode binds the LAN and accepts the printed host", async () => {
   const env = fixture();
-  const command = `${process.execPath} ${env.tunnelScript} ${env.marker} {port}`;
-  const child = launch(env, command);
+  const child = launch(env);
   try {
     const ready = await waitForOutput(
       child,
-      /local web UI at (http:\/\/\S+)[\s\S]*?shared UI at (https:\/\/\S+)/,
+      /local web UI at (http:\/\/\S+)[\s\S]*?shared UI at (http:\/\/\S+)/,
     );
+    const localPort = Number(new URL(ready[1]).port);
     const shareUrl = new URL(ready[2]);
     const token = shareUrl.searchParams.get("token");
-    assert.ok(token, "published URL includes the run token");
+    assert.ok(token, "shared URL includes the run token");
     const allowedHost = shareUrl.hostname;
-    const localPort = Number(new URL(ready[1]).port);
+    assert.match(
+      allowedHost,
+      /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.)/,
+      "shared URL uses a private LAN address",
+    );
 
     const path = `/?token=${encodeURIComponent(token)}`;
     assert.equal(
       await rawStatus(localPort, path, { host: allowedHost }),
       200,
-      "the published host is accepted",
+      "the LAN host is accepted",
     );
     assert.equal(
       await rawStatus(localPort, path, { host: "evil.example.test" }),
       403,
-      "a foreign host is still forbidden",
+      "a foreign host is forbidden",
     );
     assert.equal(
       await rawStatus(localPort, "/", { host: allowedHost }),
@@ -171,27 +148,10 @@ test("share mode accepts only the published tunnel host", async () => {
     const hello = await once(ws, "message");
     assert.equal(JSON.parse(hello[0].toString()).type, "hello");
     ws.close();
-
-    assert.equal(readFileSync(env.marker, "utf8"), "started");
   } finally {
     if (child.exitCode === null) {
       child.kill("SIGTERM");
       await once(child, "exit");
     }
   }
-  assert.equal(readFileSync(env.marker, "utf8"), "stopped");
-});
-
-test("share mode reports a failing tunnel and leaves no server", async () => {
-  const env = fixture();
-  const command = `${process.execPath} -e "console.error('provider refused'); process.exit(2)"`;
-  const child = launch(env, command);
-  const output: string[] = [];
-  child.stdout?.on("data", (chunk: Buffer) => output.push(chunk.toString()));
-  child.stderr?.on("data", (chunk: Buffer) => output.push(chunk.toString()));
-  const [code] = await once(child, "exit");
-  const text = output.join("");
-  assert.equal(code, 1);
-  assert.match(text, /provider refused/);
-  assert.doesNotMatch(text, /shared UI at/);
 });

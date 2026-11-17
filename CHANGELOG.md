@@ -5,6 +5,17 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `cli`: `--serve --share` now binds the web server on the LAN and prints a direct LAN URL plus QR code. Phone access needs only the same Wi-Fi network and a scan.
+- `web`: share mode accepts the machine's LAN address in Host and Origin checks; the per-run token remains mandatory.
+
+### Removed
+
+- `cli`: the outbound tunnel provider, `--tunnel-command`, and the cloudflared setup step. `--no-qr` remains.
+
 ## v0.16.2 — 2026-11-16
 
 ### Added

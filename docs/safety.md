@@ -43,6 +43,6 @@ Interactive provider setup stores API keys in `~/.config/atom-lite/credentials.j
 
 ## Local-first
 
-Atom-lite needs no cloud account, telemetry, or remote control plane. The optional browser surface binds `127.0.0.1`; share mode opens an outbound tunnel and keeps the local bind unchanged. See [Web UI](./web.md).
+Atom-lite needs no cloud account, telemetry, or remote control plane. The optional browser surface binds `127.0.0.1`; explicit share mode binds on the LAN and prints a QR code. See [Web UI](./web.md).
 
 Reporting a vulnerability: follow [SECURITY.md](../SECURITY.md).

@@ -690,16 +690,6 @@ test("a published share host is accepted alongside localhost", async () => {
       await rawStatus(server.port, { Host: "phone.example.test" }),
       401,
     );
-
-    server.setAllowedHost("other.example.test");
-    assert.equal(
-      await rawStatus(server.port, { Host: "phone.example.test" }, path),
-      403,
-    );
-    assert.equal(
-      await rawStatus(server.port, { Host: "other.example.test" }, path),
-      200,
-    );
   } finally {
     await server.close();
   }

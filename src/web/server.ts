@@ -91,6 +91,8 @@ export interface WebServerOptions {
   port?: number;
   /** Open the default browser once the server is listening. */
   openBrowser?: boolean;
+  /** Interface to bind; defaults to loopback. Share mode uses 0.0.0.0. */
+  bindHost?: string;
   /** Extra hostname accepted in Host and Origin checks, for share mode. */
   allowedHost?: string;
 }
@@ -102,8 +104,6 @@ export interface WebServerHandle {
   wsUrl: string;
   port: number;
   token: string;
-  /** Replace the extra hostname accepted by Host and Origin checks. */
-  setAllowedHost(host?: string): void;
   close(): Promise<void>;
 }
 
@@ -175,9 +175,10 @@ function normalizeHost(hostname: string): string {
 }
 
 /**
- * Only requests from the local machine or the one explicitly published tunnel
- * may drive the agent. A foreign page must not be able to reach the server
- * (localhost CSRF), and a rebound DNS name must not slip past the Host check.
+ * Only requests from the local machine or the one explicitly shared LAN
+ * address may drive the agent. A foreign page must not be able to reach the
+ * server (localhost CSRF), and a rebound DNS name must not slip past the Host
+ * check.
  */
 function createHostCheck(allowedHost?: string) {
   const extra = allowedHost ? normalizeHost(allowedHost) : "";
@@ -220,11 +221,9 @@ export async function startWebServer(
   options: WebServerOptions,
 ): Promise<WebServerHandle> {
   const token = randomBytes(24).toString("base64url");
-  const host = "127.0.0.1";
-  let isAllowedRequest = createHostCheck(options.allowedHost);
-  const setAllowedHost = (next?: string): void => {
-    isAllowedRequest = createHostCheck(next);
-  };
+  const host = options.bindHost ?? "127.0.0.1";
+  const localHost = host === "0.0.0.0" ? "127.0.0.1" : host;
+  const isAllowedRequest = createHostCheck(options.allowedHost);
   const clientDir = defaultClientDir();
   const theme = options.theme === "light" ? "light" : "dark";
   const maxClients = Math.max(1, options.maxClients ?? 32);
@@ -1141,8 +1140,8 @@ export async function startWebServer(
   });
 
   const port = await listenWithFallback(httpServer, host, options.port ?? 0);
-  const url = `http://${host}:${port}/?token=${token}`;
-  const wsUrl = `ws://${host}:${port}/?token=${token}`;
+  const url = `http://${localHost}:${port}/?token=${token}`;
+  const wsUrl = `ws://${localHost}:${port}/?token=${token}`;
 
   if (options.openBrowser) {
     void openBrowser(url);
@@ -1153,7 +1152,6 @@ export async function startWebServer(
     wsUrl,
     port,
     token,
-    setAllowedHost,
     close: () => {
       if (closePromise) return closePromise;
       closePromise = (async () => {

@@ -150,7 +150,6 @@ export async function run(args: string[]): Promise<void> {
   let serveMode = false;
   let servePort: number | undefined;
   let shareMode = false;
-  let tunnelCommand: string | undefined;
   let showQr = true;
   const positional: string[] = [];
   const extensionPaths: string[] = [];
@@ -180,20 +179,11 @@ export async function run(args: string[]): Promise<void> {
     } else if (a === "--share") {
       shareMode = true;
       serveMode = true;
-    } else if (a === "--tunnel-command") {
-      tunnelCommand = args[++i];
-      if (!tunnelCommand) {
-        process.stderr.write("atom-lite: --tunnel-command needs a command\n");
-        process.exitCode = 1;
-        return;
-      }
-      shareMode = true;
-      serveMode = true;
     } else if (a === "--no-qr") {
       showQr = false;
     } else if (a === "--help") {
       process.stdout.write(
-        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json] [--theme NAME] [--no-color] [-e PATH] [--serve [PORT]] [--share] [--tunnel-command COMMAND] [--no-qr] [--version] [--help]\n",
+        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json] [--theme NAME] [--no-color] [-e PATH] [--serve [PORT]] [--share] [--no-qr] [--version] [--help]\n",
       );
       return;
     } else if (a.startsWith("--")) {
@@ -597,6 +587,14 @@ export async function run(args: string[]): Promise<void> {
       });
       return { provider: profile, model, models: webModels() };
     };
+    const lanAddress = shareMode
+      ? (await import("../web/lan.js")).findLanAddress()
+      : undefined;
+    if (shareMode && !lanAddress) {
+      process.stderr.write("atom-lite: no LAN IPv4 address found\n");
+      process.exitCode = 1;
+      return;
+    }
     const { startWebServer, webThemeFor } = await import("../web/server.js");
     const server = await startWebServer({
       runtime,
@@ -684,10 +682,10 @@ export async function run(args: string[]): Promise<void> {
       ),
       port: servePort ?? 7317,
       openBrowser: !shareMode,
+      bindHost: shareMode ? "0.0.0.0" : undefined,
+      allowedHost: lanAddress,
     });
 
-    let tunnelHandle: import("../web/tunnel.js").TunnelHandle | undefined;
-    const abortStartup = new AbortController();
     let closing = false;
     let resolveStop!: () => void;
     const stopped = new Promise<void>((resolve) => {
@@ -696,51 +694,13 @@ export async function run(args: string[]): Promise<void> {
     const shutdown = (): void => {
       if (closing) return;
       closing = true;
-      abortStartup.abort();
-      void (async () => {
-        try {
-          await tunnelHandle?.close();
-        } catch {
-          // Best effort: the server still needs to close.
-        }
-        await server.close();
-        resolveStop();
-      })();
+      void server.close().finally(() => resolveStop());
     };
     process.on("SIGINT", shutdown);
     process.on("SIGTERM", shutdown);
 
     if (shareMode) {
-      const { startTunnel, tunnelHostname } = await import("../web/tunnel.js");
-      try {
-        tunnelHandle = await startTunnel({
-          port: server.port,
-          command: tunnelCommand,
-          signal: abortStartup.signal,
-          onExit: shutdown,
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`atom-lite: ${message}\n`);
-        if (/ENOENT/.test(message)) {
-          process.stderr.write(
-            "atom-lite: install cloudflared or pass --tunnel-command COMMAND\n",
-          );
-        }
-        await server.close();
-        process.exitCode = 1;
-        return;
-      }
-      const allowedHost = tunnelHostname(tunnelHandle.url);
-      if (!allowedHost) {
-        process.stderr.write("atom-lite: tunnel did not publish a valid URL\n");
-        await tunnelHandle.close();
-        await server.close();
-        process.exitCode = 1;
-        return;
-      }
-      server.setAllowedHost(allowedHost);
-      const shareUrl = `${tunnelHandle.url}?token=${encodeURIComponent(server.token)}`;
+      const shareUrl = `http://${lanAddress}:${server.port}/?token=${encodeURIComponent(server.token)}`;
       process.stdout.write(`atom-lite: local web UI at ${server.url}\n`);
       process.stdout.write(`atom-lite: shared UI at ${shareUrl}\n`);
       if (showQr) {

@@ -97,7 +97,7 @@ than a lock-in.
   model overlay, effort and plan/yolo switching in the composer, native file
   attachments, skills and MCP overlays, a workspace explorer, slash commands and
   a command palette, and System/Light/Dark theming. Explicit opt-in share mode
-  publishes that surface through an outbound HTTPS tunnel for phone access.
+  binds that surface on the LAN and prints a QR code for phone access.
   Deferred: ANSI rendering, shell mode, and extension widgets.
 - **Constraints:** TypeScript strict on NodeNext ESM; the small-core principle
   (new built-in tools need strong justification against ADR 0001); local-first

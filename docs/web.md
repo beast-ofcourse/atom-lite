@@ -42,13 +42,17 @@ The configured `ui.theme` seeds the browser theme. `light`, `solarized`, and `an
 
 ## Phone access
 
-Install `cloudflared`, then run:
+Run:
 
 ```bash
 atom-lite --serve --share
 ```
 
-The server stays on `127.0.0.1`; an outbound HTTPS tunnel publishes it. The command prints a local diagnostics URL and a shared URL with a QR code. The shared URL contains the run token. Use `--tunnel-command 'COMMAND {port}'` for another provider and `--no-qr` when the terminal cannot draw the code. The tunnel and server close together on Ctrl-C.
+Share mode binds the web server on the LAN and prints a URL plus QR code using the machine's private IPv4 address. Scan the code with a phone on the same network. The URL contains the run token.
+
+Use `--no-qr` when the terminal cannot draw the code. Ctrl-C stops the server. Default `--serve` stays on `127.0.0.1`.
+
+Share mode uses plain HTTP on the local network and relies on the token for access. Do not use it on an untrusted network.
 
 ## Not in the browser yet
 
