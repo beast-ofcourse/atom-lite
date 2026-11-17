@@ -75,6 +75,44 @@ export interface EvalTaskResult {
   trialCount?: number;
 }
 
+/** A summary of the spread of one numeric measurement across trials. */
+export interface Distribution {
+  count: number;
+  min: number;
+  max: number;
+  mean: number;
+  median: number;
+  p90: number;
+  /** All observed values, sorted ascending. */
+  values: number[];
+}
+
+/** First-try and consistency metrics aggregated from trial outcomes. */
+export interface EvalMetrics {
+  /** Mean per-task pass rate: the chance a single trial passes. */
+  passAt1: number;
+  /** Mean per-task chance that all of a task's trials pass (consistency). */
+  passAtK: number;
+  /** Trial count k used for pass^k (the largest trial count in the run). */
+  k: number;
+  perTaskPassRates: Array<{
+    name: string;
+    suite: EvalSuite;
+    passed: number;
+    trials: number;
+    passRate: number;
+    passAt1: number;
+    passAtK: number;
+  }>;
+  distributions: {
+    inputTokens: Distribution;
+    outputTokens: Distribution;
+    totalTokens: Distribution;
+    turns: Distribution;
+    wallMs: Distribution;
+  };
+}
+
 export interface EvalReport {
   runId: string;
   suite: EvalSuite | "all";
@@ -83,6 +121,7 @@ export interface EvalReport {
   startedAt: string;
   finishedAt: string;
   tasks: EvalTaskResult[];
+  metrics: EvalMetrics;
   summary: {
     total: number;
     passed: number;
@@ -363,6 +402,87 @@ async function runGraders(
   return results;
 }
 
+function distribution(values: number[]): Distribution {
+  if (values.length === 0) {
+    return { count: 0, min: 0, max: 0, mean: 0, median: 0, p90: 0, values: [] };
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const count = sorted.length;
+  const sum = sorted.reduce((acc, v) => acc + v, 0);
+  const mid = Math.floor(count / 2);
+  const median =
+    count % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  const p90 = sorted[Math.max(0, Math.ceil(0.9 * count) - 1)];
+  return {
+    count,
+    min: sorted[0],
+    max: sorted[count - 1],
+    mean: sum / count,
+    median,
+    p90,
+    values: sorted,
+  };
+}
+
+/**
+ * Derive pass@1, pass^k, per-task pass rates, and cost/latency distributions
+ * from the flat list of trial outcomes in a report. Pure and deterministic so
+ * the metric math can be pinned with small outcome sets.
+ *
+ * pass@1 is the mean per-task pass rate (one trial). pass^k is the mean
+ * per-task probability that all of a task's k trials pass, estimated as
+ * (pass rate)^k. A single-trial run has k = 1 and the two metrics coincide.
+ */
+export function computeMetrics(tasks: EvalTaskResult[]): EvalMetrics {
+  const groups = new Map<string, EvalTaskResult[]>();
+  for (const t of tasks) {
+    const list = groups.get(t.name) ?? [];
+    list.push(t);
+    groups.set(t.name, list);
+  }
+
+  const perTaskPassRates: EvalMetrics["perTaskPassRates"] = [];
+  let passAt1Sum = 0;
+  let passAtKSum = 0;
+  let k = 1;
+  for (const [name, outcomes] of groups) {
+    const trials = outcomes.length;
+    const passed = outcomes.filter((t) => t.pass).length;
+    const passRate = passed / trials;
+    const taskK = Math.max(1, ...outcomes.map((t) => t.trialCount ?? 1));
+    const passAtK = Math.pow(passRate, taskK);
+    k = Math.max(k, taskK);
+    passAt1Sum += passRate;
+    passAtKSum += passAtK;
+    perTaskPassRates.push({
+      name,
+      suite: outcomes[0]?.suite ?? "regression",
+      passed,
+      trials,
+      passRate,
+      passAt1: passRate,
+      passAtK,
+    });
+  }
+
+  const nTasks = groups.size;
+  return {
+    passAt1: nTasks ? passAt1Sum / nTasks : 0,
+    passAtK: nTasks ? passAtKSum / nTasks : 0,
+    k,
+    perTaskPassRates,
+    distributions: {
+      inputTokens: distribution(tasks.map((t) => t.inputTokens)),
+      outputTokens: distribution(tasks.map((t) => t.outputTokens)),
+      totalTokens: distribution(
+        tasks.map((t) => t.inputTokens + t.outputTokens),
+      ),
+      turns: distribution(tasks.map((t) => t.turns)),
+      wallMs: distribution(tasks.map((t) => t.wallMs)),
+    },
+  };
+}
+
 export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
   const model = options.model ?? (options.provider as any)?.model ?? "default";
   const tasksDir = resolve(options.tasksDir);
@@ -530,6 +650,7 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
     startedAt,
     finishedAt,
     tasks,
+    metrics: computeMetrics(tasks),
     summary: {
       total: tasks.length,
       passed: tasks.filter((t) => t.pass).length,
