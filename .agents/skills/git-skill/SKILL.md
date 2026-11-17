@@ -1,112 +1,202 @@
 ---
 name: git-skill
-description: "Keep the Atom-lite repository consistent locally and on GitHub. Use for git housekeeping: audit branch state, find unmerged or unpushed commits, sync master, land integration work, push, verify GitHub, or recover from drift. Releases go to release-workflow."
+description: "Keep the Atom-lite repository clean locally and on GitHub. Use for git housekeeping: audit state, find unmerged or unpushed commits, create branches, commit, run gates, merge to master, verify GitHub, clean worktrees, or recover from drift. Push always pauses for an explicit yes. Releases go to release-workflow."
 ---
 
 # Git skill
 
-`origin/master` is the single source of truth. Local commits do not exist for users until they are on `origin/master`. Every action starts with an audit and ends with a verification against GitHub.
+`origin/master` is the source of truth. A local commit is not shipped until it
+is on `origin/master`.
 
-## Absolute safety rules
+## Operating contract
 
-- Never use `push --force`, `reset --hard`, `rebase` on pushed commits, `filter-branch`, or any history rewrite.
-- Never merge into a branch you do not intend to push.
-- If a merge cannot fast-forward, stop and report. Do not invent a conflict resolution.
-- Never push without running the gates on the exact tree being pushed.
-- Never amend or rename historical commits to satisfy style rules. Record the deviation instead.
+Automate the audit, branch, commit, gates, merge, verification, and cleanup. Run
+those steps without asking. Keep every step small and named: one branch per
+change, one commit per intent, explicit paths staged, and no branch, worktree, or
+remote left half-finished.
 
-## 1. Audit (run first, every time)
+Push is the only manual gate. Stop before `git push`, show the exact refs and
+commit range, and ask. Push only when the user's current message is an explicit
+approval (`yes`, `push`, `push master`). An earlier approval never carries
+forward.
+
+Preserve user work. Never rewrite history, force-push, `reset --hard`,
+`clean -fd`, or discard uncommitted changes. Move work to its own branch or a
+named stash before switching context.
+
+## 1. Audit
+
+Run first and read-only. Note every dirty path before touching a branch.
 
 ```bash
 git fetch --all --prune
 git status -sb
-git rev-parse --short HEAD master origin/master
+git rev-parse --short HEAD
+git rev-parse --short master
+git rev-parse --short origin/master
 git branch -vv
-git for-each-ref --format='%(refname:short)' refs/heads refs/remotes
+git worktree list
 ```
 
-Find local commits after the release that are not on any remote:
+Find the last release and any local work not on a remote:
 
 ```bash
-git log --oneline v0.16.2.. --all --not \
+tag=$(git describe --tags --abbrev=0)
+git log --oneline "$tag.." --all --not \
   $(git for-each-ref --format='%(refname:short)' refs/remotes | tr '\n' ' ')
 ```
 
-Verify against GitHub itself, not just the local remote-tracking ref:
+Verify GitHub itself, not only the local remote-tracking ref:
 
 ```bash
 gh api repos/beast-ofcourse/atom-lite/commits/master --jq '.sha'
-gh api "repos/beast-ofcourse/atom-lite/compare/v0.16.2...master" --jq '.total_commits'
+gh api "repos/beast-ofcourse/atom-lite/compare/$tag...master" --jq '.total_commits'
 gh pr list --state open
 ```
 
-State the result plainly: how many commits are ahead, which branches hold them, and whether GitHub agrees.
+Report in one line: dirty or clean, ahead/behind counts, which branches hold
+unique commits, and whether local `master`, `origin/master`, and GitHub agree.
 
-## 2. Decision table
+Completion criterion: every dirty path, unpushed commit, worktree, and open PR
+is accounted for.
 
-| Observed state                                               | Action                                                                  |
-| ------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| `master == origin/master` and no local commits after release | Nothing to land. Report clean.                                          |
-| Integration branch is a descendant of `master` and ahead     | Go to §3 (land by fast-forward).                                        |
-| `master` is ahead of `origin/master`                         | Push `master` after gates (§3 step 4).                                  |
-| A branch cannot fast-forward onto `master`                   | Stop. Report the divergence and ask; do not merge.                      |
-| Work exists only on a stale ticket branch                    | Verify it is already in the integration branch before merging anything. |
-| GitHub and `origin/master` disagree                          | Re-fetch, re-audit; if still different, stop and report.                |
-| A release is requested (version, tag, npm, GitHub release)   | Hand off to the `release-workflow` skill. Do not improvise.             |
+## 2. Decide
 
-## 3. Land integration work on master
+| State                               | Action                                                                                                    |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Nothing ahead, clean tree           | Report clean. Stop.                                                                                       |
+| Dirty tree, one coherent change     | Create a named branch, commit explicit paths, continue.                                                   |
+| Dirty tree, unrelated changes       | Split into separate branches and commits. Never stage the whole tree blindly.                             |
+| Branch descends from `master`       | Fast-forward merge.                                                                                       |
+| Only local `master` is ahead        | Run gates, then the push gate.                                                                            |
+| Branch diverged from `master`       | Inspect both sides. Merge only if the branch has live work master lacks; otherwise report stale and stop. |
+| GitHub and `origin/master` disagree | Re-fetch and re-audit. If still different, stop.                                                          |
+| Release requested                   | Hand off to `release-workflow`.                                                                           |
 
-1. Confirm fast-forward is possible:
-   ```bash
-   git merge-base --is-ancestor master <integration-branch> && echo FF-OK
-   ```
-   If it fails, stop.
-2. Confirm the working tree is clean: `git status --short` must be empty.
-3. Merge and push:
-   ```bash
-   git checkout master
-   git merge --ff-only <integration-branch>
-   npm run typecheck && npm test && npm run docs:check && npm run eval:smoke
-   git push origin master
-   ```
-4. Verify (§4). Report the exact push line and commit counts.
-
-## 4. Verify GitHub
+## 3. Branch and commit
 
 ```bash
-git status -sb                         # must show master...origin/master, clean
-for r in master origin/master; do printf "%s %s\n" "$r" "$(git rev-parse --short $r)"; done
+git switch -c feature/<slug>
+git add <explicit paths>
+git diff --cached
+git commit
+```
+
+- Prefix types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`.
+- Stage explicit paths. Use `git add -A` only when every path is reviewed and
+  belongs to this change.
+- Read `git diff --cached` before every commit. One intent per commit.
+- If unrelated work must wait, `git stash push -u -m "<label>"`; restore it with
+  `git stash pop` before finishing.
+- Never commit directly to `master`; `master` receives merges.
+
+Completion criterion: `git status --short` is clean and the branch contains only
+the intended commits.
+
+## 4. Gates
+
+Run on the exact tree being merged:
+
+```bash
+npm run typecheck
+npm test
+npm run docs:check
+npm run eval:smoke
+```
+
+Fix failures and rerun. Do not merge a red tree.
+
+Completion criterion: all four commands exit 0; record the test counts.
+
+## 5. Merge to master
+
+```bash
+git switch master
+git merge --ff-only <branch>
+```
+
+If fast-forward fails:
+
+1. Compare both sides before merging:
+   ```bash
+   git log --oneline master..<branch>
+   git log --oneline <branch>..master
+   git diff --stat master...<branch>
+   ```
+2. If the branch is stale, duplicated by newer master work, or has no live
+   change, stop and report it. Do not merge.
+3. If it has live work, merge without fast-forward and resolve each conflict by
+   intent. Preserve both sides; never use `-Xours`, `-Xtheirs`, or delete a
+   change just to silence the conflict.
+4. Rerun every gate from §4 after resolving.
+
+Delete a merged local branch with `git branch -d <branch>`; never use `-D` on
+an unmerged branch.
+
+Completion criterion: `master` contains the intended commits, conflicts are
+resolved deliberately, and gates are green on the merged tree.
+
+## 6. Push gate
+
+Show the pending work and ask:
+
+```bash
+git status -sb
+git log --oneline origin/master..master
+git diff --stat origin/master..master
+```
+
+> Push `master` to `origin/master`? (yes/no)
+
+Only after an explicit yes:
+
+```bash
+git push origin master
+```
+
+Push tags only through `release-workflow`.
+
+Verify the result:
+
+```bash
+git rev-parse --short master
+git rev-parse --short origin/master
 gh api repos/beast-ofcourse/atom-lite/commits/master --jq '.sha'
-gh api "repos/beast-ofcourse/atom-lite/compare/v0.16.2...master" --jq '.total_commits'
 ```
 
-Success means: local `master`, `origin/master`, and GitHub master are the same SHA; commit count matches the audit; working tree clean.
+Completion criterion: local `master`, `origin/master`, and GitHub point at the
+same commit; the working tree is clean; the push line is reported exactly.
 
-## 5. Drift recovery
+## 7. Cleanup
 
-- **Local `origin/master` stale:** `git fetch origin`. Do not re-clone.
-- **Local commits lost from a branch:** check every local branch with `git rev-list --count <branch>..<integration-branch>` and the reverse before declaring loss. A ticket branch missing later integration commits is normal; commits missing _from_ integration are not.
-- **Accidental push to wrong branch:** stop, report the exact refs, and ask. Do not rewrite.
-- **Dependabot PRs:** leave them untouched unless explicitly asked; they are not part of the code line.
+- `git worktree list`; remove only clean, merged worktrees with
+  `git worktree remove <path>`, then `git worktree prune`.
+- If removal refuses, report it. Use `--force` only with explicit approval.
+- Delete merged local branches with `git branch -d`. Keep unmerged branches and
+  report them.
+- Never leave a detached HEAD.
 
-## 6. Cleanup
+Completion criterion: no merged branch, stale worktree, or dirty path remains.
 
-After all commits are merged and pushed:
+## Drift recovery
 
-```bash
-git worktree list
-git worktree remove --force <worktree-path>   # only exhausted, merged worktrees
-git worktree prune
-```
+- Local `origin/master` stale: `git fetch origin`. Do not re-clone.
+- Origin moved while working: merge `origin/master` into your branch, resolve,
+  and rerun gates. Do not rewrite pushed commits.
+- Suspected lost commits: compare counts in both directions before declaring
+  loss.
+- Accidental push to the wrong branch: stop, report the exact refs, and ask.
+  Never rewrite.
+- Dependabot PRs: leave untouched unless explicitly asked.
 
-Never remove a worktree with unmerged commits. Verify with `git rev-list --count integration..<branch> == 0` first.
+## Handoffs
 
-## 7. Handoffs
-
-- Version bump, CHANGELOG, tag, npm publish, GitHub release → `release-workflow` skill.
-- Docs changes pulled in by a merge → `atom-lite-docs` skill; run `npm run docs:check`.
-- Eval harness changes → `eval-maintainer` skill; run `npm run eval:smoke`.
+- Version, changelog, tag, npm, GitHub release → `release-workflow`.
+- Published docs or changelog edits → `atom-lite-docs`; run `docs:check`.
+- Eval harness or grader changes → `eval-maintainer`; run `eval:smoke`.
 
 ## Completion report
 
-Always end with: the audit result, the commands run, the final SHAs (local / origin / GitHub), gate results, and anything deliberately left undone (for example version, tag, npm, or open PRs). Use evidence, not claims.
+End with the audit result, commands run, branch and commit SHAs, gate results,
+push state, and anything deliberately left undone. Use command output as
+evidence, not memory.

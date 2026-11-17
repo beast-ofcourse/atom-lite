@@ -36,7 +36,7 @@ Use the `eval-maintainer` skill (`.agents/skills/eval-maintainer/SKILL.md`) for 
 
 ### Git skill
 
-Use the `git-skill` skill (`.agents/skills/git-skill/SKILL.md`) for repository housekeeping: audit local/remote state, find unmerged or unpushed commits, fast-forward master, push, verify GitHub, or recover from drift. It never rewrites history. Releases go to `release-workflow`.
+Use the `git-skill` skill (`.agents/skills/git-skill/SKILL.md`) for repository housekeeping: audit local/remote state, find unmerged or unpushed commits, branch, commit, run gates, merge to master, verify, clean up, or recover from drift. It automates those steps and never rewrites history. Push pauses for your explicit yes. Releases go to `release-workflow`.
 
 ### Domain docs
 
