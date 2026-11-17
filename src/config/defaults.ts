@@ -29,6 +29,7 @@ export const DEFAULT_CONFIG = {
   usage: {
     ledgerEnabled: false,
     ledgerPath: null as string | null,
+    prices: {} as Record<string, unknown>,
   },
   lsp: { enabled: false, servers: {} },
   ui: {
@@ -44,7 +45,7 @@ export const DEFAULT_CONFIG = {
     scrollUp: "ctrl+up",
     scrollDown: "ctrl+down",
     toggleThinking: "ctrl+t",
-    toggleGoalPanel: "ctrl+g",
+    toggleGoalPanel: "ctrl+j",
     inputHistoryUp: "up",
     inputHistoryDown: "down",
   },

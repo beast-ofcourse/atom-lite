@@ -3,6 +3,45 @@ import { dirname } from "node:path";
 import type { MessageAttribution } from "../context/attribution.js";
 import type { TokenUsage } from "../types.js";
 
+/** Explicit price for a model, in USD per one million tokens. */
+export interface ModelPricing {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}
+
+export type PricingMap = Record<string, ModelPricing>;
+
+/**
+ * Cost of a call and the counterfactual cost with no cache reuse. Missing
+ * rates are treated as zero; absent pricing yields no monetary fields at all.
+ */
+export function computeUsageCost(
+  pricing: ModelPricing | undefined,
+  usage: TokenUsage,
+): { costUsd: number; costIfNoCacheUsd: number } | undefined {
+  if (!pricing || (pricing.input === undefined && pricing.output === undefined)) {
+    return undefined;
+  }
+  const inputRate = (pricing.input ?? 0) / 1_000_000;
+  const outputRate = (pricing.output ?? 0) / 1_000_000;
+  const readRate = (pricing.cacheRead ?? pricing.input ?? 0) / 1_000_000;
+  const writeRate = (pricing.cacheWrite ?? pricing.input ?? 0) / 1_000_000;
+  const input = usage.input ?? 0;
+  const output = usage.output ?? 0;
+  const cachedRead = usage.cacheRead ?? 0;
+  const cachedWrite = usage.cacheWrite ?? 0;
+  return {
+    costUsd:
+      input * inputRate +
+      output * outputRate +
+      cachedRead * readRate +
+      cachedWrite * writeRate,
+    costIfNoCacheUsd: (input + cachedRead) * inputRate + output * outputRate,
+  };
+}
+
 /** Reported token counts for one model call. Unreported fields are null. */
 export interface LedgerUsage {
   input: number | null;
@@ -28,10 +67,15 @@ export interface UsageRecord {
   attribution?: MessageAttribution;
   /** Whether this call followed a compaction of the context. */
   compacted?: boolean;
+  /** Present only when an explicit price is configured for the model. */
+  costUsd?: number;
+  costIfNoCacheUsd?: number;
 }
 
 export interface UsageLedger {
   record(record: UsageRecord): void;
+  /** Optional explicit prices, keyed by model id. Never fetched remotely. */
+  prices?: PricingMap;
 }
 
 /** Identity of a model call, supplied by whichever component issues it. */
@@ -55,9 +99,11 @@ export function recordModelUsage(
 ): void {
   if (!ledger) return;
   try {
+    const cost = computeUsageCost(ledger.prices?.[context.model], usage);
     ledger.record({
       timestamp: new Date().toISOString(),
       ...context,
+      ...(cost ? { costUsd: cost.costUsd, costIfNoCacheUsd: cost.costIfNoCacheUsd } : {}),
       usage: {
         input: usage.input ?? null,
         output: usage.output ?? null,
@@ -76,8 +122,14 @@ export function recordModelUsage(
 /** Append-only, local JSONL ledger. Writes are best-effort and never throw. */
 export class FileUsageLedger implements UsageLedger {
   private dirReady = false;
+  readonly prices?: PricingMap;
 
-  constructor(private readonly filePath: string) {}
+  constructor(filePath: string, prices?: PricingMap) {
+    this.filePath = filePath;
+    this.prices = prices;
+  }
+
+  private readonly filePath: string;
 
   record(record: UsageRecord): void {
     try {

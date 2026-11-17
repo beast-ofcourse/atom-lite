@@ -470,6 +470,7 @@ export async function run(args: string[]): Promise<void> {
   const usageLedger = config.usage.ledgerEnabled
     ? new FileUsageLedger(
         config.usage.ledgerPath ?? defaultUsageLedgerPath(),
+        config.usage.prices,
       )
     : undefined;
 
@@ -1752,7 +1753,6 @@ export async function run(args: string[]): Promise<void> {
     }
     refreshContextWindow();
     appendLine(`provider: ${preset.label} (${preset.id}) · model: ${chosen}`);
-    appendLine("tip: /model searches every configured provider");
   }
 
   function closeApiKeyPrompt(): void {
@@ -2896,7 +2896,6 @@ export async function run(args: string[]): Promise<void> {
       }
       if (matchesBinding("newSession")) {
         commandContext.newSession();
-        appendLine("started new session");
         tui.requestRender();
         return { consume: true };
       }
@@ -2916,16 +2915,11 @@ export async function run(args: string[]): Promise<void> {
       }
       if (matchesBinding("toggleThinking")) {
         showThinking = !showThinking;
-        appendLine(`thinking display: ${showThinking ? "shown" : "hidden"}`);
         tui.requestRender();
         return { consume: true };
       }
       if (matchesBinding("toggleGoalPanel")) {
-        const shown = goalPanel.toggle();
-        appendLine(
-          `goal panel: ${shown ? "shown" : "hidden"}`,
-          theme.tokens.dim,
-        );
+        goalPanel.toggle();
         tui.requestRender();
         return { consume: true };
       }
@@ -2946,7 +2940,6 @@ export async function run(args: string[]): Promise<void> {
       currentMode = currentMode === "plan" ? "yolo" : "plan";
       runtime.setMode(currentMode);
       updateStatus();
-      appendLine(`mode: ${currentMode}`, theme.tokens.dim);
       tui.requestRender();
       return { consume: true };
     }
@@ -2958,7 +2951,6 @@ export async function run(args: string[]): Promise<void> {
       }
       if (shellMode) {
         shellMode = false;
-        appendLine("shell mode: off", theme.tokens.dim);
         tui.requestRender();
         return { consume: true };
       }
@@ -3335,7 +3327,6 @@ export async function run(args: string[]): Promise<void> {
     if (trimmed === "!" || trimmed.startsWith("! ")) {
       shellMode = true;
       const rest = trimmed.slice(1).trim();
-      appendLine("shell mode: on (Escape to exit)", theme.tokens.dim);
       if (rest) {
         appendLine(`$ ${rest}`, theme.tokens.user);
         await runShellCommand(rest);

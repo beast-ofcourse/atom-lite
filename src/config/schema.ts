@@ -53,12 +53,24 @@ export const ContextConfigSchema = z
   })
   .strict();
 
+export const ModelPricingSchema = z
+  .object({
+    /** USD per one million tokens; omitted rates are treated as zero. */
+    input: z.number().nonnegative().optional(),
+    output: z.number().nonnegative().optional(),
+    cacheRead: z.number().nonnegative().optional(),
+    cacheWrite: z.number().nonnegative().optional(),
+  })
+  .strict();
+
 export const UsageConfigSchema = z
   .object({
     /** Opt-in per-call usage ledger. Off by default. User config only. */
     ledgerEnabled: z.boolean().default(false),
     /** Override for the ledger file location; null uses the user config dir. */
     ledgerPath: z.string().min(1).nullable().default(null),
+    /** Explicit per-model prices in USD per million tokens. No guessing. */
+    prices: z.record(z.string(), ModelPricingSchema).default({}),
   })
   .strict();
 
@@ -104,7 +116,7 @@ export const KeybindingsConfigSchema = z
     scrollUp: z.string().nullable().default("ctrl+up"),
     scrollDown: z.string().nullable().default("ctrl+down"),
     toggleThinking: z.string().nullable().default("ctrl+t"),
-    toggleGoalPanel: z.string().nullable().default("ctrl+g"),
+    toggleGoalPanel: z.string().nullable().default("ctrl+j"),
     inputHistoryUp: z.string().nullable().default("up"),
     inputHistoryDown: z.string().nullable().default("down"),
   })
