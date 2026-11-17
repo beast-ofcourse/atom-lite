@@ -15,6 +15,7 @@ import { spawn } from "node:child_process";
 import { WebSocket } from "ws";
 import { AgentRuntime } from "../../dist/agent/loop.js";
 import { FakeProvider } from "../../dist/providers/fake.js";
+import { todoTool } from "../../dist/tools/todo.js";
 import { checkApproval } from "../../dist/runtime/approvals.js";
 import {
   InMemorySession,
@@ -2044,6 +2045,73 @@ test("attached files are saved and referenced by the next turn", async () => {
     const removed = await client.waitFor("attachment_removed");
     assert.equal(removed.path, attachment.path);
     assert.equal(existsSync(attachment.path), false);
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: the browser task panel is fed by live runtime ledger events and by
+// the durable session log after a reconnect; both must expose the same latest
+// snapshot so the panel never invents or loses tasks.
+test("todo ledger reaches the browser and survives reconnect history", async () => {
+  const storeRoot = mkdtempSync(join(tmpdir(), "web-store-"));
+  const workspace = mkdtempSync(join(tmpdir(), "web-workspace-"));
+  const store = new JsonlSessionStore(storeRoot);
+  const session = store.create(workspace, "fake", "todo-1");
+  const built = buildRuntime([], {
+    provider: new FakeProvider([
+      {
+        toolCalls: [
+          {
+            id: "todo-1",
+            name: "todo",
+            arguments: {
+              action: "write",
+              todos: [
+                { content: "ship the task panel", status: "in_progress" },
+              ],
+            },
+          },
+        ],
+      },
+      { text: "done" },
+    ]),
+    tools: [todoTool],
+    workspace,
+    session,
+  });
+  const server = await start(built, { store });
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    await client.waitFor("hello");
+    client.send({ type: "input", text: "plan the work" });
+    await client.waitFor("turn_end");
+
+    const ledger = client.messages.find(
+      (message) =>
+        message.type === "event" && message.event.type === "ledger_state",
+    );
+    assert.ok(ledger, "ledger_state is broadcast to the browser");
+    assert.equal(ledger.event.open, 1);
+    assert.equal(ledger.event.todos[0].content, "ship the task panel");
+
+    const durable = built.session.events.filter(
+      (event: any) => event.type === "todos_updated",
+    );
+    assert.equal(durable.length, 1);
+    assert.deepEqual(durable[0].todos, ledger.event.todos);
+
+    const second = new Client(server.wsUrl);
+    await second.open();
+    const hello = await second.waitFor("hello");
+    const historyEvent = hello.history.find(
+      (event: any) => event.type === "todos_updated",
+    );
+    assert.ok(historyEvent, "the durable ledger is in hello history");
+    assert.equal(historyEvent.todos[0].content, "ship the task panel");
+    second.close();
   } finally {
     client.close();
     await server.close();

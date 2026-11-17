@@ -119,7 +119,7 @@ Contrast commitments (WCAG 2.1, measured during the finish audit):
 | `--text-faint` on `--bg`   | 5.0  | 5.6   |
 | `--link` on `--bg`         | 7.7  | 4.8   |
 | `--send-fg` on `--send-bg` | 19.4 | 19.4  |
-| placeholder on composer    | 5.0  | 5.6   |
+| placeholder on composer    | 6.4  | 6.6   |
 
 Body, secondary, placeholder, and control copy clear 4.5:1. Focus rings are a
 2px `--focus` ring offset 2px from the control. Disabled send uses
@@ -175,6 +175,9 @@ transitions collapse.
 
 - The page is a full-viewport grid, `100dvh`, with the sidebar as its own
   column. Only the transcript scrolls; header and composer never cover content.
+- An optional task-ledger panel docks to the right of the transcript. It is a
+  user-toggled work pane, not a dashboard column; the transcript keeps its
+  single reading column when it is closed.
 - On a new conversation the composer sits in the optical center with the
   greeting above it. After the first message it docks to the bottom of the main
   column without moving the transcript.
@@ -199,6 +202,10 @@ transitions collapse.
 - Footer is a workspace/account block: avatar disc, a one-line working-directory
   hint that opens the explorer, provider · model, and a theme toggle. Clicking
   the path or `Ctrl/Cmd+O` opens the directory explorer.
+- Resize: the sidebar's right edge is a drag handle (220–420px, 260px default).
+  The separator supports arrows, Shift+arrows, Home, and double-click reset.
+  Width persists in `localStorage` under `atom-lite.web.sidebar-width`; the
+  handle is hidden while collapsed and on mobile.
 - Collapse: the sidebar width animates to 0 and the main header reveals the
   panel toggle. The state persists in `localStorage`. Mobile uses a scrim and
   closes on scrim click or Escape.
@@ -210,6 +217,28 @@ the sidebar is collapsed or on mobile) and the model chip — a real button with
 a small atom glyph, `provider · model`, and a chevron that opens the model
 picker. Right: role chip with a status dot (`controlling` green, `read-only
 viewer` amber). The role chip is the only place control state is written.
+
+### Task ledger panel
+
+A right-docked panel carries the session `todo` ledger. It starts collapsed;
+the header checklist button and `Ctrl/Cmd+J` toggle it, and the choice persists
+in `localStorage` under `atom-lite.web.todos`. When no explicit preference
+exists, the first non-empty ledger opens it once.
+
+Rows follow the TUI GoalPanel order: a status mark (hollow pending, amber dot in
+progress, filled check done, dash cancelled), the task text, then the `id` and a
+state label, so status never depends on colour alone. Verification evidence sits
+under the text in faint 11px. The header summarizes open/done counts, and the
+toggle carries the open count. The empty state teaches the surface: “The agent
+records multi-step work here with the todo tool.”
+
+The panel is 300px by default and can be dragged from its left edge between 240
+and 480px; the keyboard separator supports arrows, Shift+arrows, Home, and
+double-click resets to the default. Width persists under
+`atom-lite.web.todos-width`. Live `ledger_state` / `task_ledger_open` events
+update it; a reconnect seeds it from the latest durable `todos_updated` event in
+session history. At `≤1024px` the panel becomes a right drawer over the scrim
+and the resizer is hidden.
 
 ### Transcript and messages
 
@@ -450,11 +479,11 @@ authored inline SVG (24×24 viewBox, 1.75 stroke) in the page's sprite.
   code, and floating UI.
 - Tool output stays monospace and unwrapped from markdown: logs are data.
 - Status is text plus colour, never colour alone.
-- The transcript is one column at every width; no sidebars inside the main
-  column and no card grids.
-- Client-owned preferences (theme, sidebar state) live in `localStorage`;
-  server-owned state (model, workspace, sessions, approvals) is remote and
-  broadcast to every tab.
+- The transcript is one reading column at every width; the only side pane is
+  the user-toggled task ledger on the right, never a dashboard grid.
+- Client-owned preferences (theme, sidebar state, task-panel state and width)
+  live in `localStorage`; server-owned state (model, workspace, sessions,
+  approvals, task ledger) is remote and broadcast to every tab.
 - Scrolling and streaming rendering are coalesced into one animation frame;
   the sidebar is rebuilt only on session data changes, never on control
   changes or every keystroke.
@@ -521,6 +550,16 @@ and the fake provider, dark and light, 1440×900 and 390×844.
   markdown render happens once per answer. The stream caret disappears when
   the final render settles. No entrance animation is attached to streamed text.
   Scroll updates are coalesced to one frame and respect user scroll-up.
+
+- **Side panels (2026-11-17):** the task ledger rendered in dark and light at
+  1440×900 and as a right drawer at 390×844 with no horizontal overflow. The
+  header toggle and `Ctrl/Cmd+J` opened and closed it; arrow-key resizing moved
+  it from 300px to 332px and persisted the width. The left sidebar resized from
+  260px to 276px with the same keyboard contract and persisted width. The task
+  panel seeded from durable history on load and from live ledger events during
+  a turn. The detector returned no primary findings at 1440×900 or 390×844;
+  composer placeholder contrast is 6.4:1 dark and 6.6:1 light, and task
+  metadata is 12px.
 
 Accepted limitation: `aria-live="polite"` on the transcript means a screen
 reader may announce streamed updates; this is deliberate for a streaming

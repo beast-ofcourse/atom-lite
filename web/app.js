@@ -13,6 +13,12 @@
 //             | list_skills | list_mcp
 
 import { buildDiffModel } from "./diff.js";
+import {
+  normalizeTodos,
+  todoCounts,
+  todoStatusLabel,
+  todosFromHistory,
+} from "./todos.js";
 
 const TOKEN = window.__ATOM_TOKEN__ || "";
 const transcriptEl = document.getElementById("transcript");
@@ -32,6 +38,7 @@ const suggestionsEl = document.getElementById("suggestions");
 const sidebarToggle = document.getElementById("sidebar-toggle");
 const sidebarClose = document.getElementById("sidebar-close");
 const sidebarScrim = document.getElementById("sidebar-scrim");
+const sidebarResizer = document.getElementById("sidebar-resizer");
 const approvalLayer = document.getElementById("approval-layer");
 const approvalTool = document.getElementById("approval-tool");
 const approvalCommand = document.getElementById("approval-command");
@@ -81,6 +88,14 @@ const imagePreview = document.getElementById("image-preview");
 const imageCaption = document.getElementById("image-caption");
 const micButton = document.getElementById("mic-button");
 const micIcon = micButton.querySelector("use");
+const todoPanel = document.getElementById("todo-panel");
+const todoToggle = document.getElementById("todo-toggle");
+const todoClose = document.getElementById("todo-close");
+const todoScrim = document.getElementById("todo-scrim");
+const todoList = document.getElementById("todo-list");
+const todoSummary = document.getElementById("todo-summary");
+const todoCount = document.getElementById("todo-count");
+const todoResizer = document.getElementById("todo-resizer");
 
 // Tool cards cap the visible tail, like the terminal caps live output. The
 // full text stays in the card's data until the card is rebuilt.
@@ -88,6 +103,15 @@ const MAX_TOOL_OUTPUT_CHARS = 60_000;
 const MAX_TOOL_OUTPUT_LINES = 400;
 const MAX_INPUT_HEIGHT = 200;
 const SIDEBAR_KEY = "atom-lite.web.sidebar";
+const SIDEBAR_WIDTH_KEY = "atom-lite.web.sidebar-width";
+const SIDEBAR_DEFAULT_WIDTH = 260;
+const SIDEBAR_MIN_WIDTH = 220;
+const SIDEBAR_MAX_WIDTH = 420;
+const TODO_KEY = "atom-lite.web.todos";
+const TODO_WIDTH_KEY = "atom-lite.web.todos-width";
+const TODO_DEFAULT_WIDTH = 300;
+const TODO_MIN_WIDTH = 240;
+const TODO_MAX_WIDTH = 480;
 const STREAM_FRAME_MS = 48;
 const STREAM_CHARS_PER_FRAME = 64;
 const STREAM_FINAL_MULTIPLIER = 4;
@@ -105,6 +129,7 @@ const markdown = window.markdownit
   : null;
 
 const mobileQuery = window.matchMedia("(max-width: 768px)");
+const todoOverlayQuery = window.matchMedia("(max-width: 1024px)");
 
 let socket = null;
 let readOnly = false;
@@ -1424,6 +1449,7 @@ function applySession(message) {
   currentSessionId = message.sessionId;
   clearAttachments();
   renderHistory(message.history ?? []);
+  setTodos(todosFromHistory(message.history ?? []), { autoOpen: true });
   renderSessions(sessionsCache);
 }
 
@@ -1431,6 +1457,17 @@ function applySession(message) {
 
 function isMobile() {
   return mobileQuery.matches;
+}
+
+let sidebarWidth = SIDEBAR_DEFAULT_WIDTH;
+
+function applySidebarWidth(value, persist = true) {
+  sidebarWidth = clampPanelWidth(value, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
+  document.documentElement.style.setProperty(
+    "--sidebar-width",
+    `${sidebarWidth}px`,
+  );
+  if (persist) storageSet(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
 }
 
 function closeMobileSidebar() {
@@ -1500,7 +1537,266 @@ mobileQuery.addEventListener("change", () => {
   document.body.classList.remove("sidebar-open");
   syncSidebar();
 });
+applySidebarWidth(
+  Number(storageGet(SIDEBAR_WIDTH_KEY)) || SIDEBAR_DEFAULT_WIDTH,
+  false,
+);
 syncSidebar();
+bindPanelResizer({
+  resizer: sidebarResizer,
+  min: SIDEBAR_MIN_WIDTH,
+  max: SIDEBAR_MAX_WIDTH,
+  defaultWidth: SIDEBAR_DEFAULT_WIDTH,
+  getWidth: () => sidebarWidth,
+  setWidth: applySidebarWidth,
+  direction: "left",
+  canResize: () =>
+    !isMobile() && !document.body.classList.contains("sidebar-collapsed"),
+});
+
+/* ---------------- task ledger ---------------- */
+
+let todos = [];
+let todoPreference = storageGet(TODO_KEY);
+let todoWidth = TODO_DEFAULT_WIDTH;
+
+function isTodoOverlay() {
+  return todoOverlayQuery.matches;
+}
+
+function todoPanelOpen() {
+  return !todoPanel.hidden;
+}
+
+function clampPanelWidth(value, min, max) {
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+/** One drag/keyboard resize contract for both side panels. */
+function bindPanelResizer({
+  resizer,
+  min,
+  max,
+  defaultWidth,
+  getWidth,
+  setWidth,
+  direction = "right",
+  canResize = () => true,
+}) {
+  const sign = direction === "left" ? 1 : -1;
+  let dragging = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  const syncValue = () =>
+    resizer.setAttribute("aria-valuenow", String(getWidth()));
+  resizer.setAttribute("aria-valuemin", String(min));
+  resizer.setAttribute("aria-valuemax", String(max));
+  syncValue();
+
+  resizer.addEventListener("pointerdown", (event) => {
+    if (!canResize() || event.button !== 0) return;
+    dragging = true;
+    startX = event.clientX;
+    startWidth = getWidth();
+    document.body.classList.add("panel-resizing");
+    resizer.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+
+  resizer.addEventListener("pointermove", (event) => {
+    if (!dragging) return;
+    setWidth(startWidth + (event.clientX - startX) * sign, false);
+    syncValue();
+  });
+
+  function endResize(event) {
+    if (!dragging) return;
+    dragging = false;
+    document.body.classList.remove("panel-resizing");
+    try {
+      resizer.releasePointerCapture(event.pointerId);
+    } catch {
+      // the pointer already left; nothing to release
+    }
+    setWidth(getWidth(), true);
+  }
+
+  resizer.addEventListener("pointerup", endResize);
+  resizer.addEventListener("pointercancel", endResize);
+  resizer.addEventListener("dblclick", () => {
+    if (!canResize()) return;
+    setWidth(defaultWidth);
+    syncValue();
+  });
+  resizer.addEventListener("keydown", (event) => {
+    if (!canResize()) return;
+    const step = event.shiftKey ? 32 : 8;
+    const delta =
+      event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+    if (delta === 0 && event.key !== "Home") return;
+    event.preventDefault();
+    setWidth(event.key === "Home" ? defaultWidth : getWidth() + delta * sign);
+    syncValue();
+  });
+}
+
+function applyTodoWidth(value, persist = true) {
+  todoWidth = clampPanelWidth(value, TODO_MIN_WIDTH, TODO_MAX_WIDTH);
+  document.documentElement.style.setProperty("--todo-width", `${todoWidth}px`);
+  if (persist) storageSet(TODO_WIDTH_KEY, String(todoWidth));
+}
+
+function syncTodoToggleLabel() {
+  const counts = todoCounts(todos);
+  const open = todoPanelOpen();
+  const suffix = counts.open > 0 ? `, ${counts.open} open` : "";
+  todoToggle.setAttribute(
+    "aria-label",
+    `${open ? "Close" : "Open"} task ledger${suffix}`,
+  );
+  todoToggle.title = `${open ? "Close" : "Open"} tasks (Ctrl+J)`;
+}
+
+function syncTodoPanel() {
+  const open = todoPanelOpen();
+  const overlay = open && isTodoOverlay();
+  todoToggle.setAttribute("aria-expanded", String(open));
+  todoScrim.hidden = !overlay;
+  document.body.classList.toggle("todo-open", overlay);
+  syncTodoToggleLabel();
+}
+
+function todoRow(todo) {
+  const row = document.createElement("div");
+  row.className = "todo-item";
+  row.dataset.status = todo.status;
+
+  const mark = document.createElement("span");
+  mark.className = "todo-mark";
+  mark.setAttribute("aria-hidden", "true");
+  if (todo.status === "completed") mark.append(icon("check", "icon"));
+
+  const copy = document.createElement("div");
+  copy.className = "todo-copy";
+
+  const text = document.createElement("span");
+  text.className = "todo-text";
+  text.textContent = todo.content;
+
+  const meta = document.createElement("span");
+  meta.className = "todo-meta";
+  const id = document.createElement("span");
+  id.className = "todo-id";
+  id.textContent = todo.id;
+  const status = document.createElement("span");
+  status.className = "todo-status";
+  status.textContent = todoStatusLabel(todo.status);
+  meta.append(id, status);
+  copy.append(text, meta);
+
+  if (todo.verification) {
+    const verify = document.createElement("span");
+    verify.className = "todo-verify";
+    verify.textContent = `Verify: ${todo.verification}`;
+    copy.append(verify);
+  }
+
+  row.append(mark, copy);
+  return row;
+}
+
+function renderTodos() {
+  const counts = todoCounts(todos);
+  todoSummary.textContent =
+    todos.length === 0
+      ? "No tasks yet"
+      : `${counts.open} open · ${counts.completed} done${
+          counts.cancelled ? ` · ${counts.cancelled} cancelled` : ""
+        }`;
+  todoCount.textContent = counts.open > 0 ? String(counts.open) : "";
+  todoCount.hidden = counts.open === 0;
+  syncTodoToggleLabel();
+
+  todoList.replaceChildren();
+  if (todos.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "todo-empty";
+    empty.append(icon("tasks", "icon"));
+    const body = document.createElement("p");
+    body.className = "todo-empty-body";
+    body.textContent =
+      "The agent records multi-step work here with the todo tool.";
+    empty.append(body);
+    todoList.append(empty);
+    return;
+  }
+
+  for (const todo of todos) todoList.append(todoRow(todo));
+}
+
+function setTodos(value, { autoOpen = false } = {}) {
+  todos = normalizeTodos(value);
+  renderTodos();
+  if (
+    autoOpen &&
+    todos.length > 0 &&
+    todoPreference === null &&
+    !todoPanelOpen() &&
+    !isTodoOverlay()
+  ) {
+    openTodoPanel({ persist: false });
+  }
+}
+
+function openTodoPanel({ persist = true } = {}) {
+  todoPanel.hidden = false;
+  if (persist) {
+    todoPreference = "open";
+    storageSet(TODO_KEY, "open");
+  }
+  syncTodoPanel();
+}
+
+function closeTodoPanel({ persist = true } = {}) {
+  const hadFocus = todoPanel.contains(document.activeElement);
+  todoPanel.hidden = true;
+  if (persist) {
+    todoPreference = "closed";
+    storageSet(TODO_KEY, "closed");
+  }
+  syncTodoPanel();
+  if (hadFocus) todoToggle.focus();
+}
+
+function toggleTodoPanel() {
+  if (todoPanelOpen()) {
+    closeTodoPanel();
+    return;
+  }
+  openTodoPanel();
+  if (isTodoOverlay()) todoClose.focus({ preventScroll: true });
+}
+
+applyTodoWidth(Number(storageGet(TODO_WIDTH_KEY)) || TODO_DEFAULT_WIDTH, false);
+renderTodos();
+if (todoPreference === "open") openTodoPanel({ persist: false });
+else syncTodoPanel();
+
+todoToggle.addEventListener("click", toggleTodoPanel);
+todoClose.addEventListener("click", () => closeTodoPanel());
+todoScrim.addEventListener("click", () => closeTodoPanel());
+todoOverlayQuery.addEventListener("change", () => syncTodoPanel());
+bindPanelResizer({
+  resizer: todoResizer,
+  min: TODO_MIN_WIDTH,
+  max: TODO_MAX_WIDTH,
+  defaultWidth: TODO_DEFAULT_WIDTH,
+  getWidth: () => todoWidth,
+  setWidth: applyTodoWidth,
+  direction: "right",
+  canResize: () => !isTodoOverlay(),
+});
 
 /* ---------------- toast ---------------- */
 
@@ -2432,6 +2728,10 @@ function handleEvent(event) {
       if (card) finishToolCard(card, event);
       break;
     }
+    case "ledger_state":
+    case "task_ledger_open":
+      setTodos(event.todos, { autoOpen: true });
+      break;
     default:
       break;
   }
@@ -3139,6 +3439,11 @@ document.addEventListener("keydown", (event) => {
     openWorkspaceModal();
     return;
   }
+  if (modifier && event.key.toLowerCase() === "j") {
+    event.preventDefault();
+    toggleTodoPanel();
+    return;
+  }
 
   if (!approvalLayer.hidden) return;
 
@@ -3178,6 +3483,11 @@ document.addEventListener("keydown", (event) => {
   if (allPopovers().some((popover) => !popover.hidden)) {
     event.preventDefault();
     closePopovers();
+    return;
+  }
+  if (document.body.classList.contains("todo-open")) {
+    event.preventDefault();
+    closeTodoPanel();
     return;
   }
   if (document.body.classList.contains("sidebar-open")) {

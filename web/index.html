@@ -60,6 +60,10 @@
         <rect x="3" y="3" width="18" height="18" rx="2" />
         <path d="M9 3v18" />
       </symbol>
+      <symbol id="i-tasks" viewBox="0 0 24 24">
+        <rect x="4" y="4" width="16" height="16" rx="3" />
+        <path d="m8 12 2.5 2.5L16 9" />
+      </symbol>
       <symbol id="i-arrow-up" viewBox="0 0 24 24">
         <path d="M12 19V5" />
         <path d="m5 12 7-7 7 7" />
@@ -158,6 +162,7 @@
 
     <div class="app" id="app">
       <div class="sidebar-scrim" id="sidebar-scrim" hidden></div>
+      <div class="todo-scrim" id="todo-scrim" hidden></div>
 
       <aside class="sidebar" id="sidebar" aria-label="Chat history">
         <div class="sidebar-inner">
@@ -237,6 +242,14 @@
             </button>
           </div>
         </div>
+        <div
+          class="sidebar-resizer"
+          id="sidebar-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          tabindex="0"
+        ></div>
       </aside>
 
       <div class="main" id="main">
@@ -270,6 +283,20 @@
             </svg>
           </button>
           <div class="head-right">
+            <button
+              class="icon-btn todo-toggle"
+              id="todo-toggle"
+              type="button"
+              aria-label="Open task ledger"
+              aria-controls="todo-panel"
+              aria-expanded="false"
+              title="Tasks (Ctrl+J)"
+            >
+              <svg class="icon" aria-hidden="true">
+                <use href="#i-tasks"></use>
+              </svg>
+              <span class="todo-count" id="todo-count" hidden></span>
+            </button>
             <div class="role" id="role" hidden></div>
           </div>
         </header>
@@ -424,6 +451,36 @@
           </div>
         </footer>
       </div>
+
+      <aside class="todo-panel" id="todo-panel" aria-label="Task ledger" hidden>
+        <div
+          class="todo-resizer"
+          id="todo-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize task ledger"
+          tabindex="0"
+        ></div>
+        <div class="todo-inner">
+          <header class="todo-head">
+            <div class="todo-heading">
+              <h2 class="todo-title">Tasks</h2>
+              <p class="todo-summary" id="todo-summary">No tasks yet</p>
+            </div>
+            <button
+              class="icon-btn todo-close"
+              id="todo-close"
+              type="button"
+              aria-label="Close task ledger"
+            >
+              <svg class="icon" aria-hidden="true">
+                <use href="#i-x"></use>
+              </svg>
+            </button>
+          </header>
+          <div class="todo-list" id="todo-list"></div>
+        </div>
+      </aside>
     </div>
 
     <div

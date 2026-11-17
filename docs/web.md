@@ -22,6 +22,10 @@ The header model chip opens a searchable catalog refreshed from every configured
 
 `ctrl/cmd+o` opens the working-directory explorer; `ctrl/cmd+k` opens the command palette. Typing `/` offers `/new`, `/help`, `/stop`, `/model`, `/theme`, `/cwd`, `/rename`, `/delete`, `/search`, `/export`, `/effort`, `/mode`, `/skills`, and `/mcp`.
 
+Drag the left sidebar's right edge to resize it between 220 and 420 pixels, or focus the separator and use the arrow keys; double-click resets the width. The sidebar width is stored in browser storage.
+
+The session task ledger opens in a right-hand panel. Toggle it with the checklist button or `ctrl/cmd+j`. Drag the panel's left edge to resize it between 240 and 480 pixels, or focus the separator and use the arrow keys; double-click resets the width. The panel lists pending, in-progress, completed, and cancelled tasks with their verification notes, updates live as the agent works, and restores the durable ledger when you resume a session. Open state and width are stored in browser storage.
+
 Assistant text renders as markdown with syntax-highlighted code, local images, and Mermaid diagrams. Tool edits show a unified inline diff. Long sessions load earlier messages on demand.
 
 Files attached from the composer are written under `<workspace>/.atom-lite/attachments/<session>/` so the agent's tools can read them. Nothing is uploaded.
