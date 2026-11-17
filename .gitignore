@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .scratch/
+# Eval run artifacts are local evidence and must not be committed.
+evals/out/
 # Architecture decision records are private to the maintainer. They stay on
 # disk for local reference but are never published to the repository.
 docs/adr/

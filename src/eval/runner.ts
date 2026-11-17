@@ -589,12 +589,75 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
         `pass=${t.pass}\nscore=${t.score}\nturns=${t.turns}\ninput=${t.inputTokens}\noutput=${t.outputTokens}\nwallMs=${t.wallMs}\nerror=${t.error ?? ""}\ncheckOutput=${t.checkOutput ?? ""}\n--- graders ---\n${graderLines}\n--- transcript ---\n${transcript}\n`,
       );
     });
+
+    // Stable, durable artifact tree for this run. Layout:
+    //   <outDir>/runs/<runId>/report.json
+    //   <outDir>/runs/<runId>/outcome-snapshot.json
+    //   <outDir>/runs/<runId>/trials/<task>[--trial-N]/transcript.json
+    //   <outDir>/runs/<runId>/trials/<task>[--trial-N]/graders.json
+    const runDir = join(options.outDir, "runs", report.runId);
+    const trialsRoot = join(runDir, "trials");
+    mkdirSync(trialsRoot, { recursive: true });
+    writeFileSync(join(runDir, "report.json"), JSON.stringify(report, null, 2));
+    writeFileSync(
+      join(runDir, "outcome-snapshot.json"),
+      JSON.stringify(
+        {
+          runId: report.runId,
+          suite: report.suite,
+          provider: report.provider,
+          model: report.model,
+          startedAt: report.startedAt,
+          finishedAt: report.finishedAt,
+          outcomes: tasks.map((t) => ({
+            name: t.name,
+            trialIndex: t.trialIndex,
+            pass: t.pass,
+            score: t.score,
+            error: t.error,
+            checkOutput: t.checkOutput,
+          })),
+        },
+        null,
+        2,
+      ),
+    );
+    tasks.forEach((t, i) => {
+      const label =
+        (t.trialCount ?? 1) > 1 ? `${t.name}--trial-${t.trialIndex}` : t.name;
+      const trialDir = join(trialsRoot, label);
+      mkdirSync(trialDir, { recursive: true });
+      writeFileSync(
+        join(trialDir, "transcript.json"),
+        JSON.stringify(taskMessages[i] ?? [], null, 2),
+      );
+      writeFileSync(
+        join(trialDir, "graders.json"),
+        JSON.stringify(
+          {
+            name: t.name,
+            trialIndex: t.trialIndex,
+            pass: t.pass,
+            score: t.score,
+            checkOutput: t.checkOutput,
+            graders: t.graders,
+          },
+          null,
+          2,
+        ),
+      );
+    });
+    // Pointer to the most recent run, so review needs no run id.
+    writeFileSync(
+      join(options.outDir, "latest.json"),
+      JSON.stringify({ runId: report.runId }, null, 2),
+    );
+
     if (options.writeBaseline) {
-      if (options.outDir)
-        writeFileSync(
-          join(options.outDir, "baseline.json"),
-          JSON.stringify(report, null, 2),
-        );
+      writeFileSync(
+        join(options.outDir, "baseline.json"),
+        JSON.stringify(report, null, 2),
+      );
     }
   }
 
@@ -627,4 +690,115 @@ export function compareBaseline(
     newlyPassing,
     newlyFailing,
   };
+}
+
+/** One failed trial surfaced by a review, with its transcript and grader detail. */
+export interface ReviewedFailure {
+  name: string;
+  trialIndex?: number;
+  transcript: any[];
+  graders: GraderResult[];
+  checkOutput?: string;
+  error?: string;
+}
+
+export interface ReviewResult {
+  runId: string;
+  failed: ReviewedFailure[];
+}
+
+export interface ReviewOptions {
+  outDir: string;
+  /** Run id to review; defaults to the most recent run in the output directory. */
+  runId?: string;
+  /** Receives one compact line per emitted record. */
+  printer?: (line: string) => void;
+}
+
+function readJson<T>(path: string): T | undefined {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveRunId(outDir: string, requested?: string): string | undefined {
+  if (requested) return requested;
+  const pointer = readJson<{ runId: string }>(join(outDir, "latest.json"));
+  if (pointer?.runId) return pointer.runId;
+  // Fall back to the most recently created run directory.
+  try {
+    const runsRoot = join(outDir, "runs");
+    const dirs = readdirSync(runsRoot)
+      .filter((n) => {
+        try {
+          return statSync(join(runsRoot, n)).isDirectory();
+        } catch {
+          return false;
+        }
+      })
+      .sort();
+    return dirs[dirs.length - 1];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Select failed trials from a stored run and print a compact review of each
+ * one's transcript and grader detail. The selection is driven by the persisted
+ * outcome snapshot; presentation is delegated to the printer and is not part
+ * of the contract.
+ */
+export async function reviewEval(
+  options: ReviewOptions,
+): Promise<ReviewResult> {
+  const runId = resolveRunId(options.outDir, options.runId);
+  if (!runId) {
+    throw new Error(`no eval run found in ${options.outDir}`);
+  }
+  const runDir = join(options.outDir, "runs", runId);
+  const report = readJson<EvalReport>(join(runDir, "report.json"));
+  if (!report) {
+    throw new Error(`eval run ${runId} has no report.json`);
+  }
+
+  const failed: ReviewedFailure[] = [];
+  for (const task of report.tasks) {
+    if (task.pass) continue;
+    const label =
+      (task.trialCount ?? 1) > 1
+        ? `${task.name}--trial-${task.trialIndex}`
+        : task.name;
+    const trialDir = join(runDir, "trials", label);
+    const transcript = readJson<any[]>(join(trialDir, "transcript.json")) ?? [];
+    const detail = readJson<{
+      graders: GraderResult[];
+      checkOutput?: string;
+      error?: string;
+    }>(join(trialDir, "graders.json"));
+    const failure: ReviewedFailure = {
+      name: task.name,
+      trialIndex: task.trialIndex,
+      transcript,
+      graders: detail?.graders ?? task.graders ?? [],
+      checkOutput: detail?.checkOutput ?? task.checkOutput,
+      error: detail?.error ?? task.error,
+    };
+    failed.push(failure);
+
+    const emit = options.printer ?? (() => {});
+    emit(`FAILED ${label}`);
+    for (const g of failure.graders) {
+      emit(`  ${g.pass ? "PASS" : "FAIL"} ${g.name}: ${g.reason}`);
+    }
+    if (failure.error) emit(`  error: ${failure.error}`);
+    if (failure.checkOutput) emit(`  checkOutput: ${failure.checkOutput}`);
+    for (const m of transcript) {
+      emit(`  ${JSON.stringify(m)}`);
+    }
+  }
+
+  return { runId, failed };
 }
