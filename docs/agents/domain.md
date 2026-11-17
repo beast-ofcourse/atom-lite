@@ -1,32 +1,35 @@
-# Domain Docs
+# Domain docs
 
-How contributors should consume this repo's domain documentation when exploring the codebase.
+How agents should read this repository's documentation before exploring code.
 
-## Before exploring, read these
+## Before exploring
 
-- **`docs/adr/`**: read ADRs that touch the area you're about to work in.
-- **`docs/configuration.md`**: config fields and defaults, when the work touches configuration.
+- **`docs/config.md`** — config fields, defaults, and scope when the work touches configuration.
+- **`docs/README.md`** — the public documentation map and page ownership.
+- **`docs/adr/`** — private architecture decision records. They exist only in maintainer checkouts and are ignored by git. If the directory is absent, skip it silently.
 
-If any of these files don't exist, proceed silently.
+Architecture rationale that needs to be visible to users belongs in the relevant public page, not only in an ADR.
 
 ## File structure
 
 Single-context repo:
 
-```
+```text
 /
-├── docs/
-│   ├── adr/
-│   └── configuration.md
+├── docs/                 # published documentation
+│   ├── README.md         # documentation index
+│   ├── agents/           # agent workflow conventions (internal)
+│   ├── adr/              # private, gitignored
+│   └── <topic>.md        # one public topic per page
 └── src/
 ```
 
-## Use the project's vocabulary
+## Vocabulary
 
-When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term the code, README, and ADRs use. Don't invent synonyms for concepts the project already names.
+Use the terms the code, README, and public docs already use when naming a concept in an issue, refactor proposal, hypothesis, or test. Do not invent synonyms.
 
-If the concept you need isn't established yet, that's a signal: either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it as a documentation gap).
+If a concept has no established name, treat that as a signal: reconsider the name, or record a documentation gap.
 
-## Flag ADR conflicts
+## Conflicts
 
-If your output contradicts an existing ADR, surface it explicitly rather than silently overriding.
+If a change contradicts a private ADR, or a public page disagrees with code, surface the conflict explicitly. Do not silently override either one.

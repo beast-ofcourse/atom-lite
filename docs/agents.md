@@ -1,11 +1,13 @@
 # Agent personas
 
-Primary agent personas are reusable prompt and permission presets for the one
-Atom-lite agent loop. A persona changes the active role instructions,
-temperature, and tool permissions; it does not create a second agent,
-conversation, or tool registry. See
-[ADR 0017](./adr/0017-primary-agent-personas.md) and
-[ADR 0002](./adr/0002-single-agent-loop.md).
+Primary agent personas are reusable prompt and permission presets for the one Atom-lite agent loop. A persona changes role instructions, temperature, and tool permissions; it does not create a second agent, conversation, or tool registry.
+
+```text
+/agents
+/agent reviewer
+```
+
+The active persona appears as `agent:<name>` in the status line.
 
 ## Quick start
 
@@ -137,6 +139,6 @@ its specialty.
 
 ## Related
 
-- [Configuration reference](./configuration.md) — `runtime.agent` and config
+- [Config](./config.md) — `runtime.agent` and config
   precedence.
 - [Extensions](./extensions.md) — extension discovery and trust review.

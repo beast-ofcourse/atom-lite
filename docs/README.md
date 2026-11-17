@@ -1,51 +1,42 @@
 # Documentation
 
-Atom-lite keeps its documentation in the repository as Markdown, so it versions
-with the code and is readable offline.
+Atom-lite is a local-first coding agent. These pages cover installation, daily use, configuration, and extension. Every page documents shipped behavior; examples are copy-pasteable.
 
-## Start here
+## Get started
 
-- [README](../README.md) — install, quick start, configuration, usage, tools,
-  providers, safety, sessions, and development.
-- [Configuration reference](./configuration.md) — every config field, default,
-  and precedence rule.
-- [Test suite](../tests/README.md) — unit / integration / E2E layering,
-  conventions, and maintenance rules.
-- [Agent personas](./agents.md) — persona files, frontmatter, permissions,
-  trust, and `/agent`.
-- [Product context](../PRODUCT.md) — users, positioning, capabilities, and
-  product principles.
+- [Install](./install.md) — package managers, standalone binaries, the default provider.
+- [Quick start](./quickstart.md) — first session, one-shot tasks, stdin, first prompt.
+- [CLI](./cli.md) — flags, the terminal interface, keybindings, modes.
+
+## Use
+
+- [Commands](./commands.md) — slash commands and the command palette.
+- [Tools](./tools.md) — the built-in tool set and how calls are scheduled.
+- [Sessions](./sessions.md) — resume, search, export, compaction.
+- [Goals](./goals.md) — goal statement, criteria, pause and resume, completion gate.
+- [Safety](./safety.md) — workspace boundaries, approvals, trust, secrets.
+
+## Customize
+
+- [Config](./config.md) — every field, default, scope, and precedence rule.
+- [Providers](./providers.md) — adapter types, credentials, model selection.
+- [Agent personas](./agents.md) — persona files, frontmatter, permissions.
+- [Extensions](./extensions.md) — discovery, trust, tool and UI tiers.
+- [Web UI](./web.md) — localhost server, share mode, tabs, reconnects.
+
+## Reference
+
+- [Troubleshooting](./troubleshooting.md) — common failures and exact fixes.
+- [Test suite](../tests/README.md) — test layers and conventions.
+- [Product context](../PRODUCT.md) — users, positioning, principles.
 - [CHANGELOG](../CHANGELOG.md) — release history.
 
-## Extensions
+## Contribute
 
-- [Extensions](./extensions.md) — Pi extension compatibility, discovery, trust, tiers, and diagnostics.
-
-## Architecture
-
-- [Architecture decisions](./adr/) — ADRs. Start with
-  [0001](./adr/0001-four-built-in-tools-only.md),
-  [0006](./adr/0006-expanded-toolset.md), and
-  [0007](./adr/0007-pi-tui-replaces-opentui.md).
-- [0014 — Checkpoints and undo](./adr/0014-checkpoints-and-undo.md) (superseded by 0018)
-- [0015 — Eval harness](./adr/0015-eval-harness.md)
-- [0016 — Session task ledger](./adr/0016-session-task-ledger.md)
-- [0017 — Primary agent personas](./adr/0017-primary-agent-personas.md)
-- [0018 — Defer checkpoint removal](./adr/0018-defer-checkpoint-removal.md)
-- [0019 — Web surface](./adr/0019-web-surface.md)
-- [0020 — One live owner per session](./adr/0020-session-ownership.md)
-- [0021 — Web share mode](./adr/0021-web-share-mode.md)
-- [0022 — Goal continuity](./adr/0022-goal-continuity.md)
-
-## Contributing
-
-- [CONTRIBUTING](../CONTRIBUTING.md) — setup, checks, commit style, and review
-  expectations.
-- [Agent workflow docs](./agents/) — repository conventions for automated
-  agents.
-
-## Operations
-
+- [CONTRIBUTING](../CONTRIBUTING.md) — setup, checks, commit style, review.
+- [Agent workflow](./agents/issue-tracker.md) — local issue tracker conventions.
+- [Domain notes](./agents/domain.md) — vocabulary and documentation rules for agents.
+- [Release workflow](../AGENTS.md) — versioning, publishing, GitHub releases.
 - [Security policy](../SECURITY.md) — supported versions and private reporting.
-- [Release workflow](../AGENTS.md) — tagging, direct npm publishing,
-  and GitHub releases.
+
+Architecture decision records are private to maintainers and ignored by git. Do not link to them from published docs.

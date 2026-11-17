@@ -63,8 +63,7 @@ than a lock-in.
   available in both modes because it does not mutate the workspace.
 - Extensions, MCP servers, and skills are discovered from the project and user
   directories; project extensions require explicit trust.
-- Documentation and architectural decisions are Markdown in the repository
-  (`docs/`, `docs/adr/`), and issues/specs live under `.scratch/`.
+- Published documentation is Markdown under `docs/`, with `docs/README.md` as the index. Architecture decision records are private and gitignored; issues and specs live under `.scratch/`.
 
 ## Capabilities and Constraints
 
@@ -118,16 +117,10 @@ than a lock-in.
 
 ## Evidence on Hand
 
-- `README.md` — install, quick start, configuration, tools, providers, safety,
-  sessions, commands, development, and architecture.
-- `docs/README.md`, `docs/configuration.md`, `docs/extensions.md` — supporting
-  reference docs; `web/DESIGN.md` records the web surface design system.
-- `docs/adr/0001`–`0020` — architectural decisions, including four-tools-only,
-  single agent loop, bash barrier, local-first, pi-tui, expanded toolset, MCP,
-  session search, deepened loop, Pi extensions, autonomy primitives, advanced
-  tool features, checkpoints, the eval harness, the session task ledger,
-  primary agent personas, checkpoint removal, the web surface, and one live
-  owner per session.
+- `README.md` — short landing page with install, quick start, feature list, and the documentation map.
+- `docs/README.md` — public documentation index. Topic pages cover CLI, commands, config, tools, providers, agents, sessions, goals, extensions, web, safety, and troubleshooting.
+- `docs/agents/` — internal conventions for automated agents. `web/DESIGN.md` records the web surface design system.
+- Architecture decision records are private to maintainers and are not part of the published documentation.
 - `tests/` — behavioral test suite; `scripts/bench.mjs` — non-gating benchmark.
 - `CHANGELOG.md` — release history through 0.9.0.
 - **Absences future work must not fabricate:** no customer testimonials, case

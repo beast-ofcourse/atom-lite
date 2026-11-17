@@ -1,6 +1,6 @@
 # Atom-lite
 
-Local-first, model-agnostic coding agent. See `docs/README.md` for documentation and `docs/adr/` for architectural decisions.
+Local-first, model-agnostic coding agent. See `docs/README.md` for the published documentation map. ADRs under `docs/adr/` are private and gitignored.
 
 ## Release workflow (follow exactly)
 
@@ -26,6 +26,10 @@ Issues and specs live as markdown files under `.scratch/`. See `docs/agents/issu
 
 Use the `release-workflow` skill (`.agents/skills/release-workflow/SKILL.md`) when releasing, publishing, shipping, bumping a version, or preparing release notes/changelog. It supersedes the short checklist above; follow it exactly.
 
+### Documentation skill
+
+Use the `atom-lite-docs` skill (`.agents/skills/atom-lite-docs/SKILL.md`) for any change to `README.md`, `docs/`, or the changelog. It owns the page map and the house style.
+
 ### Domain docs
 
-Single-context repo: docs in `docs/`, ADRs in `docs/adr/`. See `docs/agents/domain.md`.
+Single-context repo: published docs in `docs/`, private gitignored ADRs in `docs/adr/`. See `docs/agents/domain.md`.

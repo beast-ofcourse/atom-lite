@@ -1,358 +1,80 @@
 # Atom-lite
 
-<p align="center">
-  <img src="./assets/atom-lite.png" alt="Atom-lite" width="900" />
-</p>
+A local-first, model-agnostic coding agent for the terminal. One agent loop, ten built-in tools, durable JSONL sessions, and explicit safety boundaries. No cloud account, telemetry, or control plane.
 
-[![npm](https://img.shields.io/npm/v/atom-lite?logo=npm)](https://www.npmjs.com/package/atom-lite)
-[![npm downloads](https://img.shields.io/npm/dt/atom-lite?logo=npm&label=downloads)](https://www.npmjs.com/package/atom-lite)
-[![CI](https://github.com/beast-ofcourse/atom-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/beast-ofcourse/atom-lite/actions/workflows/ci.yml)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D22.19-339933?logo=node.js&logoColor=white)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+```bash
+npm install -g atom-lite
+atom-lite "fix the failing test"
+```
 
-Atom-lite is a local-first, model-agnostic coding agent built on a deliberately small harness: one agent loop, ten built-in tools, a conflict-aware scheduler, durable JSONL sessions, and explicit safety boundaries. It runs against local or hosted providers through interchangeable adapters — no cloud account, telemetry, or control plane required.
-
-> Documentation index: [`docs/README.md`](./docs/README.md). Architectural decisions: [`docs/adr/`](./docs/adr/).
-
-## Why Atom-lite
-
-Most coding agents accumulate tools, sub-agents, and orchestration until the harness becomes the product. Atom-lite takes the opposite stance:
-
-- **Small core, strong primitives.** Provider interface, session model, one agent loop, ten tools, scheduler/executor, context management, config, and CLI.
-- **The model decides; the runtime enforces.** The model chooses tools and next steps; the runtime validates arguments, enforces workspace boundaries, applies approval rules, schedules calls safely, and returns accurate results. No hard-coded workflow.
-- **Thin harness, not weak engineering.** Streaming failures, concurrent file access, shell timeouts, large outputs, context exhaustion, and session recovery are handled as the reliability layer.
-
-## Features
-
-- **Ten built-in tools** — `read`, `write`, `edit`, `bash`, `grep`, `glob`, `webfetch`, `websearch`, `task`, `todo`. Background tasks run via `bash` with `background:true` and are managed through `task`. The `todo` tool maintains the session task ledger. Everything else (tests, git, builds) runs through `bash`.
-- **Single agent loop** — one agent, one conversation, one registry, one control loop. Parallelism lives inside a tool-call batch.
-- **Conflict-aware scheduler** — per-file read/write locks and a global bash barrier.
-- **Durable sessions** — append-only JSONL event logs, resumable across restarts, grouped by workspace.
-- **Context management** — token estimation and compaction before the budget is exceeded, full transcript retained.
-- **Live context meter** — `tokens: 4.5k/256k` against the model's real window, resolved from provider metadata with fallbacks.
-- **Autonomy modes** — `plan` (read/web plus the session task ledger) and `yolo` (all tools), toggled with Tab; default `yolo`.
-- **Hash guards** — `expected_hash` rejects stale `write`/`edit` when a file changed since read.
-- **Provider-agnostic** — Ollama, Gemini, and any OpenAI-compatible endpoint (LM Studio, llama.cpp, Kilo, OpenAI, Anthropic, OpenRouter, Groq, Mistral, xAI, …).
-- **Interactive pickers** — `/provider` adds a provider and stores its key securely; `/model` fuzzy-searches every configured provider's models.
-- **Command palette & themes** — `ctrl+p` fuzzy-searches commands, skills, providers, models, themes, sessions. `/theme` switches auto/dark/light/no-colour.
-- **Local-first** — runs fully against local providers; no telemetry or hosted database.
-- **Safe path handling** — file tools resolve against the workspace and reject escapes; shell is an explicit boundary.
-- **Git-native recovery** — use git for undo/review (`/diff` shows changes against `HEAD`). Automatic checkpoints were removed (see [ADR 0018](./docs/adr/0018-defer-checkpoint-removal.md)).
+Requires Node.js >= 22.19.
 
 ## Install
 
-```sh
+```bash
 npm install -g atom-lite
 ```
 
-Or run without installing:
+Run without installing:
 
-```sh
-npx atom-lite "fix the failing test"
+```bash
+npx atom-lite "explain this repository"
 ```
 
-Requires **Node.js >= 22.19**.
+Other methods and the default provider are in [Install](./docs/install.md).
 
 ## Quick start
 
-```sh
-atom-lite                 # interactive session in the current directory
-atom-lite "task"          # run one task, then exit
-atom-lite --provider NAME # select a provider profile
-atom-lite --continue      # resume the most recent session
+```bash
+atom-lite                  # interactive session in the current directory
+atom-lite "task"           # one-shot task, then exit
+atom-lite --continue       # resume the most recent session here
+atom-lite --serve          # browser UI on localhost
 atom-lite --help
 ```
 
-Pipe a task via stdin:
+Pipe a task with stdin:
 
-```sh
+```bash
 echo "summarize this repo" | atom-lite
 ```
 
-## Default provider
+See [Quick start](./docs/quickstart.md) and [CLI](./docs/cli.md).
 
-Out of the box, Atom-lite uses the **Kilo AI Gateway** (`https://api.kilo.ai/api/gateway`) with the free `kilo-auto/free` model. No API key required (rate-limited to 200 requests/hour per IP for anonymous use). Override via `--provider`/`--model` or config.
+## Features
 
-## Configuration
+- **One agent loop.** One conversation, one tool registry, one control loop. Parallelism lives inside a tool-call batch.
+- **Ten built-in tools.** `read`, `write`, `edit`, `bash`, `grep`, `glob`, `webfetch`, `websearch`, `task`, `todo`.
+- **Durable sessions.** Append-only JSONL event logs, resumable across restarts, grouped by workspace.
+- **Context management.** Token estimation and compaction before the budget is exceeded; the full transcript stays on disk.
+- **Autonomy modes.** `plan` for read-only work, `yolo` for all tools. Toggle with Tab.
+- **Goal continuity.** A durable statement, success criteria, and a pause gate that survives compaction and session resume.
+- **Local-first providers.** Ollama, Gemini, and any OpenAI-compatible endpoint, including local servers.
+- **Browser surface.** `atom-lite --serve` drives the same runtime, tools, sessions, and approvals.
 
-- User config: `~/.config/atom-lite/config.json`
-- Project config: `.atom-lite/config.json` (non-secrets only)
+The runtime validates tool arguments, enforces workspace boundaries, applies approval rules, and schedules calls safely. The model chooses the next step.
 
-Precedence (low → high): defaults → user config → project config (non-secret) → environment → CLI overrides. Security-critical user settings (e.g. `approvalMode`) are not overridable by project config.
+## Documentation
 
-Secrets live in `~/.config/atom-lite/credentials.json` (`0600`). Environment variables named by a provider's `apiKeyEnv` take precedence over the stored key. Secrets are never written to project config or session files.
+Start at the [documentation index](./docs/README.md).
 
-| Variable             | Effect                        |
-| -------------------- | ----------------------------- |
-| `ATOM_LITE_PROVIDER` | Default provider profile name |
-| `ATOM_LITE_MODE`     | `plan` / `yolo`               |
+| Topic                 | Page                                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------- |
+| Install and providers | [Install](./docs/install.md) · [Providers](./docs/providers.md)                             |
+| Daily use             | [Quick start](./docs/quickstart.md) · [CLI](./docs/cli.md) · [Commands](./docs/commands.md) |
+| Configuration         | [Config](./docs/config.md)                                                                  |
+| Tools and safety      | [Tools](./docs/tools.md) · [Safety](./docs/safety.md)                                       |
+| Sessions and goals    | [Sessions](./docs/sessions.md) · [Goals](./docs/goals.md)                                   |
+| Extensions            | [Agent personas](./docs/agents.md) · [Extensions](./docs/extensions.md)                     |
+| Surfaces              | [Web UI](./docs/web.md)                                                                     |
+| Help                  | [Troubleshooting](./docs/troubleshooting.md) · [Contributing](./CONTRIBUTING.md)            |
 
-See [`docs/configuration.md`](./docs/configuration.md) for every field, default, and precedence rule.
-
-## Usage
-
-```
-atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
-          [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json]
-          [--theme NAME] [--no-color] [--serve [PORT]] [--version] [--help]
-```
-
-| Flag                      | Description                                      |
-| ------------------------- | ------------------------------------------------ |
-| `task`                    | One-shot task; agent runs it and exits           |
-| `--provider NAME`         | Select a provider profile                        |
-| `--model MODEL`           | Override the model for this run                  |
-| `--continue`              | Resume the most recent session in this workspace |
-| `--session ID`            | Resume a specific session                        |
-| `--list-sessions`         | Print the session index and exit                 |
-| `--search-sessions QUERY` | Print matching sessions with snippets and exit   |
-| `--no-tools`              | Disable all tools (model-only chat)              |
-| `--json`                  | Non-interactive JSON output                      |
-
-| `--theme NAME` | Use `auto`, `dark`, `light`, or `ansi` for this run |
-| `--no-color` | Force the no-colour theme |
-| `--serve [PORT]` | Serve the browser UI on localhost (default port 7317; next free port if taken) |
-| `--share` | With `--serve`, publish the UI through an outbound HTTPS tunnel and print a QR code |
-| `--tunnel-command COMMAND` | Tunnel command template; `{port}` is replaced with the local port |
-| `--no-qr` | With `--share`, print the URL without a terminal QR code |
-| `--version` | Print version |
-| `--help` | Show help |
-
-`--serve` starts the same runtime, tools, sessions, and approvals behind a
-localhost-only web page and opens it in your browser. The page and every asset
-carry a per-run token; requests with a foreign `Origin` or `Host` are rejected.
-The first tab controls the session, later tabs are read-only viewers. The page
-reconnects on its own and replays an in-flight turn, renders assistant markdown
-with syntax-highlighted code, and follows the configured theme (light for
-`light`, `solarized`, `ansi`, and no-colour; dark otherwise). Sessions use a
-per-session lockfile, so the terminal and browser cannot drive the same log at
-once.
-
-In the TUI, type `/help` for every command grouped by category, or press `ctrl+p` for the fuzzy command palette. `/theme` opens a live-preview picker and persists your choice; `NO_COLOR` and `--no-color` always win. `/sessions` opens a searchable picker scoped to the current workspace; `/search <query>` prints matching sessions with snippets. Mouse wheel scrolling and click-to-focus are enabled for interactive terminals and can be disabled with `ui.mouse: false`.
-
-## Web UI
-
-```
-atom-lite --serve [port]
-```
-
-Starts a local server (default `127.0.0.1:7317`, or the next free port), prints
-the URL with its per-run token, and opens it. The browser drives the same
-runtime, tools, sessions, and approvals as the terminal; there is no second
-agent.
-
-- **Localhost only.** The server binds `127.0.0.1`, and the page and every
-  asset carry the run token. Requests with a foreign `Origin` or `Host` are
-  rejected. Treat the printed URL as a secret while the server runs.
-- **One live owner per session.** The terminal and the server both take
-  `<sessionId>.jsonl.lock`. Opening a session another process holds is refused
-  and names the holder; an unsaved session is protected too. A lock left by a
-  killed process is reclaimed automatically.
-- **Tabs.** The first tab controls the session; later tabs are read-only
-  viewers and take over if the controller leaves.
-- **Reconnects.** A dropped socket reconnects on its own and replays the
-  in-flight turn exactly once. A pending approval survives the drop and
-  returns to the reconnecting tab; it fails safe as a denial if nobody comes
-  back within the grace period.
-- **Input.** Messages typed while a turn runs join the steering queue and are
-  delivered in order before the turn ends. The composer send button carries the
-  running state: it becomes a square Stop control with a quiet ring pulse, and
-  clicking it cancels the turn; Escape and `/stop` do the same, while Enter in
-  the textarea still queues a steering message. The mic button uses the
-  browser's speech recognition where available and inserts recognized text at
-  the caret. Assistant and thinking text are presented at a readable pace even
-  when a provider emits one large burst.
-- **Rendering.** Assistant text is markdown with syntax-highlighted fenced
-  code, local workspace images with a lightbox, and Mermaid diagrams rendered as
-  themed SVG (source and Copy remain as the fallback); thinking is folded into a
-  disclosure labelled with its duration. Tool edits show an inline unified diff
-  with added/removed lines and changed words highlighted. Long sessions render
-  the latest history with an explicit `Load earlier messages` control. The
-  sidebar lists, resumes, renames, and deletes workspace sessions.
-- **Controls.** The header model chip opens a searchable overlay whose catalog
-  is refreshed live from every configured provider. The composer shows and
-  switches effort (`low`/`medium`/`high`) and mode (`plan`/`yolo`), and its plus
-  button opens the native file picker for attachments on every platform.
-  `Ctrl/Cmd+O` opens the working-directory explorer and `Ctrl/Cmd+K` the command
-  palette. Typing `/` offers `/new`, `/help`, `/stop`, `/model`, `/theme`,
-  `/cwd`, `/rename`, `/delete`, `/search`, `/export`, `/effort`, `/mode`,
-  `/skills`, and `/mcp`.
-- **Theme.** The configured `ui.theme` seeds the web theme; the sidebar footer
-  can then switch between System, Light, and Dark and remembers the choice.
-- **Not yet.** ANSI rendering, shell mode, and extension widgets. The terminal
-  remains the primary surface.
-
-### Phone access
-
-Install [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/),
-then run `atom-lite --serve --share`. The command keeps the server on
-`127.0.0.1`, opens an outbound HTTPS tunnel, and prints a local URL for
-diagnostics plus a shared URL with a QR code. Scan the code with the phone.
-The shared URL contains the run token; treat it as a secret.
-
-Use `--tunnel-command 'COMMAND {port}'` to substitute another tunnel provider,
-and `--no-qr` when the terminal cannot render the code. The tunnel and server
-close together on Ctrl-C. Default `--serve` stays localhost-only. See
-[ADR 0021](./docs/adr/0021-web-share-mode.md).
-
-The visual system is documented in [`web/DESIGN.md`](./web/DESIGN.md).
-
-## Tools
-
-Ten built-in tools — the four core tools from [ADR 0001](./docs/adr/0001-four-built-in-tools-only.md), file search, network tools from [ADR 0006](./docs/adr/0006-expanded-toolset.md), `task` for background work from [ADR 0013](./docs/adr/0013-advanced-tool-features.md), and the session task ledger from [ADR 0016](./docs/adr/0016-session-task-ledger.md):
-
-| Tool        | Purpose                                                          |
-| ----------- | ---------------------------------------------------------------- |
-| `read`      | Inspect files (with optional line ranges)                        |
-| `write`     | Create or replace files safely (hash-guarded)                    |
-| `edit`      | Precise find-and-replace edits (hash-guarded)                    |
-| `bash`      | Execute shell commands (global exclusive barrier by default)     |
-| `grep`      | Search file contents by regex (ripgrep-backed, falls back to JS) |
-| `glob`      | Find files matching a glob pattern                               |
-| `webfetch`  | Fetch a URL and convert HTML to markdown                         |
-| `websearch` | Search the web and return ranked results                         |
-| `task`      | Query or control a background bash task                          |
-| `todo`      | Maintain the session task ledger                                 |
-
-Tests, Git, builds, formatters, and package managers are available through `bash`.
-
-## Providers
-
-| Type                | Adapter                   | Notes                                                                   |
-| ------------------- | ------------------------- | ----------------------------------------------------------------------- |
-| `openai-compatible` | `OpenAICompatibleAdapter` | LM Studio, llama.cpp/llama-server, Kilo, and other compatible endpoints |
-| `ollama`            | `OllamaAdapter`           | Native Ollama chat API                                                  |
-| `gemini`            | `GeminiAdapter`           | Official Gemini API                                                     |
-
-Provider profiles are named combinations of endpoint, model, auth source, and options. Switching profiles mid-tool-exchange is disallowed.
-
-### Interactive setup
-
-- `/provider` opens a searchable list of built-in providers (Kilo, OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, Mistral, xAI, Ollama, LM Studio, llama.cpp). Selecting a hosted provider prompts for an API key with hidden input, validates it, and saves it to `~/.config/atom-lite/credentials.json` (`0600`).
-- `/model` opens a fuzzy-searchable picker containing models from every configured provider (plus providers whose key is present in the environment). Live model lists are fetched in the background.
-- `/model <provider>/<model>` and `/provider <name>` are the non-interactive forms.
-
-The selected provider/model is persisted to user config, so the next session starts where you left off.
-
-## Safety & security
-
-- **Workspace boundary** — `read`/`write`/`edit` resolve paths against the workspace and reject escapes. Shell commands are not constrained by this boundary, so `bash` runs as a global exclusive barrier.
-- **Autonomy modes** — `plan` allows read/web tools plus the session task ledger; `yolo` allows all tools. Default `yolo`. Toggle with Tab or set `runtime.mode`.
-- **Hash guards** — prevent stale overwrites when a file changed since it was read.
-- **Sandboxing flags** — reported per command; see `src/security/`.
-- **No secrets in config** — interactive setup stores API keys in `~/.config/atom-lite/credentials.json` (`0600`); environment variables take precedence.
-- **Local-first** — no cloud account, telemetry, or remote control plane required (see [ADR 0004](./docs/adr/0004-local-first-no-cloud-dependency.md)).
-
-## Commands
-
-Type `/help` for the grouped list, or press `ctrl+p` for the fuzzy command palette. Common commands:
-
-| Command                                                                      | Description                                |
-| ---------------------------------------------------------------------------- | ------------------------------------------ |
-| `/help` (alias `/?`)                                                         | Show commands                              |
-| `/model [model]`                                                             | Search or switch the active model          |
-| `/provider [profile]`                                                        | Add or select a provider                   |
-| `/effort [low\|medium\|high]`                                                | Set reasoning effort                       |
-| `/agents`                                                                    | List primary agent personas                |
-| `/agent [name]`                                                              | Switch primary agent persona (interactive) |
-| `/goal [set\|criteria\|constraints\|pause\|resume\|clear\|complete\|status]` | Set or control the session goal            |
-| `/rename [rename <title>]` (alias `/session`)                                | Show or rename the current session         |
-| `/sessions [all]`                                                            | Search or resume a session                 |
-| `/search <query>`                                                            | Search sessions by title or content        |
-| `/new` (alias `/clear`)                                                      | Start a new session                        |
-| `/compact [focus]`                                                           | Compact older context                      |
-| `/diff [--stat] [path]`                                                      | Show workspace changes against git `HEAD`  |
-| `/export [path] [--format md\|json] [--force] [--no-redact]`                 | Export the session transcript              |
-| `/mcp [reconnect [server]]`                                                  | List or reconnect MCP servers              |
-| `/extensions`                                                                | List discovered extensions and load status |
-| `/reload`                                                                    | Reload all extensions from disk            |
-| `/approval`                                                                  | Show approval mode (legacy)                |
-| `/doctor`                                                                    | Run diagnostics                            |
-| `/thinking`                                                                  | Toggle thinking display                    |
-| `/theme [auto\|dark\|light\|ansi]`                                           | Choose a colour theme                      |
-| `/skills`                                                                    | List skills                                |
-| `/skill <name> [prompt]`                                                     | Load a skill                               |
-| `/keybindings`                                                               | Open the keybindings config file           |
-| `/shortcuts`                                                                 | List keyboard shortcuts                    |
-| `/exit` (alias `/quit`)                                                      | Exit the TUI                               |
-
-## Agent personas
-
-Primary agent personas are Markdown files that preset role instructions, sampling temperature, and tool permissions for the one agent loop. `/agents` lists them, `/agent <name>` switches without clearing conversation history, and the active persona appears in the status line. Set `runtime.agent` in user config to load one at startup. Project-local personas require project trust. See [`docs/agents.md`](./docs/agents.md) and [ADR 0017](./docs/adr/0017-primary-agent-personas.md).
-
-## Sessions
-
-Sessions are append-only JSONL event logs recording everything in one conversation. They are resumable across CLI restarts and grouped by workspace. A new session stays in memory until its first message, so creating one and quitting leaves no empty log. The session index derives a title from the first user message unless `/rename rename <title>` overrides it, and records the provider, update time, and message count. `/sessions` resumes a session in place: retained messages are replayed into the transcript and a `session_resumed` event is appended. `/search <query>` matches titles, message content, and workspace paths, ranking title hits first. `--list-sessions` and `--search-sessions` print the same index as stable tab-separated rows for scripts. Compaction summarizes older history to stay within the context budget while retaining the full transcript.
-
-## Context management
-
-The context manager builds model input, estimates tokens, and triggers compaction before the context budget is exceeded. It also loads project instructions (e.g. `AGENTS.md`/`CLAUDE.md`-style files) subject to `maxProjectInstructionBytes`.
-
-## Goal continuity
-
-`/goal set <statement>` gives a long task a durable anchor that survives compaction and session resume; `/goal criteria <list>` defines what "done" means, and `/goal constraints <text>` records off-limits approaches. Bare `/goal` shows the current statement, criteria, status, and open-todo count. The statement and criteria are user-owned: the model can read them with the `goal` tool and mark the goal complete with evidence, but it cannot rewrite them. Completion succeeds only when every criterion is backed by a completed todo or by the evidence supplied with the call; unmet criteria are named in the error.
-
-`/goal pause` freezes the run after in-flight tool calls finish; `/goal resume` continues from the saved goal and ledger without restating the task. The side panel shows the goal, status, criteria, and todo statuses whenever a goal or todos exist; press `ctrl+g` to toggle it. With the panel hidden, the status line still shows the open-todo count. After each compaction one continuation message names the goal, criteria, current todo, and next action, and is mirrored into the transcript. See [ADR 0022](./docs/adr/0022-goal-continuity.md).
-
-## Development
-
-```sh
-npm install
-npm run dev        # run via tsx (src/cli/main.ts)
-npm start          # build and run
-npm run typecheck  # tsc --noEmit
-npm test           # build + node --test
-npm run build      # tsc
-npm run format     # prettier --write .
-```
-
-Tests live in `tests/` (agent, config, runtime, tools). The project is TypeScript (strict) on NodeNext ESM.
-
-### Releasing
-
-Follow the release workflow in [`AGENTS.md`](./AGENTS.md):
-
-1. Bump `version` in `package.json` and add a `CHANGELOG.md` entry.
-2. Run `npm run typecheck && npm test && npm run bench` (bench is non-gating).
-3. Commit, tag, push: `git commit ... && git tag vX.Y.Z && git push origin master --tags`.
-4. Publish to npm directly: `npm publish --access public` (do not use `npm stage approve`).
-5. Create GitHub release: `gh release create vX.Y.Z --title "vX.Y.Z" --notes "..."`.
-6. Verify: `npm view atom-lite version` and the GitHub release page.
-
-## Architecture
-
-```
-src/
-  agent/        # agent loop & types
-  cli/          # terminal UI, approvals, commands
-  config/       # schema, defaults, loader
-  context/      # builder, manager, compaction, budget, instructions
-  providers/    # adapters (openai-compatible, ollama, gemini, fake) + factory
-  runtime/      # scheduler, approvals
-  security/     # paths, process, redaction
-  sessions/     # store, events, recovery
-  tools/        # read, write, edit, bash, grep, glob, webfetch, websearch, registry
-```
-
-Key design decisions are recorded as ADRs in [`docs/adr/`](./docs/adr/):
-
-- [0001 — Four built-in tools only](./docs/adr/0001-four-built-in-tools-only.md)
-- [0002 — Single agent loop, no sub-agents in v1](./docs/adr/0002-single-agent-loop.md)
-- [0003 — `bash` is a global exclusive barrier](./docs/adr/0003-bash-as-global-exclusive-barrier.md)
-- [0004 — Local-first, no cloud dependency](./docs/adr/0004-local-first-no-cloud-dependency.md)
-- [0005 — OpenTUI for the terminal UI](./docs/adr/0005-opentui-for-terminal-ui.md) (superseded by 0007)
-- [0006 — Expanded built-in toolset (webfetch, websearch)](./docs/adr/0006-expanded-toolset.md)
-- [0007 — pi-tui replaces OpenTUI](./docs/adr/0007-pi-tui-replaces-opentui.md)
+Architecture decision records are private to maintainers and are not published in this repository.
 
 ## Contributing
 
-Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) before opening a pull request. Issues and specs live as markdown under `.scratch/` (see [`docs/agents/issue-tracker.md`](./docs/agents/issue-tracker.md)). Keep changes consistent with the "small core" principle: new tools require strong justification against ADR 0001.
-
-Report vulnerabilities privately as described in [`SECURITY.md`](./SECURITY.md).
+Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request. Report vulnerabilities privately as described in [SECURITY.md](./SECURITY.md).
 
 ## License
 
 MIT
-
-<!-- appended -->

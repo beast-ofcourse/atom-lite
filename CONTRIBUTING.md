@@ -33,13 +33,10 @@ rendering.
 
 ## Guidelines
 
-- **Keep the core small.** New built-in tools need a strong justification
-  against [ADR 0001](docs/adr/0001-four-built-in-tools-only.md). Prefer composing
-  behavior through `bash` when it is reliable.
-- **Add tests.** Behavior changes need coverage under `tests/`. Bug fixes should
-  include a regression test where practical.
-- **Record architecture decisions.** Structural changes belong in a new ADR under
-  `docs/adr/`, following the existing format.
+- **Keep the core small.** New built-in tools need a strong justification against the documented small-core principle in [Tools](docs/tools.md). Prefer composing behavior through `bash` when it is reliable.
+- **Add tests.** Behavior changes need coverage under `tests/`. Bug fixes should include a regression test where practical.
+- **Document user-visible behavior.** Update the matching page under `docs/` in the same commit. Use the `atom-lite-docs` skill for structure and style.
+- **Record architecture decisions privately.** ADRs live under `docs/adr/`, which is ignored by git. Maintainers with local ADRs may add one there; the user-visible rationale must also appear in the relevant public docs page.
 - **Match the surrounding code.** TypeScript strict mode, NodeNext ESM, named
   exports, and no new runtime dependencies without discussion.
 - **Use Conventional Commits** (`feat:`, `fix:`, `perf:`, `docs:`, `test:`,

@@ -1,10 +1,14 @@
 node_modules/
 dist/
 .scratch/
+# Architecture decision records are private to the maintainer. They stay on
+# disk for local reference but are never published to the repository.
+docs/adr/
 *.log
 *.tgz
 .DS_Store
 .agents/skills/*
+!.agents/skills/atom-lite-docs/
 !.agents/skills/atom-lite-extensions/
 !.agents/skills/release-workflow/
 skills-lock.json

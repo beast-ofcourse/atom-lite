@@ -1,7 +1,15 @@
-# Configuration reference
+# Config
 
-Atom-lite is configured with JSON files and a small set of environment
-variables. Provider API keys can live in a separate credentials file.
+Create `<workspace>/.atom-lite/config.json` or `~/.config/atom-lite/config.json`, then set only the options you need.
+
+```jsonc title=".atom-lite/config.json"
+{
+  "runtime": { "mode": "plan" },
+  "context": { "compactAtPercent": 85 },
+}
+```
+
+Atom-lite is configured with JSON files and a small set of environment variables. Provider API keys can live in a separate credentials file.
 
 ## Files
 
@@ -50,18 +58,19 @@ agent persona, or change your colours and editor behaviour.
 
 A profile is a named endpoint plus model and credentials.
 
-| Key             | Type              | Default           | Description                                                                                                              |
-| --------------- | ----------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `type`          | string            | required          | `openai-compatible`, `ollama`, or `gemini`.                                                                              |
-| `model`         | string            | required          | Model id. `--model` overrides it for one run.                                                                            |
-| `baseUrl`       | URL string        | adapter-specific  | `http://127.0.0.1:1234/v1` for OpenAI-compatible, `http://127.0.0.1:11434` for Ollama, provider default for Gemini.      |
-| `apiKeyEnv`     | string \| null    | none              | Environment variable that holds the key.                                                                                 |
-| `apiKey`        | string \| null    | none              | Inline key. Prefer `apiKeyEnv` or the credentials file.                                                                  |
-| `headers`       | object of strings | none              | Extra HTTP headers.                                                                                                      |
-| `contextWindow` | positive integer  | provider metadata | Explicit context window for models without metadata. Highest-priority source for the status meter and compaction budget. |
-| `keepAlive`     | string            | adapter default   | Ollama only: how long the model stays loaded.                                                                            |
-| `think`         | boolean \| string | adapter default   | Ollama only: forwarded as the `think` option for reasoning models.                                                       |
-| `options`       | object            | none              | Ollama only: request options merged into every call (for example sampling settings).                                     |
+| Key              | Type              | Default           | Description                                                                                                              |
+| ---------------- | ----------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `type`           | string            | required          | `openai-compatible`, `ollama`, or `gemini`.                                                                              |
+| `model`          | string            | required          | Model id. `--model` overrides it for one run.                                                                            |
+| `baseUrl`        | URL string        | adapter-specific  | `http://127.0.0.1:1234/v1` for OpenAI-compatible, `http://127.0.0.1:11434` for Ollama, provider default for Gemini.      |
+| `apiKeyEnv`      | string \| null    | none              | Environment variable that holds the key.                                                                                 |
+| `apiKey`         | string \| null    | none              | Inline key. Prefer `apiKeyEnv` or the credentials file.                                                                  |
+| `headers`        | object of strings | none              | Extra HTTP headers.                                                                                                      |
+| `contextWindow`  | positive integer  | provider metadata | Explicit context window for models without metadata. Highest-priority source for the status meter and compaction budget. |
+| `supportsVision` | boolean           | provider metadata | Whether the selected model accepts image input. Overrides provider detection.                                            |
+| `keepAlive`      | string            | adapter default   | Ollama only: how long the model stays loaded.                                                                            |
+| `think`          | boolean \| string | adapter default   | Ollama only: forwarded as the `think` option for reasoning models.                                                       |
+| `options`        | object            | none              | Ollama only: request options merged into every call (for example sampling settings).                                     |
 
 Credential lookup order for a profile: `apiKeyEnv` environment variable, then the
 stored credential, then inline `apiKey`.
@@ -138,9 +147,7 @@ them; they are not uploaded anywhere.
 
 ## Recovery
 
-Automatic pre-mutation checkpoints were removed (see
-[ADR 0018](./adr/0018-defer-checkpoint-removal.md)); use git for undo and
-review, and `/diff` for working-tree changes.
+Automatic pre-mutation checkpoints are not part of the product; use git for undo and review, and `/diff` for working-tree changes.
 
 - `/diff [--stat] [path]` — show workspace changes against git `HEAD` (added,
   modified, and untracked files). Requires a git repository.

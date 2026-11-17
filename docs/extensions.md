@@ -1,8 +1,13 @@
 # Extensions
 
-Atom-lite hosts unmodified Pi coding-agent extensions in-process. See
-[ADR-0011](./adr/0011-pi-extensions-in-process.md) for the architectural
-decision.
+Atom-lite hosts unmodified Pi coding-agent extensions in-process. Load one for a single run, or install it in a user or project directory.
+
+```bash
+atom-lite -e ./my-extension
+/extensions doctor
+```
+
+Project-local extensions load only after the project is trusted. See [Safety](./safety.md).
 
 ## Supported Pi version
 

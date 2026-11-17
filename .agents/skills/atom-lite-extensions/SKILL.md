@@ -15,7 +15,6 @@ runtime.
 Reference docs:
 
 - `docs/extensions.md` — discovery, trust, compatibility tiers, diagnostics.
-- `docs/adr/0011-pi-extensions-in-process.md` — architecture.
 - `src/extensions/types.ts` — full `ExtensionAPI` + registries.
 - `src/extensions/api.ts` — runtime implementation.
 - `tests/extensions/` — conformance fixtures.
@@ -255,7 +254,6 @@ Inside atom-lite:
 ## Links
 
 - Docs: `docs/extensions.md`
-- ADR: `docs/adr/0011-pi-extensions-in-process.md`
 - Types: `src/extensions/types.ts`
 - Runtime: `src/extensions/`
 - Pi extension API reference (installed): `~/.pi/agent/install/releases/1.4.0/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts`
