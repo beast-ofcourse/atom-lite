@@ -254,3 +254,225 @@ test("runEval runs all tasks with no suite selector and names the report all", a
     rmSync(tasksDir, { recursive: true, force: true });
   }
 });
+
+// --- ticket 02: structured graders with partial credit -----------------------
+
+interface GraderDecl {
+  name: string;
+  type: string;
+  [key: string]: unknown;
+}
+
+function makeGradedTask(
+  tasksDir: string,
+  name: string,
+  graders: GraderDecl[],
+  checkScript = "process.exit(0);\n",
+): void {
+  const dir = join(tasksDir, name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "prompt.txt"), "do the thing\n");
+  writeFileSync(join(dir, "check.cjs"), checkScript);
+  writeFileSync(
+    join(dir, "manifest.json"),
+    JSON.stringify({ suite: "regression", graders }),
+  );
+}
+
+function writeHelloProvider(): FakeProvider {
+  return new FakeProvider([
+    {
+      toolCalls: [
+        {
+          id: "w1",
+          name: "write",
+          arguments: { path: "hello.txt", content: "hi" },
+        },
+      ],
+      usage: { input: 10, output: 2, total: 12 },
+    },
+    { text: "done", usage: { input: 5, output: 1, total: 6 } },
+  ]);
+}
+
+test("graded task: full pass reports a named result and reason per grader and score 1", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  try {
+    makeGradedTask(tasksDir, "graded", [
+      { name: "hello-exists", type: "fileExists", path: "hello.txt" },
+      {
+        name: "hello-content",
+        type: "fileContains",
+        path: "hello.txt",
+        contains: "hi",
+      },
+    ]);
+    const report = await runEval({
+      provider: writeHelloProvider(),
+      tasksDir,
+      taskFilter: "graded",
+    });
+    const t = report.tasks[0];
+    assert.equal(t.pass, true);
+    assert.equal(t.score, 1);
+    assert.equal(t.graders?.length, 2);
+    assert.deepEqual(
+      t.graders?.map((g) => g.name),
+      ["hello-exists", "hello-content"],
+    );
+    assert.equal(
+      t.graders?.every((g) => g.pass === true),
+      true,
+    );
+    assert.equal(
+      t.graders?.every((g) => g.reason.length > 0),
+      true,
+    );
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+  }
+});
+
+test("graded task: partial credit rolls up to a fractional task score", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  try {
+    makeGradedTask(tasksDir, "graded", [
+      { name: "hello-exists", type: "fileExists", path: "hello.txt" },
+      { name: "other-exists", type: "fileExists", path: "absent.txt" },
+    ]);
+    const report = await runEval({
+      provider: writeHelloProvider(),
+      tasksDir,
+      taskFilter: "graded",
+    });
+    const t = report.tasks[0];
+    assert.equal(t.pass, false);
+    assert.equal(t.score, 0.5);
+    assert.equal(t.graders?.[0].pass, true);
+    assert.equal(t.graders?.[1].pass, false);
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+  }
+});
+
+test("graded task: a failing grader reports its name in the reason", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  try {
+    makeGradedTask(tasksDir, "graded", [
+      { name: "other-exists", type: "fileExists", path: "absent.txt" },
+    ]);
+    const report = await runEval({
+      provider: writeHelloProvider(),
+      tasksDir,
+      taskFilter: "graded",
+    });
+    const g = report.tasks[0].graders?.[0];
+    assert.ok(g);
+    assert.equal(g.pass, false);
+    assert.match(g.reason, /absent\.txt/);
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+  }
+});
+
+test("graded task: graders assert workspace state, test results, tool usage, and transcript bounds", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  try {
+    makeGradedTask(tasksDir, "graded", [
+      { name: "exists", type: "fileExists", path: "hello.txt" },
+      {
+        name: "content",
+        type: "fileContains",
+        path: "hello.txt",
+        contains: "hi",
+      },
+      { name: "test-result", type: "command", command: "test -f hello.txt" },
+      { name: "used-write", type: "toolUsed", tool: "write" },
+      { name: "no-edit", type: "toolNotUsed", tool: "edit" },
+      { name: "turn-bound", type: "maxTurns", max: 5 },
+      { name: "tool-bound", type: "maxToolCalls", max: 3 },
+    ]);
+    const report = await runEval({
+      provider: writeHelloProvider(),
+      tasksDir,
+      taskFilter: "graded",
+    });
+    const t = report.tasks[0];
+    assert.equal(t.pass, true);
+    assert.equal(t.score, 1);
+    assert.equal(t.graders?.length, 7);
+    assert.equal(
+      t.graders?.every((g) => g.pass === true),
+      true,
+    );
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+  }
+});
+
+test("graded task: outcome graders pass for an alternative path that produces the file", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  try {
+    makeGradedTask(tasksDir, "graded", [
+      { name: "exists", type: "fileExists", path: "hello.txt" },
+      {
+        name: "content",
+        type: "fileContains",
+        path: "hello.txt",
+        contains: "hi",
+      },
+    ]);
+    const provider = new FakeProvider([
+      {
+        toolCalls: [
+          {
+            id: "b1",
+            name: "bash",
+            arguments: { command: "printf hi > hello.txt" },
+          },
+        ],
+        usage: { input: 10, output: 2, total: 12 },
+      },
+      { text: "done", usage: { input: 5, output: 1, total: 6 } },
+    ]);
+    const report = await runEval({ provider, tasksDir, taskFilter: "graded" });
+    const t = report.tasks[0];
+    assert.equal(t.pass, true);
+    assert.equal(t.score, 1);
+    assert.equal(
+      t.graders?.every((g) => g.pass === true),
+      true,
+    );
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+  }
+});
+
+test("ungraded task keeps the check-script flow with score 0 or 1 and no graders", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  try {
+    makeTask(tasksDir, "legacy-pass");
+    makeTask(tasksDir, "legacy-fail", {});
+    writeFileSync(
+      join(tasksDir, "legacy-fail", "check.cjs"),
+      "process.exit(1);\n",
+    );
+    const provider = new FakeProvider([
+      { text: "done", usage: { input: 1, output: 1, total: 2 } },
+      { text: "done", usage: { input: 1, output: 1, total: 2 } },
+      { text: "done", usage: { input: 1, output: 1, total: 2 } },
+      { text: "done", usage: { input: 1, output: 1, total: 2 } },
+    ]);
+    const report = await runEval({ provider, tasksDir });
+    const pass = report.tasks.find((t) => t.name === "legacy-pass");
+    const fail = report.tasks.find((t) => t.name === "legacy-fail");
+    assert.equal(pass?.pass, true);
+    assert.equal(pass?.score, 1);
+    assert.deepEqual(pass?.graders, []);
+    assert.equal(fail?.pass, false);
+    assert.equal(fail?.score, 0);
+    assert.deepEqual(fail?.graders, []);
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+  }
+});
