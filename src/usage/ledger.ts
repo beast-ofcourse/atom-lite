@@ -1,12 +1,16 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { MessageAttribution } from "../context/attribution.js";
+import type { TokenUsage } from "../types.js";
 
 /** Reported token counts for one model call. Unreported fields are null. */
 export interface LedgerUsage {
   input: number | null;
   output: number | null;
   total: number | null;
+  /** Present only when the provider reported a cache read/write counter. */
+  cacheRead?: number;
+  cacheWrite?: number;
 }
 
 /**
@@ -47,7 +51,7 @@ export interface UsageCallContext {
 export function recordModelUsage(
   ledger: UsageLedger | undefined,
   context: UsageCallContext,
-  usage: { input?: number; output?: number; total?: number } = {},
+  usage: TokenUsage = {},
 ): void {
   if (!ledger) return;
   try {
@@ -58,6 +62,10 @@ export function recordModelUsage(
         input: usage.input ?? null,
         output: usage.output ?? null,
         total: usage.total ?? null,
+        ...(usage.cacheRead !== undefined ? { cacheRead: usage.cacheRead } : {}),
+        ...(usage.cacheWrite !== undefined
+          ? { cacheWrite: usage.cacheWrite }
+          : {}),
       },
     });
   } catch {

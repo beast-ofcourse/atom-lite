@@ -1,4 +1,9 @@
-import type { Message, ModelRequest, ToolCall } from "../types.js";
+import type {
+  Message,
+  ModelRequest,
+  ToolCall,
+  TokenUsage,
+} from "../types.js";
 import type { ProviderAdapter } from "../providers/types.js";
 import { recordModelUsage, type UsageLedger } from "../usage/ledger.js";
 import { attributeMessages } from "../context/attribution.js";
@@ -28,7 +33,7 @@ export type ModelTurnEvent =
       response: {
         message: Message;
         toolCalls?: ToolCall[];
-        usage?: { input?: number; output?: number; total?: number };
+        usage?: TokenUsage;
         requestId?: string;
       };
       streamedText: string;
@@ -39,7 +44,7 @@ export async function* runModelTurn(
 ): AsyncGenerator<ModelTurnEvent> {
   const recordUsage = (
     response: {
-      usage?: { input?: number; output?: number; total?: number };
+      usage?: TokenUsage;
       requestId?: string;
     },
   ): void => {

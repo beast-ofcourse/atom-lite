@@ -15,6 +15,7 @@ import {
   mergeHeaders,
   resolveRequestId,
 } from "./http-headers.js";
+import { parseGeminiUsage } from "./usage.js";
 
 export interface GeminiConfig {
   id: string;
@@ -259,17 +260,7 @@ export class GeminiAdapter implements ProviderAdapter {
         name: p.functionCall.name,
         arguments: parseArgs(JSON.stringify(p.functionCall.args ?? {})),
       }));
-    const usage: TokenUsage | undefined = json.usageMetadata
-      ? {
-          input: json.usageMetadata.promptTokenCount,
-          // Thinking tokens count toward the next request's context, so fold
-          // them into generated output.
-          output:
-            (json.usageMetadata.candidatesTokenCount ?? 0) +
-            (json.usageMetadata.thoughtsTokenCount ?? 0),
-          total: json.usageMetadata.totalTokenCount,
-        }
-      : undefined;
+    const usage: TokenUsage | undefined = parseGeminiUsage(json.usageMetadata);
     // safety block handling
     if (candidate?.finishReason === "SAFETY") {
       throw new Error("PROVIDER_INVALID_RESPONSE: safety block");

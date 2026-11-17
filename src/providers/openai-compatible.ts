@@ -25,6 +25,7 @@ import {
   resolveRequestId,
   setHeader,
 } from "./http-headers.js";
+import { parseOpenAIUsage } from "./usage.js";
 
 export interface OpenAICompatibleConfig {
   id: string;
@@ -200,13 +201,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       name: tc.function?.name,
       arguments: parseArgs(tc.function?.arguments ?? ""),
     }));
-    const usage: TokenUsage | undefined = json.usage
-      ? {
-          input: json.usage.prompt_tokens,
-          output: json.usage.completion_tokens,
-          total: json.usage.total_tokens,
-        }
-      : undefined;
+    const usage: TokenUsage | undefined = parseOpenAIUsage(json.usage);
     return {
       message: {
         role: "assistant",
@@ -343,11 +338,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         try {
           const json = JSON.parse(data);
           if (json.usage) {
-            usage = {
-              input: json.usage.prompt_tokens,
-              output: json.usage.completion_tokens,
-              total: json.usage.total_tokens,
-            };
+            usage = parseOpenAIUsage(json.usage);
           }
           const delta = json.choices?.[0]?.delta ?? {};
           const reasoning = delta.reasoning_content ?? delta.reasoning;

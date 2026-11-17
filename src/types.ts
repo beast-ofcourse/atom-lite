@@ -53,6 +53,10 @@ export interface TokenUsage {
   input?: number;
   output?: number;
   total?: number;
+  /** Tokens served from the provider's prompt cache, when reported. */
+  cacheRead?: number;
+  /** Tokens written into the provider's prompt cache, when reported. */
+  cacheWrite?: number;
 }
 
 export type FinishReason =
