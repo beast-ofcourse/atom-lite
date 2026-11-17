@@ -30,10 +30,39 @@ import {
 
 export type EvalSuite = "regression" | "capability";
 
+/** A deterministic grader declared in a task's manifest.json. */
+export interface GraderDeclaration {
+  name: string;
+  type:
+    | "fileExists"
+    | "fileContains"
+    | "command"
+    | "toolUsed"
+    | "toolNotUsed"
+    | "maxTurns"
+    | "maxToolCalls";
+  path?: string;
+  contains?: string;
+  command?: string;
+  tool?: string;
+  max?: number;
+}
+
+/** The observable outcome of one grader for one task run. */
+export interface GraderResult {
+  name: string;
+  pass: boolean;
+  reason: string;
+}
+
 export interface EvalTaskResult {
   name: string;
   suite: EvalSuite;
   pass: boolean;
+  /** Fraction of declared graders that passed (0..1). Legacy: 0 or 1. */
+  score: number;
+  /** Per-grader outcomes. Empty for legacy check-script tasks. */
+  graders: GraderResult[];
   turns: number;
   inputTokens: number;
   outputTokens: number;
@@ -126,22 +155,33 @@ function existsSyncSafe(p: string): boolean {
   }
 }
 
+interface TaskManifest {
+  suite: EvalSuite;
+  graders: GraderDeclaration[];
+}
+
 /**
  * Read a task's optional manifest.json. A task without a manifest — or with an
  * unreadable one — is a regression task using the existing check-script flow.
  */
-function loadTaskSuite(taskDir: string): EvalSuite {
+function loadManifest(taskDir: string): TaskManifest {
   try {
     const manifest = JSON.parse(
       readFileSync(join(taskDir, "manifest.json"), "utf8"),
-    ) as { suite?: unknown };
-    if (manifest?.suite === "regression" || manifest?.suite === "capability") {
-      return manifest.suite;
-    }
+    ) as { suite?: unknown; graders?: unknown };
+    const suite: EvalSuite =
+      manifest?.suite === "capability" ? "capability" : "regression";
+    const graders = Array.isArray(manifest?.graders)
+      ? manifest.graders.filter(
+          (g): g is GraderDeclaration =>
+            !!g && typeof g === "object" && typeof g.type === "string",
+        )
+      : [];
+    return { suite, graders };
   } catch {
     // no manifest or invalid JSON -> legacy regression behavior
+    return { suite: "regression", graders: [] };
   }
-  return "regression";
 }
 
 function runCheck(
@@ -180,14 +220,138 @@ function runCheck(
   });
 }
 
+/** Run a shell command in the workspace; used by `command` graders. */
+function runCommand(
+  command: string,
+  cwd: string,
+  timeoutMs = 30000,
+): Promise<{ code: number; output: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(command, {
+      cwd,
+      shell: true,
+      env: { ...process.env, WORKSPACE: cwd },
+    });
+    let out = "";
+    let err = "";
+    child.stdout?.on("data", (c: Buffer) => {
+      out += c.toString("utf8");
+    });
+    child.stderr?.on("data", (c: Buffer) => {
+      err += c.toString("utf8");
+    });
+    const timer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* ignore */
+      }
+    }, timeoutMs);
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code: code ?? 1, output: (out + err).trim() });
+    });
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ code: 1, output: String(e) });
+    });
+  });
+}
+
+interface GraderContext {
+  workspace: string;
+  toolNames: string[];
+  toolCallCount: number;
+  turns: number;
+}
+
+/** Execute declared graders deterministically and return named results. */
+async function runGraders(
+  graders: GraderDeclaration[],
+  ctx: GraderContext,
+): Promise<GraderResult[]> {
+  const results: GraderResult[] = [];
+  for (const g of graders) {
+    const name = typeof g.name === "string" && g.name ? g.name : g.type;
+    let pass = false;
+    let reason: string;
+    switch (g.type) {
+      case "fileExists": {
+        const p = String(g.path ?? "");
+        pass = existsSyncSafe(join(ctx.workspace, p));
+        reason = pass ? `file exists: ${p}` : `file missing: ${p}`;
+        break;
+      }
+      case "fileContains": {
+        const p = String(g.path ?? "");
+        const needle = String(g.contains ?? "");
+        try {
+          const content = readFileSync(join(ctx.workspace, p), "utf8");
+          pass = content.includes(needle);
+          reason = pass
+            ? `file contains expected text: ${p}`
+            : `file missing expected text: ${p}`;
+        } catch {
+          reason = `file missing: ${p}`;
+        }
+        break;
+      }
+      case "command": {
+        const command = String(g.command ?? "");
+        const r = await runCommand(command, ctx.workspace);
+        pass = r.code === 0;
+        reason = pass
+          ? `command exited 0: ${command}`
+          : `command exited ${r.code}: ${r.output || command}`;
+        break;
+      }
+      case "toolUsed": {
+        const tool = String(g.tool ?? "");
+        pass = ctx.toolNames.includes(tool);
+        reason = pass ? `tool used: ${tool}` : `tool not used: ${tool}`;
+        break;
+      }
+      case "toolNotUsed": {
+        const tool = String(g.tool ?? "");
+        pass = !ctx.toolNames.includes(tool);
+        reason = pass ? `tool not used: ${tool}` : `tool used: ${tool}`;
+        break;
+      }
+      case "maxTurns": {
+        const max = Number(g.max);
+        pass = ctx.turns <= max;
+        reason = pass
+          ? `turns ${ctx.turns} <= ${max}`
+          : `turns ${ctx.turns} > ${max}`;
+        break;
+      }
+      case "maxToolCalls": {
+        const max = Number(g.max);
+        pass = ctx.toolCallCount <= max;
+        reason = pass
+          ? `tool calls ${ctx.toolCallCount} <= ${max}`
+          : `tool calls ${ctx.toolCallCount} > ${max}`;
+        break;
+      }
+      default:
+        reason = `unknown grader type: ${(g as GraderDeclaration).type}`;
+    }
+    results.push({ name, pass, reason });
+  }
+  return results;
+}
+
 export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
   const model = options.model ?? (options.provider as any)?.model ?? "default";
   const tasksDir = resolve(options.tasksDir);
   const startedAt = new Date().toISOString();
   const runId = `run-${Date.now()}`;
   const discovered = discoverTasks(tasksDir);
+  const manifests = new Map<string, TaskManifest>(
+    discovered.map((n) => [n, loadManifest(join(tasksDir, n))]),
+  );
   const suites = new Map<string, EvalSuite>(
-    discovered.map((n) => [n, loadTaskSuite(join(tasksDir, n))]),
+    discovered.map((n) => [n, manifests.get(n)?.suite ?? "regression"]),
   );
   const names = discovered.filter(
     (n) =>
@@ -221,6 +385,9 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
     let turns = 0;
     let inputTokens = 0;
     let outputTokens = 0;
+    let toolCallCount = 0;
+    const toolNames: string[] = [];
+    const seenToolCalls = new Set<string>();
     let error: string | undefined;
     let session: any = null;
     const t0 = Date.now();
@@ -237,6 +404,18 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
             turns += 1;
             inputTokens += e.input ?? 0;
             outputTokens += e.output ?? 0;
+          }
+          if (e?.type === "tool_call") {
+            // The runtime and its turn recorder both emit tool_call for one
+            // call; dedupe by id so tool-usage graders count calls once.
+            const callId = e.toolCallId ?? e.id;
+            const key =
+              callId != null ? String(callId) : `anon-${toolNames.length}`;
+            if (!seenToolCalls.has(key)) {
+              seenToolCalls.add(key);
+              toolNames.push(e.name);
+              toolCallCount += 1;
+            }
           }
         },
       });
@@ -258,15 +437,32 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
     }
     const wallMs = Date.now() - t0;
 
-    let pass = false;
+    const declaredGraders = manifests.get(name)?.graders ?? [];
+    let graders: GraderResult[] = [];
+    let score: number;
+    let pass: boolean;
     let checkOutput = "";
-    if (!error) {
+    if (declaredGraders.length > 0) {
+      graders = await runGraders(declaredGraders, {
+        workspace: tmp,
+        toolNames,
+        toolCallCount,
+        turns,
+      });
+      score = graders.filter((g) => g.pass).length / graders.length;
+      pass = score === 1;
+      checkOutput = graders
+        .map((g) => `${g.pass ? "PASS" : "FAIL"} ${g.name}: ${g.reason}`)
+        .join("\n");
+    } else if (!error) {
       const r = await runCheck(checkPath, tmp);
       pass = r.code === 0;
+      score = pass ? 1 : 0;
       checkOutput = r.output;
       if (!pass && !checkOutput) checkOutput = `check exited ${r.code}`;
     } else {
       pass = false;
+      score = 0;
       checkOutput = error;
     }
 
@@ -274,6 +470,8 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
       name,
       suite: suites.get(name) ?? "regression",
       pass,
+      score,
+      graders,
       turns,
       inputTokens,
       outputTokens,
@@ -353,9 +551,12 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
       const transcript = (taskMessages[i] ?? [])
         .map((m: any) => JSON.stringify(m))
         .join("\n");
+      const graderLines = t.graders
+        .map((g) => `${g.pass ? "PASS" : "FAIL"} ${g.name}: ${g.reason}`)
+        .join("\n");
       writeFileSync(
         join(options.outDir as string, `${t.name}.log`),
-        `pass=${t.pass}\nturns=${t.turns}\ninput=${t.inputTokens}\noutput=${t.outputTokens}\nwallMs=${t.wallMs}\nerror=${t.error ?? ""}\ncheckOutput=${t.checkOutput ?? ""}\n--- transcript ---\n${transcript}\n`,
+        `pass=${t.pass}\nscore=${t.score}\nturns=${t.turns}\ninput=${t.inputTokens}\noutput=${t.outputTokens}\nwallMs=${t.wallMs}\nerror=${t.error ?? ""}\ncheckOutput=${t.checkOutput ?? ""}\n--- graders ---\n${graderLines}\n--- transcript ---\n${transcript}\n`,
       );
     });
     if (options.writeBaseline) {
