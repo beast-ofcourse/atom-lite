@@ -1,6 +1,7 @@
 import type { Message, ModelRequest, ToolCall } from "../types.js";
 import type { ProviderAdapter } from "../providers/types.js";
 import { recordModelUsage, type UsageLedger } from "../usage/ledger.js";
+import { attributeMessages } from "../context/attribution.js";
 
 export interface ModelTurnRequest {
   provider: ProviderAdapter;
@@ -42,9 +43,12 @@ export async function* runModelTurn(
       requestId?: string;
     },
   ): void => {
+    const { attribution, compacted } = attributeMessages(request.messages);
     recordModelUsage(
       request.usageLedger,
       {
+        attribution,
+        compacted,
         sessionId: request.sessionId ?? "",
         requestId: response.requestId ?? request.requestId ?? "",
         provider: request.provider.id,

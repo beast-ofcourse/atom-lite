@@ -10,6 +10,10 @@ import {
 import { estimateMessageTokens } from "./budget.js";
 import { userConfigDir } from "../config/paths.js";
 import { recordModelUsage, type UsageLedger } from "../usage/ledger.js";
+import {
+  attributeSummaryMessages,
+  rememberMessageLayout,
+} from "./attribution.js";
 
 export interface ContextManagerOptions {
   systemPrompt: string;
@@ -119,6 +123,31 @@ export class ContextManager {
   /** Correlation ids for the next summarizer call issued by this manager. */
   setUsageContext(sessionId: string, requestId: string): void {
     this.usageContext = { sessionId, requestId };
+  }
+
+  private rememberLayout(
+    messages: Message[],
+    staticCount: number,
+    instructionCount: number,
+    memoryCount: number,
+    compacted: boolean,
+  ): void {
+    let cursor = 1;
+    const systemPromptEnd = cursor;
+    cursor += staticCount;
+    const staticMessagesEnd = cursor;
+    cursor += instructionCount;
+    const instructionsEnd = cursor;
+    cursor += memoryCount;
+    rememberMessageLayout(messages, {
+      systemPromptEnd,
+      staticMessagesEnd,
+      instructionsEnd,
+      sessionMemoryEnd: cursor,
+      historyEnd: messages.length,
+      toolTokenOverhead: this.toolTokenOverhead,
+      compacted,
+    });
   }
 
   noteUsage(used: number): void {
@@ -358,6 +387,8 @@ export class ContextManager {
           requestId: this.usageContext.requestId,
           provider: this.opts.provider.id,
           model: this.opts.compactionModel || this.opts.model,
+          attribution: attributeSummaryMessages(summaryReq.messages as any),
+          compacted: true,
         },
         resp.usage,
       );
@@ -438,9 +469,10 @@ export class ContextManager {
       }
     }
 
+    const statics = this.staticMessages();
     const messages: Message[] = [
       { role: "system", content: systemPrompt },
-      ...this.staticMessages(),
+      ...statics,
     ];
     for (const instr of instructions) {
       messages.push({ role: "system", content: instr });
@@ -472,6 +504,13 @@ export class ContextManager {
 
     if (!this.forceCompact && !periodic && !overThreshold) {
       this.lastBuildTokens = total;
+      this.rememberLayout(
+        messages,
+        statics.length,
+        instructions.length,
+        this.sessionMemory ? 1 : 0,
+        false,
+      );
       return messages;
     }
     this.forceCompact = false;
@@ -496,6 +535,13 @@ export class ContextManager {
     if (older.length === 0) {
       this.forceCompact = false;
       this.lastBuildTokens = total;
+      this.rememberLayout(
+        messages,
+        statics.length,
+        instructions.length,
+        this.sessionMemory ? 1 : 0,
+        false,
+      );
       return messages;
     }
 
@@ -527,6 +573,13 @@ export class ContextManager {
     this.lastBuildTokens =
       compacted.reduce((s, m) => s + estimateMessageTokens(m), 0) +
       this.toolTokenOverhead;
+    this.rememberLayout(
+      compacted,
+      statics.length,
+      instructions.length,
+      1 + (continuation ? 1 : 0),
+      true,
+    );
     return compacted;
   }
 }

@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import type { MessageAttribution } from "../context/attribution.js";
 
 /** Reported token counts for one model call. Unreported fields are null. */
 export interface LedgerUsage {
@@ -19,6 +20,10 @@ export interface UsageRecord {
   provider: string;
   model: string;
   usage: LedgerUsage;
+  /** Estimated token contribution of each outgoing message component. */
+  attribution?: MessageAttribution;
+  /** Whether this call followed a compaction of the context. */
+  compacted?: boolean;
 }
 
 export interface UsageLedger {
@@ -26,7 +31,14 @@ export interface UsageLedger {
 }
 
 /** Identity of a model call, supplied by whichever component issues it. */
-export type UsageCallContext = Omit<UsageRecord, "timestamp" | "usage">;
+export interface UsageCallContext {
+  sessionId: string;
+  requestId: string;
+  provider: string;
+  model: string;
+  attribution?: MessageAttribution;
+  compacted?: boolean;
+}
 
 /**
  * Shared recorder so every model call — including the compaction summarizer,
