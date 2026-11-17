@@ -598,6 +598,181 @@ test("runEval defaults to a single trial with no trial metadata", async () => {
   }
 });
 
+// --- ticket 04: trial metrics (pass@1, pass^k, distributions) ---------------
+
+function trialOutcome(
+  name: string,
+  pass: boolean,
+  trialIndex: number,
+  trialCount: number,
+  extra: Record<string, unknown> = {},
+): any {
+  return {
+    name,
+    suite: "regression",
+    pass,
+    score: pass ? 1 : 0,
+    graders: [],
+    turns: 1,
+    inputTokens: 0,
+    outputTokens: 0,
+    wallMs: 0,
+    trialIndex,
+    trialCount,
+    ...extra,
+  };
+}
+
+function groupOutcomes(
+  groups: { name: string; suite?: string; passes: boolean[] }[],
+): any[] {
+  return groups.flatMap((g) =>
+    g.passes.map((pass, i) =>
+      trialOutcome(g.name, pass, i + 1, g.passes.length, {
+        suite: g.suite ?? "regression",
+      }),
+    ),
+  );
+}
+
+function closeTo(actual: number, expected: number, epsilon = 1e-9): void {
+  assert.ok(
+    Math.abs(actual - expected) < epsilon,
+    `expected ${expected}, got ${actual}`,
+  );
+}
+
+test("computeMetrics pins pass@1 and pass^k with small deterministic outcome sets", async () => {
+  const { computeMetrics } = await import("../../dist/eval/runner.js");
+  // three tasks, three trials each: all-pass, 2/3, and 0/3.
+  const tasks = groupOutcomes([
+    { name: "solved", passes: [true, true, true] },
+    { name: "flaky", passes: [true, true, false] },
+    { name: "broken", passes: [false, false, false] },
+  ]);
+  const m = computeMetrics(tasks);
+  // pass@1 = mean per-task pass rate = (1 + 2/3 + 0)/3
+  closeTo(m.passAt1, 5 / 9);
+  // pass^k (k=3) = mean of (per-task pass rate)^3 = (1 + 8/27 + 0)/3
+  closeTo(m.passAtK, (1 + 8 / 27) / 3);
+  assert.equal(m.k, 3);
+});
+
+test("computeMetrics pass@1 equals the suite pass rate for single-trial outcomes", async () => {
+  const { computeMetrics } = await import("../../dist/eval/runner.js");
+  const tasks = [
+    trialOutcome("a", true, 1, 1),
+    trialOutcome("b", false, 1, 1),
+    trialOutcome("c", true, 1, 1),
+  ];
+  const m = computeMetrics(tasks);
+  closeTo(m.passAt1, 2 / 3);
+  closeTo(m.passAtK, 2 / 3); // k = 1 -> pass^k collapses to pass@1
+  assert.equal(m.k, 1);
+});
+
+test("computeMetrics reports per-task pass rates alongside the suite aggregate", async () => {
+  const { computeMetrics } = await import("../../dist/eval/runner.js");
+  const tasks = groupOutcomes([
+    { name: "solved", suite: "regression", passes: [true, true] },
+    { name: "flaky", suite: "capability", passes: [true, false] },
+  ]);
+  const m = computeMetrics(tasks);
+  assert.equal(m.perTaskPassRates.length, 2);
+  const byName = new Map(m.perTaskPassRates.map((p: any) => [p.name, p]));
+  assert.equal(byName.get("solved")?.passRate, 1);
+  assert.equal(byName.get("solved")?.trials, 2);
+  assert.equal(byName.get("solved")?.passed, 2);
+  assert.equal(byName.get("solved")?.suite, "regression");
+  assert.equal(byName.get("flaky")?.passRate, 0.5);
+  assert.equal(byName.get("flaky")?.suite, "capability");
+});
+
+test("computeMetrics reports token, turn, and wall-time distributions", async () => {
+  const { computeMetrics } = await import("../../dist/eval/runner.js");
+  const tasks = [
+    trialOutcome("a", true, 1, 1, {
+      inputTokens: 10,
+      outputTokens: 1,
+      turns: 2,
+      wallMs: 100,
+    }),
+    trialOutcome("b", true, 1, 1, {
+      inputTokens: 20,
+      outputTokens: 2,
+      turns: 4,
+      wallMs: 200,
+    }),
+    trialOutcome("c", true, 1, 1, {
+      inputTokens: 30,
+      outputTokens: 3,
+      turns: 6,
+      wallMs: 300,
+    }),
+  ];
+  const m = computeMetrics(tasks);
+  const input = m.distributions.inputTokens;
+  assert.equal(input.count, 3);
+  assert.equal(input.min, 10);
+  assert.equal(input.max, 30);
+  assert.equal(input.mean, 20);
+  assert.equal(input.median, 20);
+  assert.equal(input.p90, 30);
+  assert.deepEqual(
+    m.distributions.totalTokens.values,
+    [11, 22, 33],
+  );
+  assert.equal(m.distributions.turns.median, 4);
+  assert.equal(m.distributions.wallMs.min, 100);
+  assert.equal(m.distributions.wallMs.max, 300);
+});
+
+test("computeMetrics handles an empty outcome set without NaN", async () => {
+  const { computeMetrics } = await import("../../dist/eval/runner.js");
+  const m = computeMetrics([]);
+  assert.equal(m.passAt1, 0);
+  assert.equal(m.passAtK, 0);
+  assert.equal(m.k, 1);
+  assert.deepEqual(m.perTaskPassRates, []);
+  assert.equal(m.distributions.turns.count, 0);
+});
+
+test("runEval attaches metrics while keeping existing aggregate summary totals", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  try {
+    makeTrialTask(tasksDir, "trial-task", { check: RESULT_CHECK });
+    const provider = new FakeProvider([
+      {
+        toolCalls: [
+          { id: "a", name: "write", arguments: { path: "result.txt", content: "ok" } },
+        ],
+        usage: { input: 10, output: 2, total: 12 },
+      },
+      { text: "done", usage: { input: 5, output: 1, total: 6 } },
+      {
+        toolCalls: [
+          { id: "b", name: "write", arguments: { path: "result.txt", content: "bad" } },
+        ],
+      },
+      { text: "done" },
+    ]);
+    const report = await runEval({ provider, tasksDir, trials: 2 });
+    assert.ok(report.metrics);
+    assert.equal(report.metrics.k, 2);
+    assert.equal(report.metrics.perTaskPassRates.length, 1);
+    closeTo(report.metrics.perTaskPassRates[0].passRate, 0.5);
+    // existing aggregate totals remain available for continuity
+    assert.equal(report.summary.total, 2);
+    assert.equal(report.summary.passed, 1);
+    assert.equal(typeof report.summary.totalTurns, "number");
+    assert.equal(typeof report.summary.totalInputTokens, "number");
+    assert.equal(typeof report.summary.totalOutputTokens, "number");
+    assert.equal(typeof report.summary.wallMs, "number");
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+  }
+});
+
 test("runEval gives each trial a fresh workspace with shared state and git history removed", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   const ISOLATION_CHECK = `const { readdirSync, existsSync } = require("node:fs");
