@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { FakeProvider } from "../../dist/providers/fake.js";
@@ -804,5 +811,232 @@ process.exit(0);
     );
   } finally {
     rmSync(tasksDir, { recursive: true, force: true });
+  }
+});
+
+// --- ticket 06: per-suite baselines and explicit updates --------------------
+
+function makeCheckTask(
+  tasksDir: string,
+  name: string,
+  opts: { suite?: string; pass: boolean } = { pass: true },
+): void {
+  const dir = join(tasksDir, name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "prompt.txt"), "do the thing\n");
+  writeFileSync(
+    join(dir, "check.cjs"),
+    `process.exit(${opts.pass ? 0 : 1});\n`,
+  );
+  if (opts.suite) {
+    writeFileSync(
+      join(dir, "manifest.json"),
+      JSON.stringify({ suite: opts.suite }),
+    );
+  }
+}
+
+function stopProvider(): FakeProvider {
+  return new FakeProvider([{ text: "done" }]);
+}
+
+test("baseline comparison is scoped to the selected suite", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  const outDir = mkdtempSync(join(tmpdir(), "evalout-"));
+  try {
+    makeCheckTask(tasksDir, "shared", { suite: "capability", pass: true });
+    makeCheckTask(tasksDir, "reg-only", { suite: "regression", pass: true });
+    writeFileSync(
+      join(outDir, "baseline.json"),
+      JSON.stringify({
+        version: 1,
+        suites: {
+          regression: {
+            summary: { passRate: 1 },
+            tasks: [
+              { name: "shared", pass: true, suite: "capability" },
+              { name: "reg-only", pass: true, suite: "regression" },
+            ],
+          },
+          capability: {
+            summary: { passRate: 0 },
+            tasks: [{ name: "shared", pass: false, suite: "capability" }],
+          },
+        },
+      }),
+    );
+    const report = await runEval({
+      provider: stopProvider(),
+      tasksDir,
+      suite: "capability",
+      outDir,
+    });
+    assert.equal(report.summary.passRate, 1);
+    assert.ok(report.baselineComparison);
+    assert.equal(report.baselineComparison?.previousPassRate, 0);
+    assert.deepEqual(report.baselineComparison?.newlyPassing, ["shared"]);
+    assert.deepEqual(report.baselineComparison?.newlyFailing, []);
+    // The regression baseline was not rewritten by this capability run.
+    const baseline = JSON.parse(
+      readFileSync(join(outDir, "baseline.json"), "utf8"),
+    );
+    assert.equal(baseline.suites.regression.summary.passRate, 1);
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+    rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test("report lists newly failing task names for the selected suite", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  const outDir = mkdtempSync(join(tmpdir(), "evalout-"));
+  try {
+    makeCheckTask(tasksDir, "regressed", { suite: "regression", pass: false });
+    makeCheckTask(tasksDir, "cap-ok", { suite: "capability", pass: true });
+    writeFileSync(
+      join(outDir, "baseline.json"),
+      JSON.stringify({
+        version: 1,
+        suites: {
+          regression: {
+            summary: { passRate: 1 },
+            tasks: [{ name: "regressed", pass: true, suite: "regression" }],
+          },
+          capability: {
+            summary: { passRate: 0 },
+            tasks: [{ name: "cap-ok", pass: false, suite: "capability" }],
+          },
+        },
+      }),
+    );
+    const report = await runEval({
+      provider: stopProvider(),
+      tasksDir,
+      suite: "regression",
+      outDir,
+    });
+    assert.deepEqual(report.baselineComparison?.newlyFailing, ["regressed"]);
+    assert.deepEqual(report.baselineComparison?.newlyPassing, []);
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+    rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test("explicit baseline write targets one suite and preserves the others", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  const outDir = mkdtempSync(join(tmpdir(), "evalout-"));
+  try {
+    makeCheckTask(tasksDir, "cap-task", { suite: "capability", pass: true });
+    makeCheckTask(tasksDir, "reg-task", { suite: "regression", pass: true });
+    writeFileSync(
+      join(outDir, "baseline.json"),
+      JSON.stringify({
+        version: 1,
+        suites: {
+          regression: {
+            summary: { passRate: 0.5 },
+            tasks: [{ name: "reg-task", pass: true, suite: "regression" }],
+          },
+        },
+      }),
+    );
+    const report = await runEval({
+      provider: stopProvider(),
+      tasksDir,
+      suite: "capability",
+      outDir,
+      writeBaseline: true,
+    });
+    assert.equal(report.tasks.length, 1);
+    const baseline = JSON.parse(
+      readFileSync(join(outDir, "baseline.json"), "utf8"),
+    );
+    assert.equal(baseline.version, 1);
+    assert.ok(baseline.suites.capability);
+    assert.deepEqual(
+      baseline.suites.capability.tasks.map((t: any) => t.name),
+      ["cap-task"],
+    );
+    assert.equal(baseline.suites.capability.summary.passRate, 1);
+    // regression suite entry is untouched by a capability-only write
+    assert.deepEqual(
+      baseline.suites.regression.tasks.map((t: any) => t.name),
+      ["reg-task"],
+    );
+    assert.equal(baseline.suites.regression.summary.passRate, 0.5);
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+    rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test("legacy flat baseline.json remains readable for suite comparison", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  const outDir = mkdtempSync(join(tmpdir(), "evalout-"));
+  try {
+    makeCheckTask(tasksDir, "legacy-task", {
+      suite: "regression",
+      pass: true,
+    });
+    writeFileSync(
+      join(outDir, "baseline.json"),
+      JSON.stringify({
+        summary: { passRate: 0 },
+        tasks: [{ name: "legacy-task", pass: false }],
+        suite: "all",
+      }),
+    );
+    const report = await runEval({
+      provider: stopProvider(),
+      tasksDir,
+      suite: "regression",
+      outDir,
+    });
+    assert.ok(report.baselineComparison);
+    assert.equal(report.baselineComparison?.previousPassRate, 0);
+    assert.deepEqual(report.baselineComparison?.newlyPassing, ["legacy-task"]);
+    assert.deepEqual(report.baselineComparison?.newlyFailing, []);
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+    rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test("a run without the explicit flag never creates or changes a baseline", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  const outDir = mkdtempSync(join(tmpdir(), "evalout-"));
+  try {
+    makeCheckTask(tasksDir, "stable", { suite: "regression", pass: true });
+    // no baseline present -> a plain run must not create one
+    await runEval({ provider: stopProvider(), tasksDir, outDir });
+    assert.equal(existsSync(join(outDir, "baseline.json")), false);
+
+    // an existing baseline must remain byte-for-byte unchanged
+    const baselineText = JSON.stringify({
+      version: 1,
+      suites: {
+        regression: {
+          summary: { passRate: 0.25 },
+          tasks: [{ name: "stable", pass: false, suite: "regression" }],
+        },
+      },
+    });
+    writeFileSync(join(outDir, "baseline.json"), baselineText);
+    const report = await runEval({
+      provider: stopProvider(),
+      tasksDir,
+      outDir,
+      writeBaseline: false,
+    });
+    assert.ok(report.baselineComparison);
+    assert.deepEqual(report.baselineComparison?.newlyPassing, ["stable"]);
+    assert.equal(
+      readFileSync(join(outDir, "baseline.json"), "utf8"),
+      baselineText,
+    );
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+    rmSync(outDir, { recursive: true, force: true });
   }
 });

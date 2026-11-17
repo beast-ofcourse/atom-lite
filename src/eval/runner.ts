@@ -137,6 +137,8 @@ export interface EvalReport {
     deltaPassRate: number;
     newlyPassing: string[];
     newlyFailing: string[];
+    /** The suite this comparison was scoped to. */
+    suite: EvalSuite | "all";
   };
 }
 
@@ -402,6 +404,94 @@ async function runGraders(
   return results;
 }
 
+/** A per-suite snapshot stored in a baseline file. */
+interface BaselineSnapshot {
+  summary: { passRate: number };
+  tasks: Array<{ name: string; pass: boolean; suite?: EvalSuite }>;
+}
+
+interface BaselineData {
+  suites: Partial<Record<EvalSuite, BaselineSnapshot>>;
+  /** A legacy flat baseline, usable as a fallback for any suite. */
+  legacy?: BaselineSnapshot;
+}
+
+function toBaselineSnapshot(value: unknown): BaselineSnapshot | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const v = value as { summary?: { passRate?: unknown }; tasks?: unknown };
+  if (!Array.isArray(v.tasks)) return undefined;
+  return {
+    summary: { passRate: Number(v.summary?.passRate) || 0 },
+    tasks: v.tasks
+      .filter(
+        (t: any) =>
+          t && typeof t.name === "string" && typeof t.pass === "boolean",
+      )
+      .map((t: any) => ({
+        name: t.name,
+        pass: t.pass,
+        ...(t.suite === "regression" || t.suite === "capability"
+          ? { suite: t.suite as EvalSuite }
+          : {}),
+      })),
+  };
+}
+
+/**
+ * Read a baseline file. New files hold one snapshot per suite under `suites`;
+ * a legacy flat report (with `tasks` at the top level) is read as a shared
+ * fallback so existing baselines keep working.
+ */
+function parseBaseline(value: unknown): BaselineData {
+  if (!value || typeof value !== "object") return { suites: {} };
+  const v = value as { suites?: unknown; suite?: unknown };
+  if (v.suites && typeof v.suites === "object") {
+    const suites = v.suites as { regression?: unknown; capability?: unknown };
+    const data: BaselineData = { suites: {} };
+    const regression = toBaselineSnapshot(suites.regression);
+    const capability = toBaselineSnapshot(suites.capability);
+    if (regression) data.suites.regression = regression;
+    if (capability) data.suites.capability = capability;
+    return data;
+  }
+  const snap = toBaselineSnapshot(value);
+  if (!snap) return { suites: {} };
+  if (v.suite === "regression" || v.suite === "capability") {
+    return { suites: { [v.suite]: snap } };
+  }
+  return { suites: {}, legacy: snap };
+}
+
+/** Select the baseline snapshot relevant to a suite. */
+function baselineForSuite(
+  data: BaselineData,
+  suite?: EvalSuite,
+): BaselineSnapshot | undefined {
+  if (suite) return data.suites[suite] ?? data.legacy;
+  if (data.legacy) return data.legacy;
+  const snapshots = Object.values(data.suites).filter(
+    (s): s is BaselineSnapshot => !!s,
+  );
+  if (!snapshots.length) return undefined;
+  const tasks = snapshots.flatMap((s) => s.tasks);
+  const passed = tasks.filter((t) => t.pass).length;
+  return {
+    summary: { passRate: tasks.length ? passed / tasks.length : 0 },
+    tasks,
+  };
+}
+
+function snapshotOf(
+  report: EvalReport,
+  tasks: EvalTaskResult[] = report.tasks,
+): BaselineSnapshot {
+  const passed = tasks.filter((t) => t.pass).length;
+  return {
+    summary: { passRate: tasks.length ? passed / tasks.length : 0 },
+    tasks: tasks.map((t) => ({ name: t.name, pass: t.pass, suite: t.suite })),
+  };
+}
+
 function distribution(values: number[]): Distribution {
   if (values.length === 0) {
     return { count: 0, min: 0, max: 0, mean: 0, median: 0, p90: 0, values: [] };
@@ -665,30 +755,31 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
     },
   };
 
-  // Baseline comparison
+  // Baseline comparison is scoped to the selected suite. A baseline file may
+  // hold one snapshot per suite; a legacy flat report is read as a shared
+  // fallback so existing baseline files remain readable.
   const baselinePath = options.outDir
     ? join(options.outDir, "baseline.json")
     : null;
-  if (baselinePath) {
+  let baselineData: BaselineData = { suites: {} };
+  if (baselinePath && existsSyncSafe(baselinePath)) {
     try {
-      const prev = JSON.parse(readFileSync(baselinePath, "utf8")) as EvalReport;
-      const prevMap = new Map(prev.tasks.map((t) => [t.name, t.pass]));
-      const newlyPassing: string[] = [];
-      const newlyFailing: string[] = [];
-      for (const t of tasks) {
-        const was = prevMap.get(t.name);
-        if (was === false && t.pass) newlyPassing.push(t.name);
-        if (was === true && !t.pass) newlyFailing.push(t.name);
-      }
-      report.baselineComparison = {
-        previousPassRate: prev.summary.passRate,
-        deltaPassRate: report.summary.passRate - prev.summary.passRate,
-        newlyPassing,
-        newlyFailing,
-      };
+      baselineData = parseBaseline(
+        JSON.parse(readFileSync(baselinePath, "utf8")),
+      );
     } catch {
-      // no baseline or unreadable
+      // no usable baseline; keep the empty container
     }
+  }
+  const suiteFlag = options.suite as EvalSuite | "all" | undefined;
+  const selectedSuite =
+    suiteFlag && suiteFlag !== "all" ? suiteFlag : undefined;
+  const previousBaseline = baselineForSuite(baselineData, selectedSuite);
+  if (previousBaseline) {
+    report.baselineComparison = {
+      ...compareBaseline(report, previousBaseline as unknown as EvalReport),
+      suite: selectedSuite ?? "all",
+    };
   }
 
   if (options.outDir) {
@@ -774,12 +865,34 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
       JSON.stringify({ runId: report.runId }, null, 2),
     );
 
-    if (options.writeBaseline) {
+    // Writing a baseline is opt-in and targets one suite at a time, so a
+    // capability run can never rewrite the regression standard.
+    if (options.writeBaseline && baselinePath) {
+      const suites: Partial<Record<EvalSuite, BaselineSnapshot>> = {
+        ...baselineData.suites,
+      };
+      // A legacy shared baseline becomes the starting point for any suite that
+      // does not yet have its own snapshot, so no baseline is silently lost.
+      if (baselineData.legacy) {
+        if (!suites.regression) suites.regression = baselineData.legacy;
+        if (!suites.capability) suites.capability = baselineData.legacy;
+      }
+      if (selectedSuite) {
+        suites[selectedSuite] = snapshotOf(report);
+      } else {
+        for (const suite of ["regression", "capability"] as EvalSuite[]) {
+          const suiteTasks = report.tasks.filter((t) => t.suite === suite);
+          if (suiteTasks.length) {
+            suites[suite] = snapshotOf(report, suiteTasks);
+          }
+        }
+      }
       writeFileSync(
-        join(options.outDir, "baseline.json"),
-        JSON.stringify(report, null, 2),
+        baselinePath,
+        JSON.stringify({ version: 1, suites }, null, 2),
       );
     }
+
   }
 
   options.onProgress?.(
