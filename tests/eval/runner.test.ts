@@ -234,7 +234,10 @@ test("runEval includes manifest-declared and manifest-less regression tasks", as
       report.tasks.map((t) => t.name),
       ["declared-regression", "legacy-task"],
     );
-    assert.equal(report.tasks.every((t) => t.suite === "regression"), true);
+    assert.equal(
+      report.tasks.every((t) => t.suite === "regression"),
+      true,
+    );
   } finally {
     rmSync(tasksDir, { recursive: true, force: true });
   }
@@ -302,6 +305,7 @@ function writeHelloProvider(): FakeProvider {
   ]);
 }
 
+// contract: declared graders produce named PASS results and score 1 on a full pass.
 test("graded task: full pass reports a named result and reason per grader and score 1", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   try {
@@ -340,6 +344,7 @@ test("graded task: full pass reports a named result and reason per grader and sc
   }
 });
 
+// contract: grader partial credit rolls up to a fractional task score.
 test("graded task: partial credit rolls up to a fractional task score", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   try {
@@ -362,6 +367,7 @@ test("graded task: partial credit rolls up to a fractional task score", async ()
   }
 });
 
+// contract: a failing grader's reason names the grader so a reviewer can diagnose it.
 test("graded task: a failing grader reports its name in the reason", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   try {
@@ -382,6 +388,7 @@ test("graded task: a failing grader reports its name in the reason", async () =>
   }
 });
 
+// contract: every grader type executes deterministically within one task.
 test("graded task: graders assert workspace state, test results, tool usage, and transcript bounds", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   try {
@@ -417,6 +424,7 @@ test("graded task: graders assert workspace state, test results, tool usage, and
   }
 });
 
+// contract: outcome graders accept any valid path to the result, not a fixed one.
 test("graded task: outcome graders pass for an alternative path that produces the file", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   try {
@@ -455,6 +463,7 @@ test("graded task: outcome graders pass for an alternative path that produces th
   }
 });
 
+// contract: the legacy check-script path stays intact when no graders are declared.
 test("ungraded task keeps the check-script flow with score 0 or 1 and no graders", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   try {
@@ -541,6 +550,7 @@ class CountingMarkerProvider {
   }
 }
 
+// contract: repeated trials produce one isolated, indexed outcome each.
 test("runEval with trials records one distinct outcome per trial", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   try {
@@ -549,19 +559,31 @@ test("runEval with trials records one distinct outcome per trial", async () => {
     const provider = new FakeProvider([
       {
         toolCalls: [
-          { id: "a", name: "write", arguments: { path: "result.txt", content: "ok" } },
+          {
+            id: "a",
+            name: "write",
+            arguments: { path: "result.txt", content: "ok" },
+          },
         ],
       },
       { text: "done" },
       {
         toolCalls: [
-          { id: "b", name: "write", arguments: { path: "result.txt", content: "bad" } },
+          {
+            id: "b",
+            name: "write",
+            arguments: { path: "result.txt", content: "bad" },
+          },
         ],
       },
       { text: "done" },
       {
         toolCalls: [
-          { id: "c", name: "write", arguments: { path: "result.txt", content: "ok" } },
+          {
+            id: "c",
+            name: "write",
+            arguments: { path: "result.txt", content: "ok" },
+          },
         ],
       },
       { text: "done" },
@@ -572,7 +594,10 @@ test("runEval with trials records one distinct outcome per trial", async () => {
       report.tasks.map((t) => t.trialIndex),
       [1, 2, 3],
     );
-    assert.equal(report.tasks.every((t) => t.trialCount === 3), true);
+    assert.equal(
+      report.tasks.every((t) => t.trialCount === 3),
+      true,
+    );
     assert.deepEqual(
       report.tasks.map((t) => t.name),
       ["trial-task", "trial-task", "trial-task"],
@@ -588,6 +613,7 @@ test("runEval with trials records one distinct outcome per trial", async () => {
   }
 });
 
+// contract: the default single-trial run keeps its legacy output shape.
 test("runEval defaults to a single trial with no trial metadata", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   try {
@@ -649,6 +675,7 @@ function closeTo(actual: number, expected: number, epsilon = 1e-9): void {
   );
 }
 
+// contract: pass^k is observed consistency (all of a task's trials passed), not (passRate)^k.
 test("computeMetrics pins pass@1 and pass^k with small deterministic outcome sets", async () => {
   const { computeMetrics } = await import("../../dist/eval/runner.js");
   // three tasks, three trials each: all-pass, 2/3, and 0/3.
@@ -660,11 +687,26 @@ test("computeMetrics pins pass@1 and pass^k with small deterministic outcome set
   const m = computeMetrics(tasks);
   // pass@1 = mean per-task pass rate = (1 + 2/3 + 0)/3
   closeTo(m.passAt1, 5 / 9);
-  // pass^k (k=3) = mean of (per-task pass rate)^3 = (1 + 8/27 + 0)/3
-  closeTo(m.passAtK, (1 + 8 / 27) / 3);
+  // pass^k = fraction of tasks where every trial passed = (1 + 0 + 0)/3
+  closeTo(m.passAtK, 1 / 3);
   assert.equal(m.k, 3);
+  const byName = new Map(m.perTaskPassRates.map((p: any) => [p.name, p]));
+  assert.equal(byName.get("solved")?.passAtK, 1);
+  assert.equal(byName.get("flaky")?.passAtK, 0);
+  assert.equal(byName.get("broken")?.passAtK, 0);
 });
 
+// bug: a 1/2 pass rate must yield pass^k = 0, not the independence estimate 0.25.
+test("computeMetrics reports observed pass^k of 0 for a task with one failed trial", async () => {
+  const { computeMetrics } = await import("../../dist/eval/runner.js");
+  const tasks = groupOutcomes([{ name: "flaky", passes: [true, false] }]);
+  const m = computeMetrics(tasks);
+  closeTo(m.passAt1, 0.5);
+  closeTo(m.passAtK, 0);
+  assert.equal(m.perTaskPassRates[0].passAtK, 0);
+});
+
+// contract: when k is 1, pass^k collapses to pass@1.
 test("computeMetrics pass@1 equals the suite pass rate for single-trial outcomes", async () => {
   const { computeMetrics } = await import("../../dist/eval/runner.js");
   const tasks = [
@@ -678,6 +720,7 @@ test("computeMetrics pass@1 equals the suite pass rate for single-trial outcomes
   assert.equal(m.k, 1);
 });
 
+// contract: per-task rates and suites are exposed alongside the aggregate.
 test("computeMetrics reports per-task pass rates alongside the suite aggregate", async () => {
   const { computeMetrics } = await import("../../dist/eval/runner.js");
   const tasks = groupOutcomes([
@@ -691,10 +734,13 @@ test("computeMetrics reports per-task pass rates alongside the suite aggregate",
   assert.equal(byName.get("solved")?.trials, 2);
   assert.equal(byName.get("solved")?.passed, 2);
   assert.equal(byName.get("solved")?.suite, "regression");
+  assert.equal(byName.get("solved")?.passAtK, 1);
   assert.equal(byName.get("flaky")?.passRate, 0.5);
+  assert.equal(byName.get("flaky")?.passAtK, 0);
   assert.equal(byName.get("flaky")?.suite, "capability");
 });
 
+// contract: cost and latency distributions are reported across trials.
 test("computeMetrics reports token, turn, and wall-time distributions", async () => {
   const { computeMetrics } = await import("../../dist/eval/runner.js");
   const tasks = [
@@ -725,15 +771,13 @@ test("computeMetrics reports token, turn, and wall-time distributions", async ()
   assert.equal(input.mean, 20);
   assert.equal(input.median, 20);
   assert.equal(input.p90, 30);
-  assert.deepEqual(
-    m.distributions.totalTokens.values,
-    [11, 22, 33],
-  );
+  assert.deepEqual(m.distributions.totalTokens.values, [11, 22, 33]);
   assert.equal(m.distributions.turns.median, 4);
   assert.equal(m.distributions.wallMs.min, 100);
   assert.equal(m.distributions.wallMs.max, 300);
 });
 
+// contract: metrics are zeroed, not NaN, for an empty outcome set.
 test("computeMetrics handles an empty outcome set without NaN", async () => {
   const { computeMetrics } = await import("../../dist/eval/runner.js");
   const m = computeMetrics([]);
@@ -744,6 +788,7 @@ test("computeMetrics handles an empty outcome set without NaN", async () => {
   assert.equal(m.distributions.turns.count, 0);
 });
 
+// contract: adding metrics does not change the legacy summary totals.
 test("runEval attaches metrics while keeping existing aggregate summary totals", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   try {
@@ -751,14 +796,22 @@ test("runEval attaches metrics while keeping existing aggregate summary totals",
     const provider = new FakeProvider([
       {
         toolCalls: [
-          { id: "a", name: "write", arguments: { path: "result.txt", content: "ok" } },
+          {
+            id: "a",
+            name: "write",
+            arguments: { path: "result.txt", content: "ok" },
+          },
         ],
         usage: { input: 10, output: 2, total: 12 },
       },
       { text: "done", usage: { input: 5, output: 1, total: 6 } },
       {
         toolCalls: [
-          { id: "b", name: "write", arguments: { path: "result.txt", content: "bad" } },
+          {
+            id: "b",
+            name: "write",
+            arguments: { path: "result.txt", content: "bad" },
+          },
         ],
       },
       { text: "done" },
@@ -780,6 +833,7 @@ test("runEval attaches metrics while keeping existing aggregate summary totals",
   }
 });
 
+// contract: each trial workspace drops shared and stale fixture state.
 test("runEval gives each trial a fresh workspace with shared state and git history removed", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   const ISOLATION_CHECK = `const { readdirSync, existsSync } = require("node:fs");
@@ -840,6 +894,7 @@ function stopProvider(): FakeProvider {
   return new FakeProvider([{ text: "done" }]);
 }
 
+// contract: the diff uses the selected suite's snapshot only.
 test("baseline comparison is scoped to the selected suite", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   const outDir = mkdtempSync(join(tmpdir(), "evalout-"));
@@ -887,6 +942,7 @@ test("baseline comparison is scoped to the selected suite", async () => {
   }
 });
 
+// contract: newly failing task names are reported for the selected suite.
 test("report lists newly failing task names for the selected suite", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   const outDir = mkdtempSync(join(tmpdir(), "evalout-"));
@@ -923,6 +979,7 @@ test("report lists newly failing task names for the selected suite", async () =>
   }
 });
 
+// contract: a suite-scoped baseline write leaves other suites untouched.
 test("explicit baseline write targets one suite and preserves the others", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   const outDir = mkdtempSync(join(tmpdir(), "evalout-"));
@@ -971,6 +1028,7 @@ test("explicit baseline write targets one suite and preserves the others", async
   }
 });
 
+// contract: legacy flat baselines stay readable for comparison.
 test("legacy flat baseline.json remains readable for suite comparison", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   const outDir = mkdtempSync(join(tmpdir(), "evalout-"));
@@ -1003,6 +1061,7 @@ test("legacy flat baseline.json remains readable for suite comparison", async ()
   }
 });
 
+// contract: baseline writes are opt-in and never silent.
 test("a run without the explicit flag never creates or changes a baseline", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   const outDir = mkdtempSync(join(tmpdir(), "evalout-"));
@@ -1034,6 +1093,73 @@ test("a run without the explicit flag never creates or changes a baseline", asyn
     assert.equal(
       readFileSync(join(outDir, "baseline.json"), "utf8"),
       baselineText,
+    );
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+    rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+// bug: a legacy flat baseline must not seed other suites when --suite writes a baseline.
+test("explicit suite baseline write writes only that suite even with a legacy baseline", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  const outDir = mkdtempSync(join(tmpdir(), "evalout-"));
+  try {
+    makeCheckTask(tasksDir, "reg-task", { suite: "regression", pass: true });
+    makeCheckTask(tasksDir, "cap-task", { suite: "capability", pass: true });
+    // Legacy flat baseline: no `suites` map, so it is a shared fallback.
+    writeFileSync(
+      join(outDir, "baseline.json"),
+      JSON.stringify({
+        summary: { passRate: 0 },
+        tasks: [{ name: "reg-task", pass: false }],
+        suite: "all",
+      }),
+    );
+    await runEval({
+      provider: stopProvider(),
+      tasksDir,
+      suite: "regression",
+      outDir,
+      writeBaseline: true,
+    });
+    const baseline = JSON.parse(
+      readFileSync(join(outDir, "baseline.json"), "utf8"),
+    );
+    assert.deepEqual(
+      baseline.suites.regression.tasks.map((t: any) => t.name),
+      ["reg-task"],
+    );
+    assert.equal(baseline.suites.regression.summary.passRate, 1);
+    // No capability snapshot is created from the legacy baseline.
+    assert.equal(baseline.suites.capability, undefined);
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+    rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+// contract: without --suite, a baseline write still stores one snapshot per suite (legacy behavior).
+test("baseline write without a suite keeps the per-suite snapshot behavior", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  const outDir = mkdtempSync(join(tmpdir(), "evalout-"));
+  try {
+    makeCheckTask(tasksDir, "reg-task", { suite: "regression", pass: true });
+    makeCheckTask(tasksDir, "cap-task", { suite: "capability", pass: false });
+    await runEval({
+      provider: stopProvider(),
+      tasksDir,
+      outDir,
+      writeBaseline: true,
+    });
+    const baseline = JSON.parse(
+      readFileSync(join(outDir, "baseline.json"), "utf8"),
+    );
+    assert.equal(baseline.suites.regression.summary.passRate, 1);
+    assert.equal(baseline.suites.capability.summary.passRate, 0);
+    assert.deepEqual(
+      baseline.suites.capability.tasks.map((t: any) => t.name),
+      ["cap-task"],
     );
   } finally {
     rmSync(tasksDir, { recursive: true, force: true });

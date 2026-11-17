@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { FakeProvider } from "../../dist/providers/fake.js";
 import { runSmokeCheck } from "../../dist/eval/smoke.js";
 
+// flow: the deterministic smoke gate exercises load, execute, grade, and report end to end.
 test("smoke check loads tasks, executes them, grades them, and writes a report", async () => {
   const result = await runSmokeCheck();
 
@@ -28,6 +29,7 @@ test("smoke check loads tasks, executes them, grades them, and writes a report",
   assert.deepEqual(result.reportOnDisk?.summary, result.report.summary);
 });
 
+// bug: the smoke gate fails closed when the provider does not perform the task.
 test("smoke check fails the gate when the provider does not perform the task", async () => {
   const provider = new FakeProvider([
     { text: "no work", usage: { input: 1, output: 1, total: 2 } },
