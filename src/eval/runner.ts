@@ -28,8 +28,11 @@ import {
   goalTool,
 } from "../tools/index.js";
 
+export type EvalSuite = "regression" | "capability";
+
 export interface EvalTaskResult {
   name: string;
+  suite: EvalSuite;
   pass: boolean;
   turns: number;
   inputTokens: number;
@@ -41,6 +44,7 @@ export interface EvalTaskResult {
 
 export interface EvalReport {
   runId: string;
+  suite: EvalSuite | "all";
   provider: string;
   model: string;
   startedAt: string;
@@ -69,6 +73,7 @@ export interface RunEvalOptions {
   model?: string;
   tasksDir: string;
   taskFilter?: string;
+  suite?: EvalSuite;
   outDir?: string;
   writeBaseline?: boolean;
   /** Partial limits override; defaults to the harness DEFAULT_LIMITS. */
@@ -121,6 +126,24 @@ function existsSyncSafe(p: string): boolean {
   }
 }
 
+/**
+ * Read a task's optional manifest.json. A task without a manifest — or with an
+ * unreadable one — is a regression task using the existing check-script flow.
+ */
+function loadTaskSuite(taskDir: string): EvalSuite {
+  try {
+    const manifest = JSON.parse(
+      readFileSync(join(taskDir, "manifest.json"), "utf8"),
+    ) as { suite?: unknown };
+    if (manifest?.suite === "regression" || manifest?.suite === "capability") {
+      return manifest.suite;
+    }
+  } catch {
+    // no manifest or invalid JSON -> legacy regression behavior
+  }
+  return "regression";
+}
+
 function runCheck(
   checkPath: string,
   cwd: string,
@@ -163,8 +186,13 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
   const startedAt = new Date().toISOString();
   const runId = `run-${Date.now()}`;
   const discovered = discoverTasks(tasksDir);
+  const suites = new Map<string, EvalSuite>(
+    discovered.map((n) => [n, loadTaskSuite(join(tasksDir, n))]),
+  );
   const names = discovered.filter(
-    (n) => !options.taskFilter || n === options.taskFilter,
+    (n) =>
+      (!options.taskFilter || n === options.taskFilter) &&
+      (!options.suite || suites.get(n) === options.suite),
   );
 
   const tasks: EvalTaskResult[] = [];
@@ -244,6 +272,7 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
 
     tasks.push({
       name,
+      suite: suites.get(name) ?? "regression",
       pass,
       turns,
       inputTokens,
@@ -267,6 +296,7 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
   const finishedAt = new Date().toISOString();
   const report: EvalReport = {
     runId,
+    suite: options.suite ?? "all",
     provider: options.provider.id ?? "unknown",
     model,
     startedAt,
