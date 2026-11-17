@@ -23,8 +23,10 @@ temp/
 .github/agents/
 .github/hooks/
 .github/skills/
-
+.agents/skills/git-skill/SKILL.md
+AGENTS.md
 .playwright-mcp/
 .impeccable/
 web/.impeccable/
 .atom-lite/attachments/
+.agents/
