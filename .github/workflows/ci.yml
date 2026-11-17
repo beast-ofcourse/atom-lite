@@ -38,5 +38,8 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Eval harness smoke (fake provider)
+        run: npm run eval:smoke
+
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
