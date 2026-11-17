@@ -262,7 +262,9 @@ test("non-git workspace mutating turn emits no checkpoint events", async () => {
   );
 });
 
-test("repeated long requests do not duplicate the task ledger", async () => {
+// Contract: plain user messages, however long or repeated, never populate the
+// ledger now that runtime capture is gone.
+test("repeated plain requests leave the task ledger empty", async () => {
   const longInput = "x".repeat(250);
   const provider = new FakeProvider([{ text: "done" }, { text: "done" }]);
   const todoStore = new TodoStore();
@@ -274,5 +276,5 @@ test("repeated long requests do not duplicate the task ledger", async () => {
   const session = new InMemorySession("s1", "/tmp/ws");
   await runtime.runAgentTurn(longInput, session, new AbortController().signal);
   await runtime.runAgentTurn(longInput, session, new AbortController().signal);
-  assert.equal(todoStore.list().length, 1);
+  assert.equal(todoStore.list().length, 0);
 });

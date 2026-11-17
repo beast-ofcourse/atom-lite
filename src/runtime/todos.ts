@@ -130,16 +130,6 @@ export class TodoStore {
     return [];
   }
 
-  contains(content: string): boolean {
-    // Compare the full normalized text: prefix-only matching would treat two
-    // distinct tasks with a shared opening as duplicates.
-    const needle = normalizeContent(content).toLowerCase();
-    if (!needle) return false;
-    return this.items.some(
-      (item) => normalizeContent(item.content).toLowerCase() === needle,
-    );
-  }
-
   openCount(): number {
     return this.items.filter(
       (item) => item.status === "pending" || item.status === "in_progress",

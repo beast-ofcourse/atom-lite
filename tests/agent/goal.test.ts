@@ -382,7 +382,8 @@ test("ledger tool changes emit ledger state events", async () => {
     session as any,
     new AbortController().signal,
   );
-  assert.ok(events.some((e) => e.type === "ledger_state" && e.open === 2));
+  const states = events.filter((e) => e.type === "ledger_state");
+  assert.equal(states[states.length - 1].open, 1);
 });
 
 test("recent tool-call file paths are injected as active-file context", async () => {
