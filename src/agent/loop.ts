@@ -22,6 +22,19 @@ import { TurnRecorder } from "./turn-recorder.js";
 import type { AgentPersona } from "../agents/registry.js";
 import { composePersonaSystemPrompt } from "../agents/persona.js";
 
+/** The minimal session surface the runtime needs to append state events. */
+type EventSession = { appendEvent?(partial: any): any };
+
+/** Find the newest event of a given type without copying the event log. */
+function latestEvent(session: unknown, type: string): any | undefined {
+  const events = (session as { events?: unknown[] })?.events;
+  if (!Array.isArray(events)) return undefined;
+  for (let i = events.length - 1; i >= 0; i--) {
+    if ((events[i] as any)?.type === type) return events[i];
+  }
+  return undefined;
+}
+
 export class AgentRuntime {
   private provider: AgentRuntimeOptions["provider"];
   private model: string;
@@ -220,7 +233,7 @@ export class AgentRuntime {
     },
     focus?: string,
   ): Promise<string | null> {
-    this.syncStaticContext(false);
+    this.syncStaticContext(false, this.activeFiles(session));
     const summary = await this.contextManager.compactHistory(
       this.workspace,
       session.messages,
@@ -277,11 +290,7 @@ export class AgentRuntime {
   }
 
   private restoreTodos(session: unknown): void {
-    const events = (session as { events?: unknown[] }).events;
-    if (!Array.isArray(events)) return;
-    const latest = [...events]
-      .reverse()
-      .find((event: any) => event?.type === "todos_updated") as
+    const latest = latestEvent(session, "todos_updated") as
       { todos?: unknown } | undefined;
     if (!latest) return;
     if (this.todoStoreInjected) {
@@ -293,7 +302,7 @@ export class AgentRuntime {
     this.todoStore = TodoStore.fromJSON(latest.todos);
   }
 
-  private persistTodos(session: { appendEvent?(partial: any): any }): void {
+  private persistTodos(session: EventSession): void {
     if (typeof session.appendEvent !== "function") return;
     session.appendEvent({
       type: "todos_updated",
@@ -302,18 +311,14 @@ export class AgentRuntime {
   }
 
   private restoreGoal(session: unknown): void {
-    const events = (session as { events?: unknown[] }).events;
-    if (!Array.isArray(events)) return;
-    const latest = [...events]
-      .reverse()
-      .find((event: any) => event?.type === "goal_updated") as
+    const latest = latestEvent(session, "goal_updated") as
       { goal?: unknown } | undefined;
     if (!latest) return;
     if (this.goalStoreInjected) this.goalStore.replace(latest.goal);
     else this.goalStore = GoalStore.fromJSON(latest.goal);
   }
 
-  private persistGoal(session: { appendEvent?(partial: any): any }): void {
+  private persistGoal(session: EventSession): void {
     if (typeof session.appendEvent !== "function") return;
     session.appendEvent({
       type: "goal_updated",
@@ -345,10 +350,6 @@ export class AgentRuntime {
     return this.goalStore.get();
   }
 
-  getGoalStatus(): import("../runtime/goal.js").GoalStatus | null {
-    return this.goalStore.status;
-  }
-
   getTodos(): import("../runtime/todos.js").TodoItem[] {
     return this.todoStore.list();
   }
@@ -357,31 +358,22 @@ export class AgentRuntime {
     return this.todoStore.openCount();
   }
 
-  setGoal(
-    statement: string,
-    session?: { appendEvent?(partial: any): any },
-  ): GoalState {
+  setGoal(statement: string, session?: EventSession): GoalState {
     this.goalStore.set(statement);
     return this.commitGoal(session)!;
   }
 
-  setGoalCriteria(
-    criteria: string[],
-    session?: { appendEvent?(partial: any): any },
-  ): GoalState {
+  setGoalCriteria(criteria: string[], session?: EventSession): GoalState {
     this.goalStore.setCriteria(criteria);
     return this.commitGoal(session)!;
   }
 
-  setGoalConstraints(
-    value: string,
-    session?: { appendEvent?(partial: any): any },
-  ): GoalState {
+  setGoalConstraints(value: string, session?: EventSession): GoalState {
     this.goalStore.setConstraints(value);
     return this.commitGoal(session)!;
   }
 
-  pauseGoal(session?: { appendEvent?(partial: any): any }): GoalState | null {
+  pauseGoal(session?: EventSession): GoalState | null {
     const before = this.goalStore.status;
     const goal = this.goalStore.pause();
     if (before !== "paused" && goal?.status === "paused") {
@@ -390,7 +382,7 @@ export class AgentRuntime {
     return goal;
   }
 
-  resumeGoal(session?: { appendEvent?(partial: any): any }): GoalState | null {
+  resumeGoal(session?: EventSession): GoalState | null {
     const before = this.goalStore.status;
     const goal = this.goalStore.resume();
     if (before === "paused" && goal?.status === "active") {
@@ -399,12 +391,12 @@ export class AgentRuntime {
     return goal;
   }
 
-  clearGoal(session?: { appendEvent?(partial: any): any }): void {
+  clearGoal(session?: EventSession): void {
     this.goalStore.clear();
     this.commitGoal(session);
   }
 
-  clearLedger(session?: { appendEvent?(partial: any): any }): void {
+  clearLedger(session?: EventSession): void {
     this.todoStore.replace([]);
     if (session) this.persistTodos(session);
     this.emitLedgerState();
@@ -412,7 +404,7 @@ export class AgentRuntime {
 
   completeGoal(
     evidence?: string,
-    session?: { appendEvent?(partial: any): any },
+    session?: EventSession,
   ): {
     ok: boolean;
     unmet: string[];
@@ -431,15 +423,9 @@ export class AgentRuntime {
 
   /** Explicit state refresh when the CLI switches sessions. */
   restoreSessionState(session: unknown): void {
-    const events = (session as { events?: unknown[] })?.events;
-    const list = Array.isArray(events) ? events : [];
-    const goalEvent = [...list]
-      .reverse()
-      .find((event: any) => event?.type === "goal_updated") as
+    const goalEvent = latestEvent(session, "goal_updated") as
       { goal?: unknown } | undefined;
-    const ledgerEvent = [...list]
-      .reverse()
-      .find((event: any) => event?.type === "todos_updated") as
+    const ledgerEvent = latestEvent(session, "todos_updated") as
       { todos?: unknown } | undefined;
     if (this.goalStoreInjected) {
       this.goalStore.replace(goalEvent?.goal ?? null);
@@ -462,7 +448,7 @@ export class AgentRuntime {
   }
 
   /** Clear both stores for `/new`. */
-  resetSessionState(session?: { appendEvent?(partial: any): any }): void {
+  resetSessionState(session?: EventSession): void {
     this.goalStore.clear();
     this.todoStore.replace([]);
     if (session) {
@@ -498,10 +484,7 @@ export class AgentRuntime {
    * independent of the model: a new task cannot disappear just because the
    * model was still finishing the previous one.
    */
-  private captureUserTask(
-    input: string,
-    session: { appendEvent?(partial: any): any },
-  ): void {
+  private captureUserTask(input: string, session: EventSession): void {
     if (!this.toolMap.has("todo")) return;
     const text = input.replace(/\s+/g, " ").trim();
     if (!text || this.isContinuation(text) || this.isQuestion(text)) return;
@@ -531,11 +514,41 @@ export class AgentRuntime {
     };
   }
 
+  /** Recent files from tool calls, retained alongside the goal on compaction. */
+  private activeFiles(session: unknown): string | null {
+    const messages = (session as { messages?: Message[] })?.messages;
+    if (!Array.isArray(messages)) return null;
+    const files: string[] = [];
+    for (let i = messages.length - 1; i >= 0 && files.length < 10; i--) {
+      const toolCalls = (messages[i] as any)?.toolCalls;
+      if (!Array.isArray(toolCalls)) continue;
+      for (const call of toolCalls) {
+        if (!["read", "write", "edit"].includes(String(call?.name ?? ""))) {
+          continue;
+        }
+        const filePath = (call as any)?.arguments?.path;
+        if (
+          typeof filePath === "string" &&
+          filePath &&
+          !files.includes(filePath)
+        ) {
+          files.push(filePath);
+        }
+        if (files.length >= 10) break;
+      }
+    }
+    return files.length ? files.map((file) => `- ${file}`).join("\n") : null;
+  }
+
   /** Supply the goal/ledger state used by both the build and the summarizer. */
-  private syncStaticContext(completionCheck: boolean): void {
+  private syncStaticContext(
+    completionCheck: boolean,
+    files: string | null,
+  ): void {
     this.contextManager.setStaticContext({
       goal: this.goalStore.renderForPrompt(),
       ledger: this.todoStore.renderForPrompt({ completionCheck }),
+      files,
       continuation: this.continuationInput(),
     });
   }
@@ -572,18 +585,13 @@ export class AgentRuntime {
     options?: { requestId?: string },
   ): Promise<string> {
     // Restore any persisted session memory for resumed sessions.
-    const events = (session as any).events;
-    if (Array.isArray(events)) {
-      const latest = [...events]
-        .reverse()
-        .find((e: any) => e?.type === "context_compacted");
-      this.contextManager.setSessionMemory(
-        typeof latest?.summary === "string" ? latest.summary : null,
-        typeof latest?.coveredCount === "number"
-          ? latest.coveredCount
-          : undefined,
-      );
-    }
+    const latest = latestEvent(session, "context_compacted");
+    this.contextManager.setSessionMemory(
+      typeof latest?.summary === "string" ? latest.summary : null,
+      typeof latest?.coveredCount === "number"
+        ? latest.coveredCount
+        : undefined,
+    );
     this.restoreTodos(session);
     this.restoreGoal(session);
 
@@ -640,6 +648,7 @@ export class AgentRuntime {
 
         this.syncStaticContext(
           completionNudges > 0 && this.todoStore.openCount() > 0,
+          this.activeFiles(session),
         );
         const messages = await this.contextManager.build(
           this.workspace,

@@ -1,3 +1,5 @@
+// Contract: the durable goal store keeps user-owned fields isolated, transitions
+// status explicitly, and its completion gate names unmet criteria.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GoalStore, checkGoalCompletion } from "../../dist/runtime/goal.js";
@@ -78,6 +80,21 @@ test("completed todos satisfy criteria", () => {
   ]);
   assert.equal(check.complete, true);
   assert.deepEqual(check.unmet, []);
+});
+
+test("a loosely related todo does not satisfy a criterion", () => {
+  const store = new GoalStore();
+  store.set("Ship it");
+  store.setCriteria(["tests pass"]);
+  const check = checkGoalCompletion(store.get()!, [
+    {
+      id: "T1",
+      content: "investigate why tests pass intermittently",
+      status: "completed",
+    },
+  ]);
+  assert.equal(check.complete, false);
+  assert.deepEqual(check.unmet, ["tests pass"]);
 });
 
 test("explicit evidence satisfies remaining criteria", () => {

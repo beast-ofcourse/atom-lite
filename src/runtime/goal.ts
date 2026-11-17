@@ -181,6 +181,28 @@ function normalized(value: string): string {
 }
 
 /**
+ * One criterion is satisfied by a completed todo that names it (in content or
+ * verification) or by explicit evidence that names it. Shared by the goal
+ * tool's completion gate and the TUI panel's progress markers.
+ */
+export function criterionSatisfied(
+  criterion: string,
+  todos: TodoItem[],
+  evidence?: string,
+): boolean {
+  const needle = normalized(criterion);
+  if (!needle) return false;
+  return (
+    todos.some(
+      (item) =>
+        item.status === "completed" &&
+        (normalized(item.content) === needle ||
+          normalized(item.verification ?? "").includes(needle)),
+    ) || normalized(evidence ?? "").includes(needle)
+  );
+}
+
+/**
  * Soft completion gate. A criterion is satisfied when a completed todo
  * describes it, that todo's verification names it, or the caller supplies
  * explicit evidence that names it. The gate blocks the completion call, not
@@ -192,22 +214,8 @@ export function checkGoalCompletion(
   evidence?: string,
 ): CompletionCheck {
   if (!goal) return { complete: false, unmet: [] };
-  const completed = todos.filter((item) => item.status === "completed");
-  const evidenceText = normalized(evidence ?? "");
-  const unmet = goal.criteria.filter((criterion) => {
-    const needle = normalized(criterion);
-    if (!needle) return false;
-    return (
-      !completed.some((item) => {
-        const content = normalized(item.content);
-        const verification = normalized(item.verification ?? "");
-        return (
-          content === needle ||
-          content.includes(needle) ||
-          verification.includes(needle)
-        );
-      }) && !evidenceText.includes(needle)
-    );
-  });
+  const unmet = goal.criteria.filter(
+    (criterion) => !criterionSatisfied(criterion, todos, evidence),
+  );
   return { complete: unmet.length === 0, unmet };
 }

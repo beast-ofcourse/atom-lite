@@ -1,3 +1,5 @@
+// Contract: the goal tool exposes only read/complete, cannot rewrite
+// user-owned fields, and applies the soft completion gate at the tool seam.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";

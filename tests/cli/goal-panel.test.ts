@@ -1,3 +1,5 @@
+// Contract: the goal panel renders runtime state, follows visibility/toggle
+// rules, shows paused and completed states, and applies theme changes.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
@@ -73,6 +75,14 @@ test("theme changes apply to the panel", () => {
   for (const row of panel.render(50)) {
     assert.equal(stripTerminalSequences(row), row);
   }
+});
+
+test("a completed goal ticks every criterion", () => {
+  const panel = new GoalPanel(ansiTheme);
+  panel.setState({ ...goal, status: "complete" }, todos);
+  const output = plain(panel);
+  assert.match(output, /\[x\] tests pass/);
+  assert.match(output, /\[x\] docs updated/);
 });
 
 test("panel rows never exceed the allocated width", () => {

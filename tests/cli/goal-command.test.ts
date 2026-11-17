@@ -1,10 +1,12 @@
+// Contract: every /goal subcommand parses and dispatches through the command
+// registry, and the completion branch uses the real criterion gate.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   createCommandRegistry,
   type CommandContext,
 } from "../../dist/cli/commands.js";
-import { GoalStore } from "../../dist/runtime/goal.js";
+import { GoalStore, checkGoalCompletion } from "../../dist/runtime/goal.js";
 import { TodoStore } from "../../dist/runtime/todos.js";
 
 function harness() {
@@ -25,16 +27,10 @@ function harness() {
     completeGoal: (evidence?: string) => {
       const state = goalStore.get();
       if (!state) return { ok: false, unmet: [] as string[], goal: null };
-      const completed = todoStore
-        .list()
-        .filter((t) => t.status === "completed");
-      const unmet = state.criteria.filter(
-        (c) =>
-          !completed.some((t) => t.content.includes(c)) &&
-          !(evidence ?? "").includes(c),
-      );
-      if (unmet.length) return { ok: false, unmet, goal: state };
-      return { ok: true, unmet: [] as string[], goal: goalStore.complete() };
+      const check = checkGoalCompletion(state, todoStore.list(), evidence);
+      if (!check.complete)
+        return { ok: false, unmet: check.unmet, goal: state };
+      return { ok: true, unmet: [], goal: goalStore.complete() };
     },
   };
   const ctx: CommandContext = {

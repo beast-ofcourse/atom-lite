@@ -1,3 +1,6 @@
+// Contract: compaction feeds goal, ledger, and active files to the summarizer,
+// injects one continuation instruction, honors the compaction model, and
+// bounds noisy tool output without dropping the retention set.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
@@ -140,6 +143,21 @@ test("bulky tool output is bounded and duplicate reads are dropped", async () =>
   // One bounded read copy remains; the other is replaced by the marker.
   assert.ok(serialized.split("file contents").length - 1 < 400);
   assert.ok(serialized.length < 30_000);
+});
+
+test("active file paths remain in the compacted context and summarizer input", async () => {
+  const { manager, requests } = harness();
+  manager.setStaticContext({
+    goal: "## Current goal\nStatement: Ship it",
+    ledger: "## Task ledger\n- [pending] T1: write code",
+    files: "- src/agent/loop.ts\n- src/runtime/goal.ts",
+  });
+  manager.setForceCompact(true);
+  const messages = await manager.build("/tmp/ws", history());
+  const joined = messages.map(textOf).join("\n");
+  assert.match(joined, /Active files:/);
+  assert.match(joined, /src\/agent\/loop\.ts/);
+  assert.match(JSON.stringify(requests[0].messages), /src\/agent\/loop\.ts/);
 });
 
 test("goal and ledger remain in the compacted context", async () => {

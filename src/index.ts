@@ -22,6 +22,7 @@ export type { TodoItem, TodoInput } from "./runtime/todos.js";
 export {
   GoalStore,
   checkGoalCompletion,
+  criterionSatisfied,
   GOAL_STATUSES,
 } from "./runtime/goal.js";
 export type { GoalState, GoalStatus } from "./runtime/goal.js";

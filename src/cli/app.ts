@@ -2258,7 +2258,16 @@ export async function run(args: string[]): Promise<void> {
 
     for (const message of messages) {
       if (!message || typeof message !== "object") continue;
-      if (message.role === "system") continue;
+      if (message.role === "system") {
+        // Continuations are one-shot instructions, but the user must still be
+        // able to see what the agent was told after a compaction.
+        const text = textOf(message.content).trim();
+        if (text.startsWith("Continuation after compaction:")) {
+          transcript.add(new Spacer(1));
+          transcript.add(new Text(theme.tokens.dim(text), 1, 0));
+        }
+        continue;
+      }
 
       if (message.role === "user") {
         const text = textOf(message.content).trim();

@@ -38,6 +38,8 @@ test("status line shows the active persona beside the mode", () => {
   assert.ok(plain[0].trimEnd().endsWith("effort: medium"));
 });
 
+// Contract: open-todo progress stays visible in the status bar when the panel
+// is hidden.
 test("status line shows the open todo count", () => {
   const rows = render({ ...PLAIN, openTodos: 3 }, 100, darkTheme);
   const plain = rows.map(stripTerminalSequences);

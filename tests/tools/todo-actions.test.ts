@@ -1,3 +1,5 @@
+// Contract: the extended ledger actions edit only their target, keep stable
+// identifiers, and leave the original write/update actions intact.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";

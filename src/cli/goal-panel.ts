@@ -2,7 +2,7 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
 import { darkTheme, type Theme } from "./theme.js";
 import { panelBottom, panelRow, panelTop, type Color } from "./panel.js";
-import type { GoalState } from "../runtime/goal.js";
+import { criterionSatisfied, type GoalState } from "../runtime/goal.js";
 import type { TodoItem } from "../runtime/todos.js";
 
 function wrap(text: string, width: number): string[] {
@@ -22,17 +22,6 @@ function wrap(text: string, width: number): string[] {
   }
   if (current) lines.push(current);
   return lines;
-}
-
-function satisfied(criterion: string, todos: TodoItem[]): boolean {
-  const needle = criterion.replace(/\s+/g, " ").trim().toLowerCase();
-  if (!needle) return false;
-  return todos.some(
-    (todo) =>
-      todo.status === "completed" &&
-      (todo.content.toLowerCase().includes(needle) ||
-        (todo.verification ?? "").toLowerCase().includes(needle)),
-  );
 }
 
 /** Side panel showing the durable goal and its live task ledger. */
@@ -104,7 +93,11 @@ export class GoalPanel implements Component {
       if (this.goal.criteria.length) {
         push("Success criteria:");
         for (const criterion of this.goal.criteria) {
-          const mark = satisfied(criterion, this.todos) ? "x" : " ";
+          const mark =
+            this.goal?.status === "complete" ||
+            criterionSatisfied(criterion, this.todos)
+              ? "x"
+              : " ";
           push(`  [${mark}] ${criterion}`);
         }
       }

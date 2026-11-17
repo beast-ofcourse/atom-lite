@@ -30,6 +30,8 @@ export interface ContextStaticState {
   goal?: string | null;
   /** Rendered task ledger. */
   ledger?: string | null;
+  /** Active file paths from recent tool calls, kept across compaction. */
+  files?: string | null;
   /** Structured source for the one-shot post-compaction instruction. */
   continuation?: {
     statement: string;
@@ -167,6 +169,12 @@ export class ContextManager {
     if (this.staticContext?.ledger) {
       messages.push({ role: "system", content: this.staticContext.ledger });
     }
+    if (this.staticContext?.files) {
+      messages.push({
+        role: "system",
+        content: `Active files:\n${this.staticContext.files}`,
+      });
+    }
     return messages;
   }
 
@@ -294,7 +302,13 @@ export class ContextManager {
     if (serialized.length > capChars) {
       serialized = serialized.slice(0, capChars) + "...[truncated]";
     }
-    const retention = [this.staticContext?.goal, this.staticContext?.ledger]
+    const retention = [
+      this.staticContext?.goal,
+      this.staticContext?.ledger,
+      this.staticContext?.files
+        ? `Active files:\n${this.staticContext.files}`
+        : null,
+    ]
       .filter(Boolean)
       .join("\n\n");
     let summaryText = "";
@@ -470,10 +484,10 @@ export class ContextManager {
     this.sessionMemoryCount = coveredCount;
     this.lastCompactionCoveredCount = coveredCount;
     this.compactedThisBuild = true;
-    this.pendingContinuation = this.getContinuation();
     this.lastReportedUsage = undefined;
 
     const continuation = this.getContinuation();
+    this.pendingContinuation = continuation;
     const compacted: Message[] = [
       { role: "system", content: systemPrompt },
       ...this.staticMessages(),

@@ -1,3 +1,5 @@
+// Contract: the runtime is the behavioral spine for goal injection, session
+// persistence, compaction continuity, the pause gate, and state events.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
@@ -381,6 +383,37 @@ test("ledger tool changes emit ledger state events", async () => {
     new AbortController().signal,
   );
   assert.ok(events.some((e) => e.type === "ledger_state" && e.open === 2));
+});
+
+test("recent tool-call file paths are injected as active-file context", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  const session = new EventedSession();
+  session.messages = [
+    {
+      role: "assistant",
+      content: [{ type: "text", text: "editing" }],
+      toolCalls: [
+        {
+          id: "e1",
+          name: "edit",
+          arguments: {
+            path: "src/runtime/goal.ts",
+            oldString: "a",
+            newString: "b",
+          },
+        },
+      ],
+    },
+  ] as Message[];
+  const provider = new RecordingProvider([{ text: "done" }]);
+  const runtime = new AgentRuntime({ provider, workspace: dir, tools: [] });
+  await runtime.runAgentTurn(
+    "continue",
+    session as any,
+    new AbortController().signal,
+  );
+  assert.match(text(provider.requests[0]), /Active files:/);
+  assert.match(text(provider.requests[0]), /src\/runtime\/goal\.ts/);
 });
 
 test("manual compaction keeps the goal and mirrors one continuation", async () => {
