@@ -49,6 +49,14 @@ class RecordingProvider implements ProviderAdapter {
   }
 }
 
+function renderRequest(provider: RecordingProvider, index: number): string {
+  return provider.requests[index].messages
+    .map((m: any) =>
+      typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+    )
+    .join("\n");
+}
+
 test("runtime injects the task ledger after a todo write", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   const session = new EventedSession();
@@ -79,38 +87,45 @@ test("runtime injects the task ledger after a todo write", async () => {
     new AbortController().signal,
   );
   assert.ok(provider.requests.length >= 2);
-  const second = provider.requests[1].messages
-    .map((m: any) =>
-      typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-    )
-    .join("\n");
+  const second = renderRequest(provider, 1);
   assert.match(second, /Task ledger/);
   assert.match(second, /task A/);
   assert.ok(session.events.some((e) => e.type === "todos_updated"));
 });
 
-test("runtime auto-captures a user task into the ledger", async () => {
+// Contract: runtime never captures user messages into the ledger, whatever
+// their shape. Pins removal of the capture heuristics: only model todo-tool
+// calls may create ledger items or emit ledger events.
+test("runtime does not capture any user message into the ledger", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
-  const session = new EventedSession();
-  const provider = new RecordingProvider([{ text: "done" }]);
-  const runtime = new AgentRuntime({
-    provider,
-    workspace: dir,
-    tools: [todoTool],
-    mode: "yolo",
-  });
-  await runtime.runAgentTurn(
+  for (const input of [
     "implement the feature",
-    session,
-    new AbortController().signal,
-  );
-  const first = provider.requests[0].messages
-    .map((m: any) =>
-      typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-    )
-    .join("\n");
-  assert.match(first, /Task ledger/);
-  assert.match(first, /implement the feature/);
+    "ok",
+    "what does this function do?",
+    "read the single task-ledger section of docs/tools.md and give me a one-paragraph summary of what the todo tool does in that section",
+  ]) {
+    const session = new EventedSession();
+    const events: any[] = [];
+    const provider = new RecordingProvider([{ text: "done" }]);
+    const runtime = new AgentRuntime({
+      provider,
+      workspace: dir,
+      tools: [todoTool],
+      mode: "yolo",
+      onEvent: (event: any) => events.push(event),
+    });
+    await runtime.runAgentTurn(input, session, new AbortController().signal);
+    const first = renderRequest(provider, 0);
+    assert.doesNotMatch(first, /Task ledger/, input);
+    assert.ok(
+      !session.events.some((e) => e.type === "todos_updated"),
+      `todos_updated emitted for: ${input}`,
+    );
+    assert.ok(
+      !events.some((e) => e.type === "ledger_state"),
+      `ledger_state emitted for: ${input}`,
+    );
+  }
 });
 
 test("runtime restores the ledger from a resumed session", async () => {
@@ -128,11 +143,7 @@ test("runtime restores the ledger from a resumed session", async () => {
     mode: "yolo",
   });
   await runtime.runAgentTurn("continue", session, new AbortController().signal);
-  const first = provider.requests[0].messages
-    .map((m: any) =>
-      typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-    )
-    .join("\n");
+  const first = renderRequest(provider, 0);
   assert.match(first, /resumed task/);
 });
 
@@ -155,11 +166,7 @@ test("preserves a caller-supplied ledger store when restoring", async () => {
   await runtime.runAgentTurn("continue", session, new AbortController().signal);
   assert.equal(injected.list().length, 1);
   assert.equal(injected.list()[0].content, "restored into override");
-  const first = provider.requests[0].messages
-    .map((m: any) =>
-      typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-    )
-    .join("\n");
+  const first = renderRequest(provider, 0);
   assert.match(first, /restored into override/);
 });
 
@@ -190,11 +197,7 @@ test("todos persist through a real JSONL session resume", async () => {
     resumed!,
     new AbortController().signal,
   );
-  const first = provider.requests[0].messages
-    .map((m: any) =>
-      typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-    )
-    .join("\n");
+  const first = renderRequest(provider, 0);
   assert.match(first, /jsonl persisted task/);
 });
 
@@ -260,10 +263,44 @@ test("does not nudge when the model never touches the ledger", async () => {
   assert.ok(!events.some((event) => event.type === "task_ledger_open"));
 });
 
-test("captures a new task that starts with a continuation word", async () => {
+// Contract: model-driven decomposition. A model-written plan and a later
+// status change must appear both in the next model context and in the
+// persisted ledger event, with no runtime-created item mixed in.
+test("model-driven todo decomposition renders and persists subtask progress", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   const session = new EventedSession();
-  const provider = new RecordingProvider([{ text: "done" }]);
+  const provider = new RecordingProvider([
+    {
+      toolCalls: [
+        {
+          id: "t1",
+          name: "todo",
+          arguments: {
+            action: "write",
+            todos: [
+              { id: "T1", content: "set up the project", status: "pending" },
+              { id: "T2", content: "run the test suite", status: "pending" },
+              { id: "T3", content: "review the diff", status: "pending" },
+            ],
+          },
+        },
+      ],
+    },
+    {
+      toolCalls: [
+        {
+          id: "t2",
+          name: "todo",
+          arguments: {
+            action: "complete",
+            id: "T1",
+            verification: "npm test passed",
+          },
+        },
+      ],
+    },
+    { text: "done" },
+  ]);
   const runtime = new AgentRuntime({
     provider,
     workspace: dir,
@@ -271,35 +308,29 @@ test("captures a new task that starts with a continuation word", async () => {
     mode: "yolo",
   });
   await runtime.runAgentTurn(
-    "ok now fix the failing test",
+    "build the whole feature",
     session,
     new AbortController().signal,
   );
-  const first = provider.requests[0].messages
-    .map((m: any) =>
-      typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-    )
-    .join("\n");
-  assert.match(first, /ok now fix the failing test/);
-});
-
-test("does not capture continuations or informational questions", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "ws-"));
-  for (const input of ["ok", "what does this function do?"]) {
-    const session = new EventedSession();
-    const provider = new RecordingProvider([{ text: "done" }]);
-    const runtime = new AgentRuntime({
-      provider,
-      workspace: dir,
-      tools: [todoTool],
-      mode: "yolo",
-    });
-    await runtime.runAgentTurn(input, session, new AbortController().signal);
-    const first = provider.requests[0].messages
-      .map((m: any) =>
-        typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-      )
-      .join("\n");
-    assert.doesNotMatch(first, /Task ledger/, input);
-  }
+  assert.ok(provider.requests.length >= 3);
+  const promptAt = (index: number) => renderRequest(provider, index);
+  const second = promptAt(1);
+  assert.match(second, /Task ledger/);
+  assert.match(second, /set up the project/);
+  assert.match(second, /run the test suite/);
+  assert.match(second, /review the diff/);
+  assert.match(
+    promptAt(2),
+    /\[completed\] T1: set up the project \(verify: npm test passed\)/,
+  );
+  const updates = session.events.filter((e) => e.type === "todos_updated");
+  assert.ok(updates.length >= 2);
+  assert.deepEqual(
+    updates[updates.length - 1].todos.map((t: any) => [t.id, t.status]),
+    [
+      ["T1", "completed"],
+      ["T2", "pending"],
+      ["T3", "pending"],
+    ],
+  );
 });

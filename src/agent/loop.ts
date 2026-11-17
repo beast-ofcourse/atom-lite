@@ -463,42 +463,6 @@ export class AgentRuntime {
     this.emitLedgerState();
   }
 
-  private isContinuation(text: string): boolean {
-    // Match the whole message, not just its opening: "ok now fix the failing
-    // test" is a new task, while "ok" is a continuation.
-    return /^(please\s+)?(continue|proceed|go on|keep going|yes|yep|ok|okay|sure|do it|thanks|thank you|\?\?continue)(\s+please)?[.!]*$/i.test(
-      text.trim(),
-    );
-  }
-
-  private isQuestion(text: string): boolean {
-    // Requests phrased as questions ("can you fix…") are tasks; genuine
-    // questions start with a wh-word or auxiliary.
-    if (/^(can|could|would|will)\s+you\b/i.test(text)) return false;
-    return (
-      /\?\s*$/.test(text) &&
-      /^(what|why|how|when|where|who|which|is|are|was|were|do|does|did|can|could|should|would|will)\b/i.test(
-        text,
-      )
-    );
-  }
-
-  /**
-   * Capture each distinct user request in the ledger. This is deliberately
-   * independent of the model: a new task cannot disappear just because the
-   * model was still finishing the previous one.
-   */
-  private captureUserTask(input: string, session: EventSession): void {
-    if (!this.toolMap.has("todo")) return;
-    const text = input.replace(/\s+/g, " ").trim();
-    if (!text || this.isContinuation(text) || this.isQuestion(text)) return;
-    const captured = text.slice(0, 200);
-    if (this.todoStore.contains(captured)) return;
-    this.todoStore.add({ content: captured, status: "pending" });
-    this.persistTodos(session);
-    this.emitLedgerState();
-  }
-
   private continuationInput(): import("../context/manager.js").ContextStaticState["continuation"] {
     const goal = this.goalStore.get();
     const open = this.todoStore
@@ -618,7 +582,6 @@ export class AgentRuntime {
     this.onEvent?.({ type: "request_id", requestId });
     this.todoTouchedThisTurn = false;
     this.injectCompletedBackgroundTasks(session);
-    this.captureUserTask(input, session);
 
     session.appendMessage({
       role: "user",
