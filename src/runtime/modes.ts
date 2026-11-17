@@ -11,6 +11,7 @@ export const PLAN_READONLY_TOOLS = new Set([
   "websearch",
   "task",
   "todo",
+  "question",
   "lsp_diagnostics",
   "lsp_definition",
   "lsp_references",

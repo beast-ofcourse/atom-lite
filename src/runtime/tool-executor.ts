@@ -132,6 +132,11 @@ export class ToolExecutor {
         // mutations (allowed in plan mode).
         return lm.acquireWrite("__todo__", signal);
       }
+      if (call.name === "question") {
+        // A turn may request several questions at once. Only one prompt can
+        // own the UI, so queue them like OpenCode's pending-form list.
+        return lm.acquireWrite("__question__", signal);
+      }
       const key = resourceKey(call, ctx.workspace);
       if (key === "") return () => {};
       const tool = toolMap.get(call.name);

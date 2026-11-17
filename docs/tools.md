@@ -1,6 +1,6 @@
 # Tools
 
-Atom-lite ships ten built-in tools. The model chooses which to call; the runtime validates arguments, applies permissions, and schedules execution.
+Atom-lite ships built-in tools. The model chooses which to call; the runtime validates arguments, applies permissions, and schedules execution.
 
 | Tool        | Behavior                                                         |
 | ----------- | ---------------------------------------------------------------- |
@@ -14,6 +14,7 @@ Atom-lite ships ten built-in tools. The model chooses which to call; the runtime
 | `websearch` | Search the web and return ranked results.                        |
 | `task`      | Query or control a background bash task.                         |
 | `todo`      | Maintain the session task ledger.                                |
+| `question`  | Ask you to choose an option or type an answer mid-turn.          |
 
 ## Scheduling
 
@@ -31,7 +32,7 @@ Each result is capped at `runtime.maxToolOutputBytes` (default `30000`). A `bash
 
 ## Plan mode
 
-`plan` allows built-in read-only tools and any tool that declares `readOnlyHint`, including MCP and extension tools. `write`, `edit`, and `bash` are blocked. The `todo` and `goal` tools stay available because they change session state, not the workspace. Toggle with Tab or set `runtime.mode`.
+`plan` allows built-in read-only tools and any tool that declares `readOnlyHint`, including MCP and extension tools. `write`, `edit`, and `bash` are blocked. The `todo`, `goal`, and `question` tools stay available because they change session state or ask for input without touching the workspace. Toggle with Tab or set `runtime.mode`.
 
 ## Hash guards
 
@@ -40,6 +41,33 @@ Each result is capped at `runtime.maxToolOutputBytes` (default `30000`). A `bash
 ## Task ledger
 
 The `todo` tool stores open and completed items as session state. It supports `read`, `write`, `update`, `add`, `complete`, `remove`, and `clear`. Identifiers are stable strings, so editing content does not retarget later updates. The ledger survives compaction and session resume.
+
+## Questions
+
+`question` asks you to pick between labeled options or type an answer while a turn is running. Use it when the model needs a preference, a clarification, or a decision before continuing.
+
+```jsonc title="tool call"
+{
+  "questions": [
+    {
+      "header": "Environment",
+      "question": "Which environment should I target?",
+      "options": [
+        { "label": "Dev", "description": "Local development" },
+        { "label": "Prod", "description": "Production" },
+      ],
+    },
+  ],
+}
+```
+
+- Every question needs a short `header` (about 30 characters) and a complete `question`. An empty `options` list asks for free text.
+- Set `multiple: true` to allow more than one selection.
+- A "Type your own answer" row is added automatically. Do not add an "Other" option.
+- One option question answers as soon as you pick. Several questions get tabs and a review before submit.
+- Number keys and arrows move the selection, `Enter` confirms, `Space` toggles a multi-select, `Tab` and `Shift+Tab` move between questions, and `Escape` dismisses.
+- Dismissing stops the turn. The model does not receive a fabricated answer.
+- Without an interactive terminal, the tool returns an error and the model continues without asking.
 
 ## Extension tools
 

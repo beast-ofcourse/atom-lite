@@ -40,6 +40,7 @@ import { Activity } from "./activity.js";
 import { ToolBox } from "./tool-box.js";
 import { UserBox } from "./user-box.js";
 import { ApprovalPrompt, type ApprovalDecision } from "./approval-prompt.js";
+import { QuestionPromptView } from "./question-prompt.js";
 import { Banner } from "./banner.js";
 import {
   formatContextUsage,
@@ -101,6 +102,7 @@ import {
   taskTool,
   todoTool,
   goalTool,
+  questionTool,
   lspDiagnosticsTool,
   lspDefinitionTool,
   lspReferencesTool,
@@ -135,6 +137,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { installEditorKeybindings } from "./editor-keybindings.js";
 import { createMainRow } from "./main-layout.js";
+import type { QuestionContext, QuestionOutcome } from "../runtime/questions.js";
 
 export async function run(args: string[]): Promise<void> {
   installEditorKeybindings();
@@ -259,6 +262,7 @@ export async function run(args: string[]): Promise<void> {
         taskTool,
         todoTool,
         goalTool,
+        questionTool,
         ...(config.lsp?.enabled
           ? [
               lspDiagnosticsTool,
@@ -495,12 +499,19 @@ export async function run(args: string[]): Promise<void> {
     nonInteractive: !interactive,
   };
 
+  const questions: QuestionContext = {
+    // Installed below once the TUI exists.
+    handler: undefined,
+    nonInteractive: !interactive,
+  };
+
   const runtime = new AgentRuntime({
     provider,
     model: modelOverride ?? provider.model,
     workspace: process.cwd(),
     tools: allTools,
     approvals,
+    questions,
     persona: configuredAgent.persona,
     mode: config.runtime.mode,
     maxTokensPerSession: config.runtime.maxTokensPerSession,
@@ -983,6 +994,8 @@ export async function run(args: string[]): Promise<void> {
   // shrink.
   root.addChild(mainRow, { grow: 1, shrink: 1, minSize: 0 });
   root.addChild(new Spacer(1), { grow: 0, shrink: 0, minSize: 1 });
+  const questionDock = new Container();
+  root.addChild(questionDock, { grow: 0, shrink: 0, minSize: 0 });
   root.addChild(input, { grow: 0, shrink: 0 });
   root.addChild(statusBar, { grow: 0, shrink: 0 });
   // folder:branch info below the status line, dimmed
@@ -3373,6 +3386,61 @@ export async function run(args: string[]): Promise<void> {
           dropdownContainer.addChild(prompt);
           tui.setFocus(prompt);
           tui.requestRender();
+        })
+    : undefined;
+
+  questions.handler = interactive
+    ? (request, signal) =>
+        new Promise<QuestionOutcome>((resolve) => {
+          let settled = false;
+          let attempts = 0;
+          let timer: NodeJS.Timeout | undefined;
+
+          const finish = (outcome: QuestionOutcome) => {
+            if (settled) return;
+            settled = true;
+            signal?.removeEventListener("abort", onAbort);
+            if (timer) clearTimeout(timer);
+            questionDock.clear();
+            uiModalOpen = false;
+            tui.setFocus(input);
+            activity.setPhase("working");
+            tui.requestRender();
+            resolve(outcome);
+          };
+          const onAbort = () => finish({ status: "cancelled" });
+          signal?.addEventListener("abort", onAbort, { once: true });
+
+          // A permission request or another modal owns the keyboard first.
+          // Wait for it instead of clobbering its prompt.
+          const mount = () => {
+            if (settled) return;
+            if (uiModalOpen && attempts < 1200) {
+              attempts += 1;
+              timer = setTimeout(mount, 50);
+              return;
+            }
+            if (uiModalOpen) {
+              finish({
+                status: "cancelled",
+                message: "Another prompt is open; answer it first.",
+              });
+              return;
+            }
+            uiModalOpen = true;
+            closeOverlay();
+            dropdownContainer.clear();
+            activity.setPhase("waiting");
+            const prompt = new QuestionPromptView({
+              questions: request.questions,
+              theme,
+              onOutcome: finish,
+            });
+            questionDock.addChild(prompt);
+            tui.setFocus(prompt);
+            tui.requestRender();
+          };
+          mount();
         })
     : undefined;
 

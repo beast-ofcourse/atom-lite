@@ -40,6 +40,7 @@ export class AgentRuntime {
   private model: string;
   private workspace: string;
   private approvals: AgentRuntimeOptions["approvals"];
+  private questions: AgentRuntimeOptions["questions"];
   private mode: "plan" | "yolo";
   private maxTokensPerSession: number | null;
   private maxTokensPerTurn: number | null;
@@ -74,6 +75,7 @@ export class AgentRuntime {
     this.model = options.model ?? options.provider.model ?? "default";
     this.workspace = options.workspace ?? process.cwd();
     this.approvals = options.approvals;
+    this.questions = options.questions;
     this.mode = options.mode ?? "yolo";
     this.maxTokensPerSession = options.maxTokensPerSession ?? null;
     this.maxTokensPerTurn = options.maxTokensPerTurn ?? null;
@@ -846,6 +848,7 @@ export class AgentRuntime {
           maxBashTimeMs: this.limits.maxBashTimeMs,
           maxToolOutputBytes: this.limits.maxToolOutputBytes,
           approvals: this.approvals,
+          questions: this.questions,
           agentPermissions: this.persona?.permissions,
           onToolOutput: (
             call: { id: string; name: string },
@@ -1014,6 +1017,21 @@ export class AgentRuntime {
           .filter(Boolean);
         for (const r of orderedResults) {
           recorder.recordToolResult(r);
+        }
+
+        // A dismissed question is not model-facing output. OpenCode records
+        // the tool call as aborted and ends the step; do the same so the model
+        // never treats a dismissal as an answer.
+        if (
+          !signal.aborted &&
+          orderedResults.some(
+            (r: any) => r?.details?.questionDismissed === true,
+          )
+        ) {
+          await this.extensionDispatch?.("agent_settled", {
+            type: "agent_settled",
+          });
+          return text;
         }
 
         // Inject completed background task results as system messages.

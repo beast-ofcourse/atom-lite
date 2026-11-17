@@ -29,6 +29,22 @@ export function formatToolArgs(
   args: Record<string, unknown> | undefined,
 ): string {
   const a = args ?? {};
+  if (name === "question") {
+    const questions = Array.isArray(a.questions) ? (a.questions as any[]) : [];
+    if (questions.length === 0) return "";
+    const first = questions[0];
+    const header =
+      typeof first?.header === "string" ? singleLine(first.header) : "";
+    const text =
+      typeof first?.question === "string" ? singleLine(first.question) : "";
+    const label = header || text;
+    if (questions.length === 1) {
+      return label ? `question: ${label}` : "question";
+    }
+    return label
+      ? `${questions.length} questions: ${label}`
+      : `${questions.length} questions`;
+  }
   if (name === "bash" && typeof a.command === "string") {
     return `$ ${singleLine(a.command)}`;
   }

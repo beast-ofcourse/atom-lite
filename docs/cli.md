@@ -47,6 +47,8 @@ The prompt accepts plain tasks and slash commands. `/help` lists every command g
 
 Mouse wheel scrolling and click-to-focus work in interactive terminals. Set `ui.mouse` to `false` to disable them. All shortcuts are overridable in [Config](./config.md#keybindings).
 
+While a question prompt is open, number keys and arrows select an option, `Space` toggles a multi-select, `Enter` confirms or submits, `Tab` and `Shift+Tab` move between questions, and `Escape` dismisses. Non-interactive runs cannot answer questions; the model receives an error and continues without asking.
+
 ## Modes
 
 - `plan` allows built-in read-only tools and any tool that declares `readOnlyHint`, including MCP and extension tools.

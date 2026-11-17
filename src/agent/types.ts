@@ -4,6 +4,7 @@ import type { Message } from "../types.js";
 import type { ProviderAdapter } from "../providers/types.js";
 import type { Tool } from "../tools/types.js";
 import type { ApprovalContext } from "../runtime/approvals.js";
+import type { QuestionContext } from "../runtime/questions.js";
 import type { ContextManager } from "../context/manager.js";
 import type { UsageLedger } from "../usage/ledger.js";
 
@@ -77,6 +78,8 @@ export interface AgentRuntimeOptions {
   /** Active primary persona. Applies its prompt, temperature, and permissions. */
   persona?: import("../agents/registry.js").AgentPersona;
   approvals?: ApprovalContext;
+  /** Interactive question bridge. Absent clients cannot ask the user. */
+  questions?: QuestionContext;
   /** Initial agent mode. Defaults to yolo for programmatic use. */
   mode?: "plan" | "yolo";
   /** Optional per-call usage ledger. Inert when absent. */

@@ -36,6 +36,8 @@ export interface ToolContext {
   agentPermissions?: import("../agents/registry.js").AgentPermissionPolicy;
   /** Whether the selected model supports vision input. */
   supportsVision?: boolean;
+  /** Interactive question bridge, if the client can render prompts. */
+  questions?: import("../runtime/questions.js").QuestionContext;
   /** Background task manager, if available. */
   backgroundTasks?: import("../runtime/background-tasks.js").BackgroundTaskManager;
   /** Session task ledger, if available. */

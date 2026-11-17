@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `tools`: `question` asks you to choose labeled options or type an answer mid-turn. Supports multi-select, a custom-answer row, tabs, and a review step; dismissal stops the turn instead of inventing an answer.
+- `cli`: question prompt in the TUI with number, arrow, tab, space, and escape controls. It works in plan mode and falls back to a model-facing error without an interactive terminal.
+
 ## v0.17.0 — 2026-11-16
 
 ### Added
