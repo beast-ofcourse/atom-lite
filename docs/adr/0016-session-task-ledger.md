@@ -41,3 +41,19 @@ compactable and it cannot distinguish an open request from a completed one.
   instance across resumptions.
 - Ledger content is part of the session log and is therefore subject to the
   same retention rules as other session events.
+
+## Amendment (2026-11-17) — extended actions and stable identifiers
+
+ADR 0022 extends the ledger tool from `read`, `write`, and `update` to seven
+actions: `read`, `write`, `update`, `add`, `complete`, `clear`, and `remove`.
+`add` appends one item, `complete` sets one item's status to `completed` with an
+optional verification note, `remove` deletes one item, and `clear` empties the
+list in one action. The original `write` and `update` actions are unchanged so
+existing scripts keep working.
+
+Todos use stable string identifiers. Callers may supply their own id; otherwise
+the store generates `T1`, `T2`, and so on, bumping past any numeric suffix it
+sees. Identifiers survive content edits and session resume, so an update or
+remove action cannot silently target a different item after the list changes.
+Verification notes remain optional, and the status vocabulary is unchanged.
+No priorities, due dates, or dependency links were added.

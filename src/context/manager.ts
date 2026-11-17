@@ -20,6 +20,37 @@ export interface ContextManagerOptions {
   model: string;
   userInstructionsPath?: string;
   compactEveryNTurns?: number;
+  /** Optional cheaper summarizer model. Unset means use the active model. */
+  compactionModel?: string | null;
+}
+
+/** State the runtime injects every turn and feeds into the summarizer. */
+export interface ContextStaticState {
+  /** Rendered goal (statement, criteria, status, constraints). */
+  goal?: string | null;
+  /** Rendered task ledger. */
+  ledger?: string | null;
+  /** Structured source for the one-shot post-compaction instruction. */
+  continuation?: {
+    statement: string;
+    criteria: string[];
+    currentTodo: string;
+    nextAction: string;
+  } | null;
+}
+
+/** Build the one-shot instruction that follows a compaction. */
+export function renderContinuation(
+  input: NonNullable<ContextStaticState["continuation"]>,
+): string {
+  return [
+    "Continuation after compaction:",
+    `Goal: ${input.statement || "(none)"}`,
+    `Success criteria: ${input.criteria.length ? input.criteria.join("; ") : "(none declared)"}`,
+    `Current todo: ${input.currentTodo || "(none)"}`,
+    `Next action: ${input.nextAction || input.statement || "(none)"}`,
+    "Continue this work now. Do not redo completed work or re-ask requests that are already satisfied.",
+  ].join("\n");
 }
 
 const DEFAULT_MAX_INPUT = 128000;
@@ -40,6 +71,8 @@ export class ContextManager {
   private lastCompactionSummary: string | null = null;
   private lastCompactionCoveredCount = 0;
   private compactEveryNTurns = 0;
+  private staticContext: ContextStaticState | null = null;
+  private pendingContinuation: string | null = null;
 
   constructor(opts: ContextManagerOptions) {
     this.opts = opts;
@@ -108,6 +141,35 @@ export class ContextManager {
     return this.lastCompactionCoveredCount;
   }
 
+  /** Replace the goal/ledger context injected into builds and summaries. */
+  setStaticContext(context: ContextStaticState | null): void {
+    this.staticContext = context;
+  }
+
+  /** Continuation text derived from the current static context, if any. */
+  getContinuation(): string | null {
+    return this.staticContext?.continuation
+      ? renderContinuation(this.staticContext.continuation)
+      : null;
+  }
+
+  consumeCompactionContinuation(): string | null {
+    const text = this.pendingContinuation;
+    this.pendingContinuation = null;
+    return text;
+  }
+
+  private staticMessages(): Message[] {
+    const messages: Message[] = [];
+    if (this.staticContext?.goal) {
+      messages.push({ role: "system", content: this.staticContext.goal });
+    }
+    if (this.staticContext?.ledger) {
+      messages.push({ role: "system", content: this.staticContext.ledger });
+    }
+    return messages;
+  }
+
   setSessionMemory(summary: string | null, coveredCount?: number): void {
     this.sessionMemory = summary;
     if (summary === null) {
@@ -143,6 +205,7 @@ export class ContextManager {
     this.sessionMemoryCount = coveredCount;
     this.lastCompactionSummary = summary;
     this.lastCompactionCoveredCount = coveredCount;
+    this.pendingContinuation = this.getContinuation();
     return summary;
   }
 
@@ -168,10 +231,60 @@ export class ContextManager {
     // Bound the summarizer input so a huge history cannot make the
     // summarization request itself exceed the model window.
     const capChars = Math.max(4000, Math.floor(this.budget() * 4 * 0.6));
-    const clipped = older.map((m) => {
+    const maxToolChars = 4000;
+    const contentText = (message: Message): string => {
+      const content = (message as any).content;
+      if (typeof content === "string") return content;
+      if (Array.isArray(content)) {
+        return content
+          .map((part: any) =>
+            part?.type === "text" ? String(part.text ?? "") : "",
+          )
+          .join("");
+      }
+      return "";
+    };
+    const isFileRead = (message: Message): boolean =>
+      (message as any).role === "tool" &&
+      /^read$/i.test(String((message as any).name ?? ""));
+
+    // Drop an earlier file read when a later read already carries the same
+    // content. Keep the later copy so the newest state survives.
+    const seenReads = new Set<string>();
+    const deduped: Message[] = [];
+    for (let i = older.length - 1; i >= 0; i--) {
+      const message = older[i];
+      if (isFileRead(message)) {
+        const text = contentText(message);
+        if (text && seenReads.has(text)) {
+          deduped.push({
+            role: "tool",
+            toolCallId: (message as any).toolCallId,
+            name: "read",
+            content: "[duplicate file read omitted]",
+          } as any);
+          continue;
+        }
+        if (text) seenReads.add(text);
+      }
+      deduped.push(message);
+    }
+    deduped.reverse();
+
+    const clipped = deduped.map((m) => {
       try {
         const json = JSON.stringify(m);
         if (json.length <= 2000) return m;
+        if ((m as any).role === "tool") {
+          const text = contentText(m);
+          if (text.length > maxToolChars) {
+            return {
+              ...m,
+              content: text.slice(0, maxToolChars) + "...[truncated]",
+            } as any;
+          }
+          return m;
+        }
         return { role: (m as any).role, content: "[truncated]" } as any;
       } catch {
         return m;
@@ -181,12 +294,23 @@ export class ContextManager {
     if (serialized.length > capChars) {
       serialized = serialized.slice(0, capChars) + "...[truncated]";
     }
+    const retention = [this.staticContext?.goal, this.staticContext?.ledger]
+      .filter(Boolean)
+      .join("\n\n");
     let summaryText = "";
     try {
       const focusLine = focus ? `\nFocus the summary on: ${focus}` : "";
       const summaryReq = {
-        model: this.opts.model,
+        model: this.opts.compactionModel || this.opts.model,
         messages: [
+          ...(retention
+            ? [
+                {
+                  role: "system" as const,
+                  content: `Retain this state verbatim in the summary:\n${retention}`,
+                },
+              ]
+            : []),
           {
             role: "system" as const,
             content:
@@ -217,6 +341,7 @@ export class ContextManager {
   async build(workspace: string, history: Message[]): Promise<Message[]> {
     this.compactedThisBuild = false;
     this.lastCompactionSummary = null;
+    this.pendingContinuation = null;
     const userPath =
       this.opts.userInstructionsPath ?? join(userConfigDir(), "AGENTS.md");
     const instructionSignature =
@@ -277,7 +402,10 @@ export class ContextManager {
       }
     }
 
-    const messages: Message[] = [{ role: "system", content: systemPrompt }];
+    const messages: Message[] = [
+      { role: "system", content: systemPrompt },
+      ...this.staticMessages(),
+    ];
     for (const instr of instructions) {
       messages.push({ role: "system", content: instr });
     }
@@ -342,15 +470,21 @@ export class ContextManager {
     this.sessionMemoryCount = coveredCount;
     this.lastCompactionCoveredCount = coveredCount;
     this.compactedThisBuild = true;
+    this.pendingContinuation = this.getContinuation();
     this.lastReportedUsage = undefined;
 
+    const continuation = this.getContinuation();
     const compacted: Message[] = [
       { role: "system", content: systemPrompt },
+      ...this.staticMessages(),
       ...instructions.map((i) => ({ role: "system" as const, content: i })),
       {
         role: "assistant",
         content: [{ type: "text", text: `Context summary: ${summary}` }],
       },
+      ...(continuation
+        ? [{ role: "system" as const, content: continuation }]
+        : []),
       ...recent,
     ];
     // Final value only; the intermediate assign was dead work.

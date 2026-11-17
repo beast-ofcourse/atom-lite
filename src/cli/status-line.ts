@@ -12,6 +12,8 @@ export interface StatusLineParts {
   agent?: string;
   /** Animated agent state, rendered as an optional third row. Already styled. */
   activity?: string;
+  /** Number of open todos, rendered as "todos:N" when present. */
+  openTodos?: number;
 }
 
 /**
@@ -63,7 +65,11 @@ export class StatusLine implements Component {
     const agentPart = this.parts.agent
       ? tokens.accent(`agent:${this.parts.agent}`)
       : "";
-    const right = [agentPart, modePart, tokens.dim(this.parts.effort)]
+    const todoPart =
+      this.parts.openTodos === undefined
+        ? ""
+        : tokens.accent(`todos:${this.parts.openTodos}`);
+    const right = [agentPart, modePart, todoPart, tokens.dim(this.parts.effort)]
       .filter(Boolean)
       .join("  ");
     const top = formatStatusLine(

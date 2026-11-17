@@ -16,7 +16,15 @@ const TodoInputSchema = z
 
 const ArgsSchema = z
   .object({
-    action: z.enum(["read", "write", "update"]),
+    action: z.enum([
+      "read",
+      "write",
+      "update",
+      "add",
+      "complete",
+      "clear",
+      "remove",
+    ]),
     todos: z.array(TodoInputSchema).optional(),
     id: z.string().optional(),
     content: z.string().optional(),
@@ -40,13 +48,21 @@ export const todoTool: Tool = {
   definition: {
     name: "todo",
     description:
-      "Maintain the session task ledger: 'write' replaces the list, 'update' changes one item, and 'read' inspects it. Keep statuses current and mark a task completed only after its verification passes.",
+      "Maintain the session task ledger. 'read' inspects it; 'write' replaces the list; 'add' appends one item; 'update' edits one item by id; 'complete' marks one item completed by id; 'remove' deletes one item by id; 'clear' empties the list. Keep statuses current and mark a task completed only after its verification passes.",
     parameters: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["read", "write", "update"],
+          enum: [
+            "read",
+            "write",
+            "update",
+            "add",
+            "complete",
+            "clear",
+            "remove",
+          ],
         },
         todos: {
           type: "array",
@@ -123,6 +139,46 @@ export const todoTool: Tool = {
       };
     }
 
+    if (action === "clear") {
+      store.clear();
+      return {
+        toolCallId: call.id,
+        name: "todo",
+        content: JSON.stringify(snapshot(ctx)),
+      };
+    }
+
+    if (action === "add") {
+      if (!content || !content.trim()) {
+        return {
+          toolCallId: call.id,
+          name: "todo",
+          content: "TODO_CONTENT_REQUIRED",
+          isError: true,
+        };
+      }
+      try {
+        store.add({
+          id,
+          content,
+          status: status as TodoStatus | undefined,
+          verification,
+        });
+      } catch (err) {
+        return {
+          toolCallId: call.id,
+          name: "todo",
+          content: err instanceof Error ? err.message : String(err),
+          isError: true,
+        };
+      }
+      return {
+        toolCallId: call.id,
+        name: "todo",
+        content: JSON.stringify(snapshot(ctx)),
+      };
+    }
+
     if (!id) {
       return {
         toolCallId: call.id,
@@ -131,6 +187,41 @@ export const todoTool: Tool = {
         isError: true,
       };
     }
+
+    if (action === "complete") {
+      const completed = store.complete(id, verification);
+      if (!completed) {
+        return {
+          toolCallId: call.id,
+          name: "todo",
+          content: "TODO_NOT_FOUND",
+          isError: true,
+        };
+      }
+      return {
+        toolCallId: call.id,
+        name: "todo",
+        content: JSON.stringify(snapshot(ctx)),
+      };
+    }
+
+    if (action === "remove") {
+      const removed = store.remove(id);
+      if (!removed) {
+        return {
+          toolCallId: call.id,
+          name: "todo",
+          content: "TODO_NOT_FOUND",
+          isError: true,
+        };
+      }
+      return {
+        toolCallId: call.id,
+        name: "todo",
+        content: JSON.stringify(snapshot(ctx)),
+      };
+    }
+
     const updated = store.update(id, {
       content,
       status: status as TodoStatus | undefined,

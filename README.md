@@ -248,33 +248,34 @@ The selected provider/model is persisted to user config, so the next session sta
 
 Type `/help` for the grouped list, or press `ctrl+p` for the fuzzy command palette. Common commands:
 
-| Command                                                      | Description                                |
-| ------------------------------------------------------------ | ------------------------------------------ |
-| `/help` (alias `/?`)                                         | Show commands                              |
-| `/model [model]`                                             | Search or switch the active model          |
-| `/provider [profile]`                                        | Add or select a provider                   |
-| `/effort [low\|medium\|high]`                                | Set reasoning effort                       |
-| `/agents`                                                    | List primary agent personas                |
-| `/agent [name]`                                              | Switch primary agent persona (interactive) |
-| `/rename [rename <title>]` (alias `/session`)                | Show or rename the current session         |
-| `/sessions [all]`                                            | Search or resume a session                 |
-| `/search <query>`                                            | Search sessions by title or content        |
-| `/new` (alias `/clear`)                                      | Start a new session                        |
-| `/compact [focus]`                                           | Compact older context                      |
-| `/diff [--stat] [path]`                                      | Show workspace changes against git `HEAD`  |
-| `/export [path] [--format md\|json] [--force] [--no-redact]` | Export the session transcript              |
-| `/mcp [reconnect [server]]`                                  | List or reconnect MCP servers              |
-| `/extensions`                                                | List discovered extensions and load status |
-| `/reload`                                                    | Reload all extensions from disk            |
-| `/approval`                                                  | Show approval mode (legacy)                |
-| `/doctor`                                                    | Run diagnostics                            |
-| `/thinking`                                                  | Toggle thinking display                    |
-| `/theme [auto\|dark\|light\|ansi]`                           | Choose a colour theme                      |
-| `/skills`                                                    | List skills                                |
-| `/skill <name> [prompt]`                                     | Load a skill                               |
-| `/keybindings`                                               | Open the keybindings config file           |
-| `/shortcuts`                                                 | List keyboard shortcuts                    |
-| `/exit` (alias `/quit`)                                      | Exit the TUI                               |
+| Command                                                                      | Description                                |
+| ---------------------------------------------------------------------------- | ------------------------------------------ |
+| `/help` (alias `/?`)                                                         | Show commands                              |
+| `/model [model]`                                                             | Search or switch the active model          |
+| `/provider [profile]`                                                        | Add or select a provider                   |
+| `/effort [low\|medium\|high]`                                                | Set reasoning effort                       |
+| `/agents`                                                                    | List primary agent personas                |
+| `/agent [name]`                                                              | Switch primary agent persona (interactive) |
+| `/goal [set\|criteria\|constraints\|pause\|resume\|clear\|complete\|status]` | Set or control the session goal            |
+| `/rename [rename <title>]` (alias `/session`)                                | Show or rename the current session         |
+| `/sessions [all]`                                                            | Search or resume a session                 |
+| `/search <query>`                                                            | Search sessions by title or content        |
+| `/new` (alias `/clear`)                                                      | Start a new session                        |
+| `/compact [focus]`                                                           | Compact older context                      |
+| `/diff [--stat] [path]`                                                      | Show workspace changes against git `HEAD`  |
+| `/export [path] [--format md\|json] [--force] [--no-redact]`                 | Export the session transcript              |
+| `/mcp [reconnect [server]]`                                                  | List or reconnect MCP servers              |
+| `/extensions`                                                                | List discovered extensions and load status |
+| `/reload`                                                                    | Reload all extensions from disk            |
+| `/approval`                                                                  | Show approval mode (legacy)                |
+| `/doctor`                                                                    | Run diagnostics                            |
+| `/thinking`                                                                  | Toggle thinking display                    |
+| `/theme [auto\|dark\|light\|ansi]`                                           | Choose a colour theme                      |
+| `/skills`                                                                    | List skills                                |
+| `/skill <name> [prompt]`                                                     | Load a skill                               |
+| `/keybindings`                                                               | Open the keybindings config file           |
+| `/shortcuts`                                                                 | List keyboard shortcuts                    |
+| `/exit` (alias `/quit`)                                                      | Exit the TUI                               |
 
 ## Agent personas
 
@@ -287,6 +288,12 @@ Sessions are append-only JSONL event logs recording everything in one conversati
 ## Context management
 
 The context manager builds model input, estimates tokens, and triggers compaction before the context budget is exceeded. It also loads project instructions (e.g. `AGENTS.md`/`CLAUDE.md`-style files) subject to `maxProjectInstructionBytes`.
+
+## Goal continuity
+
+`/goal set <statement>` gives a long task a durable anchor that survives compaction and session resume; `/goal criteria <list>` defines what "done" means, and `/goal constraints <text>` records off-limits approaches. Bare `/goal` shows the current statement, criteria, status, and open-todo count. The statement and criteria are user-owned: the model can read them with the `goal` tool and mark the goal complete with evidence, but it cannot rewrite them. Completion succeeds only when every criterion is backed by a completed todo or by the evidence supplied with the call; unmet criteria are named in the error.
+
+`/goal pause` freezes the run after in-flight tool calls finish; `/goal resume` continues from the saved goal and ledger without restating the task. The side panel shows the goal, status, criteria, and todo statuses whenever a goal or todos exist; press `ctrl+g` to toggle it. With the panel hidden, the status line still shows the open-todo count. After each compaction one continuation message names the goal, criteria, current todo, and next action, and is mirrored into the transcript. See [ADR 0022](./docs/adr/0022-goal-continuity.md).
 
 ## Development
 

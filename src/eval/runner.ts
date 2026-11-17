@@ -25,6 +25,7 @@ import {
   websearchTool,
   taskTool,
   todoTool,
+  goalTool,
 } from "../tools/index.js";
 
 export interface EvalTaskResult {
@@ -86,6 +87,7 @@ const BUILTIN_TOOLS = [
   websearchTool,
   taskTool,
   todoTool,
+  goalTool,
 ];
 
 function discoverTasks(tasksDir: string): string[] {

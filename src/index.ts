@@ -19,3 +19,9 @@ export * from "./mcp/index.js";
 export * from "./types.js";
 export { TodoStore } from "./runtime/todos.js";
 export type { TodoItem, TodoInput } from "./runtime/todos.js";
+export {
+  GoalStore,
+  checkGoalCompletion,
+  GOAL_STATUSES,
+} from "./runtime/goal.js";
+export type { GoalState, GoalStatus } from "./runtime/goal.js";

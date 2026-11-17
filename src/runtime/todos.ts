@@ -110,6 +110,26 @@ export class TodoStore {
     return { ...item };
   }
 
+  complete(id: string, verification?: string): TodoItem | undefined {
+    return this.update(id, {
+      status: "completed",
+      ...(verification ? { verification } : {}),
+    });
+  }
+
+  remove(id: string): TodoItem | undefined {
+    const index = this.items.findIndex((item) => item.id === id);
+    if (index < 0) return undefined;
+    const [removed] = this.items.splice(index, 1);
+    return { ...removed };
+  }
+
+  clear(): TodoItem[] {
+    this.items = [];
+    this.nextId = 1;
+    return [];
+  }
+
   contains(content: string): boolean {
     // Compare the full normalized text: prefix-only matching would treat two
     // distinct tasks with a shared opening as duplicates.

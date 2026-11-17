@@ -69,6 +69,8 @@ export interface CommandContext {
   activateAgent(name: string): void;
   openAgentPicker(): void;
   runTurn(prompt: string): Promise<void>;
+  /** True while the agent loop owns the turn; used by /goal resume. */
+  isTurnActive?(): boolean;
   /** Manage project trust for extensions/agents. Takes effect on reload. */
   setProjectTrust(decision: "allow" | "deny" | "reset"): void;
   requestExit(): void;
@@ -310,6 +312,98 @@ export function createCommandRegistry(
         return;
       }
       ctx.activateAgent(name);
+    },
+  });
+
+  registry.register({
+    name: "goal",
+    description: "set or control the session goal",
+    category: "Agent",
+    argumentHint:
+      "[set <statement>|criteria <list>|constraints <text>|pause|resume|clear|complete [evidence]|status]",
+    run(ctx, args) {
+      const runtime = ctx.runtime;
+      if (!runtime || typeof runtime.getGoal !== "function") {
+        ctx.appendLine("goal unavailable");
+        return;
+      }
+      const usage =
+        "usage: /goal set <statement>|criteria <list>|constraints <text>|pause|resume|clear|complete [evidence]|status";
+      const trimmed = (args ?? "").trim();
+      const match = /^(\S+)(?:\s+([\s\S]*))?$/.exec(trimmed);
+      const sub = (match?.[1] ?? "status").toLowerCase();
+      const rest = (match?.[2] ?? "").trim();
+
+      if (sub === "set") {
+        if (!rest) {
+          ctx.appendLine(usage);
+          return;
+        }
+        runtime.setGoal(rest, ctx.session);
+        ctx.appendLine(`goal set: ${rest}`);
+      } else if (sub === "criteria") {
+        if (!rest) {
+          ctx.appendLine(usage);
+          return;
+        }
+        const criteria = rest
+          .split(/\r?\n|;/)
+          .map((line) => line.trim())
+          .filter(Boolean);
+        runtime.setGoalCriteria(criteria, ctx.session);
+        ctx.appendLine(
+          `success criteria: ${criteria.length ? criteria.join("; ") : "(none)"}`,
+        );
+      } else if (sub === "constraints") {
+        runtime.setGoalConstraints(rest, ctx.session);
+        ctx.appendLine(rest ? `constraints: ${rest}` : "constraints cleared");
+      } else if (sub === "pause") {
+        runtime.pauseGoal(ctx.session);
+        ctx.appendLine("goal paused");
+      } else if (sub === "resume") {
+        runtime.resumeGoal(ctx.session);
+        ctx.appendLine("goal resumed");
+        if (!ctx.isTurnActive?.()) void ctx.runTurn("continue");
+      } else if (sub === "clear") {
+        runtime.clearGoal(ctx.session);
+        ctx.appendLine("goal cleared");
+      } else if (sub === "complete") {
+        const result = runtime.completeGoal(rest || undefined, ctx.session);
+        if (result?.ok) {
+          ctx.appendLine("goal complete");
+        } else {
+          ctx.appendLine(
+            `goal not complete: unmet criteria: ${(result?.unmet ?? []).join("; ") || "no goal is set"}`,
+          );
+        }
+      } else if (sub === "status") {
+        const goal = runtime.getGoal();
+        if (!goal) {
+          ctx.appendLine("no goal set");
+        } else {
+          const todos: any[] = runtime.getTodos?.() ?? [];
+          const open = todos.filter(
+            (item) =>
+              item.status === "pending" || item.status === "in_progress",
+          ).length;
+          const lines = [
+            `Goal: ${goal.statement}`,
+            `Status: ${goal.status}`,
+            "Success criteria:",
+            ...(goal.criteria.length
+              ? goal.criteria.map((criterion: string) => `  - ${criterion}`)
+              : ["  - (none declared)"]),
+          ];
+          if (goal.constraints) lines.push(`Constraints: ${goal.constraints}`);
+          lines.push(`Todos: ${open} open of ${todos.length}`);
+          ctx.appendLine(lines.join("\n"));
+        }
+      } else {
+        ctx.appendLine(`unknown goal subcommand: ${sub}`);
+        ctx.appendLine(usage);
+        return;
+      }
+      ctx.updateStatus();
     },
   });
 

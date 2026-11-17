@@ -33,6 +33,7 @@ import {
 } from "./theme.js";
 import { SecretInput } from "./secret-input.js";
 import { StatusLine } from "./status-line.js";
+import { GoalPanel } from "./goal-panel.js";
 import { purgeOrphanCheckpoints } from "../runtime/legacy-checkpoint-purge.js";
 import { Activity } from "./activity.js";
 import { ToolBox } from "./tool-box.js";
@@ -97,6 +98,7 @@ import {
   globTool,
   taskTool,
   todoTool,
+  goalTool,
   lspDiagnosticsTool,
   lspDefinitionTool,
   lspReferencesTool,
@@ -263,6 +265,7 @@ export async function run(args: string[]): Promise<void> {
         globTool,
         taskTool,
         todoTool,
+        goalTool,
         ...(config.lsp?.enabled
           ? [
               lspDiagnosticsTool,
@@ -468,6 +471,7 @@ export async function run(args: string[]): Promise<void> {
     compactAtPercent: config.context.compactAtPercent,
     maxProjectInstructionBytes: config.context.maxProjectInstructionBytes,
     compactEveryNTurns: config.context.compactEveryNTurns ?? 0,
+    compactionModel: config.context.compactionModel ?? null,
     provider,
     model: modelOverride ?? provider.model ?? "default",
     userInstructionsPath: undefined,
@@ -802,6 +806,7 @@ export async function run(args: string[]): Promise<void> {
     Spacer,
     ScrollView,
     VStack,
+    HStack,
     Markdown,
   } = await import("@earendil-works/pi-tui");
 
@@ -826,6 +831,10 @@ export async function run(args: string[]): Promise<void> {
     env: process.env,
     scheme: terminalScheme,
   });
+
+  runtime.restoreSessionState(session);
+  const goalPanel = new GoalPanel(theme);
+  goalPanel.setState(runtime.getGoal(), runtime.getTodos());
 
   const transcript = new Transcript(theme);
   const banner = new Banner(theme);
@@ -887,6 +896,7 @@ export async function run(args: string[]): Promise<void> {
     mode: currentMode,
     agent: runtime.getPersona()?.name,
     activity: activity.text(),
+    openTodos: runtime.openTodoCount(),
   });
 
   const selectListTheme = {
@@ -995,10 +1005,18 @@ export async function run(args: string[]): Promise<void> {
   };
 
   const root = new VStack([]);
+  const mainRow = new HStack([], { gap: 1 });
+  mainRow.addChild(output, { grow: 1, shrink: 1, minSize: 0 });
+  mainRow.addChild(goalPanel, {
+    grow: 0,
+    shrink: 0,
+    minSize: 0,
+    visible: () => goalPanel.isVisible,
+  });
   // Keep fixed chrome (spacer, input, status, header, dropdown)
   // from being collapsed when the transcript grows; only the output region may
   // shrink.
-  root.addChild(output, { grow: 1, shrink: 1, minSize: 0 });
+  root.addChild(mainRow, { grow: 1, shrink: 1, minSize: 0 });
   root.addChild(new Spacer(1), { grow: 0, shrink: 0, minSize: 1 });
   root.addChild(input, { grow: 0, shrink: 0 });
   root.addChild(statusBar, { grow: 0, shrink: 0 });
@@ -1246,6 +1264,12 @@ export async function run(args: string[]): Promise<void> {
       if (turnResult === "TOKEN_BUDGET_REACHED") {
         appendLine("token budget reached; stopping", theme.tokens.warning);
         tui.requestRender();
+      } else if (turnResult === "GOAL_PAUSED") {
+        appendLine(
+          "goal paused; use /goal resume to continue",
+          theme.tokens.warning,
+        );
+        syncGoalPanel();
       }
     } catch (err) {
       if (err instanceof Error && err.message === "USER_CANCELLED") {
@@ -1363,7 +1387,14 @@ export async function run(args: string[]): Promise<void> {
       mode: currentMode,
       agent: runtime.getPersona()?.name,
       activity: activity.text(),
+      openTodos: runtime.openTodoCount(),
     });
+    tui.requestRender();
+  }
+
+  function syncGoalPanel(): void {
+    goalPanel.setState(runtime.getGoal(), runtime.getTodos());
+    updateStatus();
     tui.requestRender();
   }
 
@@ -1381,6 +1412,7 @@ export async function run(args: string[]): Promise<void> {
     banner.setTheme(theme);
     transcript.setTheme(theme);
     statusBar.setTheme(theme);
+    goalPanel.setTheme(theme);
     activity.setTheme(theme);
     header.setText(theme.tokens.dim(headerLabel()));
     if (persist) {
@@ -2042,8 +2074,8 @@ export async function run(args: string[]): Promise<void> {
       session.messages.length = 0;
       content.clear();
       runtime.resetContextUsage();
-      updateStatus();
-      tui.requestRender();
+      runtime.resetSessionState(session);
+      syncGoalPanel();
     },
     updateStatus,
     runDoctor,
@@ -2176,6 +2208,7 @@ export async function run(args: string[]): Promise<void> {
       updateStatus();
     },
     runTurn,
+    isTurnActive: () => activeTurnController !== null,
     requestExit: () => {
       extensionLoader.notifySessionEnd();
       void shutdownLsp().finally(() => {
@@ -2306,6 +2339,8 @@ export async function run(args: string[]): Promise<void> {
     session = next;
     previous.releaseLock?.();
     session.appendEvent?.({ type: "session_resumed", from: previous.id });
+    runtime.restoreSessionState(next);
+    syncGoalPanel();
     restoreTranscript(next);
     const title = sessionTitleFromEvents(next.events);
     appendLine(
@@ -2873,6 +2908,15 @@ export async function run(args: string[]): Promise<void> {
         tui.requestRender();
         return { consume: true };
       }
+      if (matchesBinding("toggleGoalPanel")) {
+        const shown = goalPanel.toggle();
+        appendLine(
+          `goal panel: ${shown ? "shown" : "hidden"}`,
+          theme.tokens.dim,
+        );
+        tui.requestRender();
+        return { consume: true };
+      }
     }
 
     // Ctrl+P opens the command palette unless a modal owns the keyboard.
@@ -2953,6 +2997,11 @@ export async function run(args: string[]): Promise<void> {
         `background task ${e.id}: ${e.status} (exit ${e.exitCode ?? "null"})`,
         theme.tokens.dim,
       );
+      tui.requestRender();
+    } else if (e.type === "goal_state" || e.type === "ledger_state") {
+      syncGoalPanel();
+    } else if (e.type === "compaction_continuation") {
+      appendLine(e.text, theme.tokens.dim);
       tui.requestRender();
     } else if (e.type === "task_ledger_open") {
       appendLine(

@@ -12,6 +12,11 @@ import { ContextManager } from "../context/manager.js";
 import { DEFAULT_SYSTEM_PROMPT } from "./system-prompt.js";
 import { BackgroundTaskManager } from "../runtime/background-tasks.js";
 import { TodoStore } from "../runtime/todos.js";
+import {
+  GoalStore,
+  checkGoalCompletion,
+  type GoalState,
+} from "../runtime/goal.js";
 import { runModelTurn } from "./model-turn.js";
 import { TurnRecorder } from "./turn-recorder.js";
 import type { AgentPersona } from "../agents/registry.js";
@@ -44,8 +49,10 @@ export class AgentRuntime {
   private supportsVision: boolean | undefined;
   private backgroundTasks: BackgroundTaskManager;
   private todoStore: TodoStore;
+  private goalStore: GoalStore;
   private turnIndex = 0;
   private todoStoreInjected: boolean;
+  private goalStoreInjected: boolean;
   private todoTouchedThisTurn = false;
 
   constructor(options: AgentRuntimeOptions) {
@@ -91,6 +98,8 @@ export class AgentRuntime {
       options.backgroundTasks ?? new BackgroundTaskManager();
     this.todoStore = options.todoStore ?? new TodoStore();
     this.todoStoreInjected = options.todoStore !== undefined;
+    this.goalStore = options.goalStore ?? new GoalStore();
+    this.goalStoreInjected = options.goalStore !== undefined;
     this.contextManager.setModelContextWindow(options.contextWindow);
   }
 
@@ -211,6 +220,7 @@ export class AgentRuntime {
     },
     focus?: string,
   ): Promise<string | null> {
+    this.syncStaticContext(false);
     const summary = await this.contextManager.compactHistory(
       this.workspace,
       session.messages,
@@ -229,6 +239,7 @@ export class AgentRuntime {
           coveredCount: this.contextManager.getLastCompactionCoveredCount(),
         });
       }
+      this.mirrorContinuation(this.contextManager.getContinuation(), session);
     }
     return summary;
   }
@@ -290,6 +301,178 @@ export class AgentRuntime {
     });
   }
 
+  private restoreGoal(session: unknown): void {
+    const events = (session as { events?: unknown[] }).events;
+    if (!Array.isArray(events)) return;
+    const latest = [...events]
+      .reverse()
+      .find((event: any) => event?.type === "goal_updated") as
+      { goal?: unknown } | undefined;
+    if (!latest) return;
+    if (this.goalStoreInjected) this.goalStore.replace(latest.goal);
+    else this.goalStore = GoalStore.fromJSON(latest.goal);
+  }
+
+  private persistGoal(session: { appendEvent?(partial: any): any }): void {
+    if (typeof session.appendEvent !== "function") return;
+    session.appendEvent({
+      type: "goal_updated",
+      goal: this.goalStore.toJSON(),
+    });
+  }
+
+  private emitGoalState(): void {
+    this.onEvent?.({ type: "goal_state", goal: this.goalStore.get() });
+  }
+
+  private emitLedgerState(): void {
+    this.onEvent?.({
+      type: "ledger_state",
+      todos: this.todoStore.list(),
+      open: this.todoStore.openCount(),
+    });
+  }
+
+  private commitGoal(session?: {
+    appendEvent?(partial: any): any;
+  }): GoalState | null {
+    if (session) this.persistGoal(session);
+    this.emitGoalState();
+    return this.goalStore.get();
+  }
+
+  getGoal(): GoalState | null {
+    return this.goalStore.get();
+  }
+
+  getGoalStatus(): import("../runtime/goal.js").GoalStatus | null {
+    return this.goalStore.status;
+  }
+
+  getTodos(): import("../runtime/todos.js").TodoItem[] {
+    return this.todoStore.list();
+  }
+
+  openTodoCount(): number {
+    return this.todoStore.openCount();
+  }
+
+  setGoal(
+    statement: string,
+    session?: { appendEvent?(partial: any): any },
+  ): GoalState {
+    this.goalStore.set(statement);
+    return this.commitGoal(session)!;
+  }
+
+  setGoalCriteria(
+    criteria: string[],
+    session?: { appendEvent?(partial: any): any },
+  ): GoalState {
+    this.goalStore.setCriteria(criteria);
+    return this.commitGoal(session)!;
+  }
+
+  setGoalConstraints(
+    value: string,
+    session?: { appendEvent?(partial: any): any },
+  ): GoalState {
+    this.goalStore.setConstraints(value);
+    return this.commitGoal(session)!;
+  }
+
+  pauseGoal(session?: { appendEvent?(partial: any): any }): GoalState | null {
+    const before = this.goalStore.status;
+    const goal = this.goalStore.pause();
+    if (before !== "paused" && goal?.status === "paused") {
+      this.commitGoal(session);
+    }
+    return goal;
+  }
+
+  resumeGoal(session?: { appendEvent?(partial: any): any }): GoalState | null {
+    const before = this.goalStore.status;
+    const goal = this.goalStore.resume();
+    if (before === "paused" && goal?.status === "active") {
+      this.commitGoal(session);
+    }
+    return goal;
+  }
+
+  clearGoal(session?: { appendEvent?(partial: any): any }): void {
+    this.goalStore.clear();
+    this.commitGoal(session);
+  }
+
+  clearLedger(session?: { appendEvent?(partial: any): any }): void {
+    this.todoStore.replace([]);
+    if (session) this.persistTodos(session);
+    this.emitLedgerState();
+  }
+
+  completeGoal(
+    evidence?: string,
+    session?: { appendEvent?(partial: any): any },
+  ): {
+    ok: boolean;
+    unmet: string[];
+    goal: GoalState | null;
+  } {
+    const goal = this.goalStore.get();
+    if (!goal) return { ok: false, unmet: [], goal: null };
+    const check = checkGoalCompletion(goal, this.todoStore.list(), evidence);
+    if (!check.complete) {
+      return { ok: false, unmet: check.unmet, goal };
+    }
+    const complete = this.goalStore.complete();
+    this.commitGoal(session);
+    return { ok: true, unmet: [], goal: complete };
+  }
+
+  /** Explicit state refresh when the CLI switches sessions. */
+  restoreSessionState(session: unknown): void {
+    const events = (session as { events?: unknown[] })?.events;
+    const list = Array.isArray(events) ? events : [];
+    const goalEvent = [...list]
+      .reverse()
+      .find((event: any) => event?.type === "goal_updated") as
+      { goal?: unknown } | undefined;
+    const ledgerEvent = [...list]
+      .reverse()
+      .find((event: any) => event?.type === "todos_updated") as
+      { todos?: unknown } | undefined;
+    if (this.goalStoreInjected) {
+      this.goalStore.replace(goalEvent?.goal ?? null);
+    } else {
+      this.goalStore = goalEvent
+        ? GoalStore.fromJSON(goalEvent.goal)
+        : new GoalStore();
+    }
+    if (this.todoStoreInjected) {
+      this.todoStore.replace(
+        Array.isArray(ledgerEvent?.todos) ? ledgerEvent!.todos : [],
+      );
+    } else {
+      this.todoStore = ledgerEvent
+        ? TodoStore.fromJSON(ledgerEvent.todos)
+        : new TodoStore();
+    }
+    this.emitGoalState();
+    this.emitLedgerState();
+  }
+
+  /** Clear both stores for `/new`. */
+  resetSessionState(session?: { appendEvent?(partial: any): any }): void {
+    this.goalStore.clear();
+    this.todoStore.replace([]);
+    if (session) {
+      this.persistGoal(session);
+      this.persistTodos(session);
+    }
+    this.emitGoalState();
+    this.emitLedgerState();
+  }
+
   private isContinuation(text: string): boolean {
     // Match the whole message, not just its opening: "ok now fix the failing
     // test" is a new task, while "ok" is a continuation.
@@ -326,20 +509,56 @@ export class AgentRuntime {
     if (this.todoStore.contains(captured)) return;
     this.todoStore.add({ content: captured, status: "pending" });
     this.persistTodos(session);
+    this.emitLedgerState();
   }
 
-  private injectTodoLedger(
-    messages: Message[],
-    completionCheck: boolean,
+  private continuationInput(): import("../context/manager.js").ContextStaticState["continuation"] {
+    const goal = this.goalStore.get();
+    const open = this.todoStore
+      .list()
+      .filter(
+        (item) => item.status === "pending" || item.status === "in_progress",
+      );
+    if (!goal && open.length === 0) return null;
+    const current = open[0];
+    return {
+      statement: goal?.statement ?? "",
+      criteria: goal?.criteria ?? [],
+      currentTodo: current ? current.content : "",
+      nextAction: current
+        ? `Work on todo ${current.id}: ${current.content}`
+        : (goal?.statement ?? ""),
+    };
+  }
+
+  /** Supply the goal/ledger state used by both the build and the summarizer. */
+  private syncStaticContext(completionCheck: boolean): void {
+    this.contextManager.setStaticContext({
+      goal: this.goalStore.renderForPrompt(),
+      ledger: this.todoStore.renderForPrompt({ completionCheck }),
+      continuation: this.continuationInput(),
+    });
+  }
+
+  /** Mirror the one-shot continuation into the transcript and session log. */
+  private mirrorContinuation(
+    text: string | null,
+    session?: {
+      appendMessage(m: Message): void;
+      appendEvent?(partial: any): any;
+    },
   ): void {
-    const ledger = this.todoStore.renderForPrompt({ completionCheck });
-    if (!ledger) return;
-    // Keep the ledger next to the system prompt, before compacted history.
-    let index = 0;
-    while (index < messages.length && messages[index].role === "system") {
-      index++;
+    if (!text) return;
+    if (session) {
+      session.appendMessage({ role: "system", content: text });
+      if (typeof session.appendEvent === "function") {
+        session.appendEvent({
+          type: "context_compacted_continuation",
+          text,
+        });
+      }
     }
-    messages.splice(index, 0, { role: "system", content: ledger });
+    this.onEvent?.({ type: "compaction_continuation", text });
   }
 
   async runAgentTurn(
@@ -366,6 +585,7 @@ export class AgentRuntime {
       );
     }
     this.restoreTodos(session);
+    this.restoreGoal(session);
 
     this.turnIndex += 1;
     // Resolve a per-turn correlation id once and reuse it for every model
@@ -394,6 +614,16 @@ export class AgentRuntime {
     const maxCompletionNudges = 3;
     try {
       while (true) {
+        // Pause is a goal status enforced between iterations. In-flight tool
+        // calls and the current iteration have already finished by this point.
+        if (this.goalStore.status === "paused") {
+          this.onEvent?.({ type: "goal_state", goal: this.goalStore.get() });
+          await this.extensionDispatch?.("agent_settled", {
+            type: "agent_settled",
+          });
+          return "GOAL_PAUSED";
+        }
+
         // Drain any steering messages into the session before the next model turn.
         if (this.steeringQueue && this.steeringQueue.length > 0) {
           while (this.steeringQueue.length > 0) {
@@ -408,13 +638,12 @@ export class AgentRuntime {
           throw new Error("USER_CANCELLED");
         }
 
+        this.syncStaticContext(
+          completionNudges > 0 && this.todoStore.openCount() > 0,
+        );
         const messages = await this.contextManager.build(
           this.workspace,
           session.messages,
-        );
-        this.injectTodoLedger(
-          messages,
-          completionNudges > 0 && this.todoStore.openCount() > 0,
         );
         await this.extensionDispatch?.("context_build", {
           type: "context_build",
@@ -439,6 +668,10 @@ export class AgentRuntime {
               coveredCount,
             });
           }
+          this.mirrorContinuation(
+            this.contextManager.consumeCompactionContinuation(),
+            session,
+          );
         }
 
         let response: any;
@@ -626,6 +859,7 @@ export class AgentRuntime {
           supportsVision: this.supportsVision,
           backgroundTasks: this.backgroundTasks,
           todos: this.todoStore,
+          goal: this.goalStore,
           signal,
           maxBashTimeMs: this.limits.maxBashTimeMs,
           maxToolOutputBytes: this.limits.maxToolOutputBytes,
@@ -723,6 +957,7 @@ export class AgentRuntime {
             );
           }
         }
+        const goalStatusBeforeTools = this.goalStore.status;
         const execResults = await executeToolBatch(
           execCalls,
           wrappedToolMap,
@@ -738,6 +973,11 @@ export class AgentRuntime {
         ) {
           this.todoTouchedThisTurn = true;
           this.persistTodos(session);
+          this.emitLedgerState();
+        }
+        if (goalStatusBeforeTools !== this.goalStore.status) {
+          this.persistGoal(session);
+          this.emitGoalState();
         }
 
         for (const r of execResults) {

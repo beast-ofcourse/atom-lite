@@ -82,13 +82,14 @@ stored credential, then inline `apiKey`.
 
 ## `context`
 
-| Key                          | Type                     | Default | Description                                                 |
-| ---------------------------- | ------------------------ | ------- | ----------------------------------------------------------- |
-| `maxInputTokens`             | positive integer \| null | `null`  | Input budget. `null` derives it from the model window.      |
-| `reserveOutputTokens`        | positive integer         | `4096`  | Headroom kept for the response.                             |
-| `compactAtPercent`           | integer 1–100            | `85`    | Context usage that triggers compaction.                     |
-| `maxProjectInstructionBytes` | positive integer         | `30000` | Cap on injected `AGENTS.md`/`CLAUDE.md`-style instructions. |
-| `compactEveryNTurns`         | integer >= 0             | `0`     | Compact every N turns. `0` disables periodic compaction.    |
+| Key                          | Type                     | Default | Description                                                   |
+| ---------------------------- | ------------------------ | ------- | ------------------------------------------------------------- |
+| `maxInputTokens`             | positive integer \| null | `null`  | Input budget. `null` derives it from the model window.        |
+| `reserveOutputTokens`        | positive integer         | `4096`  | Headroom kept for the response.                               |
+| `compactAtPercent`           | integer 1–100            | `85`    | Context usage that triggers compaction.                       |
+| `maxProjectInstructionBytes` | positive integer         | `30000` | Cap on injected `AGENTS.md`/`CLAUDE.md`-style instructions.   |
+| `compactEveryNTurns`         | integer >= 0             | `0`     | Compact every N turns. `0` disables periodic compaction.      |
+| `compactionModel`            | non-empty string \| null | `null`  | Model for compaction summaries. `null` uses the active model. |
 
 The model window is resolved from, in order: `providers.<name>.contextWindow`,
 live provider metadata, then a built-in table of known model families.
@@ -164,6 +165,7 @@ Keyboard shortcut overrides. All fields are nullable; set a field to `null` to d
 | `scrollUp`         | string or null | `"ctrl+up"`   | Scroll up.               |
 | `scrollDown`       | string or null | `"ctrl+down"` | Scroll down.             |
 | `toggleThinking`   | string or null | `"ctrl+t"`    | Toggle thinking display. |
+| `toggleGoalPanel`  | string or null | `"ctrl+g"`    | Toggle the goal panel.   |
 | `inputHistoryUp`   | string or null | `"up"`        | Previous input history.  |
 | `inputHistoryDown` | string or null | `"down"`      | Next input history.      |
 

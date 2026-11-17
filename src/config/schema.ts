@@ -45,6 +45,11 @@ export const ContextConfigSchema = z
     compactAtPercent: z.number().int().min(1).max(100).default(85),
     maxProjectInstructionBytes: z.number().int().positive().default(30000),
     compactEveryNTurns: z.number().int().min(0).default(0),
+    /**
+     * Optional model used only for compaction summaries. Unset means use the
+     * active model, so installing this field cannot change default behavior.
+     */
+    compactionModel: z.string().min(1).nullable().default(null),
   })
   .strict();
 
@@ -90,6 +95,7 @@ export const KeybindingsConfigSchema = z
     scrollUp: z.string().nullable().default("ctrl+up"),
     scrollDown: z.string().nullable().default("ctrl+down"),
     toggleThinking: z.string().nullable().default("ctrl+t"),
+    toggleGoalPanel: z.string().nullable().default("ctrl+g"),
     inputHistoryUp: z.string().nullable().default("up"),
     inputHistoryDown: z.string().nullable().default("down"),
   })

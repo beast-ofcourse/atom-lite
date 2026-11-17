@@ -38,6 +38,13 @@ test("status line shows the active persona beside the mode", () => {
   assert.ok(plain[0].trimEnd().endsWith("effort: medium"));
 });
 
+test("status line shows the open todo count", () => {
+  const rows = render({ ...PLAIN, openTodos: 3 }, 100, darkTheme);
+  const plain = rows.map(stripTerminalSequences);
+  assert.match(plain[0], /todos:3/);
+  assert.ok(plain[0].trimEnd().endsWith("effort: medium"));
+});
+
 test("status line colours parts through semantic theme tokens", () => {
   const rows = render(PLAIN, 60, darkTheme);
   assert.ok(rows[0].includes(darkTheme.tokens.status(PLAIN.left)));

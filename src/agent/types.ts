@@ -53,6 +53,16 @@ export type AgentEvent =
       pending: number;
       todos: import("../runtime/todos.js").TodoItem[];
     }
+  | {
+      type: "goal_state";
+      goal: import("../runtime/goal.js").GoalState | null;
+    }
+  | {
+      type: "ledger_state";
+      todos: import("../runtime/todos.js").TodoItem[];
+      open: number;
+    }
+  | { type: "compaction_continuation"; text: string }
   | { type: "request_id"; requestId: string }
   | { type: "error"; message: string };
 
@@ -84,6 +94,8 @@ export interface AgentRuntimeOptions {
   backgroundTasks?: import("../runtime/background-tasks.js").BackgroundTaskManager;
   /** Task ledger override (defaults to a new in-memory store). */
   todoStore?: import("../runtime/todos.js").TodoStore;
+  /** Goal store override (defaults to a new in-memory store). */
+  goalStore?: import("../runtime/goal.js").GoalStore;
   /** Optional steering queue drained into the turn between iterations. */
   steeringQueue?: string[];
   /** Optional dispatcher for Pi extension events. */
