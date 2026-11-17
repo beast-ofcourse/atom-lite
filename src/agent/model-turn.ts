@@ -1,9 +1,4 @@
-import type {
-  Message,
-  ModelRequest,
-  ToolCall,
-  TokenUsage,
-} from "../types.js";
+import type { Message, ModelRequest, ToolCall, TokenUsage } from "../types.js";
 import type { ProviderAdapter } from "../providers/types.js";
 import { recordModelUsage, type UsageLedger } from "../usage/ledger.js";
 import { attributeMessages } from "../context/attribution.js";
@@ -42,12 +37,10 @@ export type ModelTurnEvent =
 export async function* runModelTurn(
   request: ModelTurnRequest,
 ): AsyncGenerator<ModelTurnEvent> {
-  const recordUsage = (
-    response: {
-      usage?: TokenUsage;
-      requestId?: string;
-    },
-  ): void => {
+  const recordUsage = (response: {
+    usage?: TokenUsage;
+    requestId?: string;
+  }): void => {
     const { attribution, compacted, prefix } = attributeMessages(
       request.messages,
       request.sessionId,
@@ -84,6 +77,7 @@ export async function* runModelTurn(
   };
 
   if (typeof request.provider.stream === "function") {
+    const startedAt = Date.now();
     let response: any;
     let streamedText = "";
     for await (const ev of request.provider.stream(modelRequest)) {
@@ -108,12 +102,15 @@ export async function* runModelTurn(
         finishReason: "stop",
       };
     }
+    response.elapsedMs = Date.now() - startedAt;
     recordUsage(response);
     yield { type: "final", response, streamedText };
     return;
   }
 
+  const startedAt = Date.now();
   const response = await request.provider.generate(modelRequest);
+  response.elapsedMs = Date.now() - startedAt;
   const text =
     response.message.content
       ?.map((p: any) => (p.type === "text" ? p.text : ""))

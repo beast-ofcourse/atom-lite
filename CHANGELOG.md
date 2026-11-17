@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `tools`: `question` asks you to choose labeled options or type an answer mid-turn. Supports multi-select, a custom-answer row, tabs, and a review step; dismissal stops the turn instead of inventing an answer.
 - `cli`: question prompt in the TUI with number, arrow, tab, space, and escape controls. It works in plan mode and falls back to a model-facing error without an interactive terminal.
+- `cli`/`web`: every completed turn reports its measured wall time and output-token throughput (`56 tok/s`) from real provider usage and call timing.
+- `web`: the sidebar shows the live context window (`1.3k / 200k`, percent and fill) from the runtime's current occupancy; reconnects receive the same value in `hello`.
+- `web`: the header agent chip lists primary personas and switches the active profile for the next turn; the switch is refused while a turn runs.
+- `web`: the MCP overlay gains a refresh action and per-server Connect/Disconnect controls; changes apply to the running process only and are refused during a turn.
+- `web`: question tool calls render as a stacked form with single-select options, multi-select checkboxes, custom answers, and dismissal that stops the turn.
+- `web`: the favicon is now an `A` monogram with an orbital ring and nucleus, legible at 16px and richer at 32px and above.
+
+### Fixed
+
+- `web`: the slash-command menu no longer flickers shut while a turn streams, or when session/context updates and viewport resizes arrive.
 
 ## v0.17.0 — 2026-11-16
 

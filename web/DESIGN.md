@@ -213,10 +213,11 @@ transitions collapse.
 ### Header
 
 52px, transparent over the canvas, no divider. Left: panel toggle (only when
-the sidebar is collapsed or on mobile) and the model chip — a real button with
-a small atom glyph, `provider · model`, and a chevron that opens the model
-picker. Right: role chip with a status dot (`controlling` green, `read-only
-viewer` amber). The role chip is the only place control state is written.
+the sidebar is collapsed or on mobile), the model chip — a real button with a
+small atom glyph, `provider · model`, and a chevron that opens the model
+picker — and the agent chip, which names the active primary persona. Right:
+role chip with a status dot (`controlling` green, `read-only viewer` amber).
+The role chip is the only place control state is written.
 
 ### Task ledger panel
 
@@ -317,6 +318,22 @@ cwd metadata. Actions: filled primary `Approve` (inverted ink), secondary
 Escape denies, and focus returns to the composer. Only the controlling tab can
 answer.
 
+### Questions
+
+The `question` tool opens a centered 620px **Questions** dialog. Unlike the
+terminal's tabbed prompt, the web form stacks every question in one scrollable
+column so all context stays visible: an uppercase `header`, the full question,
+option rows with label and description, and a custom-answer field. Single
+answers use round marks; `multiple` uses square checkbox marks. Selected rows
+use the quiet active surface and a check, never a coloured fill. The footer is
+fixed: **Dismiss** and a primary **Submit answers** (or **Submit answer** for
+one question).
+
+The controlling tab owns the form; a read-only viewer never receives it. If
+control moves, the pending form is resent to the new controller. A pending form
+owns the screen: other modals are blocked, Escape dismisses, and the composer
+cannot be used behind it. Dismissing stops the turn without a fabricated answer.
+
 ### Composer
 
 Centered 768px shell, 28px radius, `--composer-bg`, 1px `--border` and the
@@ -351,6 +368,19 @@ suggestion chips (`Explain this codebase`, `Find a bug`, `Write tests`,
 `Review my changes`). Chips are real controls: clicking fills the composer and
 focuses it. The stack is vertically centered between the header and the bottom
 of the viewport; it never overlaps the disclaimer.
+
+### Agent overlay
+
+A quiet chip beside the model chip shows the active primary persona (`default`
+when none is set). It opens a 620px overlay listing every bundled, global, and
+trusted project persona with its description and source; the active row carries
+a check. Selecting a row applies the persona to the runtime and broadcasts
+`agent_changed` to every tab.
+
+The chip and every row are disabled while a turn runs, and the server refuses
+`switch_agent` when `turnRunning`, so role instructions, temperature, and tool
+permissions cannot change under an active turn. Read-only viewers can inspect
+the list but cannot switch. At `≤900px` the chip collapses to its icon.
 
 ### Model overlay
 
@@ -405,8 +435,12 @@ scope. Each skill row is a button: selecting it closes the overlay, inserts
 `/<name> ` at the composer caret, and focuses the input so the slash
 autocomplete can take over. `/mcp` requests `list_mcp` and lists each server
 with a state dot, state label, tool count, tool names, and the last error when
-failed. MCP is read-only; both overlays are available to viewer tabs and always
-reflect the live manager rather than a cached browser list.
+failed. A **Refresh** action re-reads the live manager. Each row carries one
+Connect/Disconnect control that enables or closes that server for the running
+process without rewriting config; the change is broadcast to every tab.
+Connections are frozen while a turn runs, and viewer tabs cannot toggle them.
+Both overlays always reflect the live manager rather than a cached browser
+list.
 
 ### Slash commands and command palette
 
@@ -420,6 +454,14 @@ hidden from a read-only viewer. Unknown slash commands never reach the agent;
 they produce a toast pointing to `/help`. `/search` filters the sidebar,
 `/theme` accepts `system|light|dark`, `/stop` cancels the running turn, and
 `/export` downloads a Markdown transcript generated in the browser.
+
+### Favicon
+
+`favicon.svg` is an authored 32px mark: a rounded ink tile, a bold white `A`
+monogram, one orbital ellipse crossing behind it, and a ringed nucleus. The `A`
+stays legible at 16px; the orbit and nucleus resolve at 32px and above. It keeps
+the sidebar's atom language while giving the tab a distinct silhouette instead
+of a generic atom glyph.
 
 ### Browser surfaces
 
@@ -482,8 +524,8 @@ authored inline SVG (24×24 viewBox, 1.75 stroke) in the page's sprite.
 - The transcript is one reading column at every width; the only side pane is
   the user-toggled task ledger on the right, never a dashboard grid.
 - Client-owned preferences (theme, sidebar state, task-panel state and width)
-  live in `localStorage`; server-owned state (model, workspace, sessions,
-  approvals, task ledger) is remote and broadcast to every tab.
+  live in `localStorage`; server-owned state (model, agent profile, workspace,
+  sessions, approvals, task ledger) is remote and broadcast to every tab.
 - Scrolling and streaming rendering are coalesced into one animation frame;
   the sidebar is rebuilt only on session data changes, never on control
   changes or every keystroke.
@@ -551,6 +593,19 @@ and the fake provider, dark and light, 1440×900 and 390×844.
   the final render settles. No entrance animation is attached to streamed text.
   Scroll updates are coalesced to one frame and respect user scroll-up.
 
+- **Question form (2026-11-17):** a two-question request rendered as a stacked
+  form with single-select options, a multi-select group, custom-answer fields,
+  and fixed Dismiss/Submit actions. Selecting `Web and runtime`, `Typecheck`,
+  and `Docs` submitted the exact answer arrays and the turn continued; the tool
+  card summarized the question instead of printing raw JSON.
+- **Favicon (2026-11-17):** rendered at 16, 32, 48, 64, and 128px on light and
+  dark chrome. The `A` is legible at 16px; the orbit and ringed nucleus resolve
+  at 32px and above.
+- **Agent and MCP overlays (2026-11-17):** the agent chip opened the profile
+  list, switching to `reviewer` updated the chip and toast; the MCP overlay
+  refreshed, connected `github`, and disconnected `filesystem`, with state and
+  tool counts updating in place. The 390px header fits the icon-only agent chip
+  without overflow.
 - **Side panels (2026-11-17):** the task ledger rendered in dark and light at
   1440×900 and as a right drawer at 390×844 with no horizontal overflow. The
   header toggle and `Ctrl/Cmd+J` opened and closed it; arrow-key resizing moved

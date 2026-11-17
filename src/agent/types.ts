@@ -34,7 +34,7 @@ export type AgentEvent =
       diff?: string[];
     }
   | { type: "final"; text: string }
-  | { type: "usage"; input?: number; output?: number }
+  | { type: "usage"; input?: number; output?: number; elapsedMs?: number }
   | { type: "context_usage"; used?: number; window?: number }
   | { type: "model_switched"; provider: string; model: string }
   | { type: "skill_loaded"; name: string }

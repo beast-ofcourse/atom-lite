@@ -176,6 +176,20 @@ export class McpManager {
     return this.tools();
   }
 
+  /**
+   * Connect or disconnect one configured server for this process. The change
+   * is in-memory; the config file on disk is not rewritten.
+   */
+  async setEnabled(name: string, enabled: boolean): Promise<McpServerStatus[]> {
+    if (this.closed) throw new Error("MCP manager is closed");
+    const record = this.records.get(name);
+    if (!record) throw new Error(`Unknown MCP server: ${name}`);
+    record.config.enabled = enabled;
+    await this.reset(record);
+    if (enabled) await this.connect(name);
+    return this.status();
+  }
+
   /** Retry one server, or every server when no name is given. */
   async reconnect(name?: string): Promise<McpServerStatus[]> {
     if (this.closed) throw new Error("MCP manager is closed");

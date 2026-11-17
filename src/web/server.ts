@@ -28,12 +28,14 @@ import type {
   ApprovalDecision,
   ApprovalRequest,
 } from "../runtime/approvals.js";
+import type { QuestionContext, QuestionOutcome } from "../runtime/questions.js";
 import {
   parseClientMessage,
   type ClientMessage,
   type DirectoryListing,
   type ServerMessage,
   type SessionListing,
+  type WebAgent,
   type WebMcpServer,
   type WebModel,
   type WebSkill,
@@ -42,11 +44,16 @@ import {
 export type WebModelSwitchResult =
   { provider: string; model: string; models?: WebModel[] } | { error: string };
 
+export type WebAgentSwitchResult =
+  { agent: string; agents: WebAgent[] } | { error: string };
+
 export interface WebServerOptions {
   runtime: AgentRuntime;
   /** Session the server starts on. */
   session: Session;
   approvals: ApprovalContext;
+  /** Question bridge shared with the runtime; the server installs a handler. */
+  questions?: QuestionContext;
   providerName: string;
   model: string;
   /** Durable store backing list / resume / new. */
@@ -62,6 +69,15 @@ export interface WebServerOptions {
     provider: string,
     model: string,
   ) => WebModelSwitchResult | Promise<WebModelSwitchResult>;
+  /** Active primary agent persona at startup. */
+  agent?: string | null;
+  /** Primary personas offered by the web agent overlay, scoped to a workspace. */
+  agents?: (workspace: string) => WebAgent[];
+  /** Switch the live runtime persona; refused while a turn is running. */
+  switchAgent?: (
+    name: string,
+    workspace: string,
+  ) => WebAgentSwitchResult | Promise<WebAgentSwitchResult>;
   /** Initial agent mode shown and switchable from the composer. */
   mode?: "plan" | "yolo";
   /** Initial thinking effort shown and switchable from the composer. */
@@ -76,6 +92,11 @@ export interface WebServerOptions {
   skills?: (workspace: string) => WebSkill[];
   /** Live MCP server status, for the /mcp overlay. */
   mcpStatus?: () => WebMcpServer[];
+  /** Connect or disconnect one configured MCP server for this process. */
+  setMcpEnabled?: (
+    name: string,
+    enabled: boolean,
+  ) => WebMcpServer[] | Promise<WebMcpServer[]>;
   /**
    * How long a pending approval waits for its client to come back before it
    * fails safe as a denial. Zero denies immediately.
@@ -217,6 +238,14 @@ interface PendingApproval {
   resolve: (decision: ApprovalDecision) => void;
 }
 
+interface PendingQuestion {
+  turnId: number;
+  message: ServerMessage;
+  resolve: (outcome: QuestionOutcome) => void;
+  signal?: AbortSignal;
+  onAbort?: () => void;
+}
+
 export async function startWebServer(
   options: WebServerOptions,
 ): Promise<WebServerHandle> {
@@ -236,17 +265,22 @@ export async function startWebServer(
   let currentModel = options.model;
   let currentMode: "plan" | "yolo" = options.mode ?? "yolo";
   let currentEffort = options.effort ?? "medium";
+  let activeAgent = options.agent ?? options.runtime.getPersona()?.name ?? null;
   let models: WebModel[] =
     options.models && options.models.length > 0
       ? [...options.models]
       : [{ provider: providerName, model: currentModel }];
   const clients = new Set<WebSocket>();
   const pendingApprovals = new Map<string, PendingApproval>();
+  const pendingQuestions = new Map<string, PendingQuestion>();
   const steeringQueue: string[] = [];
   let session = options.session;
   let controller: WebSocket | null = null;
   let turnRunning = false;
   let turnCounter = 0;
+  let turnStartedAt = 0;
+  let turnOutputTokens = 0;
+  let turnModelMs = 0;
   // Everything a client that joins mid-turn needs to rebuild the active turn.
   // Released at turn_end; completed turns live in the session history.
   let turnEvents: AgentEvent[] = [];
@@ -276,6 +310,10 @@ export async function startWebServer(
   };
 
   const emitEvent = (event: AgentEvent): void => {
+    if (event.type === "usage") {
+      turnOutputTokens += event.output ?? 0;
+      turnModelMs += event.elapsedMs ?? 0;
+    }
     if (turnRunning) {
       // Bound the active-turn buffer: a single enormous turn must not grow
       // server memory without limit. Dropped events only affect live replay
@@ -440,6 +478,18 @@ export async function startWebServer(
     workspace = target;
     options.runtime.setWorkspace(target);
     options.approvals.resetTrust?.();
+    if (options.agents && activeAgent) {
+      const available = agentList();
+      if (!available.some((agent) => agent.name === activeAgent)) {
+        activeAgent = null;
+        options.runtime.setPersona(undefined);
+        broadcast({
+          type: "agent_changed",
+          agent: null,
+          agents: available,
+        });
+      }
+    }
     steeringQueue.length = 0;
     session = next;
     broadcast({
@@ -573,6 +623,30 @@ export async function startWebServer(
     });
   };
 
+  const agentList = (): WebAgent[] => {
+    if (!options.agents) return [];
+    try {
+      return options.agents(workspace);
+    } catch {
+      return [];
+    }
+  };
+
+  const switchAgent = async (name: string): Promise<void> => {
+    if (turnRunning) {
+      throw new Error("cannot switch agent while a turn is running");
+    }
+    if (!options.switchAgent) throw new Error("agent switching is disabled");
+    const result = await options.switchAgent(name, workspace);
+    if ("error" in result) throw new Error(result.error);
+    activeAgent = result.agent;
+    broadcast({
+      type: "agent_changed",
+      agent: activeAgent,
+      agents: result.agents,
+    });
+  };
+
   const denyPendingApprovals = (): void => {
     for (const pending of pendingApprovals.values()) pending.resolve("deny");
     pendingApprovals.clear();
@@ -606,6 +680,9 @@ export async function startWebServer(
     turnEvents = [];
     replayBytes = 0;
     replayTruncated = false;
+    turnStartedAt = Date.now();
+    turnOutputTokens = 0;
+    turnModelMs = 0;
     turnSessionStart = session.events.length;
     const attachments = sessionAttachments.get(session.id) ?? [];
     sessionAttachments.delete(session.id);
@@ -658,7 +735,16 @@ export async function startWebServer(
       // arriving after this point starts a new turn, never a stranded queue.
       turnRunning = false;
       activeAbort = undefined;
-      broadcast({ type: "turn_end", stopped });
+      broadcast({
+        type: "turn_end",
+        stopped,
+        elapsedMs: turnStartedAt > 0 ? Date.now() - turnStartedAt : undefined,
+        outputTokens: turnOutputTokens,
+        modelMs: turnModelMs,
+      });
+      turnStartedAt = 0;
+      turnOutputTokens = 0;
+      turnModelMs = 0;
       turnEvents = [];
       replayBytes = 0;
       replayTruncated = false;
@@ -778,6 +864,75 @@ export async function startWebServer(
       broadcast(message);
     });
   options.approvals.nonInteractive = false;
+
+  const settleQuestion = (id: string, outcome: QuestionOutcome): boolean => {
+    const pending = pendingQuestions.get(id);
+    if (!pending) return false;
+    pendingQuestions.delete(id);
+    if (pending.signal && pending.onAbort) {
+      pending.signal.removeEventListener("abort", pending.onAbort);
+    }
+    pending.resolve(outcome);
+    return true;
+  };
+
+  const cancelPendingQuestions = (message?: string): void => {
+    for (const [id] of [...pendingQuestions]) {
+      settleQuestion(id, {
+        status: "cancelled",
+        ...(message ? { message } : {}),
+      });
+      broadcast({ type: "question_resolved", id });
+    }
+  };
+
+  /** Re-send a pending question to a newly controlling tab. */
+  const sendPendingQuestions = (client: WebSocket): void => {
+    if (controller !== client) return;
+    for (const pending of pendingQuestions.values()) {
+      if (pending.message.type === "question_request") {
+        sendTo(client, pending.message);
+      }
+    }
+  };
+
+  const previousQuestionHandler = options.questions?.handler;
+  const previousQuestionNonInteractive = options.questions?.nonInteractive;
+  if (options.questions) {
+    options.questions.nonInteractive = false;
+    options.questions.handler = (request, signal) =>
+      new Promise<QuestionOutcome>((resolve) => {
+        const id = randomUUID();
+        const message: ServerMessage = {
+          type: "question_request",
+          id,
+          turnId: turnCounter,
+          questions: request.questions,
+        };
+        const pending: PendingQuestion = {
+          turnId: turnCounter,
+          message,
+          resolve,
+          signal,
+        };
+        const onAbort = () => {
+          if (!settleQuestion(id, { status: "cancelled" })) return;
+          broadcast({ type: "question_resolved", id });
+        };
+        pending.onAbort = onAbort;
+        pendingQuestions.set(id, pending);
+        signal?.addEventListener("abort", onAbort, { once: true });
+
+        if (controller) sendTo(controller, message);
+        else {
+          // No tab can answer. Cancel with a message so the model continues.
+          settleQuestion(id, {
+            status: "cancelled",
+            message: "No browser is connected to answer questions.",
+          });
+        }
+      });
+  }
 
   const httpServer = createServer((req, res) => {
     void (async () => {
@@ -956,6 +1111,29 @@ export async function startWebServer(
         pending.resolve(message.decision);
         return;
       }
+      case "question_response": {
+        if (!requireController(client)) return;
+        const pending = pendingQuestions.get(message.id);
+        if (!pending || pending.message.type !== "question_request") return;
+        const answers = pending.message.questions.map((_, index) => {
+          const raw = message.answers[index];
+          if (!Array.isArray(raw)) return [];
+          return raw
+            .filter((item) => typeof item === "string")
+            .map((item) => item.trim().slice(0, 4000))
+            .filter(Boolean);
+        });
+        if (settleQuestion(message.id, { status: "answered", answers })) {
+          broadcast({ type: "question_resolved", id: message.id });
+        }
+        return;
+      }
+      case "question_dismiss":
+        if (!requireController(client)) return;
+        if (settleQuestion(message.id, { status: "cancelled" })) {
+          broadcast({ type: "question_resolved", id: message.id });
+        }
+        return;
       case "stop":
         if (!requireController(client)) return;
         if (!turnRunning || !activeAbort) return;
@@ -992,6 +1170,17 @@ export async function startWebServer(
         void switchModel(message.provider, message.model).catch((err) =>
           fail(client, err),
         );
+        return;
+      case "list_agents":
+        sendTo(client, {
+          type: "agents",
+          agents: agentList(),
+          active: activeAgent,
+        });
+        return;
+      case "switch_agent":
+        if (!requireController(client)) return;
+        void switchAgent(message.name).catch((err) => fail(client, err));
         return;
       case "browse_directory":
         if (!requireController(client)) return;
@@ -1075,6 +1264,30 @@ export async function startWebServer(
           fail(client, err);
         }
         return;
+      case "set_mcp_enabled":
+        if (!requireController(client)) return;
+        if (turnRunning) {
+          sendTo(client, {
+            type: "error",
+            message: "cannot change MCP servers while a turn is running",
+          });
+          return;
+        }
+        void (async () => {
+          try {
+            if (!options.setMcpEnabled) {
+              throw new Error("MCP switching is disabled");
+            }
+            await options.setMcpEnabled(message.name, message.enabled);
+            broadcast({
+              type: "mcp",
+              servers: options.mcpStatus?.() ?? [],
+            });
+          } catch (err) {
+            fail(client, err);
+          }
+        })();
+        return;
     }
   };
 
@@ -1097,8 +1310,11 @@ export async function startWebServer(
       models,
       mode: currentMode,
       effort: currentEffort,
+      agent: activeAgent,
+      agents: agentList(),
       readOnly: controller !== ws,
       history: visibleHistory(),
+      context: options.runtime.getContextUsage(),
     });
     if (turnRunning) {
       // Rebuild the in-flight turn, which is not in the session history until
@@ -1114,6 +1330,7 @@ export async function startWebServer(
     // A prompt that was pending when the previous client dropped is handed
     // to whoever controls the session now.
     sendPendingApprovals(ws);
+    sendPendingQuestions(ws);
 
     ws.on("message", (data) => {
       const parsed = parseClientMessage(data.toString());
@@ -1133,9 +1350,15 @@ export async function startWebServer(
         }
         // The new controller must be able to answer a request that was still
         // pending when control moved.
-        if (controller) sendPendingApprovals(controller);
+        if (controller) {
+          sendPendingApprovals(controller);
+          sendPendingQuestions(controller);
+        }
       }
-      if (clients.size === 0) scheduleApprovalFailSafe();
+      if (clients.size === 0) {
+        scheduleApprovalFailSafe();
+        cancelPendingQuestions("No browser is connected to answer questions.");
+      }
     });
   });
 
@@ -1164,9 +1387,10 @@ export async function startWebServer(
         // the session log stays resumable. A turn that ignores the signal is
         // bounded by a short shutdown timeout rather than blocking exit.
         activeAbort?.abort();
-        // A tool may be blocked on an approval; denying it unblocks the turn
-        // instead of making shutdown wait for the timeout.
+        // A tool may be blocked on an approval or question; settle both so
+        // the turn can unwind instead of waiting for the shutdown timeout.
         denyPendingApprovals();
+        cancelPendingQuestions("The server is shutting down.");
         if (turnPromise) {
           await Promise.race([
             turnPromise.catch(() => {}),
@@ -1202,6 +1426,11 @@ export async function startWebServer(
           approvalTimer = undefined;
         }
         denyPendingApprovals();
+        if (options.questions) {
+          options.questions.handler = previousQuestionHandler;
+          options.questions.nonInteractive =
+            previousQuestionNonInteractive ?? true;
+        }
         options.runtime.setEventSink(undefined);
         wss.close();
         await httpClosed;

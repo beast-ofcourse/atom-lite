@@ -2,15 +2,17 @@
 //
 // Protocol (JSON over WebSocket), mirrored by src/web/protocol.ts:
 //   server -> hello | event | replay | turn_start | turn_stopping | turn_end
-//             | input_queued | approval_request | sessions | session_changed
+//             | input_queued | approval_request | question_request
+//             | question_resolved | sessions | session_changed
 //             | workspace_changed | model_changed | runtime_state | models
-//             | attachment | attachment_removed | skills | mcp
-//             | directory | control | error
-//   client -> input | stop | approval | list_sessions | new_session | resume_session
-//             | rename_session | delete_session | switch_model
-//             | browse_directory | switch_workspace | set_effort | set_mode
-//             | refresh_models | attach_file | remove_attachment
-//             | list_skills | list_mcp
+//             | agents | agent_changed | attachment | attachment_removed
+//             | skills | mcp | directory | control | error
+//   client -> input | stop | approval | question_response | question_dismiss
+//             | list_sessions | new_session | resume_session
+//             | rename_session | delete_session | switch_model | list_agents
+//             | switch_agent | browse_directory | switch_workspace | set_effort
+//             | set_mode | refresh_models | attach_file | remove_attachment
+//             | list_skills | list_mcp | set_mcp_enabled
 
 import { buildDiffModel } from "./diff.js";
 import {
@@ -35,6 +37,10 @@ const sendEl = document.getElementById("send");
 const sendIcon = sendEl.querySelector("use");
 const queuedEl = document.getElementById("queued");
 const suggestionsEl = document.getElementById("suggestions");
+const contextValueEl = document.getElementById("context-value");
+const contextFillEl = document.getElementById("context-fill");
+const contextNoteEl = document.getElementById("context-note");
+const contextPanelEl = document.getElementById("context-panel");
 const sidebarToggle = document.getElementById("sidebar-toggle");
 const sidebarClose = document.getElementById("sidebar-close");
 const sidebarScrim = document.getElementById("sidebar-scrim");
@@ -43,16 +49,27 @@ const approvalLayer = document.getElementById("approval-layer");
 const approvalTool = document.getElementById("approval-tool");
 const approvalCommand = document.getElementById("approval-command");
 const approvalCwd = document.getElementById("approval-cwd");
+const questionModal = document.getElementById("question-modal");
+const questionFields = document.getElementById("question-fields");
+const questionDesc = document.getElementById("question-desc");
+const questionClose = document.getElementById("question-close");
+const questionCancel = document.getElementById("question-cancel");
+const questionSubmit = document.getElementById("question-submit");
 const toastEl = document.getElementById("toast");
 const modelButton = document.getElementById("model-button");
 const modelModal = document.getElementById("model-modal");
 const modelSearch = document.getElementById("model-search");
 const modelRefresh = document.getElementById("model-refresh");
 const modelList = document.getElementById("model-list");
+const agentButton = document.getElementById("agent-button");
+const agentNameEl = document.getElementById("agent-name");
+const agentModal = document.getElementById("agent-modal");
+const agentList = document.getElementById("agent-list");
 const skillsModal = document.getElementById("skills-modal");
 const skillsList = document.getElementById("skills-list");
 const mcpModal = document.getElementById("mcp-modal");
 const mcpList = document.getElementById("mcp-list");
+const mcpRefresh = document.getElementById("mcp-refresh");
 const attachButton = document.getElementById("attach-button");
 const fileInput = document.getElementById("file-input");
 const attachmentsEl = document.getElementById("attachments");
@@ -135,7 +152,11 @@ let socket = null;
 let readOnly = false;
 let pendingApproval = null;
 let lastApproval = null;
+let pendingQuestion = null;
+let questionDraft = [];
+let questionBusy = false;
 let assistantNode = null;
+let lastAssistantActions = null;
 let thinkingNode = null;
 let currentSessionId = null;
 let sessionsCache = [];
@@ -145,6 +166,8 @@ let toastTimer = null;
 let currentProvider = "";
 let currentModel = "";
 let modelsCache = [];
+let agentsCache = [];
+let activeAgent = null;
 let workspacePath = "";
 let sessionMenuTarget = null;
 let renameTargetId = null;
@@ -175,6 +198,8 @@ const toolCards = new Map();
 const markdownCache = new Map();
 let historyEvents = [];
 let historyLimit = HISTORY_PAGE_EVENTS;
+let contextUsed;
+let contextWindow;
 
 const SpeechRecognitionCtor =
   window.SpeechRecognition || window.webkitSpeechRecognition || null;
@@ -738,7 +763,9 @@ function formatElapsed(ms) {
 
 function setTurnActive(active) {
   turnActive = active;
+  if (active && agentModal && !agentModal.hidden) closeModal(agentModal);
   syncSendState();
+  updateSessionControls();
 }
 
 /** Ask the server to cancel the running turn. Returns false when idle. */
@@ -768,6 +795,84 @@ function addUserMessage(text, forceScroll = false) {
   wrap.append(body);
   renderTarget.append(wrap);
   scrollToEnd(forceScroll);
+}
+
+function formatDuration(ms) {
+  const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  if (minutes < 60) return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
+}
+
+function formatTokenCount(count) {
+  if (!Number.isFinite(count) || count < 0) return "0";
+  const n = Math.floor(count);
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) {
+    if (n < 10_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+    const rounded = Math.round(n / 1000);
+    return rounded >= 1000 ? "1M" : `${rounded}k`;
+  }
+  if (n < 10_000_000) {
+    return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  }
+  return `${Math.round(n / 1_000_000)}M`;
+}
+
+function formatTokensPerSecond(outputTokens, modelMs) {
+  if (!Number.isFinite(outputTokens) || outputTokens <= 0) return "";
+  if (!Number.isFinite(modelMs) || modelMs <= 0) return "";
+  return `${Math.round(outputTokens / (modelMs / 1000))} tok/s`;
+}
+
+/** Append the measured duration and generation speed to the finished reply. */
+function finishTurnStats(message) {
+  if (!lastAssistantActions) return;
+  if (!Number.isFinite(message.elapsedMs)) return;
+  const parts = [formatDuration(message.elapsedMs)];
+  const rate = formatTokensPerSecond(message.outputTokens, message.modelMs);
+  if (rate) parts.push(rate);
+  let stats = lastAssistantActions.querySelector(".msg-stats");
+  if (!stats) {
+    stats = document.createElement("span");
+    stats.className = "msg-stats";
+    lastAssistantActions.prepend(stats);
+  }
+  stats.textContent = parts.join(" · ");
+  lastAssistantActions.classList.add("has-stats");
+}
+
+function renderContextUsage() {
+  if (!contextValueEl || !contextFillEl || !contextNoteEl || !contextPanelEl) {
+    return;
+  }
+  const knownUsed = Number.isFinite(contextUsed) && contextUsed > 0;
+  const knownWindow = Number.isFinite(contextWindow) && contextWindow > 0;
+  const rawPercent =
+    knownUsed && knownWindow ? (contextUsed / contextWindow) * 100 : null;
+  const percent = rawPercent === null ? null : Math.min(100, rawPercent);
+  contextValueEl.textContent = knownUsed
+    ? knownWindow
+      ? `${formatTokenCount(contextUsed)} / ${formatTokenCount(contextWindow)}`
+      : `${formatTokenCount(contextUsed)} / —`
+    : "—";
+  contextFillEl.style.width = percent === null ? "0%" : `${percent}%`;
+  contextNoteEl.textContent =
+    rawPercent !== null
+      ? `${Math.round(rawPercent)}% used`
+      : knownUsed
+        ? "window unknown"
+        : "no usage yet";
+  contextPanelEl.classList.toggle("is-empty", !knownUsed);
+}
+
+function resetContextUsage() {
+  contextUsed = undefined;
+  contextWindow = undefined;
+  renderContextUsage();
 }
 
 function assistantBlock() {
@@ -818,6 +923,7 @@ function assistantBlock() {
       if (ok) flashCopy(copy, "check", "Copied");
     });
     actions.append(copy);
+    lastAssistantActions = actions;
 
     content.append(body, actions);
     wrap.append(avatar, content);
@@ -1422,6 +1528,7 @@ function renderSessions(sessions) {
 function updateSessionControls() {
   newSessionEl.disabled = readOnly;
   modelButton.disabled = readOnly;
+  agentButton.disabled = readOnly || turnActive;
   effortButton.disabled = readOnly;
   modeButton.disabled = readOnly;
   attachButton.disabled = readOnly;
@@ -1434,6 +1541,7 @@ function updateSessionControls() {
   for (const button of sessionsEl.querySelectorAll(".session-menu-btn")) {
     button.disabled = readOnly;
   }
+  syncMcpControls();
 }
 
 function scheduleSessionRender() {
@@ -1940,6 +2048,78 @@ function switchToModel(option) {
   });
 }
 
+/* ---------------- agent profile ---------------- */
+
+function agentLabel(name) {
+  return name || "default";
+}
+
+function renderAgentLabel() {
+  const label = agentLabel(activeAgent);
+  agentNameEl.textContent = label;
+  agentButton.setAttribute("aria-label", `Agent profile: ${label}`);
+  agentButton.title = `Agent profile: ${label}`;
+}
+
+function renderAgentList() {
+  agentList.replaceChildren();
+  if (agentsCache.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "overlay-empty";
+    empty.textContent = "No primary agents are available in this workspace.";
+    agentList.append(empty);
+    return;
+  }
+
+  for (const agent of agentsCache) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "overlay-item";
+    button.setAttribute("aria-selected", String(agent.name === activeAgent));
+    button.disabled = turnActive || readOnly;
+
+    const main = document.createElement("div");
+    main.className = "overlay-item-main";
+    const title = document.createElement("div");
+    title.className = "overlay-item-title";
+    title.textContent = agent.name;
+    const sub = document.createElement("div");
+    sub.className = "overlay-item-sub";
+    sub.textContent = agent.description || agent.source;
+    main.append(title, sub);
+
+    const meta = document.createElement("div");
+    meta.className = "overlay-item-meta";
+    meta.textContent = agent.source;
+
+    button.append(main, meta, icon("check", "icon popover-check"));
+    button.addEventListener("click", () => {
+      if (turnActive || readOnly) return;
+      closeModal(agentModal);
+      if (agent.name === activeAgent) return;
+      showToast(`Switching to ${agentLabel(agent.name)}…`);
+      send({ type: "switch_agent", name: agent.name });
+    });
+    agentList.append(button);
+  }
+}
+
+function openAgentModal() {
+  if (readOnly) {
+    showToast("This tab is a read-only viewer.", "warn");
+    return;
+  }
+  if (turnActive) {
+    showToast("Stop the current turn before switching agents.", "warn");
+    return;
+  }
+  closePopovers();
+  renderAgentList();
+  openModal(agentModal);
+  agentButton.setAttribute("aria-expanded", "true");
+  send({ type: "list_agents" });
+}
+
 function openThemeMenu() {
   closePopovers(themeMenu);
   themeMenu.hidden = false;
@@ -2045,6 +2225,9 @@ function hideLayer(layer) {
   if (layer === modelModal) {
     modelButton.setAttribute("aria-expanded", "false");
   }
+  if (layer === agentModal) {
+    agentButton.setAttribute("aria-expanded", "false");
+  }
   if (layer === skillsModal || layer === mcpModal) {
     delete layer.dataset.pending;
   }
@@ -2052,6 +2235,8 @@ function hideLayer(layer) {
 
 function openModal(layer) {
   if (!layer.hidden) return;
+  // A pending question owns the screen until it is answered or dismissed.
+  if (pendingQuestion && layer !== questionModal) return;
   const otherLayers = [...document.querySelectorAll(".modal-layer")].filter(
     (open) => open !== layer && !open.hidden,
   );
@@ -2337,6 +2522,37 @@ function openSkillsModal() {
   send({ type: "list_skills" });
 }
 
+function mcpAction(server) {
+  const connected = server.state === "ready" || server.state === "connecting";
+  const busy = server.state === "connecting";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "mcp-toggle";
+  button.dataset.action = connected ? "disconnect" : "connect";
+  button.dataset.busy = busy ? "1" : "0";
+  button.disabled = busy || readOnly || turnActive;
+  button.textContent = busy
+    ? "Connecting…"
+    : connected
+      ? "Disconnect"
+      : "Connect";
+  button.addEventListener("click", () => {
+    if (button.disabled || readOnly || turnActive) return;
+    const next = !connected;
+    button.dataset.busy = "1";
+    button.disabled = true;
+    button.textContent = next ? "Connecting…" : "Disconnecting…";
+    send({ type: "set_mcp_enabled", name: server.name, enabled: next });
+  });
+  return button;
+}
+
+function syncMcpControls() {
+  for (const button of mcpList.querySelectorAll(".mcp-toggle")) {
+    button.disabled = readOnly || turnActive || button.dataset.busy === "1";
+  }
+}
+
 function renderMcp(servers) {
   mcpList.replaceChildren();
   if (!Array.isArray(servers) || servers.length === 0) {
@@ -2344,7 +2560,7 @@ function renderMcp(servers) {
   } else {
     for (const server of servers) {
       const item = document.createElement("div");
-      item.className = "overlay-item";
+      item.className = "overlay-item mcp-row";
       const state = document.createElement("span");
       state.className = `mcp-state ${server.state}`;
       const main = document.createElement("div");
@@ -2363,22 +2579,34 @@ function renderMcp(servers) {
       main.append(title, description);
       const meta = document.createElement("span");
       meta.className = "overlay-item-meta";
-      meta.textContent = `${server.enabled ? server.state : "disabled"} · ${server.toolCount} tool${server.toolCount === 1 ? "" : "s"}`;
-      item.append(state, main, meta);
+      meta.textContent = `${server.state} · ${server.toolCount} tool${
+        server.toolCount === 1 ? "" : "s"
+      }`;
+      item.append(state, main, meta, mcpAction(server));
       mcpList.append(item);
     }
   }
+  mcpRefresh.disabled = false;
+  mcpRefresh.textContent = "Refresh";
   const pending = mcpModal.dataset.pending === "1";
   delete mcpModal.dataset.pending;
   if (pending) openModal(mcpModal);
+}
+
+function refreshMcp() {
+  if (mcpRefresh.disabled) return;
+  mcpRefresh.disabled = true;
+  mcpRefresh.textContent = "Refreshing…";
+  send({ type: "list_mcp" });
 }
 
 function openMcpModal() {
   closePopovers();
   mcpModal.dataset.pending = "1";
   mcpList.replaceChildren(overlayEmpty("Loading MCP servers…"));
+  mcpRefresh.disabled = false;
   openModal(mcpModal);
-  send({ type: "list_mcp" });
+  refreshMcp();
 }
 
 /* ---------------- slash commands and palette ---------------- */
@@ -2732,6 +2960,11 @@ function handleEvent(event) {
     case "task_ledger_open":
       setTodos(event.todos, { autoOpen: true });
       break;
+    case "context_usage":
+      contextUsed = event.used;
+      contextWindow = event.window;
+      renderContextUsage();
+      break;
     default:
       break;
   }
@@ -2740,6 +2973,16 @@ function handleEvent(event) {
 function summarizeArgs(args) {
   if (!args || typeof args !== "object") return "";
   if (typeof args.command === "string") return `$ ${args.command}`;
+  if (Array.isArray(args.questions) && args.questions.length > 0) {
+    const first = args.questions[0];
+    const text =
+      typeof first?.question === "string"
+        ? first.question.replace(/\s+/g, " ").trim()
+        : "";
+    return args.questions.length === 1
+      ? text || "question"
+      : `${args.questions.length} questions${text ? `: ${text}` : ""}`;
+  }
   for (const key of ["path", "file_path", "file", "url", "pattern", "query"]) {
     if (typeof args[key] === "string" && args[key]) return args[key];
   }
@@ -2759,6 +3002,7 @@ function setReadOnly(next) {
   inputEl.disabled = readOnly;
   if (readOnly) {
     approvalLayer.hidden = true;
+    if (pendingQuestion) closeQuestion();
   } else if (lastApproval && !pendingApproval) {
     openApproval(lastApproval);
   }
@@ -2773,6 +3017,9 @@ function handleMessage(message) {
       currentProvider = message.provider;
       currentModel = message.model;
       modelsCache = Array.isArray(message.models) ? message.models : [];
+      agentsCache = Array.isArray(message.agents) ? message.agents : [];
+      activeAgent = typeof message.agent === "string" ? message.agent : null;
+      renderAgentLabel();
       workspacePath = message.workspace ?? workspacePath;
       currentMode = message.mode ?? "yolo";
       currentEffort = message.effort ?? "medium";
@@ -2785,6 +3032,9 @@ function handleMessage(message) {
       hideToast();
       setTurnActive(false);
       applySession(message);
+      contextUsed = message.context?.used;
+      contextWindow = message.context?.window;
+      renderContextUsage();
       send({ type: "list_sessions" });
       break;
     case "control":
@@ -2802,6 +3052,7 @@ function handleMessage(message) {
     case "turn_start":
       endAssistantBlock();
       endThinkingBlock();
+      lastAssistantActions = null;
       setTurnActive(true);
       break;
     case "turn_stopping":
@@ -2812,6 +3063,8 @@ function handleMessage(message) {
     case "turn_end":
       endAssistantBlock();
       endThinkingBlock();
+      finishTurnStats(message);
+      if (pendingQuestion) closeQuestion();
       clearQueued();
       renderMermaidBlocks();
       setTurnActive(false);
@@ -2825,8 +3078,16 @@ function handleMessage(message) {
       lastApproval = message;
       if (!readOnly) openApproval(message);
       break;
+    case "question_request":
+      if (!readOnly) openQuestion(message);
+      break;
+    case "question_resolved":
+      if (pendingQuestion?.id === message.id) closeQuestion();
+      break;
     case "sessions":
-      closePopovers();
+      // Session refreshes arrive at turn_end; keep a slash menu the user is
+      // already typing into instead of closing it under them.
+      closePopovers(slashMenu.hidden ? null : slashMenu);
       renderSessions(message.sessions);
       if (
         pendingRename &&
@@ -2851,12 +3112,14 @@ function handleMessage(message) {
       closePopovers();
       setTurnActive(false);
       applySession(message);
+      resetContextUsage();
       break;
     case "workspace_changed":
       workspacePath = message.workspace;
       renderWorkspaceLabel();
       setTurnActive(false);
       applySession(message);
+      resetContextUsage();
       closeModal(workspaceModal);
       showToast(`Workspace: ${workspacePath}`);
       break;
@@ -2884,6 +3147,19 @@ function handleMessage(message) {
       modelRefresh.textContent = "Refresh";
       if (!modelModal.hidden) renderModelList();
       break;
+    case "agents":
+      agentsCache = Array.isArray(message.agents) ? message.agents : [];
+      activeAgent = typeof message.active === "string" ? message.active : null;
+      renderAgentLabel();
+      if (!agentModal.hidden) renderAgentList();
+      break;
+    case "agent_changed":
+      agentsCache = Array.isArray(message.agents) ? message.agents : [];
+      activeAgent = typeof message.agent === "string" ? message.agent : null;
+      renderAgentLabel();
+      if (!agentModal.hidden) renderAgentList();
+      showToast(`Agent: ${agentLabel(activeAgent)}`);
+      break;
     case "attachment":
       applyAttachment(message);
       break;
@@ -2904,6 +3180,17 @@ function handleMessage(message) {
       if (!modelModal.hidden) {
         modelRefresh.disabled = false;
         modelRefresh.textContent = "Refresh";
+      }
+      if (!mcpModal.hidden) {
+        mcpRefresh.disabled = false;
+        mcpRefresh.textContent = "Refresh";
+      }
+      if (pendingQuestion) {
+        setQuestionBusy(false);
+        questionSubmit.textContent =
+          pendingQuestion.questions.length === 1
+            ? "Submit answer"
+            : "Submit answers";
       }
       showToast(message.message, "error");
       break;
@@ -2974,6 +3261,204 @@ for (const button of approvalLayer.querySelectorAll("[data-decision]")) {
     closeApproval(button.dataset.decision),
   );
 }
+
+/* ---------------- question form ---------------- */
+
+function questionAnswers() {
+  if (!pendingQuestion) return [];
+  return pendingQuestion.questions.map((_, index) => {
+    const draft = questionDraft[index] ?? { selected: [], custom: "" };
+    const answers = [...draft.selected];
+    const custom = draft.custom.trim();
+    if (custom) answers.push(custom);
+    return answers;
+  });
+}
+
+function setQuestionBusy(busy, label) {
+  questionBusy = busy;
+  questionSubmit.disabled = busy;
+  questionCancel.disabled = busy;
+  questionClose.disabled = busy;
+  for (const control of questionFields.querySelectorAll("button, input")) {
+    control.disabled = busy;
+  }
+  if (label) questionSubmit.textContent = label;
+}
+
+function syncQuestionField(field, index) {
+  const question = pendingQuestion?.questions[index];
+  const draft = questionDraft[index];
+  if (!question || !draft) return;
+  for (const button of field.querySelectorAll(".question-option")) {
+    const pressed = draft.selected.includes(button.dataset.label);
+    button.setAttribute("aria-pressed", String(pressed));
+    const mark = button.querySelector(".question-mark");
+    if (mark) {
+      mark.replaceChildren(pressed ? icon("check", "icon") : "");
+    }
+  }
+  const custom = field.querySelector(".question-custom-input");
+  if (custom && custom.value !== draft.custom) custom.value = draft.custom;
+}
+
+function renderQuestionFields() {
+  questionFields.replaceChildren();
+  if (!pendingQuestion) return;
+  const count = pendingQuestion.questions.length;
+  questionDesc.textContent =
+    count === 1
+      ? "The agent needs your input to continue."
+      : `${count} questions from the agent.`;
+
+  pendingQuestion.questions.forEach((question, index) => {
+    const draft = questionDraft[index];
+    const field = document.createElement("section");
+    field.className = "question-field";
+    const textId = `question-text-${index}`;
+    field.setAttribute("role", "group");
+    field.setAttribute("aria-labelledby", textId);
+
+    const head = document.createElement("div");
+    head.className = "question-head";
+    const label = document.createElement("span");
+    label.className = "question-label";
+    label.textContent = question.header || `Question ${index + 1}`;
+    const text = document.createElement("p");
+    text.className = "question-text";
+    text.id = textId;
+    text.textContent = question.question;
+    head.append(label, text);
+    field.append(head);
+
+    if (question.options.length > 0) {
+      const options = document.createElement("div");
+      options.className = "question-options";
+      for (const option of question.options) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "question-option";
+        button.dataset.label = option.label;
+        button.dataset.multiple = String(question.multiple === true);
+        button.setAttribute(
+          "aria-pressed",
+          String(draft.selected.includes(option.label)),
+        );
+        const mark = document.createElement("span");
+        mark.className = "question-mark";
+        mark.setAttribute("aria-hidden", "true");
+        if (draft.selected.includes(option.label)) {
+          mark.append(icon("check", "icon"));
+        }
+        const copy = document.createElement("span");
+        copy.className = "question-option-copy";
+        const optionLabel = document.createElement("span");
+        optionLabel.className = "question-option-label";
+        optionLabel.textContent = option.label;
+        const description = document.createElement("span");
+        description.className = "question-option-desc";
+        description.textContent = option.description;
+        copy.append(optionLabel, description);
+        button.append(mark, copy);
+        button.addEventListener("click", () => {
+          if (questionBusy) return;
+          if (question.multiple) {
+            draft.selected = draft.selected.includes(option.label)
+              ? draft.selected.filter((item) => item !== option.label)
+              : [...draft.selected, option.label];
+          } else {
+            draft.selected = [option.label];
+            draft.custom = "";
+          }
+          syncQuestionField(field, index);
+        });
+        options.append(button);
+      }
+      field.append(options);
+    }
+
+    const custom = document.createElement("label");
+    custom.className = "question-custom";
+    const customLabel = document.createElement("span");
+    customLabel.className = "question-custom-label";
+    customLabel.textContent =
+      question.options.length > 0 ? "Type your own answer" : "Your answer";
+    const input = document.createElement("input");
+    input.className = "field question-custom-input";
+    input.type = "text";
+    input.value = draft.custom;
+    input.placeholder =
+      question.options.length > 0 ? "Type your own answer" : "Type your answer";
+    input.setAttribute(
+      "aria-label",
+      `${question.options.length > 0 ? "Custom answer" : "Answer"} for ${question.header || `question ${index + 1}`}`,
+    );
+    input.autocomplete = "off";
+    input.addEventListener("input", () => {
+      draft.custom = input.value;
+      if (!question.multiple && input.value.trim()) {
+        draft.selected = [];
+        syncQuestionField(field, index);
+      }
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        submitQuestion();
+      }
+    });
+    custom.append(customLabel, input);
+    field.append(custom);
+
+    questionFields.append(field);
+  });
+}
+
+function openQuestion(message) {
+  if (readOnly) return;
+  pendingQuestion = {
+    id: message.id,
+    turnId: message.turnId,
+    questions: message.questions,
+  };
+  questionDraft = message.questions.map(() => ({ selected: [], custom: "" }));
+  questionBusy = false;
+  questionSubmit.textContent =
+    message.questions.length === 1 ? "Submit answer" : "Submit answers";
+  renderQuestionFields();
+  setQuestionBusy(false);
+  openModal(questionModal);
+  questionFields.querySelector("button, input")?.focus();
+}
+
+function closeQuestion() {
+  pendingQuestion = null;
+  questionDraft = [];
+  questionBusy = false;
+  if (!questionModal.hidden) closeModal(questionModal);
+}
+
+function submitQuestion() {
+  if (!pendingQuestion || questionBusy) return;
+  const answers = questionAnswers();
+  setQuestionBusy(true, "Submitting…");
+  send({
+    type: "question_response",
+    id: pendingQuestion.id,
+    answers,
+  });
+}
+
+function dismissQuestion() {
+  if (!pendingQuestion || questionBusy) return;
+  const id = pendingQuestion.id;
+  setQuestionBusy(true, "Dismissing…");
+  send({ type: "question_dismiss", id });
+}
+
+questionSubmit.addEventListener("click", submitQuestion);
+questionCancel.addEventListener("click", dismissQuestion);
+questionClose.addEventListener("click", dismissQuestion);
 
 /* ---------------- transcript actions ---------------- */
 
@@ -3196,6 +3681,7 @@ modelSearch.addEventListener("keydown", (event) => {
   }
 });
 modelRefresh.addEventListener("click", refreshModelsLive);
+mcpRefresh.addEventListener("click", refreshMcp);
 
 newSessionEl.addEventListener("click", () => {
   if (readOnly) return;
@@ -3281,6 +3767,11 @@ inputEl.addEventListener("keydown", (event) => {
 modelButton.addEventListener("click", (event) => {
   event.stopPropagation();
   openModelModal();
+});
+
+agentButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  openAgentModal();
 });
 
 themeToggle.addEventListener("click", (event) => {
@@ -3412,11 +3903,17 @@ document.addEventListener("click", (event) => {
   closePopovers();
 });
 
-window.addEventListener("resize", () => closePopovers());
+window.addEventListener("resize", () => {
+  closePopovers(slashMenu.hidden ? null : slashMenu);
+  if (!slashMenu.hidden) placePopover(slashMenu, composerEl, true);
+});
 transcriptEl.addEventListener(
   "scroll",
   () => {
-    closePopovers();
+    // Streaming follows the tail by setting scrollTop, and that fires this
+    // handler every frame. The slash menu belongs to the composer, so it must
+    // survive transcript scrolling instead of flickering shut.
+    closePopovers(slashMenu.hidden ? null : slashMenu);
     const remaining =
       transcriptEl.scrollHeight -
       transcriptEl.scrollTop -
@@ -3425,7 +3922,11 @@ transcriptEl.addEventListener(
   },
   { passive: true },
 );
-sessionsEl.addEventListener("scroll", () => closePopovers(), { passive: true });
+sessionsEl.addEventListener(
+  "scroll",
+  () => closePopovers(slashMenu.hidden ? null : slashMenu),
+  { passive: true },
+);
 
 document.addEventListener("keydown", (event) => {
   const modifier = event.metaKey || event.ctrlKey;
@@ -3446,6 +3947,12 @@ document.addEventListener("keydown", (event) => {
   }
 
   if (!approvalLayer.hidden) return;
+
+  if (event.key === "Escape" && !questionModal.hidden) {
+    event.preventDefault();
+    dismissQuestion();
+    return;
+  }
 
   const openLayer = [...document.querySelectorAll(".modal-layer")].find(
     (layer) => !layer.hidden,
@@ -3501,5 +4008,6 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+renderAgentLabel();
 syncSendState();
 connect();

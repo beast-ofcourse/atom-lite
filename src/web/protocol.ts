@@ -1,4 +1,5 @@
 import type { AgentEvent } from "../agent/types.js";
+import type { QuestionPrompt } from "../runtime/questions.js";
 import type { SessionEvent, SessionSummary } from "../sessions/events.js";
 
 /**
@@ -13,6 +14,13 @@ export interface WebModel {
   model: string;
   /** Human label such as a provider name, when the server has one. */
   label?: string;
+}
+
+/** One primary agent persona offered by the web surface. */
+export interface WebAgent {
+  name: string;
+  description: string;
+  source: "bundled" | "global" | "project" | "opencode";
 }
 
 /** One directory level returned by the workspace explorer. */
@@ -56,6 +64,15 @@ export type ClientMessage =
   | { type: "rename_session"; id: string; title: string }
   | { type: "delete_session"; id: string }
   | { type: "switch_model"; provider: string; model: string }
+  | { type: "list_agents" }
+  | { type: "switch_agent"; name: string }
+  | {
+      type: "question_response";
+      id: string;
+      /** One answer array per question, in order. */
+      answers: string[][];
+    }
+  | { type: "question_dismiss"; id: string }
   | { type: "browse_directory"; path?: string }
   | { type: "switch_workspace"; path: string }
   | { type: "set_effort"; effort: string }
@@ -70,7 +87,8 @@ export type ClientMessage =
     }
   | { type: "remove_attachment"; path: string }
   | { type: "list_skills" }
-  | { type: "list_mcp" };
+  | { type: "list_mcp" }
+  | { type: "set_mcp_enabled"; name: string; enabled: boolean };
 
 export type SessionListing = Pick<
   SessionSummary,
@@ -92,8 +110,12 @@ export type ServerMessage =
       models: WebModel[];
       mode: "plan" | "yolo";
       effort: string;
+      agent: string | null;
+      agents: WebAgent[];
       readOnly: boolean;
       history: SessionEvent[];
+      /** Last known context occupancy for the active session. */
+      context: { used?: number; window?: number };
     }
   | { type: "event"; event: AgentEvent }
   | {
@@ -107,7 +129,16 @@ export type ServerMessage =
   | { type: "user_input"; text: string }
   | { type: "turn_start"; turnId: number }
   | { type: "turn_stopping" }
-  | { type: "turn_end"; stopped?: boolean }
+  | {
+      type: "turn_end";
+      stopped?: boolean;
+      /** Wall time for the completed turn. */
+      elapsedMs?: number;
+      /** Output tokens generated across the turn's model calls. */
+      outputTokens?: number;
+      /** Time spent waiting on those model calls. */
+      modelMs?: number;
+    }
   | { type: "input_queued"; text: string }
   | {
       type: "approval_request";
@@ -121,6 +152,13 @@ export type ServerMessage =
         tool?: string;
       };
     }
+  | {
+      type: "question_request";
+      id: string;
+      turnId: number;
+      questions: QuestionPrompt[];
+    }
+  | { type: "question_resolved"; id: string }
   | { type: "sessions"; sessions: SessionListing[] }
   | ({ type: "session_changed" } & SessionState)
   | ({ type: "workspace_changed"; workspace: string } & SessionState)
@@ -132,6 +170,16 @@ export type ServerMessage =
     }
   | { type: "runtime_state"; mode: "plan" | "yolo"; effort: string }
   | { type: "models"; models: WebModel[] }
+  | {
+      type: "agents";
+      agents: WebAgent[];
+      active: string | null;
+    }
+  | {
+      type: "agent_changed";
+      agent: string | null;
+      agents: WebAgent[];
+    }
   | {
       type: "attachment";
       id?: string;
@@ -231,6 +279,43 @@ export function parseClientMessage(raw: string): ClientParseResult {
           model: value.model,
         },
       };
+    case "list_agents":
+      return { message: { type: "list_agents" } };
+    case "switch_agent":
+      if (typeof value.name !== "string" || !value.name.trim()) {
+        return { error: "switch_agent needs an agent name" };
+      }
+      return { message: { type: "switch_agent", name: value.name.trim() } };
+    case "question_response": {
+      if (typeof value.id !== "string" || !value.id) {
+        return { error: "question_response needs an id" };
+      }
+      if (!Array.isArray(value.answers)) {
+        return { error: "question_response answers must be an array" };
+      }
+      const answers: string[][] = [];
+      for (const answer of value.answers) {
+        if (!Array.isArray(answer)) {
+          return { error: "each question answer must be an array" };
+        }
+        if (answer.some((item) => typeof item !== "string")) {
+          return { error: "question answers must be strings" };
+        }
+        answers.push(answer.slice());
+      }
+      return {
+        message: {
+          type: "question_response",
+          id: value.id,
+          answers,
+        },
+      };
+    }
+    case "question_dismiss":
+      if (typeof value.id !== "string" || !value.id) {
+        return { error: "question_dismiss needs an id" };
+      }
+      return { message: { type: "question_dismiss", id: value.id } };
     case "browse_directory":
       if (value.path !== undefined && typeof value.path !== "string") {
         return { error: "browse_directory path must be a string" };
@@ -288,6 +373,20 @@ export function parseClientMessage(raw: string): ClientParseResult {
       return { message: { type: "list_skills" } };
     case "list_mcp":
       return { message: { type: "list_mcp" } };
+    case "set_mcp_enabled":
+      if (typeof value.name !== "string" || !value.name.trim()) {
+        return { error: "set_mcp_enabled needs a server name" };
+      }
+      if (typeof value.enabled !== "boolean") {
+        return { error: "set_mcp_enabled needs an enabled boolean" };
+      }
+      return {
+        message: {
+          type: "set_mcp_enabled",
+          name: value.name.trim(),
+          enabled: value.enabled,
+        },
+      };
     default:
       return { error: "unknown message type" };
   }

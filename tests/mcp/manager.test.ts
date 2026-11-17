@@ -305,6 +305,36 @@ test("reconnect unknown server throws", async () => {
   await assert.rejects(() => manager.reconnect("nope"), /Unknown MCP server/);
 });
 
+// Reason: the web MCP overlay connects and disconnects one configured server
+// for the running process without rewriting the config file.
+test("setEnabled connects and disconnects one server", async () => {
+  const state = { servers: { srv: { tools: [{ name: "t" }] } } };
+  const manager = new McpManager({
+    servers: {
+      srv: {
+        command: "fake",
+        enabled: false,
+        args: [],
+        env: {},
+        startupTimeoutMs: 1000,
+        callTimeoutMs: 1000,
+      },
+    },
+    transportFactory: makeFactory(state),
+  });
+  assert.equal(manager.status()[0].state, "disabled");
+
+  let statuses = await manager.setEnabled("srv", true);
+  assert.equal(statuses[0].enabled, true);
+  assert.equal(statuses[0].state, "ready");
+  assert.equal(manager.tools().length, 1);
+
+  statuses = await manager.setEnabled("srv", false);
+  assert.equal(statuses[0].enabled, false);
+  assert.equal(statuses[0].state, "disabled");
+  assert.equal(manager.tools().length, 0);
+});
+
 test("unexpected close marks server failed", async () => {
   const state = { servers: { srv: { tools: [{ name: "t" }] } } };
   const events: any[] = [];

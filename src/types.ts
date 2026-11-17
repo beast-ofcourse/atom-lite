@@ -76,6 +76,8 @@ export interface ModelResponse {
   toolCalls: ToolCall[];
   finishReason: FinishReason;
   usage?: TokenUsage;
+  /** Wall time spent waiting for this provider call, measured by the runtime. */
+  elapsedMs?: number;
   providerState?: unknown;
   metadata?: Record<string, unknown>;
   requestId?: string;

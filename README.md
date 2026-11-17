@@ -1,5 +1,11 @@
 # Atom-lite
 
+[![npm version](https://img.shields.io/npm/v/atom-lite?color=2c806b&logo=npm)](https://www.npmjs.com/package/atom-lite)
+[![npm downloads](https://img.shields.io/npm/dm/atom-lite?color=2c806b&logo=npm)](https://www.npmjs.com/package/atom-lite)
+[![CI](https://github.com/beast-ofcourse/atom-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/beast-ofcourse/atom-lite/actions/workflows/ci.yml)
+[![license](https://img.shields.io/github/license/beast-ofcourse/atom-lite?color=2c806b)](./LICENSE)
+[![node](https://img.shields.io/node/v/atom-lite?color=2c806b&logo=node.js)](https://nodejs.org)
+
 A local-first, model-agnostic coding agent for the terminal. One agent loop, ten built-in tools, durable JSONL sessions, and explicit safety boundaries. No cloud account, telemetry, or control plane.
 
 ```bash
@@ -50,7 +56,7 @@ See [Quick start](./docs/quickstart.md) and [CLI](./docs/cli.md).
 - **Autonomy modes.** `plan` for read-only work, `yolo` for all tools. Toggle with Tab.
 - **Goal continuity.** A durable statement, success criteria, and a pause gate that survives compaction and session resume.
 - **Local-first providers.** Ollama, Gemini, and any OpenAI-compatible endpoint, including local servers.
-- **Browser surface.** `atom-lite --serve` drives the same runtime, tools, sessions, and approvals, with the session task ledger in a resizable side panel. `--serve --share` binds on the LAN and prints a QR code for phone access.
+- **Browser surface.** `atom-lite --serve` drives the same runtime, tools, sessions, and approvals, with the session task ledger in a resizable side panel and selectable agent profiles. `--serve --share` binds on the LAN and prints a QR code for phone access.
 
 The runtime validates tool arguments, enforces workspace boundaries, applies approval rules, and schedules calls safely. The model chooses the next step.
 

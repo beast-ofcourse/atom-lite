@@ -16,6 +16,7 @@ import { WebSocket } from "ws";
 import { AgentRuntime } from "../../dist/agent/loop.js";
 import { FakeProvider } from "../../dist/providers/fake.js";
 import { todoTool } from "../../dist/tools/todo.js";
+import { questionTool } from "../../dist/tools/question.js";
 import { checkApproval } from "../../dist/runtime/approvals.js";
 import {
   InMemorySession,
@@ -42,6 +43,7 @@ interface BuildOptions {
   tools?: any[];
   workspace?: string;
   session?: Session;
+  questions?: any;
 }
 
 function buildRuntime(
@@ -68,6 +70,7 @@ function buildRuntime(
     tools: options.tools ?? [],
     mode: "yolo",
     approvals,
+    questions: options.questions,
   });
   const session =
     options.session ?? new InMemorySession("s1", workspace, "fake");
@@ -85,6 +88,9 @@ async function start(
     maxReplayBytes?: number;
     models?: { provider: string; model: string; label?: string }[];
     switchModel?: (provider: string, model: string) => any;
+    agent?: string | null;
+    agents?: (workspace: string) => any[];
+    switchAgent?: (name: string, workspace: string) => any;
     mode?: "plan" | "yolo";
     effort?: string;
     setMode?: (mode: "plan" | "yolo") => void;
@@ -92,6 +98,8 @@ async function start(
     refreshModels?: () => Promise<any[]>;
     skills?: () => any[];
     mcpStatus?: () => any[];
+    setMcpEnabled?: (name: string, enabled: boolean) => any;
+    questions?: any;
     allowedHost?: string;
   } = {},
 ) {
@@ -106,6 +114,9 @@ async function start(
     theme: extras.theme,
     models: extras.models,
     switchModel: extras.switchModel,
+    agent: extras.agent,
+    agents: extras.agents,
+    switchAgent: extras.switchAgent,
     mode: extras.mode,
     effort: extras.effort,
     setMode: extras.setMode,
@@ -113,6 +124,8 @@ async function start(
     refreshModels: extras.refreshModels,
     skills: extras.skills,
     mcpStatus: extras.mcpStatus,
+    setMcpEnabled: extras.setMcpEnabled,
+    questions: extras.questions,
     approvalGraceMs: extras.approvalGraceMs,
     maxClients: extras.maxClients,
     maxMessageBytes: extras.maxMessageBytes,
@@ -2041,6 +2054,237 @@ test("attached files are saved and referenced by the next turn", async () => {
   }
 });
 
+// Reason: the browser agent overlay offers primary personas and must never
+// switch the runtime persona under a running turn.
+test("agent profiles list and switch only between turns", async () => {
+  const catalog = [
+    { name: "default", description: "Default", source: "bundled" },
+    { name: "reviewer", description: "Code reviewer", source: "bundled" },
+  ];
+  let active = "default";
+  const provider = new GatedProvider();
+  const built = buildRuntime([], { provider });
+  const server = await start(built, {
+    agent: active,
+    agents: () => catalog,
+    switchAgent: (name: string) => {
+      if (!catalog.some((agent) => agent.name === name)) {
+        return { error: `unknown agent: ${name}` };
+      }
+      active = name;
+      return { agent: name, agents: catalog };
+    },
+  });
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    const hello = await client.waitFor("hello");
+    assert.equal(hello.agent, "default");
+    assert.deepEqual(
+      hello.agents.map((agent: any) => agent.name),
+      ["default", "reviewer"],
+    );
+
+    client.send({ type: "list_agents" });
+    const listed = await client.waitFor("agents");
+    assert.equal(listed.active, "default");
+    assert.equal(listed.agents.length, 2);
+
+    client.send({ type: "switch_agent", name: "reviewer" });
+    const changed = await client.waitForNext("agent_changed");
+    assert.equal(changed.agent, "reviewer");
+    assert.equal(active, "reviewer");
+
+    client.send({ type: "input", text: "hold the turn" });
+    await client.waitForNext("turn_start");
+    client.send({ type: "switch_agent", name: "default" });
+    const error = await client.waitForNext("error");
+    assert.match(error.message, /cannot switch agent while a turn is running/);
+    assert.equal(active, "reviewer");
+
+    provider.open();
+    await client.waitForNext("turn_end");
+    client.send({ type: "switch_agent", name: "default" });
+    const back = await client.waitForNext("agent_changed");
+    assert.equal(back.agent, "default");
+    assert.equal(active, "default");
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: the question tool blocks the runtime on a browser answer; the reply
+// must flow back into the exact model-facing projection.
+test("question requests are answered from the browser", async () => {
+  const questions = { handler: undefined, nonInteractive: true };
+  const provider = new FakeProvider([
+    {
+      toolCalls: [
+        {
+          id: "q1",
+          name: "question",
+          arguments: {
+            questions: [
+              {
+                question: "Which color?",
+                header: "Color",
+                options: [
+                  { label: "Blue", description: "Cool" },
+                  { label: "Red", description: "Warm" },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    },
+    { text: "done" },
+  ]);
+  const built = buildRuntime([], {
+    provider,
+    tools: [questionTool],
+    questions,
+  });
+  const server = await start(built, { questions });
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    await client.waitFor("hello");
+    client.send({ type: "input", text: "ask me" });
+    const request = await client.waitFor("question_request");
+    assert.equal(request.questions[0].header, "Color");
+    assert.equal(request.questions[0].options.length, 2);
+
+    client.send({
+      type: "question_response",
+      id: request.id,
+      answers: [["Blue"]],
+    });
+    await client.waitFor("question_resolved");
+    await client.waitFor("turn_end");
+
+    const result = built.session.events.find(
+      (event: any) => event.type === "tool_result",
+    );
+    assert.match(result.content, /"Which color\?"="Blue"/);
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: dismissing a browser question is a typed dismissal that stops the
+// step instead of feeding an invented answer back to the model.
+test("dismissing a browser question stops the turn", async () => {
+  const questions = { handler: undefined, nonInteractive: true };
+  const provider = new FakeProvider([
+    {
+      toolCalls: [
+        {
+          id: "q2",
+          name: "question",
+          arguments: {
+            questions: [
+              {
+                question: "Continue?",
+                header: "Continue",
+                options: [{ label: "Yes", description: "Proceed" }],
+              },
+            ],
+          },
+        },
+      ],
+    },
+    { text: "should not be used" },
+  ]);
+  const built = buildRuntime([], {
+    provider,
+    tools: [questionTool],
+    questions,
+  });
+  const server = await start(built, { questions });
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    await client.waitFor("hello");
+    client.send({ type: "input", text: "ask me" });
+    const request = await client.waitFor("question_request");
+    client.send({ type: "question_dismiss", id: request.id });
+    await client.waitFor("question_resolved");
+    await client.waitFor("turn_end");
+
+    const result = built.session.events.find(
+      (event: any) => event.type === "tool_result",
+    );
+    assert.equal(result.content, "The user dismissed this question");
+    assert.ok(
+      !built.session.events.some(
+        (event: any) =>
+          event.type === "assistant_message" &&
+          JSON.stringify(event).includes("should not be used"),
+      ),
+    );
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: the web MCP overlay connects and disconnects a configured server and
+// broadcasts the refreshed status to every tab.
+test("mcp servers connect and disconnect from the browser", async () => {
+  let servers = [
+    {
+      name: "fs",
+      state: "disabled",
+      enabled: false,
+      requiresApproval: false,
+      toolCount: 0,
+      tools: [],
+    },
+  ];
+  const built = buildRuntime([]);
+  const server = await start(built, {
+    mcpStatus: () => servers,
+    setMcpEnabled: (name: string, enabled: boolean) => {
+      if (name !== "fs") throw new Error(`Unknown MCP server: ${name}`);
+      servers = [
+        {
+          ...servers[0],
+          enabled,
+          state: enabled ? "ready" : "disabled",
+          toolCount: enabled ? 1 : 0,
+          tools: enabled ? ["mcp__fs__read"] : [],
+        },
+      ];
+      return servers;
+    },
+  });
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    await client.waitFor("hello");
+
+    client.send({ type: "list_mcp" });
+    const before = await client.waitFor("mcp");
+    assert.equal(before.servers[0].state, "disabled");
+
+    client.send({ type: "set_mcp_enabled", name: "fs", enabled: true });
+    const connected = await client.waitForNext("mcp");
+    assert.equal(connected.servers[0].state, "ready");
+    assert.equal(connected.servers[0].toolCount, 1);
+
+    client.send({ type: "set_mcp_enabled", name: "fs", enabled: false });
+    const disconnected = await client.waitForNext("mcp");
+    assert.equal(disconnected.servers[0].state, "disabled");
+    assert.equal(disconnected.servers[0].toolCount, 0);
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
 // Reason: the browser task panel is fed by live runtime ledger events and by
 // the durable session log after a reconnect; both must expose the same latest
 // snapshot so the panel never invents or loses tasks.
@@ -2101,6 +2345,42 @@ test("todo ledger reaches the browser and survives reconnect history", async () 
     );
     assert.ok(historyEvent, "the durable ledger is in hello history");
     assert.equal(historyEvent.todos[0].content, "ship the task panel");
+    second.close();
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: spec (turn stats) — the browser shows real elapsed time and token
+// throughput; the numbers come from the runtime's measured provider calls.
+test("turn_end reports measured duration, output tokens, and model time", async () => {
+  const built = buildRuntime([], {
+    provider: new FakeProvider([
+      { text: "done", usage: { input: 20, output: 42 } },
+    ]),
+  });
+  const server = await start(built);
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    const hello = await client.waitFor("hello");
+    assert.deepEqual(hello.context, {});
+
+    client.send({ type: "input", text: "go" });
+    const end = await client.waitFor("turn_end");
+    assert.equal(typeof end.elapsedMs, "number");
+    assert.ok(end.elapsedMs >= 0);
+    assert.equal(end.outputTokens, 42);
+    assert.equal(typeof end.modelMs, "number");
+    assert.ok(end.modelMs >= 0);
+
+    // A client that connects after the turn gets the real occupancy, not a
+    // placeholder: input 20 + output 42 tokens for the latest step.
+    const second = new Client(server.wsUrl);
+    await second.open();
+    const after = await second.waitFor("hello");
+    assert.deepEqual(after.context, { used: 62 });
     second.close();
   } finally {
     client.close();

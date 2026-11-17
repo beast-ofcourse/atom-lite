@@ -27,6 +27,7 @@ export class TurnRecorder {
       }>;
       usage?: { input?: number; output?: number };
       metadata?: Record<string, unknown>;
+      elapsedMs?: number;
     },
     streamedText: string,
   ): Promise<string> {
@@ -80,6 +81,7 @@ export class TurnRecorder {
         type: "usage",
         input: response.usage.input,
         output: response.usage.output,
+        elapsedMs: response.elapsedMs,
       });
     }
     const toolCalls = response.toolCalls ?? [];

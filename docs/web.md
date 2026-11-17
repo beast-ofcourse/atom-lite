@@ -20,6 +20,12 @@ The command prints a localhost URL with a per-run token. Treat that URL as a sec
 
 The header model chip opens a searchable catalog refreshed from every configured provider. The composer switches effort (`low`/`medium`/`high`) and mode (`plan`/`yolo`), attaches files, and turns into a Stop control while a turn runs. Escape and `/stop` also cancel the turn.
 
+The agent chip beside the model shows the active primary profile (`default`, `architect`, `reviewer`, `ultracode`, or a trusted project persona). Choosing a profile updates role instructions, temperature, and tool permissions. Switching is refused while a turn is running.
+
+When the agent calls the `question` tool, the controlling tab shows a **Questions** form. Single-answer questions use option rows or a custom field; `multiple` questions use checkboxes. Submit returns every answer in order, while Dismiss, the close button, or Escape stops the turn without inventing an answer. A pending form follows control to another tab, and read-only viewers cannot answer.
+
+`/mcp` opens the MCP servers overlay. Each server shows its state, tool count, exposed tools, and last error. **Refresh** re-reads the manager; **Connect** or **Disconnect** enables or closes that server for the running process without changing the config file. Connection changes are refused while a turn is running, and read-only viewer tabs cannot toggle servers.
+
 `ctrl/cmd+o` opens the working-directory explorer; `ctrl/cmd+k` opens the command palette. Typing `/` offers `/new`, `/help`, `/stop`, `/model`, `/theme`, `/cwd`, `/rename`, `/delete`, `/search`, `/export`, `/effort`, `/mode`, `/skills`, and `/mcp`.
 
 Drag the left sidebar's right edge to resize it between 220 and 420 pixels, or focus the separator and use the arrow keys; double-click resets the width. The sidebar width is stored in browser storage.

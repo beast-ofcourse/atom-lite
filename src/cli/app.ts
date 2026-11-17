@@ -37,6 +37,7 @@ import { StatusLine } from "./status-line.js";
 import { GoalPanel } from "./goal-panel.js";
 import { purgeOrphanCheckpoints } from "../runtime/legacy-checkpoint-purge.js";
 import { Activity } from "./activity.js";
+import { formatTurnStats } from "./turn-stats.js";
 import { ToolBox } from "./tool-box.js";
 import { UserBox } from "./user-box.js";
 import { ApprovalPrompt, type ApprovalDecision } from "./approval-prompt.js";
@@ -606,15 +607,43 @@ export async function run(args: string[]): Promise<void> {
       process.exitCode = 1;
       return;
     }
+    const webAgentList = (registry: DefaultAgentRegistry) =>
+      registry.primary().map((agent) => ({
+        name: agent.name,
+        description: agent.description,
+        source: agent.source,
+      }));
+    const webAgents = (root: string) =>
+      webAgentList(
+        new DefaultAgentRegistry(root, {
+          projectTrusted: isProjectTrusted(root),
+        }),
+      );
+    const webSwitchAgent = (name: string, root: string) => {
+      const registry = new DefaultAgentRegistry(root, {
+        projectTrusted: isProjectTrusted(root),
+      });
+      const persona = registry.get(name);
+      if (!persona || persona.mode !== "primary") {
+        return { error: `unknown agent: ${name}` };
+      }
+      runtime.setPersona(persona);
+      return { agent: persona.name, agents: webAgentList(registry) };
+    };
+
     const { startWebServer, webThemeFor } = await import("../web/server.js");
     const server = await startWebServer({
       runtime,
       session,
       approvals,
+      questions,
       providerName: provider.id,
       model: provider.model ?? "",
       models: webModels(),
       switchModel: webSwitchModel,
+      agent: runtime.getPersona()?.name ?? null,
+      agents: webAgents,
+      switchAgent: webSwitchAgent,
       refreshModels: async () => {
         const names = availableProviderNames(config);
         if (!names.includes(provider.id) && profileConfig(provider.id)) {
@@ -673,6 +702,15 @@ export async function run(args: string[]): Promise<void> {
         };
       })(),
       mcpStatus: () => mcpManager.status(),
+      setMcpEnabled: async (name, enabled) => {
+        await mcpManager.setEnabled(name, enabled);
+        runtime.setTools([
+          ...builtInTools,
+          ...extensionTools,
+          ...createMcpTools(mcpManager),
+        ]);
+        return mcpManager.status();
+      },
       mode: currentMode,
       effort: effortLevel,
       setMode: (mode) => {
@@ -1215,6 +1253,9 @@ export async function run(args: string[]): Promise<void> {
   }
 
   let activeTurnController: AbortController | null = null;
+  let turnStartedAt = 0;
+  let turnOutputTokens = 0;
+  let turnModelMs = 0;
   let shellMode = false;
   const messageQueue: string[] = [];
   const steeringQueue: string[] = [];
@@ -1223,6 +1264,9 @@ export async function run(args: string[]): Promise<void> {
   /** Run one interactive turn while keeping the status bar's activity fresh. */
   async function runTurn(prompt: string): Promise<void> {
     activity.start("formulating");
+    turnStartedAt = Date.now();
+    turnOutputTokens = 0;
+    turnModelMs = 0;
     const controller = new AbortController();
     activeTurnController = controller;
     try {
@@ -1260,6 +1304,19 @@ export async function run(args: string[]): Promise<void> {
     } finally {
       activeTurnController = null;
       activity.stop();
+      if (turnStartedAt > 0) {
+        appendLine(
+          formatTurnStats(
+            Date.now() - turnStartedAt,
+            turnOutputTokens,
+            turnModelMs,
+          ),
+          theme.tokens.dim,
+        );
+        turnStartedAt = 0;
+        turnOutputTokens = 0;
+        turnModelMs = 0;
+      }
       if (messageQueue.length > 0) {
         const next = messageQueue.shift()!;
         transcript.add(new Spacer(1));
@@ -2970,6 +3027,9 @@ export async function run(args: string[]): Promise<void> {
       finalizeText();
     } else if (e.type === "context_usage") {
       updateStatus();
+    } else if (e.type === "usage") {
+      turnOutputTokens += e.output ?? 0;
+      turnModelMs += e.elapsedMs ?? 0;
     } else if (e.type === "background_task_complete") {
       appendLine(
         `background task ${e.id}: ${e.status} (exit ${e.exitCode ?? "null"})`,

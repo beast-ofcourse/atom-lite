@@ -64,10 +64,11 @@ The `todo` tool stores open and completed items as session state. It supports `r
 - Every question needs a short `header` (about 30 characters) and a complete `question`. An empty `options` list asks for free text.
 - Set `multiple: true` to allow more than one selection.
 - A "Type your own answer" row is added automatically. Do not add an "Other" option.
-- One option question answers as soon as you pick. Several questions get tabs and a review before submit.
-- Number keys and arrows move the selection, `Enter` confirms, `Space` toggles a multi-select, `Tab` and `Shift+Tab` move between questions, and `Escape` dismisses.
+- In the terminal, one option question answers as soon as you pick. Several questions get tabs and a review before submit. Number keys and arrows move the selection, `Enter` confirms, `Space` toggles a multi-select, `Tab` and `Shift+Tab` move between questions, and `Escape` dismisses.
+- In the browser, the questions appear as one stacked form: radio-style options for a single answer, checkboxes for `multiple`, and a "Type your own answer" field for each question. **Submit answers** returns them; **Dismiss**, the close button, or `Escape` dismisses.
+- Only the controlling browser tab can answer. If control moves, the pending form follows the new controller.
 - Dismissing stops the turn. The model does not receive a fabricated answer.
-- Without an interactive terminal, the tool returns an error and the model continues without asking.
+- Without an interactive terminal or browser, the tool returns an error and the model continues without asking.
 
 ## Extension tools
 

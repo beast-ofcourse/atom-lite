@@ -64,6 +64,10 @@
         <rect x="4" y="4" width="16" height="16" rx="3" />
         <path d="m8 12 2.5 2.5L16 9" />
       </symbol>
+      <symbol id="i-agent" viewBox="0 0 24 24">
+        <circle cx="12" cy="8" r="3.5" />
+        <path d="M5 20c0-3.3 3.1-6 7-6s7 2.7 7 6" />
+      </symbol>
       <symbol id="i-arrow-up" viewBox="0 0 24 24">
         <path d="M12 19V5" />
         <path d="m5 12 7-7 7 7" />
@@ -214,6 +218,21 @@
             aria-label="Workspace sessions"
           ></nav>
 
+          <section
+            class="context-panel"
+            id="context-panel"
+            aria-label="Context window"
+          >
+            <div class="context-row">
+              <span class="context-label">Context</span>
+              <span class="context-value" id="context-value">—</span>
+            </div>
+            <div class="context-track" aria-hidden="true">
+              <span class="context-fill" id="context-fill"></span>
+            </div>
+            <div class="context-note" id="context-note">no usage yet</div>
+          </section>
+
           <div class="sidebar-foot">
             <div class="workspace-avatar" aria-hidden="true">A</div>
             <div class="workspace-copy">
@@ -278,6 +297,23 @@
               <svg class="icon"><use href="#i-atom"></use></svg>
             </span>
             <span class="model-name" id="model-name">Atom-lite</span>
+            <svg class="icon model-chevron" aria-hidden="true">
+              <use href="#i-chevron-down"></use>
+            </svg>
+          </button>
+          <button
+            class="agent-chip"
+            id="agent-button"
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            aria-label="Agent profile: default"
+            title="Agent profile"
+          >
+            <svg class="icon agent-mark" aria-hidden="true">
+              <use href="#i-agent"></use>
+            </svg>
+            <span class="agent-label" id="agent-name">default</span>
             <svg class="icon model-chevron" aria-hidden="true">
               <use href="#i-chevron-down"></use>
             </svg>
@@ -644,6 +680,36 @@
       </div>
     </div>
 
+    <div class="modal-layer" id="agent-modal" hidden>
+      <div
+        class="modal modal-wide overlay-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="agent-modal-title"
+        tabindex="-1"
+      >
+        <div class="modal-head">
+          <h2 id="agent-modal-title">Agent profile</h2>
+          <button
+            class="icon-btn modal-close"
+            type="button"
+            data-close-modal="agent-modal"
+            aria-label="Close"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>
+          </button>
+        </div>
+        <p class="modal-desc">
+          The profile sets role instructions, temperature, and tool permissions.
+          Switching is available between turns.
+        </p>
+        <div class="overlay-list" id="agent-list"></div>
+        <div class="palette-foot">
+          Profiles are read from bundled, global, and trusted project agents.
+        </div>
+      </div>
+    </div>
+
     <div class="modal-layer" id="skills-modal" hidden>
       <div
         class="modal modal-wide overlay-modal"
@@ -678,18 +744,22 @@
       >
         <div class="modal-head">
           <h2 id="mcp-modal-title">MCP servers</h2>
-          <button
-            class="icon-btn modal-close"
-            type="button"
-            data-close-modal="mcp-modal"
-            aria-label="Close"
-          >
-            <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>
-          </button>
+          <div class="modal-head-actions">
+            <button class="btn" id="mcp-refresh" type="button">Refresh</button>
+            <button
+              class="icon-btn modal-close"
+              type="button"
+              data-close-modal="mcp-modal"
+              aria-label="Close"
+            >
+              <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>
+            </button>
+          </div>
         </div>
         <div class="overlay-list" id="mcp-list"></div>
         <div class="palette-foot">
-          Connected servers and their exposed tools
+          Connection state and exposed tools. Changes apply to this process
+          only.
         </div>
       </div>
     </div>
@@ -854,6 +924,40 @@
           aria-label="Commands"
         ></div>
         <div class="palette-foot">↑↓ navigate · ↵ run · esc close</div>
+      </div>
+    </div>
+
+    <div class="modal-layer" id="question-modal" hidden>
+      <div
+        class="modal modal-wide question-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="question-title"
+        tabindex="-1"
+      >
+        <div class="modal-head">
+          <h2 id="question-title">Questions</h2>
+          <button
+            class="icon-btn modal-close"
+            id="question-close"
+            type="button"
+            aria-label="Dismiss questions"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>
+          </button>
+        </div>
+        <p class="modal-desc" id="question-desc">
+          The agent needs your input to continue.
+        </p>
+        <div class="question-fields" id="question-fields"></div>
+        <div class="modal-actions">
+          <button class="btn" id="question-cancel" type="button">
+            Dismiss
+          </button>
+          <button class="btn btn-primary" id="question-submit" type="button">
+            Submit answers
+          </button>
+        </div>
       </div>
     </div>
 
