@@ -68,6 +68,10 @@
         <circle cx="12" cy="8" r="3.5" />
         <path d="M5 20c0-3.3 3.1-6 7-6s7 2.7 7 6" />
       </symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24">
+        <path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6z" />
+        <path d="M12 15v5" />
+      </symbol>
       <symbol id="i-arrow-up" viewBox="0 0 24 24">
         <path d="M12 19V5" />
         <path d="m5 12 7-7 7 7" />
@@ -526,6 +530,15 @@
       aria-label="Chat options"
       hidden
     >
+      <button
+        class="popover-item"
+        type="button"
+        data-session-action="pin"
+        role="menuitem"
+      >
+        <svg class="icon" aria-hidden="true"><use href="#i-pin"></use></svg>
+        <span id="session-pin-label">Pin</span>
+      </button>
       <button
         class="popover-item"
         type="button"

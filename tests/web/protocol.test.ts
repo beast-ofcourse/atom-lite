@@ -100,6 +100,7 @@ async function start(
     mcpStatus?: () => any[];
     setMcpEnabled?: (name: string, enabled: boolean) => any;
     questions?: any;
+    pickDirectory?: () => Promise<string | null>;
     allowedHost?: string;
   } = {},
 ) {
@@ -126,6 +127,7 @@ async function start(
     mcpStatus: extras.mcpStatus,
     setMcpEnabled: extras.setMcpEnabled,
     questions: extras.questions,
+    pickDirectory: extras.pickDirectory,
     approvalGraceMs: extras.approvalGraceMs,
     maxClients: extras.maxClients,
     maxMessageBytes: extras.maxMessageBytes,
@@ -2108,6 +2110,39 @@ test("agent profiles list and switch only between turns", async () => {
     const back = await client.waitForNext("agent_changed");
     assert.equal(back.agent, "default");
     assert.equal(active, "default");
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: the footer workspace path opens the host OS folder picker; only a
+// real selection switches the workspace, and cancel is a quiet no-op.
+test("the native workspace picker switches and cancels cleanly", async () => {
+  const target = mkdtempSync(join(tmpdir(), "web-picked-"));
+  let next: string | null = target;
+  const built = buildRuntime([]);
+  const server = await start(built, {
+    pickDirectory: async () => next,
+  });
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    const hello = await client.waitFor("hello");
+
+    client.send({ type: "pick_workspace" });
+    const changed = await client.waitFor("workspace_changed");
+    assert.equal(changed.workspace, target);
+    assert.notEqual(changed.sessionId, hello.sessionId);
+
+    next = null;
+    client.send({ type: "pick_workspace" });
+    await client.waitFor("workspace_pick_cancelled");
+    assert.equal(
+      client.messages.filter((message) => message.type === "workspace_changed")
+        .length,
+      1,
+    );
   } finally {
     client.close();
     await server.close();

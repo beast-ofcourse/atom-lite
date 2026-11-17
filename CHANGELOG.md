@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`: the MCP overlay gains a refresh action and per-server Connect/Disconnect controls; changes apply to the running process only and are refused during a turn.
 - `web`: question tool calls render as a stacked form with single-select options, multi-select checkboxes, custom answers, and dismissal that stops the turn.
 - `web`: the favicon is now an `A` monogram with an orbital ring and nucleus, legible at 16px and richer at 32px and above.
+- `web`: a chat's row menu can pin or unpin it; pinned chats stay in a `Pinned` group above the dated history and the choice is stored locally.
+- `web`: the sidebar workspace path opens the host OS's native folder picker on Linux, macOS, Windows, and Android/Termux, and switches the workspace to the selected directory.
 
 ### Fixed
 

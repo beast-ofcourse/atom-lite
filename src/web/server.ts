@@ -29,6 +29,7 @@ import type {
   ApprovalRequest,
 } from "../runtime/approvals.js";
 import type { QuestionContext, QuestionOutcome } from "../runtime/questions.js";
+import { pickNativeDirectory } from "./native-picker.js";
 import {
   parseClientMessage,
   type ClientMessage,
@@ -97,6 +98,8 @@ export interface WebServerOptions {
     name: string,
     enabled: boolean,
   ) => WebMcpServer[] | Promise<WebMcpServer[]>;
+  /** Open the OS folder picker. Null means the user cancelled. */
+  pickDirectory?: () => Promise<string | null>;
   /**
    * How long a pending approval waits for its client to come back before it
    * fails safe as a denial. Zero denies immediately.
@@ -277,6 +280,7 @@ export async function startWebServer(
   let session = options.session;
   let controller: WebSocket | null = null;
   let turnRunning = false;
+  let pickingWorkspace = false;
   let turnCounter = 0;
   let turnStartedAt = 0;
   let turnOutputTokens = 0;
@@ -1192,6 +1196,34 @@ export async function startWebServer(
             });
           } catch (err) {
             fail(client, err);
+          }
+        })();
+        return;
+      case "pick_workspace":
+        if (!requireController(client)) return;
+        if (rejectWhileTurnRunning(client)) return;
+        if (pickingWorkspace) {
+          sendTo(client, {
+            type: "error",
+            message: "A folder picker is already open.",
+          });
+          return;
+        }
+        pickingWorkspace = true;
+        void (async () => {
+          try {
+            const picked = await (
+              options.pickDirectory ?? pickNativeDirectory
+            )();
+            if (!picked) {
+              sendTo(client, { type: "workspace_pick_cancelled" });
+              return;
+            }
+            await switchWorkspace(picked);
+          } catch (err) {
+            fail(client, err);
+          } finally {
+            pickingWorkspace = false;
           }
         })();
         return;

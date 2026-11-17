@@ -197,8 +197,10 @@ transitions collapse.
 - History is grouped by recency, sorted newest first, one line per row with
   ellipsis, tooltip with message count and timestamp. The active row uses
   `--active`; hover uses `--hover`. Each row reveals a three-dot button on
-  hover/focus (always on touch) that opens a small menu with **Rename** and
-  **Delete**.
+  hover/focus (always on touch) that opens a small menu with **Pin/Unpin**,
+  **Rename**, and **Delete**. Pinned chats render in a `Pinned` group above the
+  dated groups, sorted by update time; the set persists in `localStorage` under
+  `atom-lite.web.pinned` and is cleaned when a chat is deleted.
 - Footer is a workspace/account block: avatar disc, a one-line working-directory
   hint that opens the explorer, provider · model, and a theme toggle. Clicking
   the path or `Ctrl/Cmd+O` opens the directory explorer.
@@ -396,9 +398,11 @@ reports the server error in a toast and restores the control.
 
 ### Workspace explorer
 
-`Ctrl/Cmd+O`, `/cwd`, or the footer path opens a centered 620px dialog. It shows
-an editable absolute path, a parent-folder button, a Go action, and a scrollable
-directory list. Selecting a folder drills into it; **Use this folder** switches
+The sidebar footer path opens the host OS's native folder picker
+(Zenity/KDialog, macOS Finder, Windows FolderBrowserDialog, or Android SAF in
+Termux) and switches only after a directory is selected. `Ctrl/Cmd+O` or
+`/cwd` opens a centered 620px in-app dialog with an editable absolute path, a
+parent-folder button, a Go action, and a scrollable directory list. Selecting a folder drills into it; **Use this folder** switches
 the server workspace, runtime tools, and approvals together, then opens a new
 chat in that workspace. Only directories are accepted, `~` expands to the home
 directory, and relative paths resolve against the current workspace. Session
@@ -593,6 +597,13 @@ and the fake provider, dark and light, 1440×900 and 390×844.
   the final render settles. No entrance animation is attached to streamed text.
   Scroll updates are coalesced to one frame and respect user scroll-up.
 
+- **Native workspace picker (2026-11-17):** the footer path triggered the host
+  picker bridge and switched to the selected directory with a workspace toast;
+  the cancel path is covered by the protocol test. The GTK, macOS, and Windows
+  dialogs themselves are not launchable in the headless audit host.
+- **Pinned chats (2026-11-17):** the row menu showed **Pin**, moved the chat
+  into a `Pinned` group above `Today`, and kept it there after reload; the menu
+  then showed **Unpin** and returned the row to its dated group.
 - **Contrast (2026-11-17):** selected question descriptions and tool-card
   summaries now use `--text-dim` on their raised surfaces, measuring 6.5:1 dark
   and 5.4:1 light. Detector is clean at 1440; the only mobile finding is a

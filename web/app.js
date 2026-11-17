@@ -3,15 +3,17 @@
 // Protocol (JSON over WebSocket), mirrored by src/web/protocol.ts:
 //   server -> hello | event | replay | turn_start | turn_stopping | turn_end
 //             | input_queued | approval_request | question_request
-//             | question_resolved | sessions | session_changed
-//             | workspace_changed | model_changed | runtime_state | models
+//             | question_resolved | workspace_pick_cancelled | sessions
+//             | session_changed | workspace_changed
+//             | model_changed | runtime_state | models
 //             | agents | agent_changed | attachment | attachment_removed
 //             | skills | mcp | directory | control | error
 //   client -> input | stop | approval | question_response | question_dismiss
 //             | list_sessions | new_session | resume_session
 //             | rename_session | delete_session | switch_model | list_agents
-//             | switch_agent | browse_directory | switch_workspace | set_effort
-//             | set_mode | refresh_models | attach_file | remove_attachment
+//             | switch_agent | pick_workspace | browse_directory
+//             | switch_workspace | set_effort | set_mode | refresh_models
+//             | attach_file | remove_attachment
 //             | list_skills | list_mcp | set_mcp_enabled
 
 import { buildDiffModel } from "./diff.js";
@@ -78,6 +80,7 @@ const workspacePathText = document.getElementById("workspace-path-text");
 const themeToggle = document.getElementById("theme-toggle");
 const themeMenu = document.getElementById("theme-menu");
 const sessionMenu = document.getElementById("session-menu");
+const sessionPinLabel = document.getElementById("session-pin-label");
 const slashMenu = document.getElementById("slash-menu");
 const renameModal = document.getElementById("rename-modal");
 const renameForm = document.getElementById("rename-form");
@@ -119,6 +122,7 @@ const todoResizer = document.getElementById("todo-resizer");
 const MAX_TOOL_OUTPUT_CHARS = 60_000;
 const MAX_TOOL_OUTPUT_LINES = 400;
 const MAX_INPUT_HEIGHT = 200;
+const PINNED_SESSIONS_KEY = "atom-lite.web.pinned";
 const SIDEBAR_KEY = "atom-lite.web.sidebar";
 const SIDEBAR_WIDTH_KEY = "atom-lite.web.sidebar-width";
 const SIDEBAR_DEFAULT_WIDTH = 260;
@@ -160,6 +164,7 @@ let lastAssistantActions = null;
 let thinkingNode = null;
 let currentSessionId = null;
 let sessionsCache = [];
+const pinnedSessions = loadPinnedSessions();
 let queuedMessages = [];
 let approvalReturnFocus = null;
 let toastTimer = null;
@@ -1411,6 +1416,32 @@ function groupLabel(value) {
   });
 }
 
+function loadPinnedSessions() {
+  const raw = storageGet(PINNED_SESSIONS_KEY);
+  if (!raw) return new Set();
+  try {
+    const parsed = JSON.parse(raw);
+    return new Set(
+      Array.isArray(parsed)
+        ? parsed.filter((id) => typeof id === "string" && id)
+        : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function persistPinnedSessions() {
+  storageSet(PINNED_SESSIONS_KEY, JSON.stringify([...pinnedSessions]));
+}
+
+function togglePinnedSession(id) {
+  if (pinnedSessions.has(id)) pinnedSessions.delete(id);
+  else pinnedSessions.add(id);
+  persistPinnedSessions();
+  renderSessions(sessionsCache);
+}
+
 function sessionRows() {
   const rows = [...sessionsCache];
   if (
@@ -1441,8 +1472,12 @@ function renderSessions(sessions) {
   sessionsCache = Array.isArray(sessions) ? sessions : [];
   sessionsEl.replaceChildren();
 
+  const rows = sessionRows();
   const groups = new Map();
-  for (const session of sessionRows()) {
+  const pinned = rows.filter((session) => pinnedSessions.has(session.id));
+  if (pinned.length > 0) groups.set("Pinned", pinned);
+  for (const session of rows) {
+    if (pinnedSessions.has(session.id)) continue;
     const label = groupLabel(session.updatedAt);
     if (!groups.has(label)) groups.set(label, []);
     groups.get(label).push(session);
@@ -1511,6 +1546,9 @@ function renderSessions(sessions) {
           button: menuButton,
         };
         wrapper.classList.add("menu-open");
+        sessionPinLabel.textContent = pinnedSessions.has(session.id)
+          ? "Unpin"
+          : "Pin";
         sessionMenu.hidden = false;
         placePopover(sessionMenu, menuButton, true);
         sessionMenu.querySelector("button")?.focus();
@@ -2316,6 +2354,15 @@ function renderDirectory(listing) {
     empty.textContent = "No subfolders here.";
     dirList.append(empty);
   }
+}
+
+function pickWorkspaceNative() {
+  if (readOnly) {
+    showToast("This tab is a read-only viewer.", "warn");
+    return;
+  }
+  showToast("Opening the system folder picker…", "info", true);
+  send({ type: "pick_workspace" });
 }
 
 function openWorkspaceModal(path) {
@@ -3129,6 +3176,7 @@ function handleMessage(message) {
         pendingDelete &&
         !message.sessions.some((session) => session.id === pendingDelete)
       ) {
+        if (pinnedSessions.delete(pendingDelete)) persistPinnedSessions();
         pendingDelete = null;
         showToast("Chat deleted.");
       }
@@ -3138,6 +3186,9 @@ function handleMessage(message) {
       setTurnActive(false);
       applySession(message);
       resetContextUsage();
+      break;
+    case "workspace_pick_cancelled":
+      showToast("No folder selected.", "warn");
       break;
     case "workspace_changed":
       workspacePath = message.workspace;
@@ -3807,7 +3858,7 @@ themeToggle.addEventListener("click", (event) => {
 
 workspacePathEl.addEventListener("click", (event) => {
   event.stopPropagation();
-  openWorkspaceModal();
+  pickWorkspaceNative();
 });
 
 effortButton.addEventListener("click", (event) => {
@@ -3828,6 +3879,14 @@ for (const button of themeMenu.querySelectorAll("[data-theme-mode]")) {
     closePopovers();
   });
 }
+
+sessionMenu
+  .querySelector('[data-session-action="pin"]')
+  ?.addEventListener("click", () => {
+    const target = sessionMenuTarget;
+    closePopovers();
+    if (target) togglePinnedSession(target.id);
+  });
 
 sessionMenu
   .querySelector('[data-session-action="rename"]')

@@ -66,6 +66,7 @@ export type ClientMessage =
   | { type: "switch_model"; provider: string; model: string }
   | { type: "list_agents" }
   | { type: "switch_agent"; name: string }
+  | { type: "pick_workspace" }
   | {
       type: "question_response";
       id: string;
@@ -159,6 +160,7 @@ export type ServerMessage =
       questions: QuestionPrompt[];
     }
   | { type: "question_resolved"; id: string }
+  | { type: "workspace_pick_cancelled" }
   | { type: "sessions"; sessions: SessionListing[] }
   | ({ type: "session_changed" } & SessionState)
   | ({ type: "workspace_changed"; workspace: string } & SessionState)
@@ -316,6 +318,8 @@ export function parseClientMessage(raw: string): ClientParseResult {
         return { error: "question_dismiss needs an id" };
       }
       return { message: { type: "question_dismiss", id: value.id } };
+    case "pick_workspace":
+      return { message: { type: "pick_workspace" } };
     case "browse_directory":
       if (value.path !== undefined && typeof value.path !== "string") {
         return { error: "browse_directory path must be a string" };
