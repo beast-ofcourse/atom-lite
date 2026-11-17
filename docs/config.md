@@ -48,6 +48,7 @@ agent persona, or change your colours and editor behaviour.
 | `runtime`         | object | see below      | Loop, scheduler, and execution limits.          |
 | `context`         | object | see below      | Context budget and compaction.                  |
 | `sessions`        | object | see below      | Session persistence.                            |
+| `usage`           | object | see below      | Per-call usage ledger and prices.               |
 | `lsp`             | object | see below      | Optional language server integration.           |
 | `ui`              | object | see below      | Theme and editor preferences. User config only. |
 | `keybindings`     | object | see below      | Keyboard shortcut overrides.                    |
@@ -91,17 +92,46 @@ stored credential, then inline `apiKey`.
 
 ## `context`
 
-| Key                          | Type                     | Default | Description                                                   |
-| ---------------------------- | ------------------------ | ------- | ------------------------------------------------------------- |
-| `maxInputTokens`             | positive integer \| null | `null`  | Input budget. `null` derives it from the model window.        |
-| `reserveOutputTokens`        | positive integer         | `4096`  | Headroom kept for the response.                               |
-| `compactAtPercent`           | integer 1–100            | `85`    | Context usage that triggers compaction.                       |
-| `maxProjectInstructionBytes` | positive integer         | `30000` | Cap on injected `AGENTS.md`/`CLAUDE.md`-style instructions.   |
-| `compactEveryNTurns`         | integer >= 0             | `0`     | Compact every N turns. `0` disables periodic compaction.      |
-| `compactionModel`            | non-empty string \| null | `null`  | Model for compaction summaries. `null` uses the active model. |
+| Key                          | Type                                     | Default | Description                                                   |
+| ---------------------------- | ---------------------------------------- | ------- | ------------------------------------------------------------- |
+| `maxInputTokens`             | positive integer \| null                 | `null`  | Input budget. `null` derives it from the model window.        |
+| `reserveOutputTokens`        | positive integer                         | `4096`  | Headroom kept for the response.                               |
+| `compactAtPercent`           | integer 1–100                            | `85`    | Context usage that triggers compaction.                       |
+| `maxProjectInstructionBytes` | positive integer                         | `30000` | Cap on injected `AGENTS.md`/`CLAUDE.md`-style instructions.   |
+| `compactEveryNTurns`         | integer >= 0                             | `0`     | Compact every N turns. `0` disables periodic compaction.      |
+| `compactionModel`            | non-empty string \| null                 | `null`  | Model for compaction summaries. `null` uses the active model. |
+| `cacheMode`                  | `"off"` \| `"automatic"` \| `"explicit"` | `"off"` | Prompt-cache layout mode. `off` keeps today's message order.  |
 
 The model window is resolved from, in order: `providers.<name>.contextWindow`,
 live provider metadata, then a built-in table of known model families.
+
+With `automatic`, the system prompt, session memory, and replayed conversation
+form the stable prefix. The goal, task ledger, active files, and project
+instructions move to a trailing section, so updating them no longer changes the
+prefix bytes. `explicit` currently uses the same layout and emits no
+provider-specific cache markers. When `usage.ledgerEnabled` is true,
+its records include the prefix size, hash, and a drift flag. The layout changes
+message order, so compare answers and cost before adopting it for a workflow.
+
+## `usage`
+
+| Key             | Type                     | Default | Description                                                     |
+| --------------- | ------------------------ | ------- | --------------------------------------------------------------- |
+| `ledgerEnabled` | boolean                  | `false` | Append one JSONL usage record per model call. User config only. |
+| `ledgerPath`    | non-empty string \| null | `null`  | Ledger file path. `null` uses the user config directory.        |
+| `prices`        | object                   | `{}`    | Per-model prices in USD per million tokens.                     |
+
+Each `prices` entry is keyed by model id and accepts these rates:
+
+| Key          | Type        | Default | Description                            |
+| ------------ | ----------- | ------- | -------------------------------------- |
+| `input`      | number >= 0 | `0`     | Price per million input tokens.        |
+| `output`     | number >= 0 | `0`     | Price per million output tokens.       |
+| `cacheRead`  | number >= 0 | `0`     | Price per million cached input tokens. |
+| `cacheWrite` | number >= 0 | `0`     | Price per million cache-write tokens.  |
+
+Usage records contain counts and attribution, never prompt or tool text.
+Monetary fields appear only for models with configured prices.
 
 ## `sessions`
 

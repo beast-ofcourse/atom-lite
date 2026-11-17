@@ -48,12 +48,16 @@ export async function* runModelTurn(
       requestId?: string;
     },
   ): void => {
-    const { attribution, compacted } = attributeMessages(request.messages);
+    const { attribution, compacted, prefix } = attributeMessages(
+      request.messages,
+      request.sessionId,
+    );
     recordModelUsage(
       request.usageLedger,
       {
         attribution,
         compacted,
+        prefix,
         sessionId: request.sessionId ?? "",
         requestId: response.requestId ?? request.requestId ?? "",
         provider: request.provider.id,

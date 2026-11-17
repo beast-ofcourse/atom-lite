@@ -482,6 +482,7 @@ export async function run(args: string[]): Promise<void> {
     maxProjectInstructionBytes: config.context.maxProjectInstructionBytes,
     compactEveryNTurns: config.context.compactEveryNTurns ?? 0,
     compactionModel: config.context.compactionModel ?? null,
+    cacheMode: config.context.cacheMode,
     provider,
     model: modelOverride ?? provider.model ?? "default",
     userInstructionsPath: undefined,

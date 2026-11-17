@@ -81,6 +81,8 @@ export interface AgentRuntimeOptions {
   mode?: "plan" | "yolo";
   /** Optional per-call usage ledger. Inert when absent. */
   usageLedger?: UsageLedger;
+  /** Prompt-cache layout mode for a default context manager. */
+  cacheMode?: "off" | "automatic" | "explicit";
   /** Optional session token budget (hard stop when exceeded). */
   maxTokensPerSession?: number | null;
   /** Optional per-turn token soft warning threshold. */

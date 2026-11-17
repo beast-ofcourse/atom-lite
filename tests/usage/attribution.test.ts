@@ -35,11 +35,15 @@ test("remembered layout attributes each message to the right component", () => {
     user("HISTORY QUESTION"),
   ];
   rememberMessageLayout(messages, {
-    systemPromptEnd: 1,
-    staticMessagesEnd: 3,
-    instructionsEnd: 4,
-    sessionMemoryEnd: 5,
-    historyEnd: messages.length,
+    categories: [
+      "systemPrompt",
+      "staticMessages",
+      "staticMessages",
+      "projectInstructions",
+      "sessionMemory",
+      "history",
+    ],
+    prefixEnd: 0,
     toolTokenOverhead: 42,
     compacted: false,
   });
@@ -51,7 +55,10 @@ test("remembered layout attributes each message to the right component", () => {
     attribution.staticMessages,
     estimateMessageTokens(messages[1]) + estimateMessageTokens(messages[2]),
   );
-  assert.equal(attribution.projectInstructions, estimateMessageTokens(messages[3]));
+  assert.equal(
+    attribution.projectInstructions,
+    estimateMessageTokens(messages[3]),
+  );
   assert.equal(attribution.sessionMemory, estimateMessageTokens(messages[4]));
   assert.equal(attribution.history, estimateMessageTokens(messages[5]));
   assert.equal(attribution.toolDefinitions, 42);
@@ -60,18 +67,18 @@ test("remembered layout attributes each message to the right component", () => {
 test("layout is ignored when the final message list was replaced or resized", () => {
   const messages: Message[] = [system("system"), user("one")];
   rememberMessageLayout(messages, {
-    systemPromptEnd: 1,
-    staticMessagesEnd: 1,
-    instructionsEnd: 1,
-    sessionMemoryEnd: 1,
-    historyEnd: messages.length,
+    categories: ["systemPrompt", "history"],
+    prefixEnd: 0,
     toolTokenOverhead: 7,
     compacted: false,
   });
   messages.push(user("two"));
 
   const { attribution } = attributeMessages(messages);
-  assert.equal(attribution.history, estimateMessageTokens(messages[1]) + estimateMessageTokens(messages[2]));
+  assert.equal(
+    attribution.history,
+    estimateMessageTokens(messages[1]) + estimateMessageTokens(messages[2]),
+  );
 });
 
 test("a real turn records attribution and reflects extension mutations", async () => {
@@ -166,10 +173,12 @@ test("multi-turn attribution tracks changing static context and tool definitions
 
   assert.equal(records.length, 2);
   assert.ok(
-    records[1].attribution.staticMessages > records[0].attribution.staticMessages,
+    records[1].attribution.staticMessages >
+      records[0].attribution.staticMessages,
   );
   assert.ok(
-    records[1].attribution.toolDefinitions > records[0].attribution.toolDefinitions,
+    records[1].attribution.toolDefinitions >
+      records[0].attribution.toolDefinitions,
   );
 });
 
@@ -194,11 +203,7 @@ test("resumed session memory is attributed to sessionMemory", async () => {
   session.messages.push(user("old"));
   session.messages.push(assistant("older"));
 
-  await runtime.runAgentTurn(
-    "question",
-    session,
-    new AbortController().signal,
-  );
+  await runtime.runAgentTurn("question", session, new AbortController().signal);
 
   assert.ok(records[0].attribution.sessionMemory > 0);
   const serialized = JSON.stringify(records);

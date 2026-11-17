@@ -13,6 +13,7 @@ import { recordModelUsage, type UsageLedger } from "../usage/ledger.js";
 import {
   attributeSummaryMessages,
   rememberMessageLayout,
+  type AttributionCategory,
 } from "./attribution.js";
 
 export interface ContextManagerOptions {
@@ -29,6 +30,8 @@ export interface ContextManagerOptions {
   compactionModel?: string | null;
   /** Optional per-call usage ledger. Inert when absent. */
   usageLedger?: UsageLedger;
+  /** Prompt-cache layout mode. Off preserves the original message order. */
+  cacheMode?: "off" | "automatic" | "explicit";
 }
 
 /** State the runtime injects every turn and feeds into the summarizer. */
@@ -127,24 +130,13 @@ export class ContextManager {
 
   private rememberLayout(
     messages: Message[],
-    staticCount: number,
-    instructionCount: number,
-    memoryCount: number,
+    categories: AttributionCategory[],
+    prefixEnd: number,
     compacted: boolean,
   ): void {
-    let cursor = 1;
-    const systemPromptEnd = cursor;
-    cursor += staticCount;
-    const staticMessagesEnd = cursor;
-    cursor += instructionCount;
-    const instructionsEnd = cursor;
-    cursor += memoryCount;
     rememberMessageLayout(messages, {
-      systemPromptEnd,
-      staticMessagesEnd,
-      instructionsEnd,
-      sessionMemoryEnd: cursor,
-      historyEnd: messages.length,
+      categories,
+      prefixEnd,
       toolTokenOverhead: this.toolTokenOverhead,
       compacted,
     });
@@ -470,27 +462,69 @@ export class ContextManager {
     }
 
     const statics = this.staticMessages();
-    const messages: Message[] = [
-      { role: "system", content: systemPrompt },
-      ...statics,
-    ];
-    for (const instr of instructions) {
-      messages.push({ role: "system", content: instr });
-    }
-    if (this.sessionMemory) {
-      messages.push({
-        role: "assistant",
-        content: [
+    const instructionMessages: Message[] = instructions.map((content) => ({
+      role: "system",
+      content,
+    }));
+    const memoryMessages: Message[] = this.sessionMemory
+      ? [
           {
-            type: "text",
-            text: `Context summary from previous compaction:\n${this.sessionMemory}`,
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: `Context summary from previous compaction:\n${this.sessionMemory}`,
+              },
+            ],
           },
-        ],
-      });
-    }
+        ]
+      : [];
+    const cached = this.opts.cacheMode !== "off";
+    const messages: Message[] = [{ role: "system", content: systemPrompt }];
+    const categories: AttributionCategory[] = ["systemPrompt"];
     // Loop instead of spread: very long histories would exceed V8's
     // max-arguments limit in messages.push(...workingHistory).
-    for (const m of workingHistory) messages.push(m);
+    if (cached) {
+      // Stable prefix first; volatile goal/ledger/files and project
+      // instructions move to a trailing section so the prefix stays
+      // byte-identical across turns within a session.
+      for (const m of memoryMessages) {
+        messages.push(m);
+        categories.push("sessionMemory");
+      }
+      for (const m of workingHistory) {
+        messages.push(m);
+        categories.push("history");
+      }
+      for (const m of statics) {
+        messages.push(m);
+        categories.push("staticMessages");
+      }
+      for (const m of instructionMessages) {
+        messages.push(m);
+        categories.push("projectInstructions");
+      }
+    } else {
+      for (const m of statics) {
+        messages.push(m);
+        categories.push("staticMessages");
+      }
+      for (const m of instructionMessages) {
+        messages.push(m);
+        categories.push("projectInstructions");
+      }
+      for (const m of memoryMessages) {
+        messages.push(m);
+        categories.push("sessionMemory");
+      }
+      for (const m of workingHistory) {
+        messages.push(m);
+        categories.push("history");
+      }
+    }
+    const prefixEnd = cached
+      ? 1 + memoryMessages.length + workingHistory.length
+      : 0;
     const total =
       messages.reduce((s, m) => s + estimateMessageTokens(m), 0) +
       this.toolTokenOverhead;
@@ -504,13 +538,7 @@ export class ContextManager {
 
     if (!this.forceCompact && !periodic && !overThreshold) {
       this.lastBuildTokens = total;
-      this.rememberLayout(
-        messages,
-        statics.length,
-        instructions.length,
-        this.sessionMemory ? 1 : 0,
-        false,
-      );
+      this.rememberLayout(messages, categories, prefixEnd, false);
       return messages;
     }
     this.forceCompact = false;
@@ -535,13 +563,7 @@ export class ContextManager {
     if (older.length === 0) {
       this.forceCompact = false;
       this.lastBuildTokens = total;
-      this.rememberLayout(
-        messages,
-        statics.length,
-        instructions.length,
-        this.sessionMemory ? 1 : 0,
-        false,
-      );
+      this.rememberLayout(messages, categories, prefixEnd, false);
       return messages;
     }
 
@@ -556,10 +578,7 @@ export class ContextManager {
 
     const continuation = this.getContinuation();
     this.pendingContinuation = continuation;
-    const compacted: Message[] = [
-      { role: "system", content: systemPrompt },
-      ...this.staticMessages(),
-      ...instructions.map((i) => ({ role: "system" as const, content: i })),
+    const compactedMemory: Message[] = [
       {
         role: "assistant",
         content: [{ type: "text", text: `Context summary: ${summary}` }],
@@ -567,17 +586,56 @@ export class ContextManager {
       ...(continuation
         ? [{ role: "system" as const, content: continuation }]
         : []),
-      ...recent,
     ];
+    const compactedStatics: Message[] = statics;
+    const compactedInstructions: Message[] = instructionMessages;
+    const compacted: Message[] = [
+      { role: "system", content: systemPrompt },
+    ];
+    const compactedCategories: AttributionCategory[] = ["systemPrompt"];
+    if (cached) {
+      for (const m of compactedMemory) {
+        compacted.push(m);
+        compactedCategories.push("sessionMemory");
+      }
+      for (const m of recent) {
+        compacted.push(m);
+        compactedCategories.push("history");
+      }
+      for (const m of compactedStatics) {
+        compacted.push(m);
+        compactedCategories.push("staticMessages");
+      }
+      for (const m of compactedInstructions) {
+        compacted.push(m);
+        compactedCategories.push("projectInstructions");
+      }
+    } else {
+      for (const m of compactedStatics) {
+        compacted.push(m);
+        compactedCategories.push("staticMessages");
+      }
+      for (const m of compactedInstructions) {
+        compacted.push(m);
+        compactedCategories.push("projectInstructions");
+      }
+      for (const m of compactedMemory) {
+        compacted.push(m);
+        compactedCategories.push("sessionMemory");
+      }
+      for (const m of recent) {
+        compacted.push(m);
+        compactedCategories.push("history");
+      }
+    }
     // Final value only; the intermediate assign was dead work.
     this.lastBuildTokens =
       compacted.reduce((s, m) => s + estimateMessageTokens(m), 0) +
       this.toolTokenOverhead;
     this.rememberLayout(
       compacted,
-      statics.length,
-      instructions.length,
-      1 + (continuation ? 1 : 0),
+      compactedCategories,
+      cached ? 1 + compactedMemory.length + recent.length : 0,
       true,
     );
     return compacted;

@@ -24,6 +24,7 @@ export const DEFAULT_CONFIG = {
     maxProjectInstructionBytes: 30000,
     compactEveryNTurns: 0,
     compactionModel: null as string | null,
+    cacheMode: "off",
   },
   sessions: { enabled: true, retentionDays: null as number | null },
   usage: {

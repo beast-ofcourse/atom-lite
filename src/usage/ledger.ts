@@ -1,6 +1,9 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { MessageAttribution } from "../context/attribution.js";
+import type {
+  MessageAttribution,
+  PrefixInfo,
+} from "../context/attribution.js";
 import type { TokenUsage } from "../types.js";
 
 /** Explicit price for a model, in USD per one million tokens. */
@@ -67,6 +70,8 @@ export interface UsageRecord {
   attribution?: MessageAttribution;
   /** Whether this call followed a compaction of the context. */
   compacted?: boolean;
+  /** Stable-prefix size/hash and drift flag, when a cache mode is enabled. */
+  prefix?: PrefixInfo;
   /** Present only when an explicit price is configured for the model. */
   costUsd?: number;
   costIfNoCacheUsd?: number;
@@ -86,6 +91,7 @@ export interface UsageCallContext {
   model: string;
   attribution?: MessageAttribution;
   compacted?: boolean;
+  prefix?: PrefixInfo;
 }
 
 /**

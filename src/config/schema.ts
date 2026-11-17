@@ -50,6 +50,8 @@ export const ContextConfigSchema = z
      * active model, so installing this field cannot change default behavior.
      */
     compactionModel: z.string().min(1).nullable().default(null),
+    /** Prompt-cache prefix layout: off keeps today's message order. */
+    cacheMode: z.enum(["off", "automatic", "explicit"]).default("off"),
   })
   .strict();
 

@@ -93,6 +93,7 @@ export class AgentRuntime {
         provider: options.provider,
         model: options.model ?? options.provider.model ?? "default",
         usageLedger: options.usageLedger,
+        cacheMode: options.cacheMode,
       });
     this.baseSystemPrompt =
       options.systemPrompt ?? this.contextManager.getSystemPrompt();
