@@ -7,14 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+## v0.17.0 — 2026-11-16
+
+### Added
 
 - `cli`: `--serve --share` now binds the web server on the LAN and prints a direct LAN URL plus QR code. Phone access needs only the same Wi-Fi network and a scan.
+- `agent`: goal system with persistent statement, criteria, and constraints; `/goal` command with set, status, pause, resume, clear, and complete subcommands; goal panel in the TUI sidebar.
+- `agent`: task ledger (opt-in) that the model can write to decompose work; persisted through session resume and surfaced in the TUI panel and web UI.
+- `cli`: `ctrl+j` toggles the sidebar; background fill on sidebar rows; hint lines removed for cleaner rendering.
+- `context`: automatic stable-prefix prompt layout keeps system prompt, skills, and context headers fixed while conversation scrolls.
+- `usage`: per-call cost ledger (opt-in) with monetary cost and no-cache counterfactual fields; provider cache counters surfaced in usage and ledger; ledger tokens attributed to context components.
+- `eval`: full evaluation harness with repeated isolated trials, structured graders with partial credit, pass@1 and pass^k distributions, per-suite baselines with explicit updates, durable per-run artifacts, and failed-trial review.
+- `eval`: deterministic fake-provider smoke gate for CI; eval maintainer skill and public eval documentation.
+- `web`: task ledger panel and resizable sidebars in the web UI.
 - `web`: share mode accepts the machine's LAN address in Host and Origin checks; the per-run token remains mandatory.
+- `docs`: deterministic git maintenance skill; redesigned published docs with privatized ADRs and docs skill.
+
+### Changed
+
+- `cli`: the outbound tunnel provider, `--tunnel-command`, and the cloudflared setup step removed; `--no-qr` remains.
+- `cli`: share mode does not open a local browser; it prints the local URL for diagnostics instead.
+- `runtime`: goal state persists across compaction, pause, tools, commands, and TUI; goal injection works in plan mode without enabling write tools.
+- `runtime`: model decides when to use the task ledger (not forced on every turn).
+- `config`: new schema fields for goal, ledger, and eval settings.
 
 ### Removed
 
-- `cli`: the outbound tunnel provider, `--tunnel-command`, and the cloudflared setup step. `--no-qr` remains.
+- `cli`: the outbound tunnel provider, `--tunnel-command`, and the cloudflared setup step.
+- `eval`: legacy eval scripts replaced by the new harness.
+
+### Performance
+
+- `read` tool: full read overhead 6.00 ms (target ≤ 5 ms); partial read 1.88 ms; write overhead 4.38 ms; edit overhead 2.89 ms; bash overhead 0.41 ms.
+- `startup`: --version 192.3 ms (target ≤ 300 ms).
+- `frame build`: 1k components first render 0.82 ms, cached 0.19 ms; 10k streamed lines 0.00 ms; stream append max 3.72 ms.
 
 ## v0.16.2 — 2026-11-16
 
