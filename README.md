@@ -67,6 +67,7 @@ Start at the [documentation index](./docs/README.md).
 | Sessions and goals    | [Sessions](./docs/sessions.md) · [Goals](./docs/goals.md)                                   |
 | Extensions            | [Agent personas](./docs/agents.md) · [Extensions](./docs/extensions.md)                     |
 | Surfaces              | [Web UI](./docs/web.md)                                                                     |
+| Harness quality       | [Evals](./docs/eval.md)                                                                     |
 | Help                  | [Troubleshooting](./docs/troubleshooting.md) · [Contributing](./CONTRIBUTING.md)            |
 
 Architecture decision records are private to maintainers and are not published in this repository.

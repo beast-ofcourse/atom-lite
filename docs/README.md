@@ -34,6 +34,7 @@ Atom-lite is a local-first coding agent. These pages cover installation, daily u
 ## Contribute
 
 - [CONTRIBUTING](../CONTRIBUTING.md) — setup, checks, commit style, review.
+- [Evals](./eval.md) — task format, suites, graders, commands, metrics, artifacts, transcript review.
 - [Agent workflow](./agents/issue-tracker.md) — local issue tracker conventions.
 - [Domain notes](./agents/domain.md) — vocabulary and documentation rules for agents.
 - [Release workflow](../AGENTS.md) — versioning, publishing, GitHub releases.

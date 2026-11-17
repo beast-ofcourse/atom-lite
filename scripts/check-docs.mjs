@@ -32,8 +32,8 @@ for (const file of files) {
     if (/^(https?:|mailto:|#)/.test(link)) continue;
     const target = decodeURIComponent(link.split("#")[0]);
     if (!target) continue;
-    if (/(^|\/)adr\//.test(target)) {
-      failures.push(`${relativePath}: link to private ADR '${link}'`);
+    if (/(^|\/)(adr|\.scratch|temp)\//.test(target)) {
+      failures.push(`${relativePath}: link to private path '${link}'`);
       continue;
     }
     const absolute = resolve(dirname(file), target);
@@ -55,6 +55,32 @@ const keys = new Set(
 for (const key of keys) {
   if (!configDoc.includes(`\`${key}\``)) {
     failures.push(`docs/config.md: missing config field '${key}'`);
+  }
+}
+
+// The eval page is the published source of truth for the harness. Keep it
+// present and discoverable from the docs index and the documentation skill.
+const evalDoc = join(docsDir, "eval.md");
+let evalPresent = true;
+try {
+  statSync(evalDoc);
+} catch {
+  evalPresent = false;
+  failures.push("docs/eval.md: missing eval documentation page");
+}
+if (evalPresent) {
+  const evalIndex = readFileSync(join(docsDir, "README.md"), "utf8");
+  if (!/\]\(\.\/eval\.md(?:\s+"[^"]*")?\)/.test(evalIndex)) {
+    failures.push("docs/README.md: missing link to the eval page (./eval.md)");
+  }
+  const docsSkill = readFileSync(
+    join(root, ".agents", "skills", "atom-lite-docs", "SKILL.md"),
+    "utf8",
+  );
+  if (!docsSkill.includes("docs/eval.md")) {
+    failures.push(
+      ".agents/skills/atom-lite-docs/SKILL.md: missing docs/eval.md in page map",
+    );
   }
 }
 
