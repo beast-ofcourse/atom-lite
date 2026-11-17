@@ -132,6 +132,7 @@ import {
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { installEditorKeybindings } from "./editor-keybindings.js";
+import { createMainRow } from "./main-layout.js";
 
 export async function run(args: string[]): Promise<void> {
   installEditorKeybindings();
@@ -806,7 +807,6 @@ export async function run(args: string[]): Promise<void> {
     Spacer,
     ScrollView,
     VStack,
-    HStack,
     Markdown,
   } = await import("@earendil-works/pi-tui");
 
@@ -1005,14 +1005,7 @@ export async function run(args: string[]): Promise<void> {
   };
 
   const root = new VStack([]);
-  const mainRow = new HStack([], { gap: 1 });
-  mainRow.addChild(output, { grow: 1, shrink: 1, minSize: 0 });
-  mainRow.addChild(goalPanel, {
-    grow: 0,
-    shrink: 0,
-    minSize: 0,
-    visible: () => goalPanel.isVisible,
-  });
+  const mainRow = createMainRow(output, goalPanel);
   // Keep fixed chrome (spacer, input, status, header, dropdown)
   // from being collapsed when the transcript grows; only the output region may
   // shrink.
