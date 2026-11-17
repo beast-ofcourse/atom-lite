@@ -33,6 +33,7 @@ Docs are part of the change, not a follow-up. Write one topic per page, lead wit
 | `docs/web.md`             | Localhost server, boundaries, controls, reconnects, share mode.                              |
 | `docs/safety.md`          | Workspace boundary, modes, approvals, personas, trust, secrets.                              |
 | `docs/troubleshooting.md` | Symptom → exact fix, with commands.                                                          |
+| `docs/eval.md`            | Task format, suites, graders, commands, metrics, artifacts, transcript review.               |
 | `docs/agents/`            | Internal agent workflow conventions. Not part of the public nav.                             |
 | `CHANGELOG.md`            | Released changes only.                                                                       |
 
@@ -91,6 +92,7 @@ Model pages on `https://opencode.ai/docs`: short, task-oriented, one concept per
 - Every CLI flag in `src/cli/app.ts` appears in `docs/cli.md`.
 - Names, defaults, file paths, and status strings match code and `package.json`.
 - No published page links into `docs/adr/`, `.scratch/`, or `temp/`.
+- The eval page exists, is linked from `docs/README.md`, and appears in this page map.
 - No stale command, config, or keybinding entries remain.
 - ADRs, if present locally, are not the only place a user-visible decision is recorded.
 
@@ -102,7 +104,7 @@ npm test
 npm run docs:check
 ```
 
-`docs:check` validates internal links, config-field coverage, and the private-ADR rule. Fix every failure before committing.
+`docs:check` validates internal links, config-field coverage, the private-path rule, and that the eval page is present and wired into the index and this page map. Fix every failure before committing.
 
 ## Commit checklist
 
