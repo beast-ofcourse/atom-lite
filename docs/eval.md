@@ -11,6 +11,8 @@ npm run eval -- --review                    # failed trials from the latest run
 
 Provider-based eval is opt-in and non-gating; it is not part of CI. The smoke pass needs no config, credential, or network.
 
+> **Compatibility note:** The task check script is `check.cjs` (not `check.mjs`), and a directory counts as a task only when it has both `prompt.txt` and `check.cjs`. In CI, only the deterministic fake-provider smoke pass (`npm run eval:smoke`) gates the harness path; provider-based eval stays opt-in and non-gating.
+
 ## Task format
 
 A task is a directory under `evals/tasks/` (override with `--tasks-dir`). A directory counts as a task only when it has both `prompt.txt` and `check.cjs`.
@@ -29,9 +31,9 @@ Each trial starts from a fresh copy of `workspace/`. The runner strips `.git` an
 
 ## Suites
 
-| Suite        | Purpose                                | Baseline                          |
-| ------------ | -------------------------------------- | --------------------------------- |
-| `regression` | Tasks expected to pass every time.     | Default baseline target.          |
+| Suite        | Purpose                                | Baseline                             |
+| ------------ | -------------------------------------- | ------------------------------------ |
+| `regression` | Tasks expected to pass every time.     | Default baseline target.             |
 | `capability` | Unsolved or unstable work, below 100%. | Reported separately from regression. |
 
 A task without a manifest is a `regression` task and uses `check.cjs`. Set the suite in the manifest:
@@ -40,7 +42,22 @@ A task without a manifest is a `regression` task and uses `check.cjs`. Set the s
 { "suite": "capability" }
 ```
 
-Baseline comparison is scoped to the selected suite. Writing a baseline requires `--baseline`; with no `--suite`, a write stores one snapshot per suite present in the report.
+Baseline comparison is scoped to the selected suite. Writing a baseline requires `--baseline`. With `--suite`, the write updates only that suite's snapshot and leaves other stored suites untouched. With no `--suite`, it keeps the legacy behavior of storing one snapshot per suite present in the report.
+
+## Manifest fields
+
+`manifest.json` requires only `suite` and `graders` to affect a run. These additional fields are optional and **inert in this slice** — the loader accepts them, but nothing grades them yet. They are declared here so task authors can record intent without changing results.
+
+| Field               | Type                           | Purpose                                                          |
+| ------------------- | ------------------------------ | ---------------------------------------------------------------- |
+| `suite`             | `"regression" \| "capability"` | Suite membership (defaults to `regression`).                     |
+| `graders`           | array                          | Deterministic graders; see [Graders](#graders).                  |
+| `referenceSolution` | string                         | Path to a reference solution, used when diagnosing a zero score. |
+| `tags`              | string[]                       | Free-form labels for grouping tasks.                             |
+| `maxTurns`          | integer                        | Declared transcript turn limit; not enforced by grading.         |
+| `maxToolCalls`      | integer                        | Declared tool-call limit; not enforced by grading.               |
+
+To assert a turn or tool-call bound today, declare the `maxTurns` or `maxToolCalls` grader described below; the manifest-level limits above are recorded only. Missing or malformed optional values are ignored, so manifests from earlier slices keep working unchanged.
 
 ## Graders
 
@@ -50,10 +67,19 @@ Graders are deterministic checks declared in `manifest.json`. When a task declar
 {
   "suite": "regression",
   "graders": [
-    { "name": "result exists", "type": "fileExists", "path": "out/result.json" },
-    { "name": "has answer", "type": "fileContains", "path": "out/result.json", "contains": "\"ok\"" },
-    { "name": "tests pass", "type": "command", "command": "npm test" }
-  ]
+    {
+      "name": "result exists",
+      "type": "fileExists",
+      "path": "out/result.json",
+    },
+    {
+      "name": "has answer",
+      "type": "fileContains",
+      "path": "out/result.json",
+      "contains": "\"ok\"",
+    },
+    { "name": "tests pass", "type": "command", "command": "npm test" },
+  ],
 }
 ```
 
@@ -75,19 +101,19 @@ Every declaration has a `name` (optional; defaults to `type`) and a `type`.
 
 ## Commands
 
-| Command / flag      | Type    | Default        | Behavior                                              |
-| ------------------- | ------- | -------------- | ----------------------------------------------------- |
-| `npm run eval`      | —       | —              | Build and run the eval with the configured provider.  |
-| `npm run eval:smoke`| —       | —              | Build and run the fake-provider CI smoke pass.        |
-| `--provider NAME`   | string  | config default | Override the provider adapter.                        |
-| `--model NAME`      | string  | config default | Override the model.                                   |
-| `--tasks-dir PATH`  | string  | `evals/tasks`  | Directory holding task folders.                       |
-| `--out PATH`        | string  | `evals/out`    | Directory for reports and artifacts.                  |
-| `--task NAME`       | string  | all tasks      | Run one named task.                                   |
-| `--suite NAME`      | string  | all suites     | `regression` or `capability`.                         |
-| `--trials N`        | integer | `1`            | Independent runs per task; values below 1 become 1.   |
-| `--baseline`        | boolean | `false`        | Write `baseline.json` for the selected suite.         |
-| `--review [RUN_ID]` | string  | latest run     | Print failed trials; no value selects the latest run. |
+| Command / flag       | Type    | Default        | Behavior                                                                                     |
+| -------------------- | ------- | -------------- | -------------------------------------------------------------------------------------------- |
+| `npm run eval`       | —       | —              | Build and run the eval with the configured provider.                                         |
+| `npm run eval:smoke` | —       | —              | Build and run the fake-provider CI smoke pass.                                               |
+| `--provider NAME`    | string  | config default | Override the provider adapter.                                                               |
+| `--model NAME`       | string  | config default | Override the model.                                                                          |
+| `--tasks-dir PATH`   | string  | `evals/tasks`  | Directory holding task folders.                                                              |
+| `--out PATH`         | string  | `evals/out`    | Directory for reports and artifacts.                                                         |
+| `--task NAME`        | string  | all tasks      | Run one named task.                                                                          |
+| `--suite NAME`       | string  | all suites     | `regression` or `capability`.                                                                |
+| `--trials N`         | integer | `1`            | Independent runs per task; values below 1 become 1.                                          |
+| `--baseline`         | boolean | `false`        | Write `baseline.json`: only the selected suite, or one snapshot per suite with no `--suite`. |
+| `--review [RUN_ID]`  | string  | latest run     | Print failed trials; no value selects the latest run.                                        |
 
 Pass flags after `--`, as in `npm run eval -- --trials 3`. Provider and model defaults come from [Config](./config.md). `--review` reads stored artifacts and does not re-run tasks or load a provider.
 
@@ -95,16 +121,16 @@ Pass flags after `--`, as in `npm run eval -- --trials 3`. Provider and model de
 
 The report's `summary` keeps aggregate totals for continuity; `metrics` adds spread and stability.
 
-| Metric        | Meaning                                                                          |
-| ------------- | -------------------------------------------------------------------------------- |
-| `pass@1`      | Mean per-task pass rate: the chance one trial passes.                            |
-| `pass^k`      | Mean per-task chance that all `k` trials pass, estimated as `(passRate)^k`.       |
-| `k`           | Largest trial count in the run; `pass@1` equals `pass^k` when `k` is 1.           |
-| Per-task rate | `passed`/`trials`, `passRate`, `passAt1`, `passAtK` for each task.                 |
+| Metric        | Meaning                                                                                                     |
+| ------------- | ----------------------------------------------------------------------------------------------------------- |
+| `pass@1`      | Mean per-task pass rate: the chance one trial passes.                                                       |
+| `pass^k`      | Observed fraction of tasks whose every trial passed; 0 if any trial failed.                                 |
+| `k`           | Largest trial count in the run; `pass@1` equals `pass^k` when `k` is 1.                                     |
+| Per-task rate | `passed`/`trials`, `passRate`, `passAt1`, `passAtK` for each task.                                          |
 | Distributions | `count`, `min`, `max`, `mean`, `median`, `p90` for input/output tokens, total tokens, turns, and wall time. |
-| Baseline diff | `previousPassRate`, `deltaPassRate`, `newlyPassing`, `newlyFailing`, scoped to a suite. |
+| Baseline diff | `previousPassRate`, `deltaPassRate`, `newlyPassing`, `newlyFailing`, scoped to a suite.                     |
 
-A task that passes once but fails across trials is a stability problem, not a capability win.
+A task that passes once but fails across trials is a stability problem, not a capability win: `pass^k` is read from outcomes, so one failed trial drops that task's consistency to 0. When `k` is 1, `pass@k` equals `pass@1`.
 
 ## Artifacts
 

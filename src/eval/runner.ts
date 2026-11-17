@@ -55,6 +55,11 @@ export interface GraderResult {
   reason: string;
 }
 
+/** One compact grader line, shared by reports, logs, and review output. */
+function formatGraderLine(g: GraderResult): string {
+  return `${g.pass ? "PASS" : "FAIL"} ${g.name}: ${g.reason}`;
+}
+
 export interface EvalTaskResult {
   name: string;
   suite: EvalSuite;
@@ -91,7 +96,7 @@ export interface Distribution {
 export interface EvalMetrics {
   /** Mean per-task pass rate: the chance a single trial passes. */
   passAt1: number;
-  /** Mean per-task chance that all of a task's trials pass (consistency). */
+  /** Observed fraction of tasks whose every trial passed (consistency). */
   passAtK: number;
   /** Trial count k used for pass^k (the largest trial count in the run). */
   k: number;
@@ -214,24 +219,44 @@ function copyFixture(workspaceSrc: string, dest: string): void {
   if (!existsSyncSafe(workspaceSrc)) return;
   cpSync(workspaceSrc, dest, {
     recursive: true,
-    filter: (srcPath: string) => !STRIPPED_FIXTURE_ENTRIES.has(basename(srcPath)),
+    filter: (srcPath: string) =>
+      !STRIPPED_FIXTURE_ENTRIES.has(basename(srcPath)),
   });
 }
 
 interface TaskManifest {
   suite: EvalSuite;
   graders: GraderDeclaration[];
+  /** Optional reference solution path, used when diagnosing a zero-score task. */
+  referenceSolution?: string;
+  /** Optional free-form labels. */
+  tags?: string[];
+  /** Optional transcript limits. Declared and parsed, but inert in this slice. */
+  maxTurns?: number;
+  maxToolCalls?: number;
 }
 
 /**
  * Read a task's optional manifest.json. A task without a manifest — or with an
  * unreadable one — is a regression task using the existing check-script flow.
+ *
+ * `referenceSolution`, `tags`, `maxTurns`, and `maxToolCalls` are optional and
+ * inert here: the loader keeps them available to future tooling but grading in
+ * this slice reads only `suite` and `graders`. Missing or malformed values are
+ * ignored so old manifests keep working unchanged.
  */
 function loadManifest(taskDir: string): TaskManifest {
   try {
     const manifest = JSON.parse(
       readFileSync(join(taskDir, "manifest.json"), "utf8"),
-    ) as { suite?: unknown; graders?: unknown };
+    ) as {
+      suite?: unknown;
+      graders?: unknown;
+      referenceSolution?: unknown;
+      tags?: unknown;
+      maxTurns?: unknown;
+      maxToolCalls?: unknown;
+    };
     const suite: EvalSuite =
       manifest?.suite === "capability" ? "capability" : "regression";
     const graders = Array.isArray(manifest?.graders)
@@ -240,7 +265,22 @@ function loadManifest(taskDir: string): TaskManifest {
             !!g && typeof g === "object" && typeof g.type === "string",
         )
       : [];
-    return { suite, graders };
+    const optional: Partial<TaskManifest> = {};
+    if (typeof manifest?.referenceSolution === "string") {
+      optional.referenceSolution = manifest.referenceSolution;
+    }
+    if (Array.isArray(manifest?.tags)) {
+      optional.tags = manifest.tags.filter(
+        (tag): tag is string => typeof tag === "string",
+      );
+    }
+    for (const key of ["maxTurns", "maxToolCalls"] as const) {
+      const value = manifest?.[key];
+      if (typeof value === "number" && Number.isFinite(value)) {
+        optional[key] = value;
+      }
+    }
+    return { suite, graders, ...optional };
   } catch {
     // no manifest or invalid JSON -> legacy regression behavior
     return { suite: "regression", graders: [] };
@@ -519,8 +559,9 @@ function distribution(values: number[]): Distribution {
  * from the flat list of trial outcomes in a report. Pure and deterministic so
  * the metric math can be pinned with small outcome sets.
  *
- * pass@1 is the mean per-task pass rate (one trial). pass^k is the mean
- * per-task probability that all of a task's k trials pass, estimated as
+ * pass@1 is the mean per-task pass rate (one trial). pass^k is the observed
+ * fraction of tasks where all of that task's trials passed — 1 only when every
+ * trial passed, otherwise 0. It is read from trial outcomes, not estimated as
  * (pass rate)^k. A single-trial run has k = 1 and the two metrics coincide.
  */
 export function computeMetrics(tasks: EvalTaskResult[]): EvalMetrics {
@@ -540,7 +581,9 @@ export function computeMetrics(tasks: EvalTaskResult[]): EvalMetrics {
     const passed = outcomes.filter((t) => t.pass).length;
     const passRate = passed / trials;
     const taskK = Math.max(1, ...outcomes.map((t) => t.trialCount ?? 1));
-    const passAtK = Math.pow(passRate, taskK);
+    // Observed consistency: a task contributes 1 only when every one of its
+    // trials passed. For k = 1 this is exactly its per-task pass rate.
+    const passAtK = outcomes.every((t) => t.pass) ? 1 : 0;
     k = Math.max(k, taskK);
     passAt1Sum += passRate;
     passAtKSum += passAtK;
@@ -689,9 +732,7 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
         });
         score = graders.filter((g) => g.pass).length / graders.length;
         pass = score === 1;
-        checkOutput = graders
-          .map((g) => `${g.pass ? "PASS" : "FAIL"} ${g.name}: ${g.reason}`)
-          .join("\n");
+        checkOutput = graders.map(formatGraderLine).join("\n");
       } else if (!error) {
         const r = await runCheck(checkPath, tmp);
         pass = r.code === 0;
@@ -777,7 +818,7 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
   const previousBaseline = baselineForSuite(baselineData, selectedSuite);
   if (previousBaseline) {
     report.baselineComparison = {
-      ...compareBaseline(report, previousBaseline as unknown as EvalReport),
+      ...compareBaseline(report, previousBaseline),
       suite: selectedSuite ?? "all",
     };
   }
@@ -793,9 +834,7 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
       const transcript = (taskMessages[i] ?? [])
         .map((m: any) => JSON.stringify(m))
         .join("\n");
-      const graderLines = t.graders
-        .map((g) => `${g.pass ? "PASS" : "FAIL"} ${g.name}: ${g.reason}`)
-        .join("\n");
+      const graderLines = t.graders.map(formatGraderLine).join("\n");
       writeFileSync(
         join(options.outDir as string, `${t.name}.log`),
         `pass=${t.pass}\nscore=${t.score}\nturns=${t.turns}\ninput=${t.inputTokens}\noutput=${t.outputTokens}\nwallMs=${t.wallMs}\nerror=${t.error ?? ""}\ncheckOutput=${t.checkOutput ?? ""}\n--- graders ---\n${graderLines}\n--- transcript ---\n${transcript}\n`,
@@ -865,21 +904,27 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
       JSON.stringify({ runId: report.runId }, null, 2),
     );
 
-    // Writing a baseline is opt-in and targets one suite at a time, so a
-    // capability run can never rewrite the regression standard.
+    // Writing a baseline is opt-in. With --suite, only that suite's snapshot is
+    // written (other stored suites stay untouched); without it, the legacy
+    // per-suite behavior is preserved for compatibility.
     if (options.writeBaseline && baselinePath) {
       const suites: Partial<Record<EvalSuite, BaselineSnapshot>> = {
         ...baselineData.suites,
       };
-      // A legacy shared baseline becomes the starting point for any suite that
-      // does not yet have its own snapshot, so no baseline is silently lost.
-      if (baselineData.legacy) {
-        if (!suites.regression) suites.regression = baselineData.legacy;
-        if (!suites.capability) suites.capability = baselineData.legacy;
-      }
       if (selectedSuite) {
-        suites[selectedSuite] = snapshotOf(report);
+        // Scope the write to the selected suite only. A legacy shared baseline
+        // is not promoted into any other suite by a suite-scoped write.
+        suites[selectedSuite] = snapshotOf(
+          report,
+          report.tasks.filter((t) => t.suite === selectedSuite),
+        );
       } else {
+        // No --suite: keep writing one snapshot per suite present in the run.
+        // A legacy shared baseline seeds any suite without a stored snapshot.
+        if (baselineData.legacy) {
+          if (!suites.regression) suites.regression = baselineData.legacy;
+          if (!suites.capability) suites.capability = baselineData.legacy;
+        }
         for (const suite of ["regression", "capability"] as EvalSuite[]) {
           const suiteTasks = report.tasks.filter((t) => t.suite === suite);
           if (suiteTasks.length) {
@@ -892,7 +937,6 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
         JSON.stringify({ version: 1, suites }, null, 2),
       );
     }
-
   }
 
   options.onProgress?.(
@@ -901,9 +945,15 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
   return report;
 }
 
+/** The minimal shape a baseline must expose for a comparison. */
+interface BaselineComparable {
+  summary: { passRate: number };
+  tasks: Array<{ name: string; pass: boolean }>;
+}
+
 export function compareBaseline(
   current: EvalReport,
-  baseline: EvalReport,
+  baseline: BaselineComparable,
 ): {
   previousPassRate: number;
   deltaPassRate: number;
@@ -1025,7 +1075,7 @@ export async function reviewEval(
     const emit = options.printer ?? (() => {});
     emit(`FAILED ${label}`);
     for (const g of failure.graders) {
-      emit(`  ${g.pass ? "PASS" : "FAIL"} ${g.name}: ${g.reason}`);
+      emit(`  ${formatGraderLine(g)}`);
     }
     if (failure.error) emit(`  error: ${failure.error}`);
     if (failure.checkOutput) emit(`  checkOutput: ${failure.checkOutput}`);

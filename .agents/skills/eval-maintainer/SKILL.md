@@ -28,18 +28,22 @@ Work through these steps in order. Do not skip step 4.
 6. **Fix the right thing.** Change the harness only for a harness bug; change the task or grader for a task or grader bug. Stop and report a model gap without changing the harness to compensate for model behavior.
 7. **Add or strengthen a regression task for every harness fix.** A fix without a task that fails before it and passes after it is not complete.
 8. **Re-run locally, then fully.** First re-run the affected task, then the full regression suite. Confirm the new task fails on the old behavior and passes on the fix.
-9. **Record the outcome.** Note what was tried, the classification, the evidence from the transcript, the fix, the task added, and the re-run results in the conversation and the run artifacts, so the next maintainer knows what happened.
+9. **Record the outcome.** Note what was tried, the classification, the evidence from the transcript, the fix, the task added, and the re-run results in the conversation and the run artifacts, so the next maintainer knows what happened. Include the eval results in the change description so a reviewer can judge quality claims against evidence.
 
 ## Failure classification
 
-| Class | Signal | Action |
-| ----- | ------ | ------ |
-| Harness bug | Agent runtime drifts despite a correct task and grader: missed tool call, lost thread on compaction, mishandled approval, ignored persona permission. | Fix the harness, then add or strengthen a regression task (steps 5–8). |
-| Task bug | Even a correct reference solution fails; a task scores zero across repeated trials. Check its spec, reference solution, and fixture before blaming the agent. | Fix the task; do not change the harness. |
-| Grader bug | The workspace outcome is actually correct but the grader reports failure, or the grader checks a path rather than the outcome. | Fix the grader; keep it deterministic and outcome-based. |
-| Model gap | The agent genuinely lacks the capability; task, grader, and harness are all correct. | **Stop.** Report it as a capability gap and do not contort the harness to compensate. Promote it into the capability suite, not the regression suite. |
+| Class       | Signal                                                                                                                                                        | Action                                                                                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Harness bug | Agent runtime drifts despite a correct task and grader: missed tool call, lost thread on compaction, mishandled approval, ignored persona permission.         | Fix the harness, then add or strengthen a regression task (steps 5–8).                                                                                |
+| Task bug    | Even a correct reference solution fails; a task scores zero across repeated trials. Check its spec, reference solution, and fixture before blaming the agent. | Fix the task; do not change the harness.                                                                                                              |
+| Grader bug  | The workspace outcome is actually correct but the grader reports failure, or the grader checks a path rather than the outcome.                                | Fix the grader; keep it deterministic and outcome-based.                                                                                              |
+| Model gap   | The agent genuinely lacks the capability; task, grader, and harness are all correct.                                                                          | **Stop.** Report it as a capability gap and do not contort the harness to compensate. Promote it into the capability suite, not the regression suite. |
 
 A task that scores zero across repeated trials is presumed broken until its specification, grader, and reference solution are checked. A task that passes once and fails across trials is a stability problem.
+
+## Saturation
+
+When a capability task passes across repeated trials, promote it into the regression suite so the win stays locked down. When a capability suite saturates at 100%, retire it into regression and add harder capability tasks to replace it. Suite definitions live on the [eval documentation page](../../../docs/eval.md).
 
 ## Overfitting warning
 
@@ -49,14 +53,14 @@ A task that scores zero across repeated trials is presumed broken until its spec
 
 Run these from the repository root. Full flag and field reference is on the [eval documentation page](../../../docs/eval.md).
 
-| Goal | Command |
-| ---- | ------- |
-| Full regression suite | `npm run eval -- --suite regression` |
-| Single task | `npm run eval -- --task <name>` |
-| Repeated trials | `npm run eval -- --suite <suite> --trials <n>` |
-| Review failed trials | `npm run eval -- --review` (or `--review <runId>`) |
-| Deterministic harness smoke gate | `npm run eval:smoke` |
-| Update a suite baseline explicitly | `npm run eval -- --suite <suite> --baseline` |
+| Goal                               | Command                                            |
+| ---------------------------------- | -------------------------------------------------- |
+| Full regression suite              | `npm run eval -- --suite regression`               |
+| Single task                        | `npm run eval -- --task <name>`                    |
+| Repeated trials                    | `npm run eval -- --suite <suite> --trials <n>`     |
+| Review failed trials               | `npm run eval -- --review` (or `--review <runId>`) |
+| Deterministic harness smoke gate   | `npm run eval:smoke`                               |
+| Update a suite baseline explicitly | `npm run eval -- --suite <suite> --baseline`       |
 
 Artifacts for each run live under `evals/out/runs/<runId>/`: `report.json`, `outcome-snapshot.json`, and one trial directory per trial with `transcript.json` and `graders.json`. `evals/out/latest.json` points at the most recent run.
 

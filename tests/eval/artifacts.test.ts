@@ -54,6 +54,7 @@ function writeHello(content: string): any[] {
   ];
 }
 
+// contract: a run writes the stable artifact tree used to compare failures across commits.
 test("runEval writes a stable per-run artifact tree with report, transcripts, grader detail, and outcome snapshot", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   const outDir = mkdtempSync(join(tmpdir(), "evalout-"));
@@ -93,14 +94,21 @@ test("runEval writes a stable per-run artifact tree with report, transcripts, gr
   }
 });
 
+// contract: every trial keeps a machine-readable transcript, pass or fail.
 test("runEval retains machine-readable transcripts for both passing and failing trials", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   const outDir = mkdtempSync(join(tmpdir(), "evalout-"));
   try {
     makeArtifactTask(tasksDir, "graded");
-    const provider = new FakeProvider([...writeHello("hi"), ...writeHello("bad")]);
+    const provider = new FakeProvider([
+      ...writeHello("hi"),
+      ...writeHello("bad"),
+    ]);
     const report = await runEval({ provider, tasksDir, outDir, trials: 2 });
-    assert.deepEqual(report.tasks.map((t) => t.pass), [true, false]);
+    assert.deepEqual(
+      report.tasks.map((t) => t.pass),
+      [true, false],
+    );
 
     for (const t of report.tasks) {
       const path = join(
@@ -118,7 +126,8 @@ test("runEval retains machine-readable transcripts for both passing and failing 
       assert.ok(
         messages.some(
           (m: any) =>
-            m.role === "user" && JSON.stringify(m.content).includes("do the thing"),
+            m.role === "user" &&
+            JSON.stringify(m.content).includes("do the thing"),
         ),
         "transcript includes the recorded user message",
       );
@@ -129,6 +138,7 @@ test("runEval retains machine-readable transcripts for both passing and failing 
   }
 });
 
+// flow: review selects only failed trials and prints their transcript and grader detail.
 test("reviewEval selects only failed trials and returns their transcript and grader detail", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   const outDir = mkdtempSync(join(tmpdir(), "evalout-"));
@@ -140,7 +150,10 @@ test("reviewEval selects only failed trials and returns their transcript and gra
       ...writeHello("hi"),
     ]);
     const report = await runEval({ provider, tasksDir, outDir, trials: 3 });
-    assert.deepEqual(report.tasks.map((t) => t.pass), [true, false, true]);
+    assert.deepEqual(
+      report.tasks.map((t) => t.pass),
+      [true, false, true],
+    );
 
     const printed: string[] = [];
     const { reviewEval } = await import("../../dist/eval/runner.js");
@@ -172,6 +185,7 @@ test("reviewEval selects only failed trials and returns their transcript and gra
   }
 });
 
+// contract: review defaults to the latest run and reports no false failures.
 test("reviewEval defaults to the latest run and reports no failures when all trials pass", async () => {
   const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
   const outDir = mkdtempSync(join(tmpdir(), "evalout-"));
@@ -196,6 +210,7 @@ test("reviewEval defaults to the latest run and reports no failures when all tri
   }
 });
 
+// contract: eval output is ignored so runs do not pollute the repository.
 test("run artifacts are ignored by git", () => {
   const gi = readFileSync(join(process.cwd(), ".gitignore"), "utf8");
   assert.match(gi, /evals\/out\/?/);
