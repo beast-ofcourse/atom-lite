@@ -45,8 +45,8 @@ Adopted from ChatGPT:
 - User prompts as right-aligned soft-gray bubbles; assistant replies as
   unframed prose with a small mark, never a bubble.
 - 16px/1.75 prose, 14px UI, 12px metadata, 400/500/600 weights.
-- Centered 768px conversation column and a 28px-radius composer with a
-  circular send button.
+- Centered 900px conversation column on desktop and a 768px, 28px-radius
+  composer with a circular send button.
 - Centered "What can I help with?" empty state on a new conversation.
 - Dated, filterable chat history rows with 40px height and 10px radius.
 - Flat surfaces; elevation only on floating UI (approval dialog, mobile
@@ -145,8 +145,8 @@ stylesheet owns colour, so there is no vendored highlight theme.
 
 Weights are 400 for prose, 500 for navigation and emphasis, 600 for headings
 and state labels. Body line-height is 1.75 (ChatGPT prose rhythm); UI is 1.4.
-Prose measure is capped by the 768px thread column; user bubbles cap at 70% of
-the column.
+Prose measure is capped by the 900px transcript column on desktop; the composer
+stays at 768px. User bubbles cap at 70% of the column.
 
 ### Space, radius, motion
 
@@ -164,7 +164,7 @@ transitions collapse.
 ┌────────────── 260px ──────────────┬──────────────── main ────────────────┐
 │ brand            [collapse]       │ header 52px: [toggle] model · role  │
 │ New chat                          │                                      │
-│ Search chats                      │        transcript 768px max          │
+│ Search chats                      │        transcript 900px max          │
 │ Today                             │        (user bubbles right)          │
 │   session rows (40px)             │                                      │
 │ Yesterday                         │                                      │
@@ -243,7 +243,7 @@ and the resizer is hidden.
 
 ### Transcript and messages
 
-- Single 768px column. Assistant blocks: 24px mark, prose, optional copy
+- Single 900px desktop column. Assistant blocks: 24px mark, prose, optional copy
   action. No avatar for user messages; no role labels.
 - User bubble: `--user-bubble`, 18px radius with a 4px bottom-right corner,
   padding 10px 16px, max-width 70%, wraps anywhere.
@@ -593,6 +593,13 @@ and the fake provider, dark and light, 1440×900 and 390×844.
   the final render settles. No entrance animation is attached to streamed text.
   Scroll updates are coalesced to one frame and respect user scroll-up.
 
+- **Contrast (2026-11-17):** selected question descriptions and tool-card
+  summaries now use `--text-dim` on their raised surfaces, measuring 6.5:1 dark
+  and 5.4:1 light. Detector is clean at 1440; the only mobile finding is a
+  content-dependent line-wrap advisory.
+- **Transcript width (2026-11-17):** at 1920×1080 with both sidebars open, the
+  first transcript block measured 900px inside a 1360px main column while the
+  composer stayed 768px. No horizontal overflow at 1440, 1920, or 390.
 - **Question form (2026-11-17):** a two-question request rendered as a stacked
   form with single-select options, a multi-select group, custom-answer fields,
   and fixed Dismiss/Submit actions. Selecting `Web and runtime`, `Typecheck`,

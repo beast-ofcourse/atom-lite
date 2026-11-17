@@ -39,6 +39,7 @@
   --todo-width: 300px;
   --header-height: 52px;
   --thread-max: 768px;
+  --transcript-max: 900px;
   --cap-output: 320px;
   --cap-input: 200px;
 
@@ -1064,7 +1065,7 @@ body.sidebar-collapsed .sidebar-toggle-main,
 }
 
 .transcript > * {
-  max-width: var(--thread-max);
+  max-width: var(--transcript-max);
   margin-left: auto;
   margin-right: auto;
 }
@@ -1696,7 +1697,7 @@ body.sidebar-collapsed .sidebar-toggle-main,
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  color: var(--text-faint);
+  color: var(--text-dim);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   text-overflow: ellipsis;
@@ -2783,6 +2784,10 @@ body.is-empty .suggestions {
 .question-option[aria-pressed="true"] {
   border-color: var(--border-strong);
   background: var(--active);
+}
+
+.question-option[aria-pressed="true"] .question-option-desc {
+  color: var(--text-dim);
 }
 
 .question-option:disabled {

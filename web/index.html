@@ -758,8 +758,7 @@
         </div>
         <div class="overlay-list" id="mcp-list"></div>
         <div class="palette-foot">
-          Connection state and exposed tools. Changes apply to this process
-          only.
+          Changes apply to this process only and are locked while a turn runs.
         </div>
       </div>
     </div>
@@ -941,7 +940,7 @@
             class="icon-btn modal-close"
             id="question-close"
             type="button"
-            aria-label="Dismiss questions"
+            aria-label="Dismiss questions and stop the turn"
           >
             <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>
           </button>
@@ -952,7 +951,7 @@
         <div class="question-fields" id="question-fields"></div>
         <div class="modal-actions">
           <button class="btn" id="question-cancel" type="button">
-            Dismiss
+            Dismiss and stop
           </button>
           <button class="btn btn-primary" id="question-submit" type="button">
             Submit answers

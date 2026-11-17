@@ -2054,6 +2054,19 @@ function agentLabel(name) {
   return name || "default";
 }
 
+function agentSourceLabel(source) {
+  switch (source) {
+    case "bundled":
+      return "built-in";
+    case "global":
+      return "user";
+    case "opencode":
+      return ".opencode";
+    default:
+      return source;
+  }
+}
+
 function renderAgentLabel() {
   const label = agentLabel(activeAgent);
   agentNameEl.textContent = label;
@@ -2085,12 +2098,12 @@ function renderAgentList() {
     title.textContent = agent.name;
     const sub = document.createElement("div");
     sub.className = "overlay-item-sub";
-    sub.textContent = agent.description || agent.source;
+    sub.textContent = agent.description || agentSourceLabel(agent.source);
     main.append(title, sub);
 
     const meta = document.createElement("div");
     meta.className = "overlay-item-meta";
-    meta.textContent = agent.source;
+    meta.textContent = agentSourceLabel(agent.source);
 
     button.append(main, meta, icon("check", "icon popover-check"));
     button.addEventListener("click", () => {
@@ -2522,6 +2535,18 @@ function openSkillsModal() {
   send({ type: "list_skills" });
 }
 
+function mcpStateLabel(state) {
+  switch (state) {
+    case "ready":
+      return "connected";
+    case "idle":
+    case "disabled":
+      return "disconnected";
+    default:
+      return state;
+  }
+}
+
 function mcpAction(server) {
   const connected = server.state === "ready" || server.state === "connecting";
   const busy = server.state === "connecting";
@@ -2579,7 +2604,7 @@ function renderMcp(servers) {
       main.append(title, description);
       const meta = document.createElement("span");
       meta.className = "overlay-item-meta";
-      meta.textContent = `${server.state} · ${server.toolCount} tool${
+      meta.textContent = `${mcpStateLabel(server.state)} · ${server.toolCount} tool${
         server.toolCount === 1 ? "" : "s"
       }`;
       item.append(state, main, meta, mcpAction(server));
@@ -3308,8 +3333,8 @@ function renderQuestionFields() {
   const count = pendingQuestion.questions.length;
   questionDesc.textContent =
     count === 1
-      ? "The agent needs your input to continue."
-      : `${count} questions from the agent.`;
+      ? "The agent needs your input to continue. Dismissing stops the turn."
+      : `${count} questions from the agent. Dismissing stops the turn.`;
 
   pendingQuestion.questions.forEach((question, index) => {
     const draft = questionDraft[index];
