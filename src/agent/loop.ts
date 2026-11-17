@@ -55,6 +55,7 @@ export class AgentRuntime {
   private toolMap: Map<string, AgentRuntimeOptions["tools"][number]>;
   private limits: AgentLimits;
   private extensionDispatch: AgentRuntimeOptions["extensionDispatch"];
+  private usageLedger: AgentRuntimeOptions["usageLedger"];
   private steeringQueue: string[] | undefined;
 
   private contextWindow: number | undefined;
@@ -91,6 +92,7 @@ export class AgentRuntime {
         maxProjectInstructionBytes: 30000,
         provider: options.provider,
         model: options.model ?? options.provider.model ?? "default",
+        usageLedger: options.usageLedger,
       });
     this.baseSystemPrompt =
       options.systemPrompt ?? this.contextManager.getSystemPrompt();
@@ -104,6 +106,7 @@ export class AgentRuntime {
     this.refreshToolTokenOverhead();
     this.limits = { ...DEFAULT_LIMITS, ...(options.limits ?? {}) };
     this.extensionDispatch = options.extensionDispatch;
+    this.usageLedger = options.usageLedger;
     this.steeringQueue = options.steeringQueue;
     this.contextWindow = options.contextWindow;
     this.supportsVision = options.supportsVision;
@@ -577,6 +580,7 @@ export class AgentRuntime {
   async runAgentTurn(
     input: string,
     session: {
+      id?: string;
       messages: Message[];
       appendMessage(m: Message): void;
       appendEvent?(partial: any): any;
@@ -600,6 +604,9 @@ export class AgentRuntime {
     // call in the turn. Persisting it makes the request traceable after the
     // fact (session log + event consumers).
     const requestId = (options?.requestId ?? "").trim() || randomUUID();
+    // The compaction summarizer issues its own model call; give it the same
+    // correlation ids so it produces a ledger record too.
+    this.contextManager.setUsageContext?.(session.id ?? "", requestId);
     if (typeof (session as any).appendEvent === "function") {
       (session as any).appendEvent({
         type: "model_request_id",
@@ -700,6 +707,8 @@ export class AgentRuntime {
           temperature: this.persona?.temperature,
           signal,
           requestId,
+          usageLedger: this.usageLedger,
+          sessionId: session.id,
         })) {
           if (ev.type === "thinking_delta") {
             thinkingBuffer += ev.text;

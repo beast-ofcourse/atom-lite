@@ -9,6 +9,7 @@ import {
 } from "../skills/registry.js";
 import { estimateMessageTokens } from "./budget.js";
 import { userConfigDir } from "../config/paths.js";
+import { recordModelUsage, type UsageLedger } from "../usage/ledger.js";
 
 export interface ContextManagerOptions {
   systemPrompt: string;
@@ -22,6 +23,8 @@ export interface ContextManagerOptions {
   compactEveryNTurns?: number;
   /** Optional cheaper summarizer model. Unset means use the active model. */
   compactionModel?: string | null;
+  /** Optional per-call usage ledger. Inert when absent. */
+  usageLedger?: UsageLedger;
 }
 
 /** State the runtime injects every turn and feeds into the summarizer. */
@@ -75,6 +78,10 @@ export class ContextManager {
   private compactEveryNTurns = 0;
   private staticContext: ContextStaticState | null = null;
   private pendingContinuation: string | null = null;
+  private usageContext: { sessionId: string; requestId: string } = {
+    sessionId: "",
+    requestId: "",
+  };
 
   constructor(opts: ContextManagerOptions) {
     this.opts = opts;
@@ -107,6 +114,11 @@ export class ContextManager {
   setToolTokenOverhead(overhead: number): void {
     if (typeof overhead === "number" && overhead >= 0)
       this.toolTokenOverhead = Math.floor(overhead);
+  }
+
+  /** Correlation ids for the next summarizer call issued by this manager. */
+  setUsageContext(sessionId: string, requestId: string): void {
+    this.usageContext = { sessionId, requestId };
   }
 
   noteUsage(used: number): void {
@@ -339,6 +351,16 @@ export class ContextManager {
         tools: [],
       };
       const resp = await this.opts.provider.generate(summaryReq as any);
+      recordModelUsage(
+        this.opts.usageLedger,
+        {
+          sessionId: this.usageContext.sessionId,
+          requestId: this.usageContext.requestId,
+          provider: this.opts.provider.id,
+          model: this.opts.compactionModel || this.opts.model,
+        },
+        resp.usage,
+      );
       summaryText =
         resp.message.content
           ?.map((p: any) => (p.type === "text" ? p.text : ""))

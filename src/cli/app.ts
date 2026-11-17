@@ -3,6 +3,7 @@ import { DEFAULT_SYSTEM_PROMPT } from "../agent/system-prompt.js";
 import {
   defaultAgentDir,
   defaultUserConfigPath,
+  defaultUsageLedgerPath,
   userConfigDir,
 } from "../config/paths.js";
 import { saveProviderSelection, saveTheme } from "../config/write.js";
@@ -49,6 +50,7 @@ import { StreamText } from "./stream-text.js";
 import { initLsp, shutdownLsp } from "../lsp/index.js";
 import { Transcript } from "./transcript.js";
 import { AgentRuntime } from "../agent/loop.js";
+import { FileUsageLedger } from "../usage/ledger.js";
 import { DefaultAgentRegistry } from "../agents/registry.js";
 import { resolveConfiguredAgent } from "../agents/selection.js";
 import {
@@ -465,6 +467,12 @@ export async function run(args: string[]): Promise<void> {
     return results;
   };
 
+  const usageLedger = config.usage.ledgerEnabled
+    ? new FileUsageLedger(
+        config.usage.ledgerPath ?? defaultUsageLedgerPath(),
+      )
+    : undefined;
+
   const contextManager = new ContextManager({
     systemPrompt: DEFAULT_SYSTEM_PROMPT,
     maxInputTokens: config.context.maxInputTokens ?? null,
@@ -476,6 +484,7 @@ export async function run(args: string[]): Promise<void> {
     provider,
     model: modelOverride ?? provider.model ?? "default",
     userInstructionsPath: undefined,
+    usageLedger,
   });
 
   let sessionTrusted = false;
@@ -504,6 +513,7 @@ export async function run(args: string[]): Promise<void> {
     mode: config.runtime.mode,
     maxTokensPerSession: config.runtime.maxTokensPerSession,
     maxTokensPerTurn: config.runtime.maxTokensPerTurn,
+    usageLedger,
     contextManager,
     extensionDispatch,
     bashConcurrency: config.runtime.bashConcurrency,

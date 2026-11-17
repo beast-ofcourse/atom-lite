@@ -30,6 +30,20 @@ test("empty config yields documented defaults", () => {
   assert.equal(cfg.sessions.retentionDays, null);
   assert.equal(cfg.ui.theme, "auto");
   assert.equal(cfg.runtime.checkpointing, undefined);
+  assert.equal(cfg.usage.ledgerEnabled, false);
+  assert.equal(cfg.usage.ledgerPath, null);
+});
+
+test("usage ledger settings parse and older configs without the section still load", () => {
+  const cfg = ConfigSchema.parse({
+    usage: { ledgerEnabled: true, ledgerPath: "/tmp/usage.jsonl" },
+  });
+  assert.equal(cfg.usage.ledgerEnabled, true);
+  assert.equal(cfg.usage.ledgerPath, "/tmp/usage.jsonl");
+
+  const legacy = ConfigSchema.parse({ runtime: { mode: "plan" } });
+  assert.equal(legacy.usage.ledgerEnabled, false);
+  assert.equal(legacy.usage.ledgerPath, null);
 });
 
 test("old configs carrying runtime.checkpointing still parse (ignored)", () => {

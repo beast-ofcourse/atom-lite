@@ -53,6 +53,15 @@ export const ContextConfigSchema = z
   })
   .strict();
 
+export const UsageConfigSchema = z
+  .object({
+    /** Opt-in per-call usage ledger. Off by default. User config only. */
+    ledgerEnabled: z.boolean().default(false),
+    /** Override for the ledger file location; null uses the user config dir. */
+    ledgerPath: z.string().min(1).nullable().default(null),
+  })
+  .strict();
+
 export const SessionsConfigSchema = z
   .object({
     enabled: z.boolean().default(true),
@@ -132,6 +141,7 @@ export const ConfigSchema = z
     runtime: RuntimeConfigSchema.prefault({}),
     context: ContextConfigSchema.prefault({}),
     sessions: SessionsConfigSchema.prefault({}),
+    usage: UsageConfigSchema.prefault({}),
     lsp: LspConfigSchema.prefault({}),
     ui: UiConfigSchema.prefault({}),
     keybindings: KeybindingsConfigSchema.prefault({}),

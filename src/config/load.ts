@@ -140,6 +140,12 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
       ...((userRaw.sessions as object) ?? {}),
       ...((projectRaw.sessions as object) ?? {}),
     },
+    // Ledger settings are user-owned: a repository must not be able to make
+    // the agent write files outside the user's own configuration directory.
+    usage: {
+      ...DEFAULT_CONFIG.usage,
+      ...((userRaw.usage as object) ?? {}),
+    },
     lsp: {
       ...DEFAULT_CONFIG.lsp,
       ...((userRaw.lsp as object) ?? {}),

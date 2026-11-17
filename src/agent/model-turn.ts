@@ -1,5 +1,6 @@
 import type { Message, ModelRequest, ToolCall } from "../types.js";
 import type { ProviderAdapter } from "../providers/types.js";
+import { recordModelUsage, type UsageLedger } from "../usage/ledger.js";
 
 export interface ModelTurnRequest {
   provider: ProviderAdapter;
@@ -11,6 +12,10 @@ export interface ModelTurnRequest {
   signal: AbortSignal;
   /** Optional caller-supplied id for the outgoing model request. */
   requestId?: string;
+  /** Optional per-call usage ledger. Inert when absent. */
+  usageLedger?: UsageLedger;
+  /** Session id recorded alongside the call, when known. */
+  sessionId?: string;
 }
 
 export type ModelTurnEvent =
@@ -22,7 +27,8 @@ export type ModelTurnEvent =
       response: {
         message: Message;
         toolCalls?: ToolCall[];
-        usage?: { input?: number; output?: number };
+        usage?: { input?: number; output?: number; total?: number };
+        requestId?: string;
       };
       streamedText: string;
     };
@@ -30,6 +36,27 @@ export type ModelTurnEvent =
 export async function* runModelTurn(
   request: ModelTurnRequest,
 ): AsyncGenerator<ModelTurnEvent> {
+  const recordUsage = (
+    response: {
+      usage?: { input?: number; output?: number; total?: number };
+      requestId?: string;
+    },
+  ): void => {
+    recordModelUsage(
+      request.usageLedger,
+      {
+        sessionId: request.sessionId ?? "",
+        requestId: response.requestId ?? request.requestId ?? "",
+        provider: request.provider.id,
+        model:
+          request.model && request.model !== "default"
+            ? request.model
+            : (request.provider.model ?? "default"),
+      },
+      response.usage,
+    );
+  };
+
   const options: Record<string, unknown> = { effort: request.effort };
   if (request.temperature !== undefined) {
     options.temperature = request.temperature;
@@ -68,6 +95,7 @@ export async function* runModelTurn(
         finishReason: "stop",
       };
     }
+    recordUsage(response);
     yield { type: "final", response, streamedText };
     return;
   }
@@ -80,5 +108,6 @@ export async function* runModelTurn(
   if (text) {
     yield { type: "assistant_text", text };
   }
+  recordUsage(response);
   yield { type: "final", response, streamedText: text };
 }

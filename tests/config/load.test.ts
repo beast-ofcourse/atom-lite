@@ -80,6 +80,27 @@ test("loadConfig defaults ui.theme to auto", () => {
   assert.equal(cfg.ui.vimMode, false);
 });
 
+test("project config cannot enable or redirect the usage ledger", () => {
+  const dir = mkdtempSync(join(tmpdir(), "atom-"));
+  mkdirSync(join(dir, ".atom-lite"));
+  const userPath = join(dir, "user.json");
+  writeFileSync(
+    userPath,
+    JSON.stringify({
+      usage: { ledgerEnabled: true, ledgerPath: "/tmp/user-ledger.jsonl" },
+    }),
+  );
+  writeFileSync(
+    join(dir, ".atom-lite", "config.json"),
+    JSON.stringify({
+      usage: { ledgerEnabled: false, ledgerPath: "/tmp/project-ledger.jsonl" },
+    }),
+  );
+  const cfg = loadConfig({ projectRoot: dir, userConfigPath: userPath });
+  assert.equal(cfg.usage.ledgerEnabled, true);
+  assert.equal(cfg.usage.ledgerPath, "/tmp/user-ledger.jsonl");
+});
+
 test("project config cannot override user ui settings", () => {
   const dir = mkdtempSync(join(tmpdir(), "atom-"));
   mkdirSync(join(dir, ".atom-lite"));

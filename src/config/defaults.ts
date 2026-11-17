@@ -26,6 +26,10 @@ export const DEFAULT_CONFIG = {
     compactionModel: null as string | null,
   },
   sessions: { enabled: true, retentionDays: null as number | null },
+  usage: {
+    ledgerEnabled: false,
+    ledgerPath: null as string | null,
+  },
   lsp: { enabled: false, servers: {} },
   ui: {
     theme: "auto",

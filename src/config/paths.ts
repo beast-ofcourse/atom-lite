@@ -26,3 +26,8 @@ export function defaultAgentDir(): string {
 export function defaultCredentialsPath(): string {
   return join(userConfigDir(), "credentials.json");
 }
+
+/** Default local path for the opt-in per-call usage ledger. */
+export function defaultUsageLedgerPath(): string {
+  return join(userConfigDir(), "usage-ledger.jsonl");
+}

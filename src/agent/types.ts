@@ -5,6 +5,7 @@ import type { ProviderAdapter } from "../providers/types.js";
 import type { Tool } from "../tools/types.js";
 import type { ApprovalContext } from "../runtime/approvals.js";
 import type { ContextManager } from "../context/manager.js";
+import type { UsageLedger } from "../usage/ledger.js";
 
 export type AgentEvent =
   | { type: "assistant_delta"; text: string }
@@ -78,6 +79,8 @@ export interface AgentRuntimeOptions {
   approvals?: ApprovalContext;
   /** Initial agent mode. Defaults to yolo for programmatic use. */
   mode?: "plan" | "yolo";
+  /** Optional per-call usage ledger. Inert when absent. */
+  usageLedger?: UsageLedger;
   /** Optional session token budget (hard stop when exceeded). */
   maxTokensPerSession?: number | null;
   /** Optional per-turn token soft warning threshold. */
