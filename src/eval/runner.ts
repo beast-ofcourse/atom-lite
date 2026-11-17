@@ -75,6 +75,44 @@ export interface EvalTaskResult {
   trialCount?: number;
 }
 
+/** A summary of the spread of one numeric measurement across trials. */
+export interface Distribution {
+  count: number;
+  min: number;
+  max: number;
+  mean: number;
+  median: number;
+  p90: number;
+  /** All observed values, sorted ascending. */
+  values: number[];
+}
+
+/** First-try and consistency metrics aggregated from trial outcomes. */
+export interface EvalMetrics {
+  /** Mean per-task pass rate: the chance a single trial passes. */
+  passAt1: number;
+  /** Mean per-task chance that all of a task's trials pass (consistency). */
+  passAtK: number;
+  /** Trial count k used for pass^k (the largest trial count in the run). */
+  k: number;
+  perTaskPassRates: Array<{
+    name: string;
+    suite: EvalSuite;
+    passed: number;
+    trials: number;
+    passRate: number;
+    passAt1: number;
+    passAtK: number;
+  }>;
+  distributions: {
+    inputTokens: Distribution;
+    outputTokens: Distribution;
+    totalTokens: Distribution;
+    turns: Distribution;
+    wallMs: Distribution;
+  };
+}
+
 export interface EvalReport {
   runId: string;
   suite: EvalSuite | "all";
@@ -83,6 +121,7 @@ export interface EvalReport {
   startedAt: string;
   finishedAt: string;
   tasks: EvalTaskResult[];
+  metrics: EvalMetrics;
   summary: {
     total: number;
     passed: number;
@@ -453,6 +492,87 @@ function snapshotOf(
   };
 }
 
+function distribution(values: number[]): Distribution {
+  if (values.length === 0) {
+    return { count: 0, min: 0, max: 0, mean: 0, median: 0, p90: 0, values: [] };
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const count = sorted.length;
+  const sum = sorted.reduce((acc, v) => acc + v, 0);
+  const mid = Math.floor(count / 2);
+  const median =
+    count % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  const p90 = sorted[Math.max(0, Math.ceil(0.9 * count) - 1)];
+  return {
+    count,
+    min: sorted[0],
+    max: sorted[count - 1],
+    mean: sum / count,
+    median,
+    p90,
+    values: sorted,
+  };
+}
+
+/**
+ * Derive pass@1, pass^k, per-task pass rates, and cost/latency distributions
+ * from the flat list of trial outcomes in a report. Pure and deterministic so
+ * the metric math can be pinned with small outcome sets.
+ *
+ * pass@1 is the mean per-task pass rate (one trial). pass^k is the mean
+ * per-task probability that all of a task's k trials pass, estimated as
+ * (pass rate)^k. A single-trial run has k = 1 and the two metrics coincide.
+ */
+export function computeMetrics(tasks: EvalTaskResult[]): EvalMetrics {
+  const groups = new Map<string, EvalTaskResult[]>();
+  for (const t of tasks) {
+    const list = groups.get(t.name) ?? [];
+    list.push(t);
+    groups.set(t.name, list);
+  }
+
+  const perTaskPassRates: EvalMetrics["perTaskPassRates"] = [];
+  let passAt1Sum = 0;
+  let passAtKSum = 0;
+  let k = 1;
+  for (const [name, outcomes] of groups) {
+    const trials = outcomes.length;
+    const passed = outcomes.filter((t) => t.pass).length;
+    const passRate = passed / trials;
+    const taskK = Math.max(1, ...outcomes.map((t) => t.trialCount ?? 1));
+    const passAtK = Math.pow(passRate, taskK);
+    k = Math.max(k, taskK);
+    passAt1Sum += passRate;
+    passAtKSum += passAtK;
+    perTaskPassRates.push({
+      name,
+      suite: outcomes[0]?.suite ?? "regression",
+      passed,
+      trials,
+      passRate,
+      passAt1: passRate,
+      passAtK,
+    });
+  }
+
+  const nTasks = groups.size;
+  return {
+    passAt1: nTasks ? passAt1Sum / nTasks : 0,
+    passAtK: nTasks ? passAtKSum / nTasks : 0,
+    k,
+    perTaskPassRates,
+    distributions: {
+      inputTokens: distribution(tasks.map((t) => t.inputTokens)),
+      outputTokens: distribution(tasks.map((t) => t.outputTokens)),
+      totalTokens: distribution(
+        tasks.map((t) => t.inputTokens + t.outputTokens),
+      ),
+      turns: distribution(tasks.map((t) => t.turns)),
+      wallMs: distribution(tasks.map((t) => t.wallMs)),
+    },
+  };
+}
+
 export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
   const model = options.model ?? (options.provider as any)?.model ?? "default";
   const tasksDir = resolve(options.tasksDir);
@@ -620,6 +740,7 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
     startedAt,
     finishedAt,
     tasks,
+    metrics: computeMetrics(tasks),
     summary: {
       total: tasks.length,
       passed: tasks.filter((t) => t.pass).length,
@@ -680,6 +801,70 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
         `pass=${t.pass}\nscore=${t.score}\nturns=${t.turns}\ninput=${t.inputTokens}\noutput=${t.outputTokens}\nwallMs=${t.wallMs}\nerror=${t.error ?? ""}\ncheckOutput=${t.checkOutput ?? ""}\n--- graders ---\n${graderLines}\n--- transcript ---\n${transcript}\n`,
       );
     });
+
+    // Stable, durable artifact tree for this run. Layout:
+    //   <outDir>/runs/<runId>/report.json
+    //   <outDir>/runs/<runId>/outcome-snapshot.json
+    //   <outDir>/runs/<runId>/trials/<task>[--trial-N]/transcript.json
+    //   <outDir>/runs/<runId>/trials/<task>[--trial-N]/graders.json
+    const runDir = join(options.outDir, "runs", report.runId);
+    const trialsRoot = join(runDir, "trials");
+    mkdirSync(trialsRoot, { recursive: true });
+    writeFileSync(join(runDir, "report.json"), JSON.stringify(report, null, 2));
+    writeFileSync(
+      join(runDir, "outcome-snapshot.json"),
+      JSON.stringify(
+        {
+          runId: report.runId,
+          suite: report.suite,
+          provider: report.provider,
+          model: report.model,
+          startedAt: report.startedAt,
+          finishedAt: report.finishedAt,
+          outcomes: tasks.map((t) => ({
+            name: t.name,
+            trialIndex: t.trialIndex,
+            pass: t.pass,
+            score: t.score,
+            error: t.error,
+            checkOutput: t.checkOutput,
+          })),
+        },
+        null,
+        2,
+      ),
+    );
+    tasks.forEach((t, i) => {
+      const label =
+        (t.trialCount ?? 1) > 1 ? `${t.name}--trial-${t.trialIndex}` : t.name;
+      const trialDir = join(trialsRoot, label);
+      mkdirSync(trialDir, { recursive: true });
+      writeFileSync(
+        join(trialDir, "transcript.json"),
+        JSON.stringify(taskMessages[i] ?? [], null, 2),
+      );
+      writeFileSync(
+        join(trialDir, "graders.json"),
+        JSON.stringify(
+          {
+            name: t.name,
+            trialIndex: t.trialIndex,
+            pass: t.pass,
+            score: t.score,
+            checkOutput: t.checkOutput,
+            graders: t.graders,
+          },
+          null,
+          2,
+        ),
+      );
+    });
+    // Pointer to the most recent run, so review needs no run id.
+    writeFileSync(
+      join(options.outDir, "latest.json"),
+      JSON.stringify({ runId: report.runId }, null, 2),
+    );
+
     // Writing a baseline is opt-in and targets one suite at a time, so a
     // capability run can never rewrite the regression standard.
     if (options.writeBaseline && baselinePath) {
@@ -707,6 +892,7 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
         JSON.stringify({ version: 1, suites }, null, 2),
       );
     }
+
   }
 
   options.onProgress?.(
@@ -738,4 +924,115 @@ export function compareBaseline(
     newlyPassing,
     newlyFailing,
   };
+}
+
+/** One failed trial surfaced by a review, with its transcript and grader detail. */
+export interface ReviewedFailure {
+  name: string;
+  trialIndex?: number;
+  transcript: any[];
+  graders: GraderResult[];
+  checkOutput?: string;
+  error?: string;
+}
+
+export interface ReviewResult {
+  runId: string;
+  failed: ReviewedFailure[];
+}
+
+export interface ReviewOptions {
+  outDir: string;
+  /** Run id to review; defaults to the most recent run in the output directory. */
+  runId?: string;
+  /** Receives one compact line per emitted record. */
+  printer?: (line: string) => void;
+}
+
+function readJson<T>(path: string): T | undefined {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveRunId(outDir: string, requested?: string): string | undefined {
+  if (requested) return requested;
+  const pointer = readJson<{ runId: string }>(join(outDir, "latest.json"));
+  if (pointer?.runId) return pointer.runId;
+  // Fall back to the most recently created run directory.
+  try {
+    const runsRoot = join(outDir, "runs");
+    const dirs = readdirSync(runsRoot)
+      .filter((n) => {
+        try {
+          return statSync(join(runsRoot, n)).isDirectory();
+        } catch {
+          return false;
+        }
+      })
+      .sort();
+    return dirs[dirs.length - 1];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Select failed trials from a stored run and print a compact review of each
+ * one's transcript and grader detail. The selection is driven by the persisted
+ * outcome snapshot; presentation is delegated to the printer and is not part
+ * of the contract.
+ */
+export async function reviewEval(
+  options: ReviewOptions,
+): Promise<ReviewResult> {
+  const runId = resolveRunId(options.outDir, options.runId);
+  if (!runId) {
+    throw new Error(`no eval run found in ${options.outDir}`);
+  }
+  const runDir = join(options.outDir, "runs", runId);
+  const report = readJson<EvalReport>(join(runDir, "report.json"));
+  if (!report) {
+    throw new Error(`eval run ${runId} has no report.json`);
+  }
+
+  const failed: ReviewedFailure[] = [];
+  for (const task of report.tasks) {
+    if (task.pass) continue;
+    const label =
+      (task.trialCount ?? 1) > 1
+        ? `${task.name}--trial-${task.trialIndex}`
+        : task.name;
+    const trialDir = join(runDir, "trials", label);
+    const transcript = readJson<any[]>(join(trialDir, "transcript.json")) ?? [];
+    const detail = readJson<{
+      graders: GraderResult[];
+      checkOutput?: string;
+      error?: string;
+    }>(join(trialDir, "graders.json"));
+    const failure: ReviewedFailure = {
+      name: task.name,
+      trialIndex: task.trialIndex,
+      transcript,
+      graders: detail?.graders ?? task.graders ?? [],
+      checkOutput: detail?.checkOutput ?? task.checkOutput,
+      error: detail?.error ?? task.error,
+    };
+    failed.push(failure);
+
+    const emit = options.printer ?? (() => {});
+    emit(`FAILED ${label}`);
+    for (const g of failure.graders) {
+      emit(`  ${g.pass ? "PASS" : "FAIL"} ${g.name}: ${g.reason}`);
+    }
+    if (failure.error) emit(`  error: ${failure.error}`);
+    if (failure.checkOutput) emit(`  checkOutput: ${failure.checkOutput}`);
+    for (const m of transcript) {
+      emit(`  ${JSON.stringify(m)}`);
+    }
+  }
+
+  return { runId, failed };
 }
