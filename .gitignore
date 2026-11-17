@@ -12,6 +12,7 @@ docs/adr/
 .agents/skills/*
 !.agents/skills/atom-lite-docs/
 !.agents/skills/atom-lite-extensions/
+!.agents/skills/eval-maintainer/
 !.agents/skills/release-workflow/
 skills-lock.json
 plans/

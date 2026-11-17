@@ -30,6 +30,10 @@ Use the `release-workflow` skill (`.agents/skills/release-workflow/SKILL.md`) wh
 
 Use the `atom-lite-docs` skill (`.agents/skills/atom-lite-docs/SKILL.md`) for any change to `README.md`, `docs/`, or the changelog. It owns the page map and the house style.
 
+### Eval maintainer skill
+
+Use the `eval-maintainer` skill (`.agents/skills/eval-maintainer/SKILL.md`) for eval work: running a suite or repeated trials, triaging a failure, reviewing a failed transcript, adding or strengthening a task or grader, or fixing harness drift. It owns the diagnose → fix → add regression task → re-run loop and points to the public eval documentation as the source of truth.
+
 ### Domain docs
 
 Single-context repo: published docs in `docs/`, private gitignored ADRs in `docs/adr/`. See `docs/agents/domain.md`.
