@@ -10,7 +10,7 @@ import {
   mkdirSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, basename } from "node:path";
 import type { ProviderAdapter } from "../providers/types.js";
 import { AgentRuntime } from "../agent/loop.js";
 import { InMemorySession } from "../sessions/store.js";
@@ -69,6 +69,10 @@ export interface EvalTaskResult {
   wallMs: number;
   error?: string;
   checkOutput?: string;
+  /** 1-based trial index; present only when the run uses more than one trial. */
+  trialIndex?: number;
+  /** Total trials configured per task; present only when greater than one. */
+  trialCount?: number;
 }
 
 export interface EvalReport {
@@ -105,6 +109,8 @@ export interface RunEvalOptions {
   suite?: EvalSuite;
   outDir?: string;
   writeBaseline?: boolean;
+  /** Independent runs per selected task. Defaults to 1 (legacy behavior). */
+  trials?: number;
   /** Partial limits override; defaults to the harness DEFAULT_LIMITS. */
   limits?: Partial<import("../types.js").AgentLimits>;
   onProgress?: (msg: string) => void;
@@ -153,6 +159,22 @@ function existsSyncSafe(p: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Workspace entries that carry shared or stale state. They are left out of
+ * every trial copy so one trial can neither inherit another trial's files nor
+ * start with an old git history or project-local agent state.
+ */
+const STRIPPED_FIXTURE_ENTRIES = new Set([".git", ".atom-lite"]);
+
+/** Copy a task's workspace fixture into a fresh, isolated trial directory. */
+function copyFixture(workspaceSrc: string, dest: string): void {
+  if (!existsSyncSafe(workspaceSrc)) return;
+  cpSync(workspaceSrc, dest, {
+    recursive: true,
+    filter: (srcPath: string) => !STRIPPED_FIXTURE_ENTRIES.has(basename(srcPath)),
+  });
 }
 
 interface TaskManifest {
@@ -365,129 +387,137 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
   let totalInput = 0;
   let totalOutput = 0;
   const runStart = Date.now();
+  const trials = Math.max(1, Math.floor(options.trials ?? 1));
 
   for (const name of names) {
-    options.onProgress?.(`task: ${name}`);
     const taskDir = join(tasksDir, name);
     const prompt = readFileSync(join(taskDir, "prompt.txt"), "utf8").trim();
     const workspaceSrc = join(taskDir, "workspace");
     const checkPath = join(taskDir, "check.cjs");
-    const tmp = mkdtempSync(join(tmpdir(), `eval-${name}-`));
-    // copy workspace fixture
-    try {
-      if (existsSyncSafe(workspaceSrc)) {
-        cpSync(workspaceSrc, tmp, { recursive: true });
-      }
-    } catch {
-      // ignore
-    }
 
-    let turns = 0;
-    let inputTokens = 0;
-    let outputTokens = 0;
-    let toolCallCount = 0;
-    const toolNames: string[] = [];
-    const seenToolCalls = new Set<string>();
-    let error: string | undefined;
-    let session: any = null;
-    const t0 = Date.now();
-    try {
-      const runtime = new AgentRuntime({
-        provider: options.provider,
-        model,
-        workspace: tmp,
-        tools: BUILTIN_TOOLS,
-        mode: "yolo",
-        limits: options.limits,
-        onEvent: (e: any) => {
-          if (e?.type === "usage") {
-            turns += 1;
-            inputTokens += e.input ?? 0;
-            outputTokens += e.output ?? 0;
-          }
-          if (e?.type === "tool_call") {
-            // The runtime and its turn recorder both emit tool_call for one
-            // call; dedupe by id so tool-usage graders count calls once.
-            const callId = e.toolCallId ?? e.id;
-            const key =
-              callId != null ? String(callId) : `anon-${toolNames.length}`;
-            if (!seenToolCalls.has(key)) {
-              seenToolCalls.add(key);
-              toolNames.push(e.name);
-              toolCallCount += 1;
+    for (let trial = 1; trial <= trials; trial++) {
+      options.onProgress?.(
+        trials > 1
+          ? `task: ${name} (trial ${trial}/${trials})`
+          : `task: ${name}`,
+      );
+      // Each trial gets its own fresh workspace copied from the fixture, with
+      // shared state and stale git history stripped from the copy.
+      const tmp = mkdtempSync(join(tmpdir(), `eval-${name}-`));
+      try {
+        copyFixture(workspaceSrc, tmp);
+      } catch {
+        // ignore
+      }
+
+      let turns = 0;
+      let inputTokens = 0;
+      let outputTokens = 0;
+      let toolCallCount = 0;
+      const toolNames: string[] = [];
+      const seenToolCalls = new Set<string>();
+      let error: string | undefined;
+      let session: any = null;
+      const t0 = Date.now();
+      try {
+        const runtime = new AgentRuntime({
+          provider: options.provider,
+          model,
+          workspace: tmp,
+          tools: BUILTIN_TOOLS,
+          mode: "yolo",
+          limits: options.limits,
+          onEvent: (e: any) => {
+            if (e?.type === "usage") {
+              turns += 1;
+              inputTokens += e.input ?? 0;
+              outputTokens += e.output ?? 0;
             }
-          }
-        },
-      });
-      session = new InMemorySession(
-        `eval-${name}`,
-        tmp,
-        options.provider.id ?? "fake",
-      );
-      const result = await runtime.runAgentTurn(
-        prompt,
-        session,
-        new AbortController().signal,
-      );
-      if (typeof result === "string" && result === "TOKEN_BUDGET_REACHED") {
-        error = "TOKEN_BUDGET_REACHED";
+            if (e?.type === "tool_call") {
+              // The runtime and its turn recorder both emit tool_call for one
+              // call; dedupe by id so tool-usage graders count calls once.
+              const callId = e.toolCallId ?? e.id;
+              const key =
+                callId != null ? String(callId) : `anon-${toolNames.length}`;
+              if (!seenToolCalls.has(key)) {
+                seenToolCalls.add(key);
+                toolNames.push(e.name);
+                toolCallCount += 1;
+              }
+            }
+          },
+        });
+        session = new InMemorySession(
+          trials > 1 ? `eval-${name}-trial-${trial}` : `eval-${name}`,
+          tmp,
+          options.provider.id ?? "fake",
+        );
+        const result = await runtime.runAgentTurn(
+          prompt,
+          session,
+          new AbortController().signal,
+        );
+        if (typeof result === "string" && result === "TOKEN_BUDGET_REACHED") {
+          error = "TOKEN_BUDGET_REACHED";
+        }
+      } catch (err) {
+        error = err instanceof Error ? err.message : String(err);
       }
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-    }
-    const wallMs = Date.now() - t0;
+      const wallMs = Date.now() - t0;
 
-    const declaredGraders = manifests.get(name)?.graders ?? [];
-    let graders: GraderResult[] = [];
-    let score: number;
-    let pass: boolean;
-    let checkOutput = "";
-    if (declaredGraders.length > 0) {
-      graders = await runGraders(declaredGraders, {
-        workspace: tmp,
-        toolNames,
-        toolCallCount,
+      const declaredGraders = manifests.get(name)?.graders ?? [];
+      let graders: GraderResult[] = [];
+      let score: number;
+      let pass: boolean;
+      let checkOutput = "";
+      if (declaredGraders.length > 0) {
+        graders = await runGraders(declaredGraders, {
+          workspace: tmp,
+          toolNames,
+          toolCallCount,
+          turns,
+        });
+        score = graders.filter((g) => g.pass).length / graders.length;
+        pass = score === 1;
+        checkOutput = graders
+          .map((g) => `${g.pass ? "PASS" : "FAIL"} ${g.name}: ${g.reason}`)
+          .join("\n");
+      } else if (!error) {
+        const r = await runCheck(checkPath, tmp);
+        pass = r.code === 0;
+        score = pass ? 1 : 0;
+        checkOutput = r.output;
+        if (!pass && !checkOutput) checkOutput = `check exited ${r.code}`;
+      } else {
+        pass = false;
+        score = 0;
+        checkOutput = error;
+      }
+
+      tasks.push({
+        name,
+        suite: suites.get(name) ?? "regression",
+        pass,
+        score,
+        graders,
         turns,
+        inputTokens,
+        outputTokens,
+        wallMs,
+        error,
+        checkOutput,
+        ...(trials > 1 ? { trialIndex: trial, trialCount: trials } : {}),
       });
-      score = graders.filter((g) => g.pass).length / graders.length;
-      pass = score === 1;
-      checkOutput = graders
-        .map((g) => `${g.pass ? "PASS" : "FAIL"} ${g.name}: ${g.reason}`)
-        .join("\n");
-    } else if (!error) {
-      const r = await runCheck(checkPath, tmp);
-      pass = r.code === 0;
-      score = pass ? 1 : 0;
-      checkOutput = r.output;
-      if (!pass && !checkOutput) checkOutput = `check exited ${r.code}`;
-    } else {
-      pass = false;
-      score = 0;
-      checkOutput = error;
-    }
+      taskMessages.push(session ? session.messages : []);
+      totalTurns += turns;
+      totalInput += inputTokens;
+      totalOutput += outputTokens;
 
-    tasks.push({
-      name,
-      suite: suites.get(name) ?? "regression",
-      pass,
-      score,
-      graders,
-      turns,
-      inputTokens,
-      outputTokens,
-      wallMs,
-      error,
-      checkOutput,
-    });
-    taskMessages.push(session ? session.messages : []);
-    totalTurns += turns;
-    totalInput += inputTokens;
-    totalOutput += outputTokens;
-
-    try {
-      rmSync(tmp, { recursive: true, force: true });
-    } catch {
-      /* ignore */
+      try {
+        rmSync(tmp, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
     }
   }
 

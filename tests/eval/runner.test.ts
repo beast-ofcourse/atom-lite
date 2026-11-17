@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { FakeProvider } from "../../dist/providers/fake.js";
 import { runEval } from "../../dist/eval/runner.js";
 
@@ -472,6 +472,161 @@ test("ungraded task keeps the check-script flow with score 0 or 1 and no graders
     assert.equal(fail?.pass, false);
     assert.equal(fail?.score, 0);
     assert.deepEqual(fail?.graders, []);
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+  }
+});
+
+// --- ticket 03: repeated isolated trials ------------------------------------
+
+function makeTrialTask(
+  tasksDir: string,
+  name: string,
+  opts: {
+    workspaceFiles?: Record<string, string>;
+    check?: string;
+  } = {},
+): void {
+  const dir = join(tasksDir, name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "prompt.txt"), "do the thing\n");
+  writeFileSync(join(dir, "check.cjs"), opts.check ?? "process.exit(0);\n");
+  if (opts.workspaceFiles) {
+    const ws = join(dir, "workspace");
+    mkdirSync(ws, { recursive: true });
+    for (const [rel, content] of Object.entries(opts.workspaceFiles)) {
+      const p = join(ws, rel);
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(p, content);
+    }
+  }
+}
+
+const RESULT_CHECK = `const { readFileSync } = require("node:fs");
+const v = readFileSync("result.txt", "utf8").trim();
+process.exit(v === "ok" ? 0 : 1);
+`;
+
+/** Emits a uniquely-named marker on even calls and a stop on odd calls. */
+class CountingMarkerProvider {
+  readonly id = "fake";
+  private n = 0;
+  async generate(): Promise<any> {
+    const i = this.n++;
+    if (i % 2 === 1) {
+      return {
+        message: { role: "assistant", content: undefined },
+        finishReason: "stop",
+      };
+    }
+    const toolCalls = [
+      {
+        id: `m-${i}`,
+        name: "write",
+        arguments: { path: `marker-${i}.txt`, content: "x" },
+      },
+    ];
+    return {
+      message: { role: "assistant", content: undefined, toolCalls },
+      toolCalls,
+      finishReason: "tool_calls",
+    };
+  }
+}
+
+test("runEval with trials records one distinct outcome per trial", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  try {
+    makeTrialTask(tasksDir, "trial-task", { check: RESULT_CHECK });
+    // three trials, two calls each; outcomes are pass, fail, pass
+    const provider = new FakeProvider([
+      {
+        toolCalls: [
+          { id: "a", name: "write", arguments: { path: "result.txt", content: "ok" } },
+        ],
+      },
+      { text: "done" },
+      {
+        toolCalls: [
+          { id: "b", name: "write", arguments: { path: "result.txt", content: "bad" } },
+        ],
+      },
+      { text: "done" },
+      {
+        toolCalls: [
+          { id: "c", name: "write", arguments: { path: "result.txt", content: "ok" } },
+        ],
+      },
+      { text: "done" },
+    ]);
+    const report = await runEval({ provider, tasksDir, trials: 3 });
+    assert.equal(report.tasks.length, 3);
+    assert.deepEqual(
+      report.tasks.map((t) => t.trialIndex),
+      [1, 2, 3],
+    );
+    assert.equal(report.tasks.every((t) => t.trialCount === 3), true);
+    assert.deepEqual(
+      report.tasks.map((t) => t.name),
+      ["trial-task", "trial-task", "trial-task"],
+    );
+    assert.deepEqual(
+      report.tasks.map((t) => t.pass),
+      [true, false, true],
+    );
+    assert.equal(report.summary.total, 3);
+    assert.equal(report.summary.passed, 2);
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+  }
+});
+
+test("runEval defaults to a single trial with no trial metadata", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  try {
+    makeTrialTask(tasksDir, "solo");
+    const report = await runEval({
+      provider: new FakeProvider([{ text: "done" }]),
+      tasksDir,
+    });
+    assert.equal(report.tasks.length, 1);
+    assert.equal(report.tasks[0].trialIndex, undefined);
+    assert.equal(report.tasks[0].trialCount, undefined);
+    assert.equal(report.summary.total, 1);
+  } finally {
+    rmSync(tasksDir, { recursive: true, force: true });
+  }
+});
+
+test("runEval gives each trial a fresh workspace with shared state and git history removed", async () => {
+  const tasksDir = mkdtempSync(join(tmpdir(), "evaltasks-"));
+  const ISOLATION_CHECK = `const { readdirSync, existsSync } = require("node:fs");
+if (existsSync(".git")) { console.error("stale .git present"); process.exit(1); }
+if (existsSync(".atom-lite")) { console.error("shared state present"); process.exit(1); }
+if (!existsSync("base.txt")) { console.error("fixture missing"); process.exit(1); }
+const markers = readdirSync(process.cwd()).filter((f) => /^marker-.*\\.txt$/.test(f));
+if (markers.length !== 1) { console.error("expected one marker, got " + markers.length); process.exit(1); }
+process.exit(0);
+`;
+  try {
+    makeTrialTask(tasksDir, "iso", {
+      check: ISOLATION_CHECK,
+      workspaceFiles: {
+        "base.txt": "base",
+        ".git/HEAD": "ref: refs/heads/main",
+        ".atom-lite/state.json": "{}",
+      },
+    });
+    const report = await runEval({
+      provider: new CountingMarkerProvider() as any,
+      tasksDir,
+      trials: 3,
+    });
+    assert.equal(report.tasks.length, 3);
+    assert.deepEqual(
+      report.tasks.map((t) => t.pass),
+      [true, true, true],
+    );
   } finally {
     rmSync(tasksDir, { recursive: true, force: true });
   }
