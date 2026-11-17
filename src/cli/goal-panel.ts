@@ -5,6 +5,22 @@ import { panelBottom, panelRow, panelTop, type Color } from "./panel.js";
 import { criterionSatisfied, type GoalState } from "../runtime/goal.js";
 import type { TodoItem } from "../runtime/todos.js";
 
+const RESET = "\x1b[0m";
+const DARK_BG = "\x1b[48;5;236m";
+const LIGHT_BG = "\x1b[48;5;252m";
+
+/**
+ * Fill the panel's allocated columns with a theme background. No-colour stays
+ * completely plain. Style resets inside a row are followed by a fresh fill so
+ * coloured status or border text cannot punch a hole in the sidebar.
+ */
+function backgroundFill(theme: Theme): (row: string) => string {
+  if (theme.mode === "ansi") return (row) => row;
+  const bg =
+    theme.mode === "light" || theme.mode === "solarized" ? LIGHT_BG : DARK_BG;
+  return (row) => `${bg}${row.replaceAll(RESET, `${RESET}${bg}`)}${RESET}`;
+}
+
 function wrap(text: string, width: number): string[] {
   if (width <= 0) return [];
   const words = text.split(/\s+/).filter(Boolean);
@@ -121,7 +137,8 @@ export class GoalPanel implements Component {
 
     rows.push(panelBottom(w, border));
     this.cachedWidth = w;
-    this.cachedRows = rows.map((row) => truncateToWidth(row, w, "…"));
+    const fill = backgroundFill(this.theme);
+    this.cachedRows = rows.map((row) => fill(truncateToWidth(row, w, "…")));
     return this.cachedRows;
   }
 }

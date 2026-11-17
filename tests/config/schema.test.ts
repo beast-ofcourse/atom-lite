@@ -30,6 +30,8 @@ test("empty config yields documented defaults", () => {
   assert.equal(cfg.sessions.retentionDays, null);
   assert.equal(cfg.ui.theme, "auto");
   assert.equal(cfg.runtime.checkpointing, undefined);
+  assert.equal(cfg.keybindings.toggleGoalPanel, "ctrl+j");
+  assert.equal(DEFAULT_CONFIG.keybindings.toggleGoalPanel, "ctrl+j");
   assert.equal(cfg.usage.ledgerEnabled, false);
   assert.equal(cfg.usage.ledgerPath, null);
 });

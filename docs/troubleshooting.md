@@ -47,7 +47,9 @@ In the terminal, press `y`, `n`, or `t`, or use arrows and Enter; Escape denies.
 
 ## The transcript looks empty
 
-The goal panel and transcript share the terminal width. `ctrl+g` hides the panel. If a long answer is off-screen, `ctrl+b` jumps to the bottom. `/thinking` toggles the thinking block.
+The goal panel and transcript share the terminal width. `ctrl+j` hides the panel. If a long answer is off-screen, `ctrl+b` jumps to the bottom. `/thinking` toggles the thinking block.
+
+Some terminals send the same byte sequence for `ctrl+j` and Enter. If `ctrl+j` submits the prompt instead of toggling the sidebar, set `keybindings.toggleGoalPanel` to another key in user config.
 
 ## Colours look wrong
 

@@ -172,7 +172,7 @@ Keyboard shortcut overrides. All fields are nullable; set a field to `null` to d
 | `scrollUp`         | string or null | `"ctrl+up"`   | Scroll up.               |
 | `scrollDown`       | string or null | `"ctrl+down"` | Scroll down.             |
 | `toggleThinking`   | string or null | `"ctrl+t"`    | Toggle thinking display. |
-| `toggleGoalPanel`  | string or null | `"ctrl+g"`    | Toggle the goal panel.   |
+| `toggleGoalPanel`  | string or null | `"ctrl+j"`    | Toggle the todo sidebar. |
 | `inputHistoryUp`   | string or null | `"up"`        | Previous input history.  |
 | `inputHistoryDown` | string or null | `"down"`      | Next input history.      |
 

@@ -572,7 +572,6 @@ export function createCommandRegistry(
     category: "Session",
     run(ctx) {
       ctx.newSession();
-      ctx.appendLine("started new session");
     },
   });
 
@@ -621,8 +620,7 @@ export function createCommandRegistry(
     description: "toggle thinking display",
     category: "System",
     run(ctx) {
-      const shown = ctx.toggleThinking();
-      ctx.appendLine(`thinking display: ${shown ? "shown" : "hidden"}`);
+      ctx.toggleThinking();
     },
   });
 

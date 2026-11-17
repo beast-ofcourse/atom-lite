@@ -4,7 +4,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { GoalPanel } from "../../dist/cli/goal-panel.js";
-import { ansiTheme, darkTheme, nordTheme } from "../../dist/cli/theme.js";
+import {
+  ansiTheme,
+  darkTheme,
+  lightTheme,
+  nordTheme,
+} from "../../dist/cli/theme.js";
 import type { GoalState } from "../../dist/runtime/goal.js";
 import type { TodoItem } from "../../dist/runtime/todos.js";
 
@@ -83,6 +88,42 @@ test("a completed goal ticks every criterion", () => {
   const output = plain(panel);
   assert.match(output, /\[x\] tests pass/);
   assert.match(output, /\[x\] docs updated/);
+});
+
+// Contract: the sidebar fills its allocated columns with a theme-appropriate
+// background. The fill must survive nested style resets and must stay empty for
+// the no-colour theme, while leaving visible width unchanged.
+test("coloured themes paint the sidebar background across every row", () => {
+  const dark = new GoalPanel(darkTheme);
+  dark.setState(goal, todos);
+  for (const row of dark.render(50)) {
+    assert.ok(row.includes("\x1b[48;5;236m"), "dark background missing");
+    assert.ok(row.startsWith("\x1b[48;5;236m"), "row does not start filled");
+  }
+
+  const light = new GoalPanel(lightTheme);
+  light.setState(goal, todos);
+  for (const row of light.render(50)) {
+    assert.ok(row.includes("\x1b[48;5;252m"), "light background missing");
+  }
+});
+
+test("background fill survives inner style resets", () => {
+  const panel = new GoalPanel(darkTheme);
+  panel.setState({ ...goal, status: "paused" }, todos);
+  const rendered = panel.render(50).join("\n");
+  assert.ok(
+    rendered.includes("\x1b[0m\x1b[48;5;236m"),
+    "background lost after a style reset",
+  );
+});
+
+test("background fill does not change visible width", () => {
+  const panel = new GoalPanel(darkTheme);
+  panel.setState(goal, todos);
+  for (const row of panel.render(40)) {
+    assert.equal(visibleWidth(row), 40);
+  }
 });
 
 test("panel rows never exceed the allocated width", () => {

@@ -43,7 +43,7 @@ The prompt accepts plain tasks and slash commands. `/help` lists every command g
 | `ctrl+n` | New session.                                |
 | `ctrl+f` | Search sessions.                            |
 | `ctrl+t` | Toggle thinking display.                    |
-| `ctrl+g` | Toggle the goal panel.                      |
+| `ctrl+j` | Toggle the todo sidebar.                    |
 
 Mouse wheel scrolling and click-to-focus work in interactive terminals. Set `ui.mouse` to `false` to disable them. All shortcuts are overridable in [Config](./config.md#keybindings).
 
