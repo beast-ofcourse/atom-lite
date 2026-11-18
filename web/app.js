@@ -56,6 +56,7 @@ const questionDesc = document.getElementById("question-desc");
 const questionClose = document.getElementById("question-close");
 const questionCancel = document.getElementById("question-cancel");
 const questionSubmit = document.getElementById("question-submit");
+const questionProgress = document.getElementById("question-progress");
 const toastEl = document.getElementById("toast");
 const modelButton = document.getElementById("model-button");
 const modelModal = document.getElementById("model-modal");
@@ -3362,6 +3363,21 @@ function setQuestionBusy(busy, label) {
   if (label) questionSubmit.textContent = label;
 }
 
+function isQuestionAnswered(index) {
+  const draft = questionDraft[index];
+  return Boolean(draft && (draft.selected.length > 0 || draft.custom.trim() !== ""));
+}
+
+function updateQuestionProgress() {
+  if (!pendingQuestion) return;
+  const total = pendingQuestion.questions.length;
+  const answered = pendingQuestion.questions.reduce(
+    (sum, _, index) => sum + (isQuestionAnswered(index) ? 1 : 0),
+    0,
+  );
+  questionProgress.textContent = `${answered} of ${total} answered`;
+}
+
 function syncQuestionField(field, index) {
   const question = pendingQuestion?.questions[index];
   const draft = questionDraft[index];
@@ -3376,6 +3392,15 @@ function syncQuestionField(field, index) {
   }
   const custom = field.querySelector(".question-custom-input");
   if (custom && custom.value !== draft.custom) custom.value = draft.custom;
+  const answered = isQuestionAnswered(index);
+  field.classList.toggle("is-answered", answered);
+  const step = field.querySelector(".question-step");
+  if (step) {
+    step.replaceChildren();
+    if (answered) step.append(icon("check", "icon"));
+    else step.textContent = String(index + 1);
+  }
+  updateQuestionProgress();
 }
 
 function renderQuestionFields() {
@@ -3389,25 +3414,31 @@ function renderQuestionFields() {
 
   pendingQuestion.questions.forEach((question, index) => {
     const draft = questionDraft[index];
+    const hasOptions = question.options.length > 0;
     const field = document.createElement("section");
-    field.className = "question-field";
+    field.className = hasOptions ? "question-field question-field--choices" : "question-field";
     const textId = `question-text-${index}`;
     field.setAttribute("role", "group");
     field.setAttribute("aria-labelledby", textId);
 
+    const step = document.createElement("span");
+    step.className = "question-step";
+    step.setAttribute("aria-hidden", "true");
+    step.textContent = String(index + 1);
+
     const head = document.createElement("div");
     head.className = "question-head";
-    const label = document.createElement("span");
-    label.className = "question-label";
-    label.textContent = question.header || `Question ${index + 1}`;
     const text = document.createElement("p");
     text.className = "question-text";
     text.id = textId;
     text.textContent = question.question;
-    head.append(label, text);
-    field.append(head);
+    const context = document.createElement("span");
+    context.className = "question-context";
+    context.textContent = question.header || `Question ${index + 1}`;
+    head.append(text, context);
+    field.append(step, head);
 
-    if (question.options.length > 0) {
+    if (hasOptions) {
       const options = document.createElement("div");
       options.className = "question-options";
       for (const option of question.options) {
@@ -3433,7 +3464,7 @@ function renderQuestionFields() {
         optionLabel.textContent = option.label;
         const description = document.createElement("span");
         description.className = "question-option-desc";
-        description.textContent = option.description;
+        description.textContent = option.description || "";
         copy.append(optionLabel, description);
         button.append(mark, copy);
         button.addEventListener("click", () => {
@@ -3448,6 +3479,14 @@ function renderQuestionFields() {
           }
           syncQuestionField(field, index);
         });
+        button.addEventListener("keydown", (event) => {
+          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+          const buttons = [...options.querySelectorAll(".question-option")];
+          const current = buttons.indexOf(button);
+          const delta = event.key === "ArrowDown" ? 1 : -1;
+          buttons[(current + delta + buttons.length) % buttons.length].focus();
+          event.preventDefault();
+        });
         options.append(button);
       }
       field.append(options);
@@ -3457,25 +3496,23 @@ function renderQuestionFields() {
     custom.className = "question-custom";
     const customLabel = document.createElement("span");
     customLabel.className = "question-custom-label";
-    customLabel.textContent =
-      question.options.length > 0 ? "Type your own answer" : "Your answer";
+    customLabel.textContent = hasOptions ? "Or type your own answer" : "Your answer";
     const input = document.createElement("input");
     input.className = "field question-custom-input";
     input.type = "text";
     input.value = draft.custom;
-    input.placeholder =
-      question.options.length > 0 ? "Type your own answer" : "Type your answer";
+    input.placeholder = hasOptions ? "Type your own answer" : "Type your answer";
     input.setAttribute(
       "aria-label",
-      `${question.options.length > 0 ? "Custom answer" : "Answer"} for ${question.header || `question ${index + 1}`}`,
+      `${hasOptions ? "Custom answer" : "Answer"} for ${question.header || `question ${index + 1}`}`,
     );
     input.autocomplete = "off";
     input.addEventListener("input", () => {
       draft.custom = input.value;
       if (!question.multiple && input.value.trim()) {
         draft.selected = [];
-        syncQuestionField(field, index);
       }
+      syncQuestionField(field, index);
     });
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
@@ -3487,7 +3524,9 @@ function renderQuestionFields() {
     field.append(custom);
 
     questionFields.append(field);
+    syncQuestionField(field, index);
   });
+  updateQuestionProgress();
 }
 
 function openQuestion(message) {

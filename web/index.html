@@ -927,13 +927,16 @@
           The agent needs your input to continue.
         </p>
         <div class="question-fields" id="question-fields"></div>
-        <div class="modal-actions">
-          <button class="btn" id="question-cancel" type="button">
-            Dismiss and stop
-          </button>
-          <button class="btn btn-primary" id="question-submit" type="button">
-            Submit answers
-          </button>
+        <div class="modal-actions question-actions">
+          <span class="question-progress" id="question-progress" aria-live="polite"></span>
+          <div class="question-actions-buttons">
+            <button class="btn" id="question-cancel" type="button">
+              Dismiss and stop
+            </button>
+            <button class="btn btn-primary" id="question-submit" type="button">
+              Submit answers
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -331,14 +331,24 @@ answer.
 
 ### Questions
 
-The `question` tool opens a centered 620px **Questions** dialog. Unlike the
-terminal's tabbed prompt, the web form stacks every question in one scrollable
-column so all context stays visible: an uppercase `header`, the full question,
-option rows with label and description, and a custom-answer field. Single
-answers use round marks; `multiple` uses square checkbox marks. Selected rows
-use the quiet active surface and a check, never a coloured fill. The footer is
-fixed: **Dismiss** and a primary **Submit answers** (or **Submit answer** for
-one question).
+The `question` tool opens a centered 620px **Questions** dialog on the elevated
+`--composer-bg` surface with its single shadow. A hairline under the title
+separates the heading from a one-line context. Unlike the terminal's tabbed
+prompt, the web form stacks every question in one scrollable column so all
+context stays visible. Each question has a 28px numbered step rail; the step
+becomes a filled check once that question has an answer. The question text leads
+at 16px/600 and the short `header` sits beneath it as quiet context, never as an
+uppercase kicker above it.
+
+Choices sit in one grouped list with hairline dividers instead of a stack of
+bordered cards. Single answers use round marks; `multiple` uses square marks. A
+selected row uses `--active` and a check in the filled mark, never a coloured
+fill. A hairline separates the choices from the "Or type your own answer" field.
+Arrow keys move focus between choices; Enter in the custom field submits. The
+footer keeps a live "N of M answered" count on the left and the quiet **Dismiss
+and stop** plus primary **Submit answers** (or **Submit answer** for one
+question) on the right. One 180ms translate/fade settles the dialog on open;
+reduced motion removes it.
 
 The controlling tab owns the form; a read-only viewer never receives it. If
 control moves, the pending form is resent to the new controller. A pending form
@@ -650,6 +660,13 @@ and the fake provider, dark and light, 1440×900 and 390×844.
   wiring. In the browser the home state is just the heading above the composer,
   a finished turn still reports its measured stats, and the DOM has no
   `.suggestion` or `.disclaimer` nodes in either state. No console errors.
+- **Question dialog (2026-11-18):** the rebuilt dialog renders in dark and light
+  at 1440×900 and dark at 390×844 with answered and unanswered questions,
+  grouped choices, numbered steps, and a live `1 of 2 answered` count. Computed
+  values confirm the 28px step column, zero-radius option rows with hairline
+  dividers, and no inter-row gap; no horizontal overflow appeared at either
+  width. Option groups carry ArrowUp/ArrowDown focus movement; the full suite
+  passes 873 tests.
 
 Accepted limitation: `aria-live="polite"` on the transcript means a screen
 reader may announce streamed updates; this is deliberate for a streaming
