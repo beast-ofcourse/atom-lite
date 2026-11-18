@@ -6,6 +6,7 @@ Run `atom-lite` in a project to open the full-screen terminal interface.
 atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
           [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json]
           [--theme NAME] [--no-color] [--serve [PORT]] [--version] [--help]
+atom-lite extension test <path>
 ```
 
 ## Flags
@@ -28,6 +29,18 @@ atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
 | `--no-qr`                 | With `--share`, print the URL without a QR code.            |
 | `--version`               | Print the version.                                          |
 | `--help`                  | Print usage.                                                |
+
+## Extension test
+
+`atom-lite extension test <path>` runs an extension fixture with a fake
+provider, fake TUI, and fake session. It reads no provider config and makes no
+network calls. The fixture's `test` export asserts on `runTurn`,
+`tools`, `transcript`, `events`, and the API's registered state.
+
+The command prints `PASS` with the assertion count on success. A failed
+assertion, a thrown fixture, or an extension error prints `FAIL`/`ERROR` and
+sets exit code 1. See [Extensions](./extensions.md#testing-an-extension) for the
+fixture shape.
 
 ## Terminal interface
 

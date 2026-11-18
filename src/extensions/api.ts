@@ -13,6 +13,7 @@ import type {
 } from "./types.js";
 import { spawn } from "node:child_process";
 import { createDefaultExtensionUI } from "./ui.js";
+import { ExtensionObservability } from "./observability.js";
 import { validateExtensionTool } from "./tool-validation.js";
 import { ExtensionStore } from "./store.js";
 import { defaultAgentDir } from "../config/paths.js";
@@ -124,6 +125,10 @@ export interface ExtensionAPI {
   /** Host-proxied fetch limited to the hosts declared in the manifest. */
   fetch(url: string, init?: RequestInit): Promise<Response>;
   log(message: string): void;
+  /** Run `fn`, recording its duration and outcome. Re-throws on failure. */
+  span(name: string, fn: () => unknown | Promise<unknown>): Promise<unknown>;
+  /** Record a counter. Attributes stay in memory; doctor sees counts only. */
+  metric(name: string, value: number, attrs?: Record<string, unknown>): void;
 
   /** Publish a versioned service for sibling extensions to consume. */
   provide(name: string, api: unknown, version: string): void;
@@ -178,6 +183,8 @@ export interface ExtensionRegistries {
   entries: Array<{ type: string; data: unknown }>;
   activeTools: Set<string> | null;
   status: Map<string, string | undefined>;
+  /** Per-extension observability records, bounded and reset on reload. */
+  observability: ExtensionObservability;
   /** Host hook for rejections that must surface as `extension_error`. */
   reportError?: (message: string) => void;
   /** Host hook to drop a provider from model selection in the same call. */
@@ -207,6 +214,7 @@ export function createExtensionRegistries(): ExtensionRegistries {
     entries: [],
     activeTools: null,
     status: new Map(),
+    observability: new ExtensionObservability(),
   };
 }
 
@@ -711,6 +719,9 @@ export function createExtensionAPI(
       // eslint-disable-next-line no-console
       console.error(`[extension:${id}] ${message}`);
     },
+    span: (name, fn) => registries.observability.span(name, fn),
+    metric: (name, value, attrs) =>
+      registries.observability.metric(name, value, attrs),
     provide: (name, api, version) => {
       provideService(services, { name, api, version, extensionId: id });
     },

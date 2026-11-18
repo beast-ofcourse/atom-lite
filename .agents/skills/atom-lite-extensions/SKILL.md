@@ -340,6 +340,16 @@ pi.registerMarkdownTransformer((markdown) => markdown);
   availability only: `registerTool` reports `true` but still throws for
   `exposure: "codemode"`.
 
+Observability:
+
+- `pi.span(name, fn)` — records the call's duration and `ok`/`error` outcome,
+  then returns the result or re-throws the error.
+- `pi.metric(name, value, attrs?)` — records a counter; attributes stay in
+  memory.
+
+Records are bounded at 1000 per extension and reset on reload. Doctor exposes
+counts and last error only, never metric values or attribute payloads.
+
 Provider config keys outside the mapped set (`baseUrl`, `apiKey`, `headers`,
 `authHeader`, `models`) and identity keys (`name`, `id`, `config`) emit a
 reduced-compatibility warning naming the key and are not applied.
@@ -351,8 +361,27 @@ Inside atom-lite:
 - `/extensions` — list discovered extensions + load status.
 - `/extensions doctor` — per-extension tools/commands/store count and version/errors.
 - `/extensions doctor --json` — id, source, status, error with stack, counts,
-  store entry count and version (never values), the matrix entry for every API
-  the extension calls, and `scopeMode` / `scopes`.
+  store entry count and version (never values), `scopeMode` / `scopes`,
+  `errorCount`/`lastError`, an `observability` summary, and the matrix entry
+  for every API the extension calls.
+
+## Testing
+
+Run a fixture without a provider or network:
+
+```bash
+atom-lite extension test ./my-extension.js
+```
+
+The fixture loads through the normal loader with a fake provider, fake TUI, and
+fake session. Export a `test` function taking `ctx` to assert on `runTurn`, `tools`,
+`transcript`, `events`, `uiEvents`, `sessionEvents`, and `doctor`. `ctx.assert`
+offers `ok`, `equal`, `match`, `deepEqual`, and `rejects`. Exit is zero only when
+all assertions pass and no unexpected extension error occurs.
+
+The fault-injection files under `tests/fixtures/extensions/` seed the conformance
+suite. A fixture that proves a contained error exports
+`expectErrors = ["message fragment"]` so that error does not fail the run.
 
 ## Tips
 

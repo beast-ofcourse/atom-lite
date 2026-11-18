@@ -7,7 +7,11 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { discoverExtensions, type DiscoveredExtension } from "./discovery.js";
 import { loadConfig } from "../config/load.js";
 import { defaultAgentDir, userConfigDir } from "../config/paths.js";
-import { createExtensionAPI, createExtensionRegistries } from "./api.js";
+import {
+  createExtensionAPI,
+  createExtensionRegistries,
+  type ExtensionAPI,
+} from "./api.js";
 import { createDefaultExtensionUI } from "./ui.js";
 import { ExtensionBoundary, type BoundaryError } from "./boundary.js";
 import type { ExtensionContext } from "./types.js";
@@ -30,6 +34,7 @@ import {
   type CompatibilityMatrixEntry,
 } from "./compatibility-matrix.js";
 import { describeScopes, scopeModeForManifest } from "./manifest.js";
+import type { ObservabilityRecords } from "./observability.js";
 
 export interface ExtensionLoaderOptions {
   cliPaths?: string[];
@@ -70,6 +75,10 @@ export interface LoadedExtension {
   errorStack?: string;
   registries: ReturnType<typeof createExtensionRegistries>;
   context?: ExtensionContext;
+  /** Full module namespace, including named exports such as `test`. */
+  moduleExports?: Record<string, unknown>;
+  /** The API instance handed to the factory, for harness assertions. */
+  api?: ExtensionAPI;
   store?: ExtensionStore;
 }
 
@@ -80,6 +89,7 @@ interface StagedExtension {
   entryPath: string;
   registries: ReturnType<typeof createExtensionRegistries>;
   context: ExtensionContext;
+  api?: ExtensionAPI;
   store: ExtensionStore;
 }
 
@@ -160,6 +170,19 @@ export interface ExtensionDiagnostic {
   scopes: string[];
   /** Lifecycle stream from lifecycleEvents(), scoped to this extension. */
   lifecycleEvents: ExtensionLifecycleEvent[];
+  /** Boundary errors attributed to this extension, and the most recent one. */
+  errorCount: number;
+  lastError?: string;
+  /**
+   * Summary only: counts and last error. Raw metric values, attributes and
+   * recorded span payloads never appear in diagnostics.
+   */
+  observability: {
+    spanCount: number;
+    metricCount: number;
+    errorCount: number;
+    lastError?: string;
+  };
 }
 
 export class ExtensionLoader {
@@ -457,15 +480,13 @@ export class ExtensionLoader {
         continue;
       }
 
+      let moduleExports: Record<string, unknown> = {};
       try {
         const jiti = this.getJiti();
-        // Import once. jiti's `default: true` returns the default export when
-        // present, otherwise the module object (so named `activate` still
-        // resolves).
-        const imported = (await jiti.import(entry.entryPath, {
-          default: true,
-        })) as unknown;
-        const moduleExports =
+        // Import once, keeping the full namespace so the extension test
+        // harness can read named exports such as `test`.
+        const imported = (await jiti.import(entry.entryPath)) as unknown;
+        moduleExports =
           imported && typeof imported === "object"
             ? (imported as Record<string, unknown>)
             : {};
@@ -502,6 +523,7 @@ export class ExtensionLoader {
           },
         );
         api.ui = staging.context.ui;
+        staging.api = api;
         await factory(api);
         // The extension declares store.version/migrate in its factory. Run a
         // pending migration once here even when the factory never read state.
@@ -520,7 +542,7 @@ export class ExtensionLoader {
           staging.registries,
           staging.context,
         );
-        staged.push({ ...staging, status: "loaded" });
+        staged.push({ ...staging, status: "loaded", moduleExports });
       } catch (error) {
         const message =
           error instanceof ExtensionCompatibilityError
@@ -559,6 +581,7 @@ export class ExtensionLoader {
           status: "error",
           error: message,
           errorStack,
+          moduleExports,
         });
       }
     }
@@ -742,6 +765,17 @@ export class ExtensionLoader {
   }
 
   /**
+   * Raw in-process records for one extension. Used by the test harness and by
+   * assertions; diagnostics deliberately expose only the summary.
+   */
+  observability(extensionId: string): ObservabilityRecords {
+    const loaded = this.extensions.find((entry) => entry.id === extensionId);
+    return (
+      loaded?.registries.observability.records() ?? { spans: [], metrics: [] }
+    );
+  }
+
+  /**
    * Deliver a host-owned event to every loaded extension, awaiting each
    * handler. Single dispatch seam for turn and host events; a rejecting
    * handler is contained as `extension_error` instead of escaping.
@@ -840,6 +874,22 @@ export class ExtensionLoader {
         lifecycleEvents: this.lifecycle.filter(
           (event) => event.extensionId === entry.id,
         ),
+        errorCount: this.lifecycle.filter(
+          (event) =>
+            event.type === "extension_error" && event.extensionId === entry.id,
+        ).length,
+        lastError: this.lifecycle
+          .filter(
+            (event) =>
+              event.type === "extension_error" &&
+              event.extensionId === entry.id,
+          )
+          .at(-1)?.error,
+        observability: loaded?.registries.observability.snapshot() ?? {
+          spanCount: 0,
+          metricCount: 0,
+          errorCount: 0,
+        },
       };
     });
   }
@@ -860,9 +910,14 @@ export class ExtensionLoader {
         loaded?.status ?? (entry.skipReason ? "skipped" : "discovered");
       const error =
         loaded?.error ?? (entry.errors.join("; ") || entry.skipReason);
+      const snapshot = loaded?.registries.observability.snapshot();
       const storeInfo = this.storeInfo(loaded);
+      const errorCount = this.lifecycle.filter(
+        (event) =>
+          event.type === "extension_error" && event.extensionId === entry.id,
+      ).length;
       const counts = loaded
-        ? `${loaded.registries.tools.size} tools, ${loaded.registries.commands.size} commands, ${loaded.registries.handlers.size} event types${storeInfo ? `, ${storeInfo.entryCount} store entries v${storeInfo.version}` : ""}`
+        ? `${loaded.registries.tools.size} tools, ${loaded.registries.commands.size} commands, ${loaded.registries.handlers.size} event types${storeInfo ? `, ${storeInfo.entryCount} store entries v${storeInfo.version}` : ""}, ${snapshot?.spanCount ?? 0} spans, ${snapshot?.metricCount ?? 0} metrics, ${errorCount} errors`
         : "not loaded";
       lines.push(
         `${entry.id}\t${entry.source}${entry.origin ? `:${entry.origin}` : ""}\t${entry.manifest?.version ?? "-"}\t${status}\t${counts}\t${scopeModeForManifest(entry.manifest?.scopes)}\t${entry.entryPath}${error ? `\t${error}` : ""}`,
