@@ -50,12 +50,12 @@ reader outside `api.ts`; the matrix records its location as `{ file, line }`.
 code reads the value. `unsupported` methods are reserved for features with no
 implementation.
 
-| Status        | Methods | Meaning                                  |
-| ------------- | ------- | ---------------------------------------- |
-| `supported`   | 18      | Effect is consumed by the host.          |
-| `reduced`     | 6       | Works with limits; see Reduced behavior. |
-| `no-op`       | 21      | Call is accepted; nothing consumes it.   |
-| `unsupported` | 0       | No implementation in this release.       |
+| Status        | Methods | Meaning                                   |
+| ------------- | ------- | ----------------------------------------- |
+| `supported`   | 18      | Effect is consumed by the host.           |
+| `reduced`     | 7       | Works with limits; see Reduced behavior.  |
+| `no-op`       | 21      | Call is accepted; nothing consumes it.    |
+| `unsupported` | 7       | Failing stub; see Tier 3.                 |
 
 **`supported`:** `registerTool`, `unregisterTool`, `setActiveTools`,
 `getActiveTools`, `getAllTools`, `registerCommand`, `unregisterCommand`, `on`,
@@ -63,7 +63,7 @@ implementation.
 `getWorkspace`, `getSession`, `isProjectTrusted`, `unregisterProvider`.
 
 **`reduced`:** `appendEntry`, `getSessionEntries`, `notify`, `registerProvider`,
-`exec`, `log`.
+`exec`, `log`, `supports`.
 
 **`no-op`:** `setStatus`, `registerWidget`, `unregisterWidget`,
 `registerToolRenderer`, `registerMessageRenderer`, `registerEntryRenderer`,
@@ -84,14 +84,31 @@ list. Config keys `oauth`, `streamSimple`, `classifiers`, `refreshModels`, and
 
 `appendEntry` and `getSessionEntries` keep entries in the extension's own
 registry; no host view reads them. `notify`, `exec`, and `log` run, but their
-output is not surfaced in the host UI.
+output is not surfaced in the host UI. `supports(method)` returns `true` for
+every method that will not throw a compatibility error, including `no-op`
+methods.
 
 ## Tier 3
 
-Tier 3 features are not implemented: session tree navigation and forks,
-codemode tool exposure, MCP server registration, OAuth providers, RPC mode, and
-custom editor components. They are absent from `ExtensionAPI`, so an extension
-that calls them throws a normal property error at runtime.
+Tier 3 APIs are present on `pi` as failing stubs: session tree navigation and
+forks, codemode tool exposure, MCP server registration, OAuth providers, RPC
+mode, custom editor components, and model factories. Calling one throws
+`ExtensionCompatibilityError`, which names the method, the tier, and a
+replacement when one exists. No raw `TypeError` is produced for a missing
+method. The matrix lists each stub as `unsupported`, and doctor includes the
+matrix entry for any Tier 3 call found in the extension file.
+
+`registerTool` rejects a tool with `exposure: "codemode"` with the same typed
+error. Use `"direct"` or `"model-only"` instead.
+
+Check `pi.supports(name)` before calling a deferred API, and read
+`pi.apiVersion` to branch on the API surface:
+
+```ts
+if (pi.supports("registerMcpServer")) {
+  pi.registerMcpServer({ name: "fs" });
+}
+```
 
 ## ExtensionAPI reference
 
@@ -106,6 +123,8 @@ marks which methods have an effect.
 - `getSession()` → `{ id }`
 - `getSessionManager()` → any (currently no-op)
 - `isProjectTrusted()` → boolean
+- `apiVersion` → string version of this API surface
+- `supports(method)` → boolean; `false` for Tier 3 stubs
 
 **Tools**
 
@@ -189,7 +208,9 @@ prints per-extension load status, tool/command counts, and errors.
 — the matrix entries for API calls found in that extension's entry file — and
 `lifecycleEvents`, the lifecycle records from that extension.
 
-The JSON list contains only methods that exist in `ExtensionAPI`.
+The JSON list contains only methods that exist in `ExtensionAPI`. Called Tier 3
+methods carry their `unsupported` matrix entry; containment errors include the
+method, tier, and alternative when one exists.
 
 ## Migration notes
 

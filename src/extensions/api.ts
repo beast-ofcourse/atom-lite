@@ -13,6 +13,12 @@ import type {
 } from "./types.js";
 import { createDefaultExtensionUI } from "./ui.js";
 import { validateExtensionTool } from "./tool-validation.js";
+import {
+  EXTENSION_API_VERSION,
+  ExtensionCompatibilityError,
+  methodSupported,
+  tier3Stub,
+} from "./compatibility-error.js";
 
 export interface ExtensionAPI {
   id: string;
@@ -86,6 +92,20 @@ export interface ExtensionAPI {
     options?: ExecOptions,
   ): Promise<ExecResult>;
   log(message: string): void;
+
+  /** Version of this ExtensionAPI surface; use with `supports` to branch. */
+  apiVersion: string;
+  /** True when calling `method` will not throw a compatibility error. */
+  supports(method: string): boolean;
+
+  // Tier 3 stubs. Each throws ExtensionCompatibilityError at the call site.
+  getSessionTree(): never;
+  forkSession(id?: string): never;
+  registerMcpServer(config: Record<string, unknown>): never;
+  registerOAuthProvider(config: Record<string, unknown>): never;
+  virtualModel(config: Record<string, unknown>): never;
+  enableRpcMode(options?: Record<string, unknown>): never;
+  registerCustomEditor(name: string, factory: unknown): never;
 }
 
 export interface ExtensionRegistries {
@@ -187,6 +207,14 @@ export function createExtensionAPI(
     id,
     ui: ctx.ui,
     registerTool: (tool) => {
+      if (tool?.exposure === "codemode") {
+        throw new ExtensionCompatibilityError({
+          method: "registerTool",
+          tier: 3,
+          reason: "tool exposure 'codemode' is not implemented",
+          alternative: "exposure 'direct' or 'model-only'",
+        });
+      }
       const errors = validateExtensionTool(tool);
       if (errors.length > 0) {
         const name =
@@ -387,5 +415,42 @@ export function createExtensionAPI(
       // eslint-disable-next-line no-console
       console.error(`[extension:${id}] ${message}`);
     },
+    apiVersion: EXTENSION_API_VERSION,
+    supports: (method) => methodSupported(method),
+    getSessionTree: tier3Stub(
+      "getSessionTree",
+      "session tree navigation is not available",
+      "getSessionEntries()",
+    ),
+    forkSession: tier3Stub(
+      "forkSession",
+      "session forks are not available",
+      "getSessionEntries() to export the transcript",
+    ),
+    registerMcpServer: tier3Stub(
+      "registerMcpServer",
+      "runtime MCP server registration is not available",
+      "the 'mcpServers' user config key",
+    ),
+    registerOAuthProvider: tier3Stub(
+      "registerOAuthProvider",
+      "OAuth providers are not available",
+      "registerProvider() with an OpenAI-compatible config",
+    ),
+    virtualModel: tier3Stub(
+      "virtualModel",
+      "virtual models are not available",
+      "registerModel() for a static descriptor",
+    ),
+    enableRpcMode: tier3Stub(
+      "enableRpcMode",
+      "RPC mode is not available",
+      "the CLI or web API",
+    ),
+    registerCustomEditor: tier3Stub(
+      "registerCustomEditor",
+      "custom editor components are not available",
+      "ui.editor() or ui.input() for text entry",
+    ),
   };
 }

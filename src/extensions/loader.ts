@@ -12,6 +12,7 @@ import { createDefaultExtensionUI } from "./ui.js";
 import { ExtensionBoundary, type BoundaryError } from "./boundary.js";
 import type { ExtensionContext } from "./types.js";
 import type { AtomEvent } from "./types.js";
+import { ExtensionCompatibilityError } from "./compatibility-error.js";
 import {
   compatibilityMatrix,
   type CompatibilityMatrixEntry,
@@ -90,6 +91,10 @@ export interface ExtensionLifecycleEvent {
   stack?: string;
   /** How a contained failure was classified. */
   phase?: BoundaryError["phase"];
+  /** Compatibility tier when the failure came from a deferred API stub. */
+  tier?: number;
+  /** Suggested replacement when one exists. */
+  alternative?: string;
 }
 
 /** Lifecycle events delivered to every sibling after the owner is committed. */
@@ -388,6 +393,19 @@ export class ExtensionLoader {
         const message = error instanceof Error ? error.message : String(error);
         const errorStack =
           error instanceof Error ? (error.stack ?? error.message) : message;
+        // A compatibility stub carries structured context. Surface it on the
+        // lifecycle event so doctor names the method, tier, and alternative.
+        const detail =
+          error instanceof ExtensionCompatibilityError
+            ? {
+                method: error.method,
+                tier: error.tier,
+                ...(error.alternative
+                  ? { alternative: error.alternative }
+                  : {}),
+                stack: errorStack,
+              }
+            : {};
         // Discard the staged registries: the error record gets a fresh,
         // empty staging record so it exposes zero registrations.
         const failure = this.createStaging(entry);
@@ -397,6 +415,7 @@ export class ExtensionLoader {
           message,
           failure.registries,
           failure.context,
+          detail,
         );
         staged.push({
           ...failure,
@@ -426,8 +445,14 @@ export class ExtensionLoader {
     error?: string,
     registries?: ReturnType<typeof createExtensionRegistries>,
     ctx?: ExtensionContext,
+    detail: Partial<ExtensionLifecycleEvent> = {},
   ): Promise<void> {
-    const event: ExtensionLifecycleEvent = { type, extensionId, error };
+    const event: ExtensionLifecycleEvent = {
+      type,
+      extensionId,
+      error,
+      ...detail,
+    };
     this.pushEvent(event);
     if (BROADCAST_EVENTS.has(type)) {
       // Deliver to the owner and its siblings together, after the swap.

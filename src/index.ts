@@ -10,6 +10,7 @@ export { InMemoryProviderRegistry } from "./providers/registry.js";
 export { InMemorySession } from "./sessions/store.js";
 export * from "./sessions/store.js";
 export * from "./extensions/session-manager.js";
+export * from "./extensions/compatibility-error.js";
 export * from "./sessions/events.js";
 export * from "./sessions/recovery.js";
 export { OllamaAdapter, OllamaProvider } from "./providers/ollama.js";
