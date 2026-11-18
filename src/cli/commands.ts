@@ -57,6 +57,7 @@ export interface CommandContext {
   renameSession(title: string): void;
   listExtensions(): string;
   extensionDoctor(): string;
+  extensionDoctorJson(): string;
   reloadExtensions(): Promise<void>;
   switchModel(target: string): void;
   startProviderSetup(profile: string): void;
@@ -673,10 +674,14 @@ export function createCommandRegistry(
     description:
       "list discovered extensions and load status; use /extensions doctor for diagnostics",
     category: "Extensions",
-    argumentHint: "[doctor]",
+    argumentHint: "[doctor [--json]]",
     run(ctx, args) {
-      if (args.trim() === "doctor") {
-        ctx.appendLine(ctx.extensionDoctor());
+      const [mode, ...rest] = args.trim().split(/\s+/);
+      if (mode === "doctor") {
+        const json = rest.includes("--json");
+        ctx.appendLine(
+          json ? ctx.extensionDoctorJson() : ctx.extensionDoctor(),
+        );
       } else {
         ctx.appendLine(ctx.listExtensions());
       }

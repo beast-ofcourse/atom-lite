@@ -2162,6 +2162,7 @@ export async function run(args: string[]): Promise<void> {
         .join("\n");
     },
     extensionDoctor: () => extensionLoader.doctor(),
+    extensionDoctorJson: () => extensionLoader.doctorJson(),
     reloadExtensions,
     setProjectTrust: (decision) => {
       if (decision === "allow") {
