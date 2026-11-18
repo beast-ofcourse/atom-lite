@@ -227,12 +227,16 @@ export async function run(args: string[]): Promise<void> {
     void shutdownLsp();
   };
   process.on("exit", shutdownLspOnce);
-  process.on("SIGINT", () => {
-    void shutdownLsp().finally(() => process.exit(0));
-  });
-  process.on("SIGTERM", () => {
-    void shutdownLsp().finally(() => process.exit(0));
-  });
+  // Modes that own a long-running loop (serve) install a hook so shutdown
+  // waits for their final events before the process exits.
+  let shutdownHook: (() => Promise<void>) | undefined;
+  const signalShutdown = () => {
+    void shutdownLsp()
+      .finally(() => Promise.resolve(shutdownHook?.()))
+      .finally(() => process.exit(0));
+  };
+  process.on("SIGINT", signalShutdown);
+  process.on("SIGTERM", signalShutdown);
   const initialProfile = providerOverride ?? config.defaultProvider;
   if (!(config.providers as Record<string, unknown>)[initialProfile]) {
     const preset = getPreset(initialProfile);
@@ -381,6 +385,7 @@ export async function run(args: string[]): Promise<void> {
     userDir: join(userConfigDir(), "extensions"),
     projectDir: process.cwd(),
     hasUI: interactive,
+    session,
     uiFactory: (registries, ctx) =>
       createDefaultExtensionUI(registries, ctx, extensionUICallbacks),
     onLifecycleEvent: (event) => {
@@ -759,6 +764,14 @@ export async function run(args: string[]): Promise<void> {
     };
     process.on("SIGINT", shutdown);
     process.on("SIGTERM", shutdown);
+    const finished = (async () => {
+      await stopped;
+      await extensionLoader.notifySessionEnd();
+    })();
+    shutdownHook = async () => {
+      shutdown();
+      await finished;
+    };
 
     if (shareMode) {
       const shareUrl = `http://${lanAddress}:${server.port}/?token=${encodeURIComponent(server.token)}`;
@@ -781,7 +794,7 @@ export async function run(args: string[]): Promise<void> {
     } else {
       process.stdout.write(`atom-lite: web UI at ${server.url}\n`);
     }
-    await stopped;
+    await finished;
     await mcpManager.close().catch(() => {});
     return;
   }
@@ -819,8 +832,10 @@ export async function run(args: string[]): Promise<void> {
         process.stderr.write(
           `atom-lite: ${err instanceof Error ? err.message : String(err)}\n`,
         );
-      process.exit(1);
+      process.exitCode = 1;
     } finally {
+      // Every terminal mode emits session_end, including --json and one-shot.
+      await extensionLoader.notifySessionEnd();
       await mcpManager.close().catch(() => {});
       process.off("SIGINT", onSigint);
     }
@@ -960,6 +975,7 @@ export async function run(args: string[]): Promise<void> {
         const run = command.run ?? command.handler;
         out.push({
           ...command,
+          extensionContext: loaded.context,
           run: (args: string, ctx: any) =>
             extensionLoader.runBounded(
               { extensionId: loaded.id, method: `command:/${command.name}` },
@@ -2260,13 +2276,17 @@ export async function run(args: string[]): Promise<void> {
     runTurn,
     isTurnActive: () => activeTurnController !== null,
     requestExit: () => {
-      extensionLoader.notifySessionEnd();
-      void shutdownLsp().finally(() => {
-        void mcpManager.close().finally(() => {
-          tui.stop();
-          process.exit(0);
+      void extensionLoader
+        .notifySessionEnd()
+        .catch(() => {})
+        .finally(() => {
+          void shutdownLsp().finally(() => {
+            void mcpManager.close().finally(() => {
+              tui.stop();
+              process.exit(0);
+            });
+          });
         });
-      });
     },
   };
 

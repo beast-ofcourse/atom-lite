@@ -23,7 +23,9 @@ test("loads trusted user extensions", async () => {
     const loaded = await loader.loadAll();
     assert.equal(loaded.length, 1);
     assert.equal(loaded[0].status, "loaded");
-    assert.equal(loaded[0].registries.entries.length, 1);
+    // appendEntry now goes through the real session manager; the in-memory
+    // registry is only a fallback when no manager is attached.
+    assert.equal(loaded[0].context!.sessionManager.getEntries().length, 1);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

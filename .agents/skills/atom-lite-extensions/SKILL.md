@@ -181,8 +181,8 @@ Dialogs: `pi.select`, `pi.confirm`, `pi.input` (shown above).
 ```ts
 pi.appendEntry("custom_type", { foo: 1 });
 const entries = pi.getSessionEntries({ type: "custom_type" });
-pi.getSessionManager(); // no-op in the current matrix
-pi.getSession(); // { id }
+pi.getSessionManager(); // read model over the live session
+pi.getSession(); // { id: real session id }
 pi.getWorkspace();
 ```
 

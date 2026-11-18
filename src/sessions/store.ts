@@ -45,6 +45,11 @@ export interface Session {
    * (in-memory) sessions do not implement it and callers must guard.
    */
   appendEvent?(event: unknown): void;
+  /**
+   * Durable sessions only: append a non-message event that must survive resume
+   * even before the session's first message (for example an extension entry).
+   */
+  appendDurableEvent?(event: Partial<SessionEvent>): SessionEvent;
   // Flush pending durable writes (async persistence).
   flush?(): Promise<void>;
 }
@@ -254,6 +259,21 @@ export class JsonlSession implements Session {
       this.persist(ev);
     }
     return ev;
+  }
+
+  /**
+   * `appendEvent` deliberately keeps non-message events in memory until the
+   * first message so an unused session leaves no empty log. Extension entries
+   * are different: they are state the next session must read back, so they are
+   * flushed immediately even on a fresh session.
+   */
+  appendDurableEvent(partial: Partial<SessionEvent>): SessionEvent {
+    const before = this.events.length;
+    const event = this.appendEvent(partial);
+    if (!this.persisted && this.events.length > before) {
+      this.persistNewEvent(event);
+    }
+    return event;
   }
 
   // Convenience recorders.

@@ -13,6 +13,10 @@ import { ExtensionBoundary, type BoundaryError } from "./boundary.js";
 import type { ExtensionContext } from "./types.js";
 import type { AtomEvent } from "./types.js";
 import {
+  PiSessionManager,
+  type ExtensionSessionLike,
+} from "./session-manager.js";
+import {
   compatibilityMatrix,
   type CompatibilityMatrixEntry,
 } from "./compatibility-matrix.js";
@@ -34,6 +38,10 @@ export interface ExtensionLoaderOptions {
   onLifecycleEvent?: (event: ExtensionLifecycleEvent) => void;
   /** Maximum time a single extension callback may run before it is timed out. */
   handlerTimeoutMs?: number;
+  /** Live session backing the extension session APIs. */
+  session?: ExtensionSessionLike;
+  /** Keep the lifecycle stream bounded across reloads. */
+  maxLifecycleEvents?: number;
 }
 
 export interface LoadedExtension {
@@ -107,10 +115,12 @@ export class ExtensionLoader {
   private generation = 0;
   private boundary: ExtensionBoundary;
   private readonly handlerTimeoutMs: number;
+  private readonly maxLifecycleEvents: number;
 
   constructor(options: ExtensionLoaderOptions = {}) {
     this.options = options;
     this.handlerTimeoutMs = options.handlerTimeoutMs ?? 5_000;
+    this.maxLifecycleEvents = options.maxLifecycleEvents ?? 200;
     this.boundary = this.createBoundary();
   }
 
@@ -180,6 +190,13 @@ export class ExtensionLoader {
       log: (message) => {
         console.error(`[extension:${entry.id}] ${message}`);
       },
+      // Every extension gets a real read model over the live session. When the
+      // host supplied a durable session, appendEntry/getSessionEntries persist
+      // through it; otherwise the manager falls back to in-memory state.
+      sessionManager: new PiSessionManager({
+        session: this.options.session,
+        cwd: this.workspace(),
+      }),
     };
     ctx.ui =
       this.options.uiFactory?.(registries, ctx) ??
@@ -279,7 +296,7 @@ export class ExtensionLoader {
           entry.id,
           staging.context,
           staging.registries,
-          "current",
+          (staging.context.sessionManager as PiSessionManager).getId(),
           {
             wrapHandler: (event, handler) =>
               this.wrapHandler(entry.id, event, handler),
@@ -331,6 +348,10 @@ export class ExtensionLoader {
 
   private pushEvent(event: ExtensionLifecycleEvent): void {
     this.lifecycle.push(event);
+    // Reloads emit events indefinitely; keep doctor's stream recent and bounded.
+    if (this.lifecycle.length > this.maxLifecycleEvents) {
+      this.lifecycle.splice(0, this.lifecycle.length - this.maxLifecycleEvents);
+    }
     try {
       this.options.onLifecycleEvent?.(event);
     } catch {

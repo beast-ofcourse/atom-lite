@@ -16,15 +16,27 @@ const OUTPUT_FILE = "src/extensions/compatibility-matrix.ts";
 // Host readers. A `supported` entry must point here: a method's own
 // implementation line in api.ts is not evidence that anything consumes it.
 const hostConsumers = {
-  registerTool: [["src/extensions/tool-adapter.ts", "registries.tools.values()"]],
-  unregisterTool: [["src/extensions/tool-adapter.ts", "registries.tools.values()"]],
+  registerTool: [
+    ["src/extensions/tool-adapter.ts", "registries.tools.values()"],
+  ],
+  unregisterTool: [
+    ["src/extensions/tool-adapter.ts", "registries.tools.values()"],
+  ],
   setActiveTools: [
-    ["src/extensions/tool-adapter.ts", "const active = loaded.registries.activeTools;"],
+    [
+      "src/extensions/tool-adapter.ts",
+      "const active = loaded.registries.activeTools;",
+    ],
   ],
   getActiveTools: [
-    ["src/extensions/tool-adapter.ts", "const active = loaded.registries.activeTools;"],
+    [
+      "src/extensions/tool-adapter.ts",
+      "const active = loaded.registries.activeTools;",
+    ],
   ],
-  getAllTools: [["src/extensions/tool-adapter.ts", "registries.tools.values()"]],
+  getAllTools: [
+    ["src/extensions/tool-adapter.ts", "registries.tools.values()"],
+  ],
   registerCommand: [["src/cli/app.ts", "registries?.commands?.values?.()"]],
   unregisterCommand: [["src/cli/app.ts", "registries?.commands?.values?.()"]],
   on: [["src/extensions/loader.ts", "registries.handlers.get(event.type)"]],
@@ -52,6 +64,7 @@ const reduced = new Set([
   "registerProvider",
   "appendEntry",
   "getSessionEntries",
+  "getSessionManager",
   "notify",
   "exec",
   "log",
@@ -79,13 +92,14 @@ const noOp = new Set([
   "setWorkingVisible",
   "setWorkingIndicator",
   "setHiddenThinkingLabel",
-  "getSessionManager",
   "registerModel",
 ]);
 
 function apiMethods() {
   const source = readFileSync(join(root, API_FILE), "utf8");
-  const body = /export interface ExtensionAPI \{([\s\S]*?)\n\}/.exec(source)?.[1];
+  const body = /export interface ExtensionAPI \{([\s\S]*?)\n\}/.exec(
+    source,
+  )?.[1];
   if (!body) throw new Error(`Cannot parse ExtensionAPI from ${API_FILE}`);
   return [...body.matchAll(/^\s{2}([A-Za-z_]\w*)\s*\(/gm)].map((m) => m[1]);
 }
@@ -93,7 +107,8 @@ function apiMethods() {
 function locate(file, token) {
   const lines = readFileSync(join(root, file), "utf8").split("\n");
   const index = lines.findIndex((line) => line.includes(token));
-  if (index < 0) throw new Error(`Consumer token not found: ${file}: '${token}'`);
+  if (index < 0)
+    throw new Error(`Consumer token not found: ${file}: '${token}'`);
   return { file, line: index + 1 };
 }
 
@@ -111,7 +126,9 @@ function validate(methods) {
   for (const set of [reduced, noOp]) {
     for (const method of set) {
       if (!implemented.has(method)) {
-        throw new Error(`Status map names a method not in ${API_FILE}: '${method}'`);
+        throw new Error(
+          `Status map names a method not in ${API_FILE}: '${method}'`,
+        );
       }
     }
   }
@@ -122,7 +139,9 @@ function validate(methods) {
   }
   for (const method of Object.keys(hostConsumers)) {
     if (!implemented.has(method)) {
-      throw new Error(`Host consumer has no method in ${API_FILE}: '${method}'`);
+      throw new Error(
+        `Host consumer has no method in ${API_FILE}: '${method}'`,
+      );
     }
     if (noOp.has(method)) {
       throw new Error(`no-op method '${method}' has host consumer evidence`);
@@ -139,10 +158,16 @@ function generate() {
     const evidence = hostConsumers[method] ?? [];
     for (const [file] of evidence) {
       if (file === API_FILE) {
-        throw new Error(`'${method}': a supported consumer cannot be ${API_FILE}`);
+        throw new Error(
+          `'${method}': a supported consumer cannot be ${API_FILE}`,
+        );
       }
     }
-    return { method, status, consumers: evidence.map(([file, token]) => locate(file, token)) };
+    return {
+      method,
+      status,
+      consumers: evidence.map(([file, token]) => locate(file, token)),
+    };
   });
 
   const rows = entries
