@@ -12,6 +12,7 @@ import type {
   ExtensionEventHandler,
 } from "./types.js";
 import { createDefaultExtensionUI } from "./ui.js";
+import { ExtensionObservability } from "./observability.js";
 import { validateExtensionTool } from "./tool-validation.js";
 import {
   EXTENSION_API_VERSION,
@@ -92,6 +93,10 @@ export interface ExtensionAPI {
     options?: ExecOptions,
   ): Promise<ExecResult>;
   log(message: string): void;
+  /** Run `fn`, recording its duration and outcome. Re-throws on failure. */
+  span(name: string, fn: () => unknown | Promise<unknown>): Promise<unknown>;
+  /** Record a counter. Attributes stay in memory; doctor sees counts only. */
+  metric(name: string, value: number, attrs?: Record<string, unknown>): void;
 
   /** Version of this ExtensionAPI surface; use with `supports` to branch. */
   apiVersion: string;
@@ -139,6 +144,8 @@ export interface ExtensionRegistries {
   entries: Array<{ type: string; data: unknown }>;
   activeTools: Set<string> | null;
   status: Map<string, string | undefined>;
+  /** Per-extension observability records, bounded and reset on reload. */
+  observability: ExtensionObservability;
   /** Host hook for rejections that must surface as `extension_error`. */
   reportError?: (message: string) => void;
   /** Host hook to drop a provider from model selection in the same call. */
@@ -167,6 +174,7 @@ export function createExtensionRegistries(): ExtensionRegistries {
     entries: [],
     activeTools: null,
     status: new Map(),
+    observability: new ExtensionObservability(),
   };
 }
 
@@ -424,6 +432,9 @@ export function createExtensionAPI(
       // eslint-disable-next-line no-console
       console.error(`[extension:${id}] ${message}`);
     },
+    span: (name, fn) => registries.observability.span(name, fn),
+    metric: (name, value, attrs) =>
+      registries.observability.metric(name, value, attrs),
     apiVersion: EXTENSION_API_VERSION,
     supports: (method) => methodSupported(method),
     getSessionTree: tier3Stub(

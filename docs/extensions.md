@@ -201,6 +201,16 @@ extensions once, after the new extension set is committed.
 - `exec(command, args?, options?)` → `Promise<ExecResult>`
 - `log(message)`
 
+**Observability**
+
+- `span(name, fn)` → `Promise<unknown>`; records the wrapped call's duration and
+  `ok`/`error` outcome, then returns its result or re-throws its error.
+- `metric(name, value, attrs?)`; records a counter. Attributes stay in memory.
+
+Records are bounded at 1000 per extension and reset on reload. Doctor exposes
+counts and the last error only — metric values, attribute payloads, and recorded
+span results never appear in diagnostics.
+
 **UI context (`pi.ui`)** — also exposes: `editor`, `onTerminalInput`, `custom`, `pasteToEditor`, `setEditorText`, `getEditorText`, `getTheme`, `setTheme`.
 
 ## Diagnostics
@@ -210,11 +220,53 @@ prints per-extension load status, tool/command counts, and errors.
 `/extensions doctor --json` prints an array with, per extension, `id`, `source`,
 `status`, `error`, `stack`, `toolCount`, `commandCount`, `eventCount`, `apis`
 — the matrix entries for API calls found in that extension's entry file — and
-`lifecycleEvents`, the lifecycle records from that extension.
+`lifecycleEvents`, the lifecycle records from that extension. It also reports
+`errorCount` and `lastError` for contained failures, plus `observability` with
+`spanCount`, `metricCount`, `errorCount`, and `lastError` for span failures.
 
 The JSON list contains only methods that exist in `ExtensionAPI`. Called Tier 3
 methods carry their `unsupported` matrix entry; containment errors include the
 method, tier, and alternative when one exists.
+
+## Testing an extension
+
+Run one fixture without a provider, network, or user configuration:
+
+```bash
+atom-lite extension test ./extensions/my-extension.js
+```
+
+The fixture loads through the normal extension loader with a fake provider,
+fake TUI, and fake session. Export a `test` function taking `ctx` to assert on the run:
+
+```js title="my-extension.js"
+export default (pi) => {
+  pi.registerTool({
+    name: "echo",
+    label: "Echo",
+    description: "echoes text",
+    execute: async (_id, args) => args.text,
+  });
+};
+
+export async function test(ctx) {
+  await ctx.runTurn("hello");
+  ctx.assert.match(ctx.transcript[0].content, /hello/);
+  ctx.assert.ok(ctx.events.includes("turn_end"));
+  ctx.assert.equal(ctx.tools.length, 1);
+}
+```
+
+`ctx` provides `assert` (`ok`, `equal`, `match`, `deepEqual`, `rejects`),
+`runTurn`, `tools`, `transcript`, `events`, `uiEvents`, `sessionEvents`,
+`doctor`, `dispatch`, `setResponse`, and `pi` (the API instance
+the factory received). Commands exit zero when every assertion passes and no
+extension error occurs; any failure or unexpected error prints the cause and
+exits non-zero.
+
+The fault-injection files under `tests/fixtures/extensions/` are the seed of the
+conformance suite. A fixture that proves a specific error is contained exports
+`expectErrors = ["message fragment"]` so that error does not fail the run.
 
 ## Migration notes
 

@@ -55,6 +55,8 @@ const hostConsumers = {
   unregisterProvider: [
     ["src/cli/app.ts", "loaded.registries?.providers ?? new Map()"],
   ],
+  span: [["src/extensions/loader.ts", "registries.observability.snapshot()"]],
+  metric: [["src/extensions/loader.ts", "registries.observability.snapshot()"]],
 };
 
 // Implemented and useful, but the host does not consume the result or output.

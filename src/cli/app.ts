@@ -159,6 +159,24 @@ export async function closeInteractiveSession(
 }
 
 export async function run(args: string[]): Promise<void> {
+  // Harness subcommand: dispatch before any provider, session store or TUI is
+  // created so a fixture test needs no network or user configuration.
+  if (args[0] === "extension" && args[1] === "test") {
+    const fixture = args[2];
+    if (!fixture) {
+      process.stderr.write(
+        "atom-lite: extension test requires a fixture path\n",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    const { runExtensionTest } = await import("../extensions/harness.js");
+    const result = await runExtensionTest(fixture);
+    for (const line of result.output) process.stdout.write(`${line}\n`);
+    if (!result.passed) process.exitCode = 1;
+    return;
+  }
+
   installEditorKeybindings();
   let providerOverride: string | undefined;
   let modelOverride: string | undefined;
@@ -205,7 +223,8 @@ export async function run(args: string[]): Promise<void> {
       showQr = false;
     } else if (a === "--help") {
       process.stdout.write(
-        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json] [--theme NAME] [--no-color] [-e PATH] [--serve [PORT]] [--share] [--no-qr] [--version] [--help]\n",
+        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json] [--theme NAME] [--no-color] [-e PATH] [--serve [PORT]] [--share] [--no-qr] [--version] [--help]\n" +
+          "atom-lite extension test <path>  run an extension fixture without a provider\n",
       );
       return;
     } else if (a.startsWith("--")) {
