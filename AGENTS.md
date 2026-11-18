@@ -22,6 +22,8 @@ Do not use `npm stage approve` (requires 2FA/CI token). Direct publish works wit
 
 Issues and specs live as markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
 
+Extension runtime reliability work: read `.scratch/extension-runtime-reliability/spec.md` before changing `src/extensions/**`, extension diagnostics, or the extension API. Its tickets are under `.scratch/extension-runtime-reliability/issues/`.
+
 ### Release workflow skill
 
 Use the `release-workflow` skill (`.agents/skills/release-workflow/SKILL.md`) when releasing, publishing, shipping, bumping a version, or preparing release notes/changelog. It supersedes the short checklist above; follow it exactly.
