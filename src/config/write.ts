@@ -46,17 +46,24 @@ export function updateUserConfig(
 export interface SaveProviderOptions {
   defaultProvider?: string;
   path?: string;
+  /**
+   * Keep the selection in memory only. Extension-bridged providers are rebuilt
+   * on every load, so persisting a model-only profile would leave a broken
+   * provider behind once the extension is removed.
+   */
+  ephemeral?: boolean;
 }
 
 /**
  * Persist a provider profile selection. Existing user config (other providers,
- * runtime settings, etc.) is preserved.
+ * runtime settings, etc.) is preserved. Ephemeral selections are not written.
  */
 export function saveProviderSelection(
   profile: string,
   provider: Record<string, unknown>,
   opts: SaveProviderOptions = {},
 ): void {
+  if (opts.ephemeral) return;
   updateUserConfig((config) => {
     const providers =
       config.providers && typeof config.providers === "object"
