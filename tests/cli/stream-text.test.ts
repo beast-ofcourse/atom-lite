@@ -3,6 +3,11 @@ import assert from "node:assert/strict";
 import { Transcript } from "../../dist/cli/transcript.js";
 import { StreamText } from "../../dist/cli/stream-text.js";
 
+// Longer than one 16ms display frame, shorter than the old 50ms throttle,
+// so this would fail against the old behaviour.
+const FRAME_WAIT_MS = 30;
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 test("stream text seals completed lines in batches", () => {
   const transcript = new Transcript();
   const stream = new StreamText(transcript, 2, 2);
@@ -44,4 +49,33 @@ test("stream text renders markdown headings", () => {
     .join("\n");
   assert.match(rendered, /Title/);
   assert.match(rendered, /body/);
+});
+
+test("stream text paints the first append immediately", () => {
+  const transcript = new Transcript();
+  const stream = new StreamText(transcript, 200, 200);
+  stream.append("first paint text");
+  const rendered = transcript.container.render(80).join("\n");
+  assert.match(rendered, /first paint text/);
+});
+
+test("stream text reflects a later append after one frame when appends arrive faster than the interval", async () => {
+  const transcript = new Transcript();
+  const stream = new StreamText(transcript, 200, 200);
+
+  stream.append("alpha");
+  assert.match(transcript.container.render(80).join("\n"), /alpha/);
+
+  // Several appends inside a single frame; the live buffer updates but the
+  // container's cached lines do not until the next invalidate.
+  stream.append("beta");
+  stream.append("gamma-fast");
+  transcript.container.render(80);
+
+  await wait(FRAME_WAIT_MS);
+  stream.append("delta");
+
+  const rendered = transcript.container.render(80).join("\n");
+  assert.match(rendered, /alpha/);
+  assert.match(rendered, /delta/);
 });

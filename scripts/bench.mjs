@@ -196,6 +196,18 @@ const streamFrame = await bench(() => transcript.container.render(120), 10);
 record("stream append max, 10k lines", maxAppend, "ms", 16);
 record("frame build, 10k streamed lines", streamFrame, "ms", 16);
 
+// Uncached frame rebuild with a live buffer near its cap. The 10k stream above
+// leaves the live Markdown holding the tail; a delta keeps it near the cap.
+stream.append("live delta line padding\n".repeat(20));
+const streamLiveFrame = await bench(
+  () => {
+    transcript.invalidate();
+    return transcript.container.render(120);
+  },
+  Math.max(5, Math.min(RUNS, 10)),
+);
+record("stream frame, live 200 lines (uncached)", streamLiveFrame, "ms", 16);
+
 // --- report ----------------------------------------------------------------
 const pad = (s, n) => String(s).padEnd(n);
 const num = (v) => (v >= 10 ? v.toFixed(1) : v.toFixed(2));

@@ -48,7 +48,7 @@ import {
   knownContextWindow,
   knownVisionModel,
 } from "../providers/context-window.js";
-import { StreamText } from "./stream-text.js";
+import { STREAM_INVALIDATE_MS, StreamText } from "./stream-text.js";
 import { initLsp, shutdownLsp } from "../lsp/index.js";
 import { Transcript } from "./transcript.js";
 import { AgentRuntime } from "../agent/loop.js";
@@ -3104,7 +3104,7 @@ export async function run(args: string[]): Promise<void> {
       thinkingText.buffer = thinkingBuffer;
       heightStamp++; // in-place ThinkingBlock buffer mutation
       const now = Date.now();
-      if (now - lastThinkingInvalidateAt >= 50) {
+      if (now - lastThinkingInvalidateAt >= STREAM_INVALIDATE_MS) {
         transcript.invalidate();
         lastThinkingInvalidateAt = now;
       }
@@ -3185,7 +3185,7 @@ export async function run(args: string[]): Promise<void> {
         box.appendLive(e.text);
         heightStamp++; // in-place ToolBox live output mutation
         const now = Date.now();
-        if (now - lastToolOutputInvalidateAt >= 50) {
+        if (now - lastToolOutputInvalidateAt >= STREAM_INVALIDATE_MS) {
           transcript.invalidate();
           lastToolOutputInvalidateAt = now;
         }
