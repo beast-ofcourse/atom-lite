@@ -164,6 +164,22 @@ export function createExtensionRegistries(): ExtensionRegistries {
   };
 }
 
+/**
+ * Provider config keys the host actually maps when it bridges an extension
+ * provider into Atom-lite's provider list. Identity/wrapper keys are not
+ * features; anything else declared in the config is silently dropped, so it
+ * must be surfaced as a reduced-compatibility warning.
+ */
+const APPLIED_PROVIDER_CONFIG_KEYS = new Set([
+  "baseUrl",
+  "apiKey",
+  "headers",
+  "authHeader",
+  "models",
+]);
+
+const PROVIDER_IDENTITY_KEYS = new Set(["name", "id", "config"]);
+
 export interface CreateExtensionAPIOptions {
   /** Wrap an event handler so it runs behind the host's boundary. */
   wrapHandler?: (
@@ -349,12 +365,11 @@ export function createExtensionAPI(
         console.error("[extension] registerProvider requires a provider name");
         return;
       }
-      const unsupported: string[] = [];
-      if (cfg?.oauth) unsupported.push("oauth");
-      if (cfg?.streamSimple) unsupported.push("streamSimple");
-      if (cfg?.classifiers) unsupported.push("classifiers");
-      if (cfg?.refreshModels) unsupported.push("refreshModels");
-      if (cfg?.images) unsupported.push("images");
+      const unsupported = Object.keys(cfg).filter(
+        (key) =>
+          !APPLIED_PROVIDER_CONFIG_KEYS.has(key) &&
+          !PROVIDER_IDENTITY_KEYS.has(key),
+      );
       if (unsupported.length > 0) {
         // eslint-disable-next-line no-console
         console.error(
@@ -365,6 +380,11 @@ export function createExtensionAPI(
     },
     unregisterProvider: (name) => {
       registries.providers.delete(name);
+      // Models registered for this provider must leave the selectable set in
+      // the same call; otherwise a removed provider keeps offering its models.
+      registries.models = registries.models.filter(
+        (model) => model.provider !== name,
+      );
     },
     registerModel: (model) => {
       registries.models.push(model);

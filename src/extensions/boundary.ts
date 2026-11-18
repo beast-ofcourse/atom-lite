@@ -20,6 +20,12 @@ export interface BoundaryMeta {
 export interface BoundaryOptions {
   /** Reports the current reload generation. */
   generation: () => number;
+  /**
+   * Overrides generation equality. During staging both the committed and the
+   * pending generation are live: the outgoing set must still observe
+   * session_shutdown while the incoming set activates.
+   */
+  isLive?: () => boolean;
   /** Maximum time a single callback may run before it is timed out. */
   timeoutMs: number;
   /** Receives exactly one entry per contained failure. */
@@ -46,7 +52,9 @@ export class ExtensionBoundary {
   }
 
   isStale(): boolean {
-    return this.generation !== this.options.generation();
+    return this.options.isLive
+      ? !this.options.isLive()
+      : this.generation !== this.options.generation();
   }
 
   async run<T>(
