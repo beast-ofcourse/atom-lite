@@ -49,6 +49,7 @@ const hostConsumers = {
 // The entry may still list consumer evidence (registerProvider maps into the
 // host provider list with documented limits).
 const reduced = new Set([
+  "supports",
   "registerProvider",
   "appendEntry",
   "getSessionEntries",
@@ -83,6 +84,19 @@ const noOp = new Set([
   "registerModel",
 ]);
 
+// Deferred Tier 3 APIs. They are present on ExtensionAPI as failing stubs so
+// callers get a typed ExtensionCompatibilityError instead of a raw TypeError;
+// the matrix labels them `unsupported` and doctor reports them as such.
+const unsupported = new Set([
+  "getSessionTree",
+  "forkSession",
+  "registerMcpServer",
+  "registerOAuthProvider",
+  "virtualModel",
+  "enableRpcMode",
+  "registerCustomEditor",
+]);
+
 function apiMethods() {
   const source = readFileSync(join(root, API_FILE), "utf8");
   const body = /export interface ExtensionAPI \{([\s\S]*?)\n\}/.exec(source)?.[1];
@@ -100,6 +114,7 @@ function locate(file, token) {
 /** Derive one status from implementation and host-consumer evidence. */
 function statusFor(method, implemented) {
   if (!implemented) return "unsupported";
+  if (unsupported.has(method)) return "unsupported";
   if (reduced.has(method)) return "reduced";
   if (noOp.has(method)) return "no-op";
   if (hostConsumers[method]?.length > 0) return "supported";
@@ -108,7 +123,7 @@ function statusFor(method, implemented) {
 
 function validate(methods) {
   const implemented = new Set(methods);
-  for (const set of [reduced, noOp]) {
+  for (const set of [reduced, noOp, unsupported]) {
     for (const method of set) {
       if (!implemented.has(method)) {
         throw new Error(`Status map names a method not in ${API_FILE}: '${method}'`);
@@ -119,6 +134,14 @@ function validate(methods) {
     if (noOp.has(method)) {
       throw new Error(`'${method}' is both reduced and no-op`);
     }
+    if (unsupported.has(method)) {
+      throw new Error(`'${method}' is both reduced and unsupported`);
+    }
+  }
+  for (const method of unsupported) {
+    if (noOp.has(method)) {
+      throw new Error(`'${method}' is both no-op and unsupported`);
+    }
   }
   for (const method of Object.keys(hostConsumers)) {
     if (!implemented.has(method)) {
@@ -126,6 +149,9 @@ function validate(methods) {
     }
     if (noOp.has(method)) {
       throw new Error(`no-op method '${method}' has host consumer evidence`);
+    }
+    if (unsupported.has(method)) {
+      throw new Error(`unsupported method '${method}' has host consumer evidence`);
     }
   }
 }

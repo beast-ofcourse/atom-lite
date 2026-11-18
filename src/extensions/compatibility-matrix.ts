@@ -57,12 +57,12 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "on",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":371}],
+    consumers: [{"file":"src/extensions/loader.ts","line":396}],
   },
   {
     method: "off",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":371}],
+    consumers: [{"file":"src/extensions/loader.ts","line":396}],
   },
   {
     method: "appendEntry",
@@ -202,12 +202,12 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "getWorkspace",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":176}],
+    consumers: [{"file":"src/extensions/loader.ts","line":181}],
   },
   {
     method: "getSession",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":278}],
+    consumers: [{"file":"src/extensions/loader.ts","line":283}],
   },
   {
     method: "getSessionManager",
@@ -217,7 +217,7 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "isProjectTrusted",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":177}],
+    consumers: [{"file":"src/extensions/loader.ts","line":182}],
   },
   {
     method: "registerProvider",
@@ -242,6 +242,46 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "log",
     status: "reduced",
+    consumers: [],
+  },
+  {
+    method: "supports",
+    status: "reduced",
+    consumers: [],
+  },
+  {
+    method: "getSessionTree",
+    status: "unsupported",
+    consumers: [],
+  },
+  {
+    method: "forkSession",
+    status: "unsupported",
+    consumers: [],
+  },
+  {
+    method: "registerMcpServer",
+    status: "unsupported",
+    consumers: [],
+  },
+  {
+    method: "registerOAuthProvider",
+    status: "unsupported",
+    consumers: [],
+  },
+  {
+    method: "virtualModel",
+    status: "unsupported",
+    consumers: [],
+  },
+  {
+    method: "enableRpcMode",
+    status: "unsupported",
+    consumers: [],
+  },
+  {
+    method: "registerCustomEditor",
+    status: "unsupported",
     consumers: [],
   },
 ];

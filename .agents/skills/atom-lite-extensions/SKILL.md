@@ -150,8 +150,8 @@ pi.off("tool_call", handler);
 Valid events (`AtomEvent`): `extension_load`, `extension_activate`,
 `extension_unload`, `extension_error`, `session_start`, `session_end`,
 `turn_start`, `turn_end`, `tool_call`, `tool_result`, `message`, `message_start`,
-`message_end`, `context_build`, `config_change`. Tier 3 features are not
-implemented.
+`message_end`, `context_build`, `config_change`. Tier 3 APIs are failing stubs;
+check `pi.supports(name)` before calling one.
 
 ## UI
 
@@ -232,9 +232,11 @@ pi.registerMarkdownTransformer((markdown) => markdown);
 - **Tier 2 (no-op):** renderers, markdown transformers, shortcuts, flags,
   autocomplete, custom footer/header/title, working indicator, thinking label,
   status, widgets.
-- **Tier 3 (not implemented):** session tree navigation, forks, codemode,
-  MCP server registration, OAuth providers, RPC mode, custom editors. These
-  methods are absent from `ExtensionAPI`.
+- **Tier 3 (failing stubs):** session tree navigation, forks, codemode tool
+  exposure, MCP server registration, OAuth providers, RPC mode, custom editors,
+  and model factories. Each throws `ExtensionCompatibilityError` naming the
+  method, tier, and a replacement. Check `pi.supports(name)` first;
+  `pi.apiVersion` identifies the API surface.
 
 Reduced-compat provider keys (`oauth`, `streamSimple`, `classifiers`, image
 generation, `refreshModels`) emit warnings rather than failing.
