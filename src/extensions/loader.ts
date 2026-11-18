@@ -40,8 +40,18 @@ export interface LoadedExtension {
   entryPath: string;
   status: "loaded" | "error" | "skipped";
   error?: string;
+  errorStack?: string;
   registries: ReturnType<typeof createExtensionRegistries>;
   context?: ExtensionContext;
+}
+
+interface StagedExtension {
+  id: string;
+  source: string;
+  origin?: string;
+  entryPath: string;
+  registries: ReturnType<typeof createExtensionRegistries>;
+  context: ExtensionContext;
 }
 
 export interface ExtensionReport {
@@ -122,24 +132,38 @@ export class ExtensionLoader {
     return instance;
   }
 
+  private createStaging(entry: DiscoveredExtension): StagedExtension {
+    const registries = createExtensionRegistries();
+    const ctx: ExtensionContext = {
+      workspace: this.workspace(),
+      trusted: entry.trusted,
+      hasUI: this.options.hasUI ?? false,
+      ui: null as any,
+      log: (message) => {
+        console.error(`[extension:${entry.id}] ${message}`);
+      },
+    };
+    ctx.ui =
+      this.options.uiFactory?.(registries, ctx) ??
+      createDefaultExtensionUI(registries, ctx);
+    return {
+      id: entry.id,
+      source: entry.source,
+      origin: entry.origin,
+      entryPath: entry.entryPath,
+      registries,
+      context: ctx,
+    };
+  }
+
   async loadAll(): Promise<LoadedExtension[]> {
     const discovered = this.discover();
-    const loaded: LoadedExtension[] = [];
+    // Extension state is built aside and only committed in one swap below.
+    // A factory that throws must leave no registrations in the running host.
+    const staged: LoadedExtension[] = [];
 
     for (const entry of discovered) {
-      const registries = createExtensionRegistries();
-      const ctx: ExtensionContext = {
-        workspace: this.workspace(),
-        trusted: entry.trusted,
-        hasUI: this.options.hasUI ?? false,
-        ui: null as any,
-        log: (message) => {
-          console.error(`[extension:${entry.id}] ${message}`);
-        },
-      };
-      ctx.ui =
-        this.options.uiFactory?.(registries, ctx) ??
-        createDefaultExtensionUI(registries, ctx);
+      const staging = this.createStaging(entry);
 
       if (entry.errors.length > 0) {
         const error = entry.errors.join("; ");
@@ -147,59 +171,38 @@ export class ExtensionLoader {
           "extension_error",
           entry.id,
           error,
-          registries,
-          ctx,
+          staging.registries,
+          staging.context,
         );
-        loaded.push({
-          id: entry.id,
-          source: entry.source,
-          origin: entry.origin,
-          entryPath: entry.entryPath,
-          status: "skipped",
-          error,
-          registries,
-          context: ctx,
-        });
+        staged.push({ ...staging, status: "skipped", error });
         continue;
       }
 
       if (entry.skipReason) {
-        loaded.push({
-          id: entry.id,
-          source: entry.source,
-          origin: entry.origin,
-          entryPath: entry.entryPath,
-          status: "skipped",
-          error: entry.skipReason,
-          registries,
-          context: ctx,
-        });
+        staged.push({ ...staging, status: "skipped", error: entry.skipReason });
         continue;
       }
 
       try {
         const jiti = this.getJiti();
+        // Import once. jiti's `default: true` returns the default export when
+        // present, otherwise the module object (so named `activate` still
+        // resolves).
         const imported = (await jiti.import(entry.entryPath, {
           default: true,
         })) as unknown;
-        // jiti.import with default:true returns default export or module.
         const moduleExports =
           imported && typeof imported === "object"
             ? (imported as Record<string, unknown>)
             : {};
-        // Re-import full module to access named exports.
-        const fullModule = (await jiti.import(entry.entryPath)) as Record<
-          string,
-          unknown
-        >;
         const factory =
-          (typeof fullModule?.default === "function"
-            ? fullModule.default
-            : undefined) ??
-          (typeof fullModule?.activate === "function"
-            ? fullModule.activate
-            : undefined) ??
-          (typeof moduleExports === "function" ? moduleExports : undefined);
+          typeof imported === "function"
+            ? imported
+            : typeof moduleExports.default === "function"
+              ? moduleExports.default
+              : typeof moduleExports.activate === "function"
+                ? moduleExports.activate
+                : undefined;
 
         if (typeof factory !== "function") {
           throw new Error(
@@ -207,39 +210,51 @@ export class ExtensionLoader {
           );
         }
 
-        const api = createExtensionAPI(entry.id, ctx, registries, "current");
-        api.ui = ctx.ui;
+        const api = createExtensionAPI(
+          entry.id,
+          staging.context,
+          staging.registries,
+          "current",
+        );
+        api.ui = staging.context.ui;
         await factory(api);
-        this.emitToRegistries(registries, ctx, "extension_load", entry.id);
+        this.emitToRegistries(
+          staging.registries,
+          staging.context,
+          "extension_load",
+          entry.id,
+        );
         this.recordLifecycle(
           "extension_load",
           entry.id,
           undefined,
-          registries,
-          ctx,
+          staging.registries,
+          staging.context,
         );
-        this.emitToRegistries(registries, ctx, "extension_activate", entry.id);
+        this.emitToRegistries(
+          staging.registries,
+          staging.context,
+          "extension_activate",
+          entry.id,
+        );
         this.recordLifecycle(
           "extension_activate",
           entry.id,
           undefined,
-          registries,
-          ctx,
+          staging.registries,
+          staging.context,
         );
-        loaded.push({
-          id: entry.id,
-          source: entry.source,
-          origin: entry.origin,
-          entryPath: entry.entryPath,
-          status: "loaded",
-          registries,
-          context: ctx,
-        });
+        staged.push({ ...staging, status: "loaded" });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        const errorStack =
+          error instanceof Error ? (error.stack ?? error.message) : message;
+        // Discard the staged registries: the error record gets a fresh,
+        // empty staging record so it exposes zero registrations.
+        const failure = this.createStaging(entry);
         this.emitToRegistries(
-          registries,
-          ctx,
+          failure.registries,
+          failure.context,
           "extension_error",
           entry.id,
           message,
@@ -248,24 +263,20 @@ export class ExtensionLoader {
           "extension_error",
           entry.id,
           message,
-          registries,
-          ctx,
+          failure.registries,
+          failure.context,
         );
-        loaded.push({
-          id: entry.id,
-          source: entry.source,
-          origin: entry.origin,
-          entryPath: entry.entryPath,
+        staged.push({
+          ...failure,
           status: "error",
           error: message,
-          registries,
-          context: ctx,
+          errorStack,
         });
       }
     }
 
-    this.extensions = loaded;
-    return loaded;
+    this.extensions = staged;
+    return this.extensions;
   }
 
   private recordLifecycle(
@@ -317,6 +328,10 @@ export class ExtensionLoader {
 
   list(): LoadedExtension[] {
     return [...this.extensions];
+  }
+
+  processedCount(): number {
+    return this.extensions.filter((entry) => entry.status === "loaded").length;
   }
 
   lifecycleEvents(): ExtensionLifecycleEvent[] {

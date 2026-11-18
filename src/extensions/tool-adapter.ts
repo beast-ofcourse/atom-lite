@@ -178,12 +178,15 @@ export function extensionToolToAgentTool(
 
 export function collectExtensionTools(loader: {
   list: () => Array<{
+    status: string;
     registries: { tools: Map<string, ExtensionTool> };
     context?: ExtensionContext;
   }>;
 }): Tool[] {
   const out: Tool[] = [];
   for (const loaded of loader.list()) {
+    // Only successfully activated extensions contribute tools to the model.
+    if (loaded.status !== "loaded") continue;
     const ctx = loaded.context ?? {
       workspace: process.cwd(),
       trusted: true,
