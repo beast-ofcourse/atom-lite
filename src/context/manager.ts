@@ -150,6 +150,18 @@ export class ContextManager {
     });
   }
 
+  /** Append the trailing repo map with its attribution to a build's arrays. */
+  private pushRepoMap(
+    messages: Message[],
+    categories: AttributionCategory[],
+    repoMapMessages: Message[],
+  ): void {
+    for (const message of repoMapMessages) {
+      messages.push(message);
+      categories.push("staticMessages");
+    }
+  }
+
   noteUsage(used: number): void {
     if (typeof used === "number" && used > 0) this.lastReportedUsage = used;
   }
@@ -524,10 +536,7 @@ export class ContextManager {
         messages.push(m);
         categories.push("projectInstructions");
       }
-      for (const m of repoMapMessages) {
-        messages.push(m);
-        categories.push("staticMessages");
-      }
+      this.pushRepoMap(messages, categories, repoMapMessages);
     } else {
       for (const m of statics) {
         messages.push(m);
@@ -545,10 +554,7 @@ export class ContextManager {
         messages.push(m);
         categories.push("history");
       }
-      for (const m of repoMapMessages) {
-        messages.push(m);
-        categories.push("staticMessages");
-      }
+      this.pushRepoMap(messages, categories, repoMapMessages);
     }
     const prefixEnd = cached
       ? 1 + memoryMessages.length + workingHistory.length
@@ -617,9 +623,7 @@ export class ContextManager {
     ];
     const compactedStatics: Message[] = statics;
     const compactedInstructions: Message[] = instructionMessages;
-    const compacted: Message[] = [
-      { role: "system", content: systemPrompt },
-    ];
+    const compacted: Message[] = [{ role: "system", content: systemPrompt }];
     const compactedCategories: AttributionCategory[] = ["systemPrompt"];
     if (cached) {
       for (const m of compactedMemory) {
@@ -638,10 +642,7 @@ export class ContextManager {
         compacted.push(m);
         compactedCategories.push("projectInstructions");
       }
-      for (const m of repoMapMessages) {
-        compacted.push(m);
-        compactedCategories.push("staticMessages");
-      }
+      this.pushRepoMap(compacted, compactedCategories, repoMapMessages);
     } else {
       for (const m of compactedStatics) {
         compacted.push(m);
@@ -659,10 +660,7 @@ export class ContextManager {
         compacted.push(m);
         compactedCategories.push("history");
       }
-      for (const m of repoMapMessages) {
-        compacted.push(m);
-        compactedCategories.push("staticMessages");
-      }
+      this.pushRepoMap(compacted, compactedCategories, repoMapMessages);
     }
     // Final value only; the intermediate assign was dead work.
     this.lastBuildTokens =

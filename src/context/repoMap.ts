@@ -23,7 +23,7 @@ export const DEFAULT_REPO_MAP_OPTIONS: RepoMapOptions = {
 export type TokenEstimator = (message: unknown) => number;
 
 /** Short note appended whenever any content is omitted from the map. */
-const OMISSION_NOTE = "… (truncated, omitted)";
+const OMISSION_NOTE = "… (omitted)";
 
 /** Tokens kept free so the final message stays inside the configured budget. */
 const TOKEN_HEADROOM = 8;
@@ -129,14 +129,18 @@ const MAX_SIGNATURE_CHARS = 200;
 /** Files larger than this are skipped (generated bundles, checked-in data). */
 const MAX_FILE_BYTES = 64 * 1024;
 
+/** No single file may contribute more than this many definitions. */
+const MAX_DEFS_PER_FILE = 50;
+
 /** Short files with at most two non-empty lines are treated as minified. */
 const MINIFIED_MIN_CHARS = 400;
 const MINIFIED_MAX_LINES = 2;
 
 /** Ranking score: base + weighted log of cross-file usage + high-signal boost. */
 const RANK_BASE = 1;
-const RANK_USAGE_WEIGHT = 1;
-const HIGH_SIGNAL_BOOST = 1000;
+const RANK_USAGE_WEIGHT = 2;
+// Small boost: high-signal files win usage ties, but broad usage dominates.
+const HIGH_SIGNAL_BOOST = 1;
 
 /** Project instruction files are injected separately by the context manager. */
 const INSTRUCTION_FILES = new Set(["AGENTS.md", "CLAUDE.md"]);
@@ -355,6 +359,7 @@ function scanFile(workspace: string, rel: string): FileScan | null {
         line: i + 1,
         signature: sourceLines[i],
       });
+      if (definitions.length >= MAX_DEFS_PER_FILE) break;
     }
     return {
       rel,
@@ -383,7 +388,9 @@ function compareRanked(a: RankedDefinition, b: RankedDefinition): number {
 /**
  * Rank definitions by a usage-occurrence signal: the number of distinct
  * files whose identifier set contains the definition name, plus a boost for
- * high-signal project files. Ties break by path then line.
+ * high-signal project files. Ties break by path then line. Every readable
+ * file contributes identifiers, including files with no declarations of
+ * their own, so reference-only files count as usages.
  */
 function rankedDefinitions(
   workspace: string,
@@ -391,9 +398,7 @@ function rankedDefinitions(
 ): RankedDefinition[] {
   const scans = files
     .map((rel) => scanFile(workspace, rel))
-    .filter(
-      (scan): scan is FileScan => scan !== null && scan.definitions.length > 0,
-    );
+    .filter((scan): scan is FileScan => scan !== null);
 
   const filesByName = new Map<string, number>();
   for (const scan of scans) {
@@ -429,8 +434,26 @@ function render(
 ): string {
   const ranked = rankedDefinitions(workspace, files);
   if (ranked.length === 0) return "";
-  const defs = ranked.map(
-    (def) => `${def.path}:${def.line}: ${cap(def.signature)}`,
+
+  // Group definitions by file before rendering. ranked is already score-desc,
+  // path-asc, line-asc, so each file's first definition is its best-scoring
+  // one; sorting the groups keeps file order driven by usage, not by a flat
+  // interleaving of definitions from different files.
+  const byFile = new Map<string, RankedDefinition[]>();
+  for (const def of ranked) {
+    const group = byFile.get(def.path);
+    if (group) group.push(def);
+    else byFile.set(def.path, [def]);
+  }
+  const grouped = [...byFile.entries()].sort(
+    ([pathA, groupA], [pathB, groupB]) => {
+      if (groupA[0].score !== groupB[0].score)
+        return groupB[0].score - groupA[0].score;
+      return pathA < pathB ? -1 : pathA > pathB ? 1 : 0;
+    },
+  );
+  const defs = grouped.flatMap(([, group]) =>
+    group.map((def) => `${def.path}:${def.line}: ${cap(def.signature)}`),
   );
 
   // Files inherit their best definition's score; files without definitions

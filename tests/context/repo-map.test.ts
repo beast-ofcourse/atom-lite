@@ -13,13 +13,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ContextManager } from "../../dist/context/manager.js";
 import { estimateMessageTokens } from "../../dist/context/budget.js";
+import type { RepoMapOptions } from "../../dist/context/repoMap.js";
 
 const HEADER = "Repository map:";
 
-interface RepoMapSettings {
-  enabled: boolean;
-  maxTokens: number;
-  maxFiles: number;
+function settings(overrides: Partial<RepoMapOptions> = {}): RepoMapOptions {
+  return { enabled: true, maxTokens: 1200, maxFiles: 400, ...overrides };
 }
 
 function stubProvider(): any {
@@ -36,7 +35,7 @@ function stubProvider(): any {
   };
 }
 
-function manager(dir: string, repoMap?: RepoMapSettings): ContextManager {
+function manager(dir: string, repoMap?: RepoMapOptions): ContextManager {
   return new ContextManager({
     systemPrompt: "system",
     maxInputTokens: null,
@@ -57,6 +56,7 @@ function mapText(messages: any[]): string {
   return found ? found.content : "";
 }
 
+// Reason: spec (lines 15-16, 78) — definitions carry workspace-relative path, line number, and a signature line; bodies are excluded.
 test("TypeScript and JavaScript definitions appear with path, line number, and signature", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-"));
   writeFileSync(
@@ -80,6 +80,7 @@ test("TypeScript and JavaScript definitions appear with path, line number, and s
   assert.doesNotMatch(map, /return a \+ b/);
 });
 
+// Reason: spec (lines 5-6, 25, 84-86) — unchanged workspaces reuse cached text byte-for-byte; an edit invalidates it.
 test("unchanged files give byte-identical map text; an edit changes it", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-cache-"));
   const file = join(dir, "api.ts");
@@ -96,6 +97,7 @@ test("unchanged files give byte-identical map text; an edit changes it", async (
   assert.doesNotMatch(mapText(third), /alpha/);
 });
 
+// Reason: spec (line 86, further notes line 149) — cache signature is path plus mtime plus size.
 test("the cache key uses modification time and size", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-signature-"));
   const file = join(dir, "api.ts");
@@ -115,6 +117,7 @@ test("the cache key uses modification time and size", async () => {
   assert.match(mapText(await cm.build(dir, [])), /delta/);
 });
 
+// Reason: spec (line 86) — the context manager's invalidation entry point clears the repo-map cache.
 test("invalidateCaches clears the module cache on an unchanged signature", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-clear-"));
   const file = join(dir, "api.ts");
@@ -133,6 +136,7 @@ test("invalidateCaches clears the module cache on an unchanged signature", async
   assert.match(mapText(await cm.build(dir, [])), /bravo/);
 });
 
+// Reason: spec (solution line 15) — no definitions yields no map, so callers need no special case.
 test("a workspace with no extractable definitions produces no map", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-empty-"));
   writeFileSync(join(dir, "notes.txt"), "export function add(a) {}\n");
@@ -140,6 +144,7 @@ test("a workspace with no extractable definitions produces no map", async () => 
   assert.equal(mapText(await manager(dir).build(dir, [])), "");
 });
 
+// Reason: spec (lines 8, 84) — the same map text is injected in the compacted build.
 test("the map survives compaction with identical text", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-compaction-"));
   writeFileSync(
@@ -159,6 +164,7 @@ test("the map survives compaction with identical text", async () => {
   assert.equal(after, before);
 });
 
+// Reason: spec (lines 45, 85) — compaction pressure is computed from the true model input including the map.
 test("the map is included in token accounting used for compaction", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-tokens-"));
   const file = join(dir, "api.ts");
@@ -179,6 +185,7 @@ test("the map is included in token accounting used for compaction", async () => 
   assert.ok(cm.getLastBuildTokens() < tokensWithMap);
 });
 
+// Reason: spec (line 17) — Python functions and classes are extracted.
 test("Python class and function declarations appear with path, line number, and signature", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-py-"));
   writeFileSync(
@@ -204,6 +211,7 @@ test("Python class and function declarations appear with path, line number, and 
   assert.doesNotMatch(map, /return None/);
 });
 
+// Reason: spec (line 18) — Go functions and types are extracted.
 test("Go function and type declarations appear with path, line number, and signature", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-go-"));
   writeFileSync(
@@ -234,6 +242,7 @@ test("Go function and type declarations appear with path, line number, and signa
   assert.doesNotMatch(map, /return &Server/);
 });
 
+// Reason: spec (line 19) — Rust declarations are extracted.
 test("Rust function, struct, enum, trait, impl, and module declarations appear", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-rs-"));
   writeFileSync(
@@ -277,6 +286,7 @@ test("Rust function, struct, enum, trait, impl, and module declarations appear",
   assert.doesNotMatch(map, /host: String::new/);
 });
 
+// Reason: spec (line 20) — unknown languages still get a partial map via the generic pattern.
 test("unsupported languages produce a partial map from the generic fallback", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-generic-"));
   writeFileSync(
@@ -301,6 +311,7 @@ test("unsupported languages produce a partial map from the generic fallback", as
   assert.doesNotMatch(map, /System\.out/);
 });
 
+// Reason: spec (line 11) — disabling the map reclaims its budget without altering other input.
 test("enabled:false removes only the map and leaves the rest of model input unchanged", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-disabled-"));
   writeFileSync(
@@ -310,11 +321,10 @@ test("enabled:false removes only the map and leaves the rest of model input unch
   const withMap = await manager(dir).build(dir, []);
   assert.match(mapText(withMap), /^Repository map:/);
 
-  const disabled = await manager(dir, {
-    enabled: false,
-    maxTokens: 1200,
-    maxFiles: 400,
-  }).build(dir, []);
+  const disabled = await manager(dir, settings({ enabled: false })).build(
+    dir,
+    [],
+  );
   assert.equal(mapText(disabled), "");
   const withoutMapMessages = withMap.filter(
     (m) => !(typeof m.content === "string" && m.content.startsWith(HEADER)),
@@ -322,17 +332,18 @@ test("enabled:false removes only the map and leaves the rest of model input unch
   assert.deepEqual(disabled, withoutMapMessages);
 });
 
+// Reason: spec (line 90) — zero budget disables the feature.
 test("a zero token budget produces no map header", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-zero-budget-"));
   writeFileSync(join(dir, "api.ts"), "export function alpha() {}\n");
-  const messages = await manager(dir, {
-    enabled: true,
-    maxTokens: 0,
-    maxFiles: 400,
-  }).build(dir, []);
+  const messages = await manager(dir, settings({ maxTokens: 0 })).build(
+    dir,
+    [],
+  );
   assert.equal(mapText(messages), "");
 });
 
+// Reason: spec (lines 9, 33, 83) — binary-search budgeting keeps output under budget and flags omitted definitions.
 test("the map stays within its token budget and notes omitted definitions", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-budget-"));
   for (let i = 0; i < 14; i++) {
@@ -346,11 +357,7 @@ test("the map stays within its token budget and notes omitted definitions", asyn
     );
   }
   const maxTokens = 160;
-  const messages = await manager(dir, {
-    enabled: true,
-    maxTokens,
-    maxFiles: 400,
-  }).build(dir, []);
+  const messages = await manager(dir, settings({ maxTokens })).build(dir, []);
   const map = mapText(messages);
 
   assert.match(map, /^Repository map:/);
@@ -361,6 +368,7 @@ test("the map stays within its token budget and notes omitted definitions", asyn
   );
 });
 
+// Reason: spec (lines 40, 82) — graceful degradation to a ranked file list plus omission note.
 test("a workspace too large for any definition degrades to a ranked file list", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-fallback-"));
   const long = "a".repeat(180);
@@ -371,11 +379,7 @@ test("a workspace too large for any definition degrades to a ranked file list", 
     );
   }
   const maxTokens = 40;
-  const messages = await manager(dir, {
-    enabled: true,
-    maxTokens,
-    maxFiles: 400,
-  }).build(dir, []);
+  const messages = await manager(dir, settings({ maxTokens })).build(dir, []);
   const map = mapText(messages);
 
   assert.match(map, /^Repository map:/);
@@ -389,21 +393,19 @@ test("a workspace too large for any definition degrades to a ranked file list", 
   );
 });
 
+// Reason: spec (lines 12, 88, 90) — hard cap on the number of files considered.
 test("maxFiles caps the number of files considered", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-max-files-"));
   for (let i = 0; i < 5; i++) {
     writeFileSync(join(dir, `f${i}.ts`), `export function fn${i}() {}\n`);
   }
-  const messages = await manager(dir, {
-    enabled: true,
-    maxTokens: 1200,
-    maxFiles: 2,
-  }).build(dir, []);
+  const messages = await manager(dir, settings({ maxFiles: 2 })).build(dir, []);
   const map = mapText(messages);
   const paths = new Set([...map.matchAll(/(f\d)\.ts:\d+:/g)].map((m) => m[1]));
   assert.equal(paths.size, 2);
 });
 
+// Reason: spec (lines 31, 51, 79, 113) — cross-file usage signal drives ordering.
 test("a name used across many files ranks ahead of a name confined to one file", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-ranking-"));
   writeFileSync(
@@ -424,6 +426,7 @@ test("a name used across many files ranks ahead of a name confined to one file",
   );
 });
 
+// Reason: spec (lines 32, 80, 87) — deterministic tie-break by path then line; lexicographic traversal before caps.
 test("ranking ties break by path then line, independent of creation order", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-ties-"));
   // Create in reverse path order to prove output does not follow the filesystem.
@@ -445,6 +448,7 @@ test("ranking ties break by path then line, independent of creation order", asyn
   assert.ok(alpha2 < beta, map);
 });
 
+// Reason: spec (lines 29, 80-81) — conventional entry points receive a ranking boost.
 test("high-signal project files are boosted in the ranking", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-high-signal-"));
   writeFileSync(join(dir, "alpha.ts"), "export function ordinary() {}\n");
@@ -460,6 +464,7 @@ test("high-signal project files are boosted in the ranking", async () => {
   assert.ok(map.indexOf("vite.config.ts:1:") < map.indexOf("alpha.ts:1:"), map);
 });
 
+// Reason: spec (lines 21-24, 88) — workspace hygiene skips vendored, built, hidden, and scratch paths.
 test("dependency, build-output, VCS, hidden and scratch directories are skipped", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-hygiene-"));
   const skipped: Array<[string, string]> = [
@@ -489,6 +494,7 @@ test("dependency, build-output, VCS, hidden and scratch directories are skipped"
   }
 });
 
+// Reason: spec (lines 30, 81) — instruction files are injected separately and excluded from the map.
 test("project instruction files are not duplicated in the map", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-instructions-"));
   writeFileSync(
@@ -505,6 +511,7 @@ test("project instruction files are not duplicated in the map", async () => {
   assert.doesNotMatch(map, /claudeOnly/);
 });
 
+// Reason: spec (lines 26, 28, 41, 88) — per-file failures are skipped without failing the turn.
 test("oversized, minified, unreadable and malformed files are isolated", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-isolation-"));
   writeFileSync(
@@ -542,6 +549,7 @@ test("oversized, minified, unreadable and malformed files are isolated", async (
   chmodSync(unreadable, 0o644);
 });
 
+// Reason: spec (lines 34, 82) — signature line length is capped independently of the minified-file skip.
 test("legitimately long signature lines are capped without dropping the definition", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-signature-cap-"));
   const params = Array.from(
@@ -560,13 +568,14 @@ test("legitimately long signature lines are capped without dropping the definiti
   assert.match(map, /…/);
 });
 
+// Reason: spec (lines 32, 87, 116) — path-sorted deterministic output even when the file cap is active.
 test("identical workspaces over the file cap produce identical, path-sorted output", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-cap-order-"));
   for (let i = 9; i >= 0; i--) {
     writeFileSync(join(dir, `f${i}.ts`), `export function fn${i}() {}\n`);
   }
-  const settings = { enabled: true, maxTokens: 1200, maxFiles: 3 };
-  const cm = manager(dir, settings);
+  const opts = settings({ maxFiles: 3 });
+  const cm = manager(dir, opts);
   const first = mapText(await cm.build(dir, []));
   cm.invalidateCaches();
   const second = mapText(await cm.build(dir, []));
@@ -578,6 +587,7 @@ test("identical workspaces over the file cap produce identical, path-sorted outp
   );
 });
 
+// Reason: spec (lines 32, 87) — case-sensitive lexicographic order is established before caps.
 test("traversal order is case-sensitive lexicographic before the cap", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-case-order-"));
   writeFileSync(join(dir, "alpha.ts"), "export function lower() {}\n");
@@ -585,10 +595,7 @@ test("traversal order is case-sensitive lexicographic before the cap", async () 
   writeFileSync(join(dir, "Alpha.ts"), "export function upperA() {}\n");
 
   const map = mapText(
-    await manager(dir, { enabled: true, maxTokens: 1200, maxFiles: 2 }).build(
-      dir,
-      [],
-    ),
+    await manager(dir, settings({ maxFiles: 2 })).build(dir, []),
   );
 
   assert.match(map, /Alpha\.ts:1: export function upperA/);
@@ -596,6 +603,7 @@ test("traversal order is case-sensitive lexicographic before the cap", async () 
   assert.doesNotMatch(map, /lower/);
 });
 
+// Reason: spec (lines 29, 82) — the degraded file list uses the same high-signal-aware ranking.
 test("the file-list fallback ranks high-signal files first", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-fallback-rank-"));
   const long = "a".repeat(180);
@@ -609,10 +617,7 @@ test("the file-list fallback ranks high-signal files first", async () => {
   );
 
   const map = mapText(
-    await manager(dir, { enabled: true, maxTokens: 50, maxFiles: 400 }).build(
-      dir,
-      [],
-    ),
+    await manager(dir, settings({ maxTokens: 50 })).build(dir, []),
   );
 
   assert.match(map, /^Repository map:/);
@@ -620,4 +625,85 @@ test("the file-list fallback ranks high-signal files first", async () => {
   assert.match(map, /alpha\.ts/);
   assert.doesNotMatch(map, /export function/);
   assert.ok(map.indexOf("vite.config.ts") < map.indexOf("alpha.ts"), map);
+});
+
+// Reason: spec (lines 47, 88) — a per-file definition cap stops one large file crowding out others.
+test("a per-file definition cap stops one large file from crowding out others", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-def-cap-"));
+  const many = Array.from(
+    { length: 300 },
+    (_, i) => `export function bigFn${i}() {}`,
+  ).join("\n");
+  writeFileSync(join(dir, "big.ts"), many + "\n");
+  writeFileSync(join(dir, "small.ts"), "export function smallMarker() {}\n");
+
+  const map = mapText(await manager(dir).build(dir, []));
+
+  assert.match(map, /big\.ts:1: export function bigFn0/);
+  assert.match(map, /small\.ts:1: export function smallMarker/);
+});
+
+// Reason: spec (lines 82, 113) — definitions group by file while usage still orders files.
+test("definitions are grouped by file without losing usage-based file ordering", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-group-"));
+  writeFileSync(
+    join(dir, "b.ts"),
+    "export function hub() {}\nexport function leaf() {}\n",
+  );
+  writeFileSync(join(dir, "a.ts"), "export function mid() {}\n");
+  writeFileSync(join(dir, "r1.ts"), "hub; mid;\n");
+  writeFileSync(join(dir, "r2.ts"), "hub;\n");
+  writeFileSync(join(dir, "r3.ts"), "hub;\n");
+
+  const map = mapText(await manager(dir).build(dir, []));
+
+  const hub = map.indexOf("b.ts:1:");
+  const leaf = map.indexOf("b.ts:2:");
+  const mid = map.indexOf("a.ts:1:");
+  assert.ok(hub >= 0 && leaf >= 0 && mid >= 0, map);
+  assert.ok(leaf < mid, `expected b.ts definitions grouped together:\n${map}`);
+  assert.ok(hub < mid, `expected usage-central hub to outrank mid:\n${map}`);
+});
+
+// Reason: spec (line 79, testing line 113) — files with no definitions still contribute usages.
+test("reference-only files contribute to the cross-file usage signal", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-usage-refs-"));
+  writeFileSync(join(dir, "a.ts"), "export function isolated() {}\n");
+  writeFileSync(join(dir, "z.ts"), "export function central() {}\n");
+  for (let i = 1; i <= 4; i++) {
+    writeFileSync(join(dir, `r${i}.ts`), "central;\n");
+  }
+
+  const map = mapText(await manager(dir).build(dir, []));
+
+  const isolated = map.indexOf("a.ts:1:");
+  const central = map.indexOf("z.ts:1:");
+  assert.ok(isolated >= 0 && central >= 0, map);
+  assert.ok(
+    central < isolated,
+    `expected central, used only in reference-only files, first:\n${map}`,
+  );
+});
+
+// Reason: spec (lines 29, 51, 80-81) — usage must be able to outweigh the high-signal boost.
+test("cross-file usage outranks a high-signal file with isolated definitions", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-rank-balance-"));
+  writeFileSync(
+    join(dir, "vite.config.ts"),
+    "export function configHelper() {}\n",
+  );
+  writeFileSync(join(dir, "core.ts"), "export function central() {}\n");
+  for (let i = 1; i <= 4; i++) {
+    writeFileSync(join(dir, `r${i}.ts`), "central;\n");
+  }
+
+  const map = mapText(await manager(dir).build(dir, []));
+
+  const central = map.indexOf("core.ts:1:");
+  const config = map.indexOf("vite.config.ts:1:");
+  assert.ok(central >= 0 && config >= 0, map);
+  assert.ok(
+    central < config,
+    `expected usage-central core.ts ahead of high-signal config:\n${map}`,
+  );
 });
