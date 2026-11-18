@@ -17,9 +17,9 @@ function interfaceMethods(file: string, name: string): string[] {
     `export interface ${name} \\{([\\s\\S]*?)\\n\\}`,
   ).exec(source)?.[1];
   assert.ok(body, `interface ${name} not found in ${file}`);
-  return [...body.matchAll(/^\s{2}([A-Za-z_]\w*)[?]?:?\s*\(/gm)].map(
-    (match) => match[1],
-  );
+  return [
+    ...body.matchAll(/^\s{2}([A-Za-z_]\w*)(?:<[^>]+>)?[?]?:?\s*\(/gm),
+  ].map((match) => match[1]);
 }
 
 test("compatibility matrix covers every ExtensionAPI method", () => {

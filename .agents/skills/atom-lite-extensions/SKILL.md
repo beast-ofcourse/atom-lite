@@ -118,6 +118,36 @@ pi.setActiveTools(["my_tool"]);
 
 Check the compatibility matrix before relying on a tool method.
 
+### Tool middleware
+
+`pi.wrapTool(name, handler)` intercepts a built-in or extension tool. A wrapper
+gets `(call, next)` and may replace the result, reject by throwing, or abort.
+Wrappers run in registration order: the first registered is outermost and runs
+first. A wrapper on a `hidden` tool keeps it hidden from the model list.
+Middleware is removed on unload and reload.
+
+```ts
+pi.wrapTool("bash", async (call, next) => {
+  const result = await next();
+  return { ...result, content: redact(result.content) };
+});
+```
+
+### Services
+
+`pi.provide(name, api, version)` publishes a versioned service;
+`pi.consume(name, range)` resolves one at activation. Extensions load in
+topological order by provide/consume edges. Ranges support `*`, `^`, `~`, `>=`,
+and exact `x.y.z`. Missing, incompatible, duplicate, or cyclic services throw
+`ExtensionCompatibilityError`. Services are removed on unload and reload.
+
+```ts
+// provider
+pi.provide("greeter", { greet: (name: string) => `hi ${name}` }, "1.2.0");
+// consumer (activates after the provider)
+const greeter = pi.consume<{ greet(n: string): string }>("greeter", "^1.0.0");
+```
+
 ## Commands
 
 ```ts
@@ -232,7 +262,8 @@ pi.registerMarkdownTransformer((markdown) => markdown);
 ## Compatibility tiers
 
 - **Tier 1 (works today):** discovery, trust, module loading, tools, commands, events,
-  session entries, dialogs, `exec`, logging, provider registration.
+  session entries, dialogs, `exec`, logging, provider registration, tool
+  middleware, inter-extension services.
 - **Tier 2 (no-op):** renderers, markdown transformers, shortcuts, flags,
   autocomplete, custom footer/header/title, working indicator, thinking label,
   status, widgets.
