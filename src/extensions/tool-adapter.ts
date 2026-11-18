@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Tool, ToolResult } from "../tools/types.js";
 import type { ToolCall, ToolContext } from "../tools/types.js";
 import type { ExtensionTool, ExtensionContext } from "./types.js";
@@ -27,14 +28,12 @@ export function coerceToolArguments(
     string,
     SchemaProperty
   >;
-  const required = Array.isArray(schema?.required)
-    ? (schema.required as string[])
-    : [];
   for (const [key, prop] of Object.entries(properties)) {
     if (result[key] === undefined) continue;
     const type = prop?.type;
-    if (result[key] === null && !required.includes(key)) {
-      delete result[key];
+    if (result[key] === null) {
+      // A null is a value the model deliberately sent. Keep it even for
+      // non-required properties; coercion below is a no-op for null.
       continue;
     }
     if (type === "number" || type === "integer") {
@@ -99,15 +98,54 @@ function coerceScalar(prop: SchemaProperty, value: unknown): CoercedValue {
   return value as CoercedValue;
 }
 
+/** Reserved schema property that carries the definition hash to the model. */
+export const TOOL_HASH_PARAM = "__atomToolHash";
+
+function definitionHash(tool: ExtensionTool): string {
+  const material = JSON.stringify({
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters ?? {},
+    exposure: tool.exposure ?? "direct",
+  });
+  return createHash("sha256").update(material).digest("hex").slice(0, 12);
+}
+
 export function extensionToolToAgentTool(
   extensionTool: ExtensionTool,
   extensionContext: ExtensionContext,
+  extensionId?: string,
 ): Tool {
+  const hash = definitionHash(extensionTool);
+  const attribution = extensionId ? `[extension:${extensionId}] ` : "";
+  const original = (extensionTool.parameters ?? {}) as Record<string, unknown>;
+  const originalProperties =
+    original.properties && typeof original.properties === "object"
+      ? (original.properties as Record<string, unknown>)
+      : {};
+  const originalRequired = Array.isArray(original.required)
+    ? (original.required as string[])
+    : [];
+  // The model receives a hash it must echo back. A call made against an older
+  // definition carries a different hash and is rejected before execute runs.
+  const parameters: Record<string, unknown> = {
+    ...original,
+    properties: {
+      ...originalProperties,
+      [TOOL_HASH_PARAM]: {
+        type: "string",
+        enum: [hash],
+        description:
+          "Definition version token. Echo the value from the tool definition.",
+      },
+    },
+    required: [...originalRequired, TOOL_HASH_PARAM],
+  };
   const tool: Tool = {
     definition: {
       name: extensionTool.name,
       description: extensionTool.description,
-      parameters: extensionTool.parameters ?? {},
+      parameters,
     },
     annotations: extensionTool.annotations,
     exposure: extensionTool.exposure,
@@ -119,7 +157,17 @@ export function extensionToolToAgentTool(
         extensionTool.parameters,
         call.arguments ?? {},
       );
+      const presented = (coerced as Record<string, unknown>)[TOOL_HASH_PARAM];
+      delete coerced[TOOL_HASH_PARAM];
       call.arguments = coerced;
+      if (presented !== undefined && presented !== hash) {
+        return {
+          toolCallId: call.id,
+          name: call.name,
+          content: `${attribution}Tool "${call.name}" definition changed since this call was made (expected ${hash}, got ${String(presented)}). Retry with the current definition.`,
+          isError: true,
+        };
+      }
       const signal = toolCtx.signal;
       const onUpdate = (partial: unknown) => {
         toolCtx.onToolOutput?.(call, "stdout", JSON.stringify(partial));
@@ -127,24 +175,21 @@ export function extensionToolToAgentTool(
       const ctx = { ...extensionContext };
       let raw: any;
       try {
-        if (extensionTool.execute.length >= 3) {
-          raw = await extensionTool.execute(
-            call.id,
-            coerced,
-            signal,
-            onUpdate,
-            ctx,
-          );
-        } else if (extensionTool.execute.length === 2) {
-          raw = await extensionTool.execute(coerced, ctx);
-        } else {
-          raw = await extensionTool.execute(coerced);
-        }
+        // One uniform signature. Function.length is not a reliable arity:
+        // default parameters reduce it, and an explicit declaration is not
+        // required of extension authors.
+        raw = await extensionTool.execute(
+          call.id,
+          coerced,
+          signal,
+          onUpdate,
+          ctx,
+        );
       } catch (error) {
         return {
           toolCallId: call.id,
           name: call.name,
-          content: `COMMAND_FAILED: ${error instanceof Error ? error.message : String(error)}`,
+          content: `${attribution}COMMAND_FAILED: ${error instanceof Error ? error.message : String(error)}`,
           isError: true,
         };
       }
@@ -179,6 +224,7 @@ export function extensionToolToAgentTool(
 export interface ToolSourceLoader {
   list: () => Array<{
     status: string;
+    id?: string;
     registries: {
       tools: Map<string, ExtensionTool>;
       activeTools?: Set<string> | null;
@@ -187,11 +233,23 @@ export interface ToolSourceLoader {
   }>;
 }
 
-export function collectExtensionTools(loader: ToolSourceLoader): Tool[] {
+/**
+ * Collect model-visible extension tools. Hidden tools are excluded here but
+ * stay in their extension's registry, so commands and other tools can still
+ * call them. Names are made unique before the list reaches AgentRuntime, whose
+ * tool map would otherwise silently let the last tool win.
+ */
+export function collectExtensionTools(
+  loader: ToolSourceLoader,
+  reservedNames: Iterable<string> = [],
+): Tool[] {
   const out: Tool[] = [];
+  const used = new Map<string, string>();
+  for (const name of reservedNames) used.set(name, "reserved");
   for (const loaded of loader.list()) {
     // Only successfully activated extensions contribute tools to the model.
     if (loaded.status !== "loaded") continue;
+    const id = loaded.id ?? "extension";
     const ctx = loaded.context ?? {
       workspace: process.cwd(),
       trusted: true,
@@ -204,7 +262,26 @@ export function collectExtensionTools(loader: ToolSourceLoader): Tool[] {
       // setActiveTools narrows the model-visible set; registration still keeps
       // the tool available to commands and other tools.
       if (active && !active.has(tool.name)) continue;
-      out.push(extensionToolToAgentTool(tool, ctx));
+      // Only `hidden` is withheld from the model. `codemode` and `deferred`
+      // are tolerated as model-visible tools with their annotations intact;
+      // callers that cannot render those modes still receive a usable schema.
+      if ((tool.exposure ?? "direct") === "hidden") continue;
+      const base = tool.name;
+      let name = base;
+      if (used.has(name)) {
+        name = `${id}_${base}`;
+        let suffix = 2;
+        while (used.has(name)) name = `${id}_${base}_${suffix++}`;
+        // The author must learn that their tool was renamed, not discover it
+        // from a missing tool call later.
+        ctx.log?.(
+          `tool "${base}" renamed to "${name}" because its name is already in use`,
+        );
+      }
+      used.set(name, id);
+      out.push(
+        extensionToolToAgentTool({ ...tool, name }, ctx, loaded.id ?? id),
+      );
     }
   }
   return out;
@@ -226,8 +303,12 @@ export interface ToolResolutionOptions {
  */
 export function resolveModelTools(options: ToolResolutionOptions): Tool[] {
   if (options.useTools === false) return [];
+  const reservedNames = [
+    ...(options.builtInTools ?? []),
+    ...(options.mcpTools ?? []),
+  ].map((tool) => tool.definition.name);
   const extensionTools = options.loader
-    ? collectExtensionTools(options.loader)
+    ? collectExtensionTools(options.loader, reservedNames)
     : [];
   return [
     ...(options.builtInTools ?? []),
