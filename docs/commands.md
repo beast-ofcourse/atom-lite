@@ -68,14 +68,14 @@ Criteria may span multiple lines. Statement and criteria are user-owned; the mod
 
 ## Extensions and skills
 
-| Command                     | Behavior                                                |
-| --------------------------- | ------------------------------------------------------- |
-| `/skills`                   | List discovered skills.                                 |
-| `/skill <name> [prompt]`    | Load a skill and optionally give it a prompt.           |
-| `/extensions [doctor]`      | List extension load status, or show diagnostics.        |
-| `/reload`                   | Reload extensions, skills, and personas from disk.      |
-| `/trust allow\|deny\|reset` | Manage project trust for local extensions and personas. |
-| `/mcp [reconnect [server]]` | List MCP servers or reconnect one.                      |
+| Command                         | Behavior                                                |
+| ------------------------------- | ------------------------------------------------------- |
+| `/skills`                       | List discovered skills.                                 |
+| `/skill <name> [prompt]`        | Load a skill and optionally give it a prompt.           |
+| `/extensions [doctor [--json]]` | List extension load status, or show diagnostics.        |
+| `/reload`                       | Reload extensions, skills, and personas from disk.      |
+| `/trust allow\|deny\|reset`     | Manage project trust for local extensions and personas. |
+| `/mcp [reconnect [server]]`     | List MCP servers or reconnect one.                      |
 
 ## Appearance
 

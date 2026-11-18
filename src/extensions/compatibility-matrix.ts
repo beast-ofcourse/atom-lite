@@ -7,67 +7,72 @@ export type CompatibilityStatus =
   | "no-op"
   | "unsupported";
 
+export interface CompatibilityMatrixLocation {
+  file: string;
+  line: number;
+}
+
 export interface CompatibilityMatrixEntry {
   method: string;
   status: CompatibilityStatus;
-  consumers: string[];
+  consumers: CompatibilityMatrixLocation[];
 }
 
 export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "registerTool",
     status: "supported",
-    consumers: ["src/extensions/tool-adapter.ts:261"],
+    consumers: [{"file":"src/extensions/tool-adapter.ts","line":261}],
   },
   {
     method: "unregisterTool",
     status: "supported",
-    consumers: ["src/extensions/tool-adapter.ts:261"],
+    consumers: [{"file":"src/extensions/tool-adapter.ts","line":261}],
   },
   {
     method: "setActiveTools",
     status: "supported",
-    consumers: ["src/extensions/api.ts:192"],
+    consumers: [{"file":"src/extensions/tool-adapter.ts","line":260}],
   },
   {
     method: "getActiveTools",
     status: "supported",
-    consumers: ["src/extensions/api.ts:192"],
+    consumers: [{"file":"src/extensions/tool-adapter.ts","line":260}],
   },
   {
     method: "getAllTools",
     status: "supported",
-    consumers: ["src/extensions/api.ts:196"],
+    consumers: [{"file":"src/extensions/tool-adapter.ts","line":261}],
   },
   {
     method: "registerCommand",
     status: "supported",
-    consumers: ["src/cli/app.ts:971"],
+    consumers: [{"file":"src/cli/app.ts","line":959}],
   },
   {
     method: "unregisterCommand",
     status: "supported",
-    consumers: ["src/cli/app.ts:971"],
+    consumers: [{"file":"src/cli/app.ts","line":959}],
   },
   {
     method: "on",
     status: "supported",
-    consumers: ["src/extensions/loader.ts:369"],
+    consumers: [{"file":"src/extensions/loader.ts","line":371}],
   },
   {
     method: "off",
     status: "supported",
-    consumers: ["src/extensions/loader.ts:369"],
+    consumers: [{"file":"src/extensions/loader.ts","line":371}],
   },
   {
     method: "appendEntry",
-    status: "supported",
-    consumers: ["src/extensions/api.ts:251"],
+    status: "reduced",
+    consumers: [],
   },
   {
     method: "getSessionEntries",
-    status: "supported",
-    consumers: ["src/extensions/api.ts:251"],
+    status: "reduced",
+    consumers: [],
   },
   {
     method: "setStatus",
@@ -76,8 +81,8 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   },
   {
     method: "notify",
-    status: "supported",
-    consumers: ["src/extensions/api.ts:261"],
+    status: "reduced",
+    consumers: [],
   },
   {
     method: "registerWidget",
@@ -116,13 +121,13 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   },
   {
     method: "registerFlag",
-    status: "supported",
-    consumers: ["src/extensions/api.ts:289"],
+    status: "no-op",
+    consumers: [],
   },
   {
     method: "getFlag",
-    status: "supported",
-    consumers: ["src/extensions/api.ts:289"],
+    status: "no-op",
+    consumers: [],
   },
   {
     method: "addAutocompleteProvider",
@@ -172,37 +177,37 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "getToolsExpanded",
     status: "supported",
-    consumers: ["src/extensions/ui.ts:180"],
+    consumers: [{"file":"src/extensions/ui.ts","line":180}],
   },
   {
     method: "setToolsExpanded",
     status: "supported",
-    consumers: ["src/extensions/ui.ts:185"],
+    consumers: [{"file":"src/extensions/ui.ts","line":185}],
   },
   {
     method: "select",
     status: "supported",
-    consumers: ["src/extensions/ui.ts:154"],
+    consumers: [{"file":"src/extensions/ui.ts","line":154}],
   },
   {
     method: "confirm",
     status: "supported",
-    consumers: ["src/extensions/ui.ts:158"],
+    consumers: [{"file":"src/extensions/ui.ts","line":158}],
   },
   {
     method: "input",
     status: "supported",
-    consumers: ["src/extensions/ui.ts:162"],
+    consumers: [{"file":"src/extensions/ui.ts","line":162}],
   },
   {
     method: "getWorkspace",
     status: "supported",
-    consumers: ["src/extensions/api.ts:307"],
+    consumers: [{"file":"src/extensions/loader.ts","line":176}],
   },
   {
     method: "getSession",
     status: "supported",
-    consumers: ["src/extensions/api.ts:308"],
+    consumers: [{"file":"src/extensions/loader.ts","line":278}],
   },
   {
     method: "getSessionManager",
@@ -212,17 +217,17 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "isProjectTrusted",
     status: "supported",
-    consumers: ["src/extensions/api.ts:309"],
+    consumers: [{"file":"src/extensions/loader.ts","line":177}],
   },
   {
     method: "registerProvider",
     status: "reduced",
-    consumers: ["src/cli/app.ts:439"],
+    consumers: [{"file":"src/cli/app.ts","line":429}],
   },
   {
     method: "unregisterProvider",
     status: "supported",
-    consumers: ["src/cli/app.ts:439"],
+    consumers: [{"file":"src/cli/app.ts","line":429}],
   },
   {
     method: "registerModel",
@@ -231,13 +236,13 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   },
   {
     method: "exec",
-    status: "supported",
-    consumers: ["src/extensions/api.ts:345"],
+    status: "reduced",
+    consumers: [],
   },
   {
     method: "log",
-    status: "supported",
-    consumers: ["src/extensions/api.ts:368"],
+    status: "reduced",
+    consumers: [],
   },
 ];
 

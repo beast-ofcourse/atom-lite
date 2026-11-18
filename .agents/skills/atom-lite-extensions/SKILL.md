@@ -211,8 +211,8 @@ pi.registerShortcut("ctrl+shift+x", {
   description: "do thing",
   handler: async (ctx) => {}, // no-op in the current matrix
 });
-pi.registerFlag("myflag", { type: "boolean", default: false });
-const v = pi.getFlag("myflag");
+pi.registerFlag("myflag", { type: "boolean", default: false }); // no-op in the current matrix
+const v = pi.getFlag("myflag"); // no-op in the current matrix
 pi.addAutocompleteProvider((tui, theme) => ({/* ... */})); // no-op
 ```
 
@@ -229,7 +229,7 @@ pi.registerMarkdownTransformer((markdown) => markdown);
 
 - **Tier 1 (works today):** discovery, trust, module loading, tools, commands, events,
   session entries, dialogs, `exec`, logging, provider registration.
-- **Tier 2 (no-op):** renderers, markdown transformers, shortcuts,
+- **Tier 2 (no-op):** renderers, markdown transformers, shortcuts, flags,
   autocomplete, custom footer/header/title, working indicator, thinking label,
   status, widgets.
 - **Tier 3 (not implemented):** session tree navigation, forks, codemode,

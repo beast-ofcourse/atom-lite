@@ -415,16 +415,7 @@ export async function run(args: string[]): Promise<void> {
   } catch (error) {
     // A top-level load failure is not an extension-scoped error; record it so
     // it still appears in doctor and tell the user on stderr.
-    const message = error instanceof Error ? error.message : String(error);
-    const stack = error instanceof Error ? (error.stack ?? message) : message;
-    extensionLoader.reportError({
-      extensionId: "app",
-      method: "loadAll",
-      message,
-      stack,
-      phase: "reject",
-    });
-    process.stderr.write(`atom-lite: extension load failed: ${message}\n`);
+    extensionLoader.reportTopLevelError(error, "loadAll");
   }
   // Remove any previously bridged extension providers before re-bridging.
   for (const name of extensionProviderNames) {
@@ -434,8 +425,7 @@ export async function run(args: string[]): Promise<void> {
 
   // Bridge Pi-style extension providers into Atom-lite's config so they
   // appear in /provider, /model, and the command palette.
-  for (const loaded of extensionLoader.list()) {
-    if (loaded.status !== "loaded") continue;
+  for (const loaded of extensionLoader.loadedExtensions()) {
     for (const [name, provider] of loaded.registries?.providers ?? new Map()) {
       const cfg = (provider as any)?.config ?? {};
       const firstModel =
@@ -474,8 +464,7 @@ export async function run(args: string[]): Promise<void> {
     });
   const extensionDispatch = async (event: string, payload: any) => {
     const results: any[] = [];
-    for (const loaded of extensionLoader.list()) {
-      if (loaded.status !== "loaded") continue;
+    for (const loaded of extensionLoader.loadedExtensions()) {
       const handlers = loaded.registries.handlers.get(event as any);
       if (!handlers) continue;
       for (const handler of handlers) {
@@ -966,8 +955,7 @@ export async function run(args: string[]): Promise<void> {
 
   const collectExtensionCommands = () => {
     const out: any[] = [];
-    for (const loaded of extensionLoader.list()) {
-      if (loaded.status !== "loaded") continue;
+    for (const loaded of extensionLoader.loadedExtensions()) {
       for (const command of loaded.registries?.commands?.values?.() ?? []) {
         const run = command.run ?? command.handler;
         out.push({
@@ -1264,9 +1252,11 @@ export async function run(args: string[]): Promise<void> {
             tui.requestRender();
           })
           .catch((error) => {
+            extensionLoader.reportTopLevelError(error, "loadAll");
             appendLine(
               `extensions: reload failed: ${error instanceof Error ? error.message : String(error)}`,
             );
+            tui.requestRender();
           });
       },
       options,
@@ -1550,7 +1540,7 @@ export async function run(args: string[]): Promise<void> {
   // Resolve the initial model's window before the first response.
   refreshContextWindow();
 
-  for (const loaded of extensionLoader.list()) {
+  for (const loaded of extensionLoader.loadedExtensions()) {
     for (const [name, provider] of loaded.registries?.providers ?? new Map()) {
       const cfg = (provider as any)?.config ?? {};
       const models = Array.isArray(cfg.models)
@@ -2624,10 +2614,9 @@ export async function run(args: string[]): Promise<void> {
   }
 
   async function reloadExtensions(): Promise<void> {
-    const previous = extensionLoader.list();
+    const previous = extensionLoader.loadedExtensions();
     // Emit session_shutdown and extension_unload before unloading.
     for (const loaded of previous) {
-      if (loaded.status !== "loaded") continue;
       const handlers = loaded.registries?.handlers?.get?.(
         "session_shutdown" as any,
       );
@@ -2650,6 +2639,7 @@ export async function run(args: string[]): Promise<void> {
     try {
       await extensionLoader.loadAll();
     } catch (error) {
+      extensionLoader.reportTopLevelError(error, "loadAll");
       appendLine(
         `extensions: reload failed: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -2662,8 +2652,7 @@ export async function run(args: string[]): Promise<void> {
       modelCache.delete(name);
     }
     extensionProviderNames.clear();
-    for (const loaded of extensionLoader.list()) {
-      if (loaded.status !== "loaded") continue;
+    for (const loaded of extensionLoader.loadedExtensions()) {
       for (const [name, provider] of loaded.registries?.providers ??
         new Map()) {
         const cfg = (provider as any)?.config ?? {};
@@ -2729,8 +2718,7 @@ export async function run(args: string[]): Promise<void> {
     updateStatus();
 
     // Emit session_start with reason reload.
-    for (const loaded of extensionLoader.list()) {
-      if (loaded.status !== "loaded") continue;
+    for (const loaded of extensionLoader.loadedExtensions()) {
       const handlers = loaded.registries?.handlers?.get?.(
         "session_start" as any,
       );
@@ -3411,15 +3399,20 @@ export async function run(args: string[]): Promise<void> {
       tui.requestRender();
       return;
     }
+    // One reporter for every command dispatch failure, slash or bare name, so
+    // both paths surface the same attributable error line.
+    const reportCommandFailure = (error: unknown): void => {
+      appendLine(
+        `command failed: ${error instanceof Error ? error.message : String(error)}`,
+        theme.tokens.error,
+      );
+    };
     if (trimmed.startsWith("/")) {
       let result;
       try {
         result = await commandRegistry.dispatch(trimmed, commandContext);
       } catch (error) {
-        appendLine(
-          `command failed: ${error instanceof Error ? error.message : String(error)}`,
-          theme.tokens.error,
-        );
+        reportCommandFailure(error);
         return;
       }
       if (result.exit) return;
@@ -3440,10 +3433,7 @@ export async function run(args: string[]): Promise<void> {
           commandContext,
         );
       } catch (error) {
-        appendLine(
-          `command failed: ${error instanceof Error ? error.message : String(error)}`,
-          theme.tokens.error,
-        );
+        reportCommandFailure(error);
       }
       return;
     }

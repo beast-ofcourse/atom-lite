@@ -41,6 +41,11 @@ export function validateExtensionTool(tool: unknown): string[] {
           errors.push("parameters.properties must be an object");
         }
       }
+      // Composition keywords let a required name live in a referenced or
+      // combined subschema, so the flat properties check does not apply.
+      const composed = ["$ref", "allOf", "anyOf", "oneOf"].some(
+        (keyword) => keyword in schema,
+      );
       if (schema.required !== undefined) {
         if (
           !Array.isArray(schema.required) ||
@@ -48,6 +53,7 @@ export function validateExtensionTool(tool: unknown): string[] {
         ) {
           errors.push("parameters.required must be an array of strings");
         } else if (
+          !composed &&
           schema.properties &&
           typeof schema.properties === "object" &&
           !Array.isArray(schema.properties)

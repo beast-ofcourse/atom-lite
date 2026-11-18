@@ -142,6 +142,33 @@ test("skips denied project extensions with a denial message", async () => {
   }
 });
 
+test("loadedExtensions() returns only successfully loaded extensions", async () => {
+  const dir = tempDir();
+  try {
+    writeFileSync(
+      join(dir, "bad.js"),
+      "export default () => { throw new Error('boom'); };\n",
+    );
+    writeFileSync(join(dir, "good.js"), "export default () => {};\n");
+    const loader = new ExtensionLoader({
+      userDir: dir,
+      agentDir: join(dir, "agent"),
+    });
+    await loader.loadAll();
+
+    const loaded = (loader as any).loadedExtensions();
+    assert.deepEqual(
+      loaded.map((entry: { id: string }) => entry.id),
+      ["good"],
+    );
+    assert.ok(
+      loaded.every((entry: { status: string }) => entry.status === "loaded"),
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("reports discovered entries that were never loaded", () => {
   const projectDir = tempDir();
   try {

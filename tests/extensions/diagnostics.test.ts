@@ -35,16 +35,50 @@ test("every supported matrix entry has a resolvable consumer", () => {
       entry.consumers.length > 0,
       `${entry.method} is supported but has no consumer`,
     );
-    for (const consumer of entry.consumers) {
-      const match = /^(.+):(\d+)$/.exec(consumer);
-      assert.ok(match, `${entry.method}: bad consumer '${consumer}'`);
-      const lines = readFileSync(join(ROOT, match![1]), "utf8").split("\n");
-      const line = lines[Number(match![2]) - 1];
+    for (const consumer of entry.consumers as any[]) {
+      assert.equal(typeof consumer.file, "string", `${entry.method}: consumer file`);
+      assert.equal(typeof consumer.line, "number", `${entry.method}: consumer line`);
+      assert.notEqual(
+        consumer.file,
+        "src/extensions/api.ts",
+        `${entry.method}: a supported consumer must be a host reader, not the implementation`,
+      );
+      const lines = readFileSync(join(ROOT, consumer.file), "utf8").split("\n");
+      const sourceLine = lines[consumer.line - 1];
       assert.ok(
-        line && line.trim().length > 0,
-        `${entry.method}: consumer '${consumer}' is empty`,
+        sourceLine && sourceLine.trim().length > 0,
+        `${entry.method}: consumer ${consumer.file}:${consumer.line} is empty`,
       );
     }
+  }
+});
+
+test("matrix status comes from host consumers, not self references", () => {
+  const statuses: Record<string, string> = {
+    setActiveTools: "supported",
+    getActiveTools: "supported",
+    setStatus: "no-op",
+    registerFlag: "no-op",
+    getFlag: "no-op",
+    appendEntry: "reduced",
+    getSessionEntries: "reduced",
+    notify: "reduced",
+    exec: "reduced",
+    log: "reduced",
+  };
+  for (const [method, status] of Object.entries(statuses)) {
+    const entry = compatibilityMatrix.find((row) => row.method === method);
+    assert.ok(entry, `missing matrix entry for ${method}`);
+    assert.equal(entry!.status, status, method);
+  }
+  for (const method of ["setActiveTools", "getActiveTools"]) {
+    const entry = compatibilityMatrix.find((row) => row.method === method)!;
+    assert.ok(
+      (entry.consumers as any[]).some(
+        (consumer) => consumer.file === "src/extensions/tool-adapter.ts",
+      ),
+      `${method}: host reader missing from tool-adapter.ts`,
+    );
   }
 });
 

@@ -44,33 +44,33 @@ extensions. Trust decisions are stored in user config.
 
 ## Compatibility matrix
 
-Each `ExtensionAPI` method has one status. `supported` methods have a consumer
-in the host; the matrix records its `file:line`. `reduced` methods work with
-limits. `no-op` methods accept calls but no host code reads the value.
-`unsupported` methods are reserved for features with no implementation.
+Each `ExtensionAPI` method has one status. A `supported` method has a host
+reader outside `api.ts`; the matrix records its location as `{ file, line }`.
+`reduced` methods work with limits. `no-op` methods accept calls but no host
+code reads the value. `unsupported` methods are reserved for features with no
+implementation.
 
 | Status        | Methods | Meaning                                   |
 | ------------- | ------- | ----------------------------------------- |
-| `supported`   | 25      | Effect is consumed by the host.           |
-| `reduced`     | 1       | Mapped with limits; see Reduced behavior.  |
-| `no-op`       | 19      | Call is accepted; nothing consumes it.    |
+| `supported`   | 18      | Effect is consumed by the host.           |
+| `reduced`     | 6       | Works with limits; see Reduced behavior.  |
+| `no-op`       | 21      | Call is accepted; nothing consumes it.    |
 | `unsupported` | 0       | No implementation in this release.        |
 
 **`supported`:** `registerTool`, `unregisterTool`, `setActiveTools`,
 `getActiveTools`, `getAllTools`, `registerCommand`, `unregisterCommand`, `on`,
-`off`, `appendEntry`, `getSessionEntries`, `notify`, `registerFlag`, `getFlag`,
-`getToolsExpanded`, `setToolsExpanded`, `select`, `confirm`, `input`,
-`getWorkspace`, `getSession`, `isProjectTrusted`, `unregisterProvider`, `exec`,
-`log`.
+`off`, `getToolsExpanded`, `setToolsExpanded`, `select`, `confirm`, `input`,
+`getWorkspace`, `getSession`, `isProjectTrusted`, `unregisterProvider`.
 
-**`reduced`:** `registerProvider`.
+**`reduced`:** `appendEntry`, `getSessionEntries`, `notify`, `registerProvider`,
+`exec`, `log`.
 
 **`no-op`:** `setStatus`, `registerWidget`, `unregisterWidget`,
 `registerToolRenderer`, `registerMessageRenderer`, `registerEntryRenderer`,
-`registerMarkdownTransformer`, `registerShortcut`, `addAutocompleteProvider`,
-`setWidget`, `setFooter`, `setHeader`, `setTitle`, `setWorkingMessage`,
-`setWorkingVisible`, `setWorkingIndicator`, `setHiddenThinkingLabel`,
-`getSessionManager`, `registerModel`.
+`registerMarkdownTransformer`, `registerShortcut`, `registerFlag`, `getFlag`,
+`addAutocompleteProvider`, `setWidget`, `setFooter`, `setHeader`, `setTitle`,
+`setWorkingMessage`, `setWorkingVisible`, `setWorkingIndicator`,
+`setHiddenThinkingLabel`, `getSessionManager`, `registerModel`.
 
 Tier 1 covers discovery, trust, module loading, tools, commands, events,
 session entries, dialogs, `exec`, and logging. The `no-op` methods above are
@@ -81,6 +81,10 @@ accepted for compatibility but have no effect in this release.
 `registerProvider` maps an OpenAI-compatible config into Atom-lite's provider
 list. Config keys `oauth`, `streamSimple`, `classifiers`, `refreshModels`, and
 `images` emit a reduced-compatibility warning and are not applied.
+
+`appendEntry` and `getSessionEntries` keep entries in the extension's own
+registry; no host view reads them. `notify`, `exec`, and `log` run, but their
+output is not surfaced in the host UI.
 
 ## Tier 3
 
@@ -107,6 +111,7 @@ marks which methods have an effect.
 
 - `registerTool(tool)`, `unregisterTool(name)`
 - `setActiveTools(names)`, `getActiveTools()`, `getAllTools()`
+- `getToolsExpanded()`, `setToolsExpanded(expanded)`
 
 **Commands**
 
@@ -139,13 +144,12 @@ marks which methods have an effect.
 
 **Shortcuts / flags / autocomplete**
 
-- `registerShortcut(shortcut, options)` (no-op), `registerFlag(name, options)`, `getFlag(name)`, `addAutocompleteProvider(factory)` (no-op)
+- `registerShortcut(shortcut, options)` (no-op), `registerFlag(name, options)` (no-op), `getFlag(name)` (no-op), `addAutocompleteProvider(factory)` (no-op)
 
 **UI chrome** (no-op)
 
 - `setFooter(factory?)`, `setHeader(factory?)`, `setTitle(title)`
 - `setWorkingMessage(message?)`, `setWorkingVisible(visible)`, `setWorkingIndicator(options?)`, `setHiddenThinkingLabel(label?)`
-- `getToolsExpanded()`, `setToolsExpanded(expanded)`
 
 **Dialogs**
 
@@ -169,8 +173,9 @@ marks which methods have an effect.
 `/extensions` lists discovered extensions and load status. `/extensions doctor`
 prints per-extension load status, tool/command counts, and errors.
 `/extensions doctor --json` prints an array with, per extension, `id`, `source`,
-`status`, `error`, `stack`, `toolCount`, `commandCount`, `eventCount`, and `apis`
-— the matrix entries for API calls found in that extension's entry file.
+`status`, `error`, `stack`, `toolCount`, `commandCount`, `eventCount`, `apis`
+— the matrix entries for API calls found in that extension's entry file — and
+`lifecycleEvents`, the lifecycle records from that extension.
 
 The JSON list contains only methods that exist in `ExtensionAPI`.
 

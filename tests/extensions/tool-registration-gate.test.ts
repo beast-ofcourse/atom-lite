@@ -23,6 +23,7 @@ import {
   extensionToolToAgentTool,
   resolveModelTools,
 } from "../../dist/extensions/tool-adapter.js";
+import { validateExtensionTool } from "../../dist/extensions/tool-validation.js";
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), "atom-lite-tool-gate-"));
@@ -89,6 +90,75 @@ test("registerTool rejects invalid tools with an attributable extension_error", 
     assert.match(messages, /name/);
     assert.match(messages, /description/);
     assert.match(messages, /parameters/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("composition keywords let required names live outside properties", async () => {
+  const schemas: Record<string, unknown>[] = [
+    { type: "object", $ref: "#/$defs/Item", required: ["item"] },
+    {
+      allOf: [
+        { type: "object", properties: { name: { type: "string" } } },
+        { required: ["name"] },
+      ],
+    },
+    {
+      anyOf: [
+        { type: "object", properties: { a: { type: "string" } } },
+        { required: ["a"] },
+      ],
+    },
+    {
+      oneOf: [
+        { type: "object", properties: { b: { type: "string" } } },
+        { required: ["b"] },
+      ],
+    },
+  ];
+  for (const parameters of schemas) {
+    const tool = { ...extTool("composed"), parameters };
+    assert.deepEqual(
+      validateExtensionTool(tool),
+      [],
+      `composition schema rejected: ${JSON.stringify(parameters)}`,
+    );
+  }
+
+  // A plain object schema keeps the stricter rule.
+  const plain = {
+    ...extTool("plain"),
+    parameters: { type: "object", properties: {}, required: ["missing"] },
+  };
+  assert.match(
+    validateExtensionTool(plain).join("\n"),
+    /unknown properties: missing/,
+  );
+
+  const dir = tempDir();
+  try {
+    writeExtension(
+      dir,
+      "composed",
+      `api.registerTool(${JSON.stringify({
+        ...extTool("composed"),
+        parameters: schemas[0],
+      })});`,
+    );
+    const loader = new ExtensionLoader({
+      userDir: dir,
+      agentDir: join(dir, "agent"),
+    });
+    await loader.loadAll();
+    assert.deepEqual(names(collectExtensionTools(loader)), ["composed"]);
+    assert.equal(
+      loader
+        .lifecycleEvents()
+        .filter((event) => event.type === "extension_error").length,
+      0,
+      "a valid composition schema is not reported as an extension error",
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -242,6 +242,7 @@ test("closing the previous overlay does not cancel the dialog being opened", asy
 test("a rejected extension command is attributed in doctor with id, method, and stack", async () => {
   const dir = tempDir();
   try {
+    writeFileSync(join(dir, "deploy.js"), "export default () => {};\n");
     const loader = makeLoader(dir);
     await loader.loadAll();
 
@@ -266,6 +267,108 @@ test("a rejected extension command is attributed in doctor with id, method, and 
     const doctor = loader.doctor();
     assert.match(doctor, /deploy/);
     assert.match(doctor, /command:\/ship/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runBounded refuses a command from an extension that is not loaded", async () => {
+  const dir = tempDir();
+  try {
+    const loader = makeLoader(dir);
+    await loader.loadAll();
+    let ran = false;
+    const result = await loader.runBounded(
+      { extensionId: "gone", method: "command:/old" },
+      () => {
+        ran = true;
+        return "value";
+      },
+    );
+    assert.equal(result, undefined);
+    assert.equal(ran, false, "a command from an unloaded extension never runs");
+
+    const errors = loader
+      .lifecycleEvents()
+      .filter((event) => event.type === "extension_error");
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].extensionId, "gone");
+    assert.equal(errors[0].method, "command:/old");
+    assert.equal(errors[0].phase, "stale");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("doctor --json exposes the lifecycle events behind lifecycleEvents()", async () => {
+  const dir = tempDir();
+  try {
+    writeFileSync(
+      join(dir, "events.js"),
+      [
+        "export default (api) => {",
+        '  api.on("session_end", async () => { throw new Error("doctor boom"); });',
+        "};",
+        "",
+      ].join("\n"),
+    );
+    const loader = makeLoader(dir);
+    await loader.loadAll();
+    await loader.notifySessionEnd();
+
+    const events = loader.lifecycleEvents();
+    const [entry] = JSON.parse(loader.doctorJson());
+    assert.deepEqual(
+      entry.lifecycleEvents,
+      JSON.parse(
+        JSON.stringify(
+          events.filter((event) => event.extensionId === entry.id),
+        ),
+      ),
+    );
+    assert.ok(
+      entry.lifecycleEvents.some((event: any) => event.type === "session_end"),
+    );
+    assert.ok(
+      entry.lifecycleEvents.some(
+        (event: any) =>
+          event.type === "extension_error" &&
+          /doctor boom/.test(event.error ?? ""),
+      ),
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a top-level load failure is recorded in doctor and on stderr", () => {
+  const dir = tempDir();
+  try {
+    const loader = makeLoader(dir);
+    const original = process.stderr.write;
+    const written: string[] = [];
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      written.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      (loader as any).reportTopLevelError(
+        new Error("load exploded"),
+        "loadAll",
+      );
+    } finally {
+      process.stderr.write = original;
+    }
+
+    const errors = loader
+      .lifecycleEvents()
+      .filter((event) => event.type === "extension_error");
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].extensionId, "app");
+    assert.equal(errors[0].method, "loadAll");
+    assert.match(errors[0].error ?? "", /load exploded/);
+    assert.match(errors[0].stack ?? "", /load exploded/);
+    assert.ok(written.some((line) => /load exploded/.test(line)));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

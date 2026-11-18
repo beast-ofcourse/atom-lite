@@ -244,8 +244,8 @@ export function collectExtensionTools(
   reservedNames: Iterable<string> = [],
 ): Tool[] {
   const out: Tool[] = [];
-  const used = new Map<string, string>();
-  for (const name of reservedNames) used.set(name, "reserved");
+  const claimedNames = new Set<string>();
+  for (const name of reservedNames) claimedNames.add(name);
   for (const loaded of loader.list()) {
     // Only successfully activated extensions contribute tools to the model.
     if (loaded.status !== "loaded") continue;
@@ -268,17 +268,17 @@ export function collectExtensionTools(
       if ((tool.exposure ?? "direct") === "hidden") continue;
       const base = tool.name;
       let name = base;
-      if (used.has(name)) {
+      if (claimedNames.has(name)) {
         name = `${id}_${base}`;
         let suffix = 2;
-        while (used.has(name)) name = `${id}_${base}_${suffix++}`;
+        while (claimedNames.has(name)) name = `${id}_${base}_${suffix++}`;
         // The author must learn that their tool was renamed, not discover it
         // from a missing tool call later.
         ctx.log?.(
           `tool "${base}" renamed to "${name}" because its name is already in use`,
         );
       }
-      used.set(name, id);
+      claimedNames.add(name);
       out.push(
         extensionToolToAgentTool({ ...tool, name }, ctx, loaded.id ?? id),
       );

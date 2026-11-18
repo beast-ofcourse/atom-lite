@@ -94,6 +94,8 @@ export interface ExtensionDiagnostic {
   commandCount: number;
   eventCount: number;
   apis: CompatibilityMatrixEntry[];
+  /** Lifecycle stream from lifecycleEvents(), scoped to this extension. */
+  lifecycleEvents: ExtensionLifecycleEvent[];
 }
 
 export class ExtensionLoader {
@@ -399,17 +401,52 @@ export class ExtensionLoader {
     });
   }
 
-  /** Run an extension callback (e.g. a command) behind the current boundary. */
+  /**
+   * Run an extension callback (e.g. a command) behind the current boundary.
+   * The command must belong to a currently loaded extension: a callback kept
+   * from a failed reload must not run against the new set.
+   */
   runBounded<T>(
     meta: { extensionId: string; method: string },
     fn: () => T | Promise<T>,
     options?: { rethrow?: boolean },
   ): Promise<T | undefined> {
+    const live = this.extensions.some(
+      (entry) => entry.id === meta.extensionId && entry.status === "loaded",
+    );
+    if (!live) {
+      this.reportError({
+        extensionId: meta.extensionId,
+        method: meta.method,
+        message: "extension is not loaded",
+        phase: "stale",
+      });
+      return Promise.resolve(undefined);
+    }
     return this.boundary.run(meta, fn, options);
+  }
+
+  /** Report a host-level failure that has no single owning extension. */
+  reportTopLevelError(error: unknown, method: string): void {
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? (error.stack ?? message) : message;
+    this.reportError({
+      extensionId: "app",
+      method,
+      message,
+      stack,
+      phase: "reject",
+    });
+    process.stderr.write(`atom-lite: extension ${method} failed: ${message}\n`);
   }
 
   list(): LoadedExtension[] {
     return [...this.extensions];
+  }
+
+  /** The extensions whose activation succeeded and whose state is live. */
+  loadedExtensions(): LoadedExtension[] {
+    return this.extensions.filter((entry) => entry.status === "loaded");
   }
 
   processedCount(): number {
@@ -463,6 +500,9 @@ export class ExtensionLoader {
         commandCount: loaded?.registries.commands.size ?? 0,
         eventCount: loaded?.registries.handlers.size ?? 0,
         apis: calledMatrixApis(entry.entryPath),
+        lifecycleEvents: this.lifecycle.filter(
+          (event) => event.extensionId === entry.id,
+        ),
       };
     });
   }
