@@ -67,17 +67,30 @@ interface PageLabels {
   clipped: string;
 }
 
+interface PageWindow {
+  requested: number;
+  maxLines: number;
+  end: number;
+}
+
+function pageWindow(offset: number | undefined, limit: number | undefined): PageWindow {
+  const requested = offset ?? 1;
+  const maxLines = Math.min(limit ?? MAX_READ_LINES, MAX_READ_LINES);
+  return { requested, maxLines, end: requested - 1 + maxLines };
+}
+
+const pageBudget = (outputCap: number): number => Math.min(MAX_READ_BYTES, outputCap);
+
 /** Assemble a bounded page from a header and one string per item. */
 function renderPaged(
   headerFor: (count: number) => string,
   items: string[],
   firstItem: number,
   next: number | undefined,
-  outputCap: number,
+  budget: number,
   labels: PageLabels,
 ): string {
   const rendered = [...items];
-  const budget = Math.min(MAX_READ_BYTES, outputCap);
   let cursor = next;
   const render = (): string =>
     [headerFor(rendered.length), ...rendered, ...(cursor === undefined ? [] : [continuationHint(cursor)])].join("\n");
@@ -105,9 +118,8 @@ function clampLine(line: string): string {
  */
 async function pageText(input: PageInput): Promise<string> {
   const { handle, first, displayPath, size, offset, limit, outputCap } = input;
-  const requested = offset ?? 1;
-  const maxLines = Math.min(limit ?? MAX_READ_LINES, MAX_READ_LINES);
-  const budget = Math.min(MAX_READ_BYTES, outputCap);
+  const { requested, maxLines } = pageWindow(offset, limit);
+  const budget = pageBudget(outputCap);
   const hash = createHash("sha256");
   const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
 
@@ -127,7 +139,7 @@ async function pageText(input: PageInput): Promise<string> {
     let text = raw;
     if (lineNo === 1 && text.charCodeAt(0) === 0xfeff) text = text.slice(1);
     if (text.endsWith("\r")) text = text.slice(0, -1);
-    const entry: LineEntry = { lineNumber: lineNo, text: clampLine(text), hasNul: text.includes("\0") };
+    const entry: LineEntry = { lineNumber: lineNo, text, hasNul: text.includes("\0") };
     tail.push(entry);
     if (tail.length > TAIL_LINES) tail.shift();
     if (firstUnseen !== undefined || nextToCollect !== lineNo || entries.length >= maxLines) return;
@@ -174,22 +186,28 @@ async function pageText(input: PageInput): Promise<string> {
     if (next === undefined && requested + selected.length <= totalLines) next = requested + selected.length;
   }
 
-  let header = `File: ${displayPath} (${size} bytes, sha256:${hash.digest("hex")})`;
-  if (pastEnd) {
-    header += ` (offset ${requested} is past the end; the file has ${totalLines} ${
-      totalLines === 1 ? "line" : "lines"
-    })`;
-  } else if (totalLines === 0) {
-    header += " (0 lines)";
-  }
+  const digest = hash.digest("hex");
+  const headerFor = (count: number): string => {
+    let header = `File: ${displayPath} (${size} bytes, sha256:${digest})`;
+    if (pastEnd) {
+      header += ` (offset ${requested} is past the end; the file has ${totalLines} ${
+        totalLines === 1 ? "line" : "lines"
+      })`;
+    } else if (totalLines === 0) {
+      header += " (0 lines)";
+    } else if (count > 0) {
+      header += ` (lines ${firstItem}-${firstItem + count - 1})`;
+    }
+    return header;
+  };
 
   if (selected.some((entry) => entry.hasNul)) return `Binary file detected (${size} bytes).`;
   return renderPaged(
-    () => header,
-    selected.map((entry) => `${entry.lineNumber}: ${entry.text}`),
+    headerFor,
+    selected.map((entry) => `${entry.lineNumber}: ${clampLine(entry.text)}`),
     firstItem,
     next,
-    outputCap,
+    budget,
     { empty: "(empty)", clipped: "(no lines fit the output cap)" },
   );
 }
@@ -202,51 +220,57 @@ interface DirectoryInput {
   outputCap: number;
 }
 
+interface PageResult {
+  content: string;
+  error?: boolean;
+}
+
+interface TailEntry {
+  name: string;
+  directory: boolean;
+}
+
 /** Stream a directory and retain only the requested slice. Symlinks are shown but never followed. */
-async function pageDirectory(input: DirectoryInput): Promise<string> {
+async function pageDirectory(input: DirectoryInput): Promise<PageResult> {
   const { displayPath, directoryPath, offset, limit, outputCap } = input;
-  const requested = offset ?? 1;
-  const maxLines = Math.min(limit ?? MAX_READ_LINES, MAX_READ_LINES);
-  const end = requested - 1 + maxLines;
+  const { requested, end } = pageWindow(offset, limit);
+  const budget = pageBudget(outputCap);
   const directories: string[] = [];
   const files: string[] = [];
-  const tailDirectories: string[] = [];
-  const tailFiles: string[] = [];
+  const tail: TailEntry[] = [];
   const tailSize = Math.min(limit ?? TAIL_LINES, TAIL_LINES);
+  const compare = (a: TailEntry, b: TailEntry): number =>
+    Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name);
   const keep = (names: string[], name: string): void => {
     const index = names.findIndex((current) => current.localeCompare(name) > 0);
     names.splice(index === -1 ? names.length : index, 0, name);
     if (names.length > end) names.pop();
   };
-  const keepLargest = (names: string[], name: string): void => {
-    const index = names.findIndex((current) => current.localeCompare(name) > 0);
-    names.splice(index === -1 ? names.length : index, 0, name);
-    if (names.length > tailSize) names.shift();
+  const keepTail = (entry: TailEntry): void => {
+    const index = tail.findIndex((current) => compare(current, entry) > 0);
+    tail.splice(index === -1 ? tail.length : index, 0, entry);
+    if (tail.length > tailSize) tail.shift();
   };
   let total = 0;
   let dir;
   try {
     dir = await opendir(directoryPath);
   } catch {
-    return "FILE_NOT_FOUND";
+    return { content: "FILE_NOT_FOUND", error: true };
   }
   // `for await` closes the directory handle when iteration ends. Keep only the
-  // smallest names needed for this page, plus a small tail for past-end reads.
+  // smallest names needed for this page, plus one bounded tail for past-end reads.
   for await (const entry of dir) {
     total++;
     const name = entry.name;
-    if (entry.isDirectory()) {
-      keep(directories, name);
-      keepLargest(tailDirectories, name);
-    } else {
-      keep(files, name);
-      keepLargest(tailFiles, name);
-    }
+    const directory = entry.isDirectory();
+    keep(directory ? directories : files, name);
+    keepTail({ name, directory });
   }
   const pastEnd = requested > total && total > 0;
   const firstItem = pastEnd ? Math.max(1, total - tailSize + 1) : requested;
   const visible = pastEnd
-    ? [...tailDirectories.map((name) => `${name}/`), ...tailFiles]
+    ? tail.map((entry) => `${entry.name}${entry.directory ? "/" : ""}`)
     : [...directories.map((name) => `${name}/`), ...files].slice(requested - 1, end);
   const next = pastEnd || end >= total ? undefined : end + 1;
   const headerFor = (count: number): string => {
@@ -260,10 +284,12 @@ async function pageDirectory(input: DirectoryInput): Promise<string> {
         })`
       : base;
   };
-  return renderPaged(headerFor, visible, firstItem, next, outputCap, {
-    empty: "(empty)",
-    clipped: "(no entries fit the output cap)",
-  });
+  return {
+    content: renderPaged(headerFor, visible, firstItem, next, budget, {
+      empty: "(empty)",
+      clipped: "(no entries fit the output cap)",
+    }),
+  };
 }
 
 export const readTool: Tool = {
@@ -273,7 +299,7 @@ export const readTool: Tool = {
   definition: {
     name: "read",
     description:
-      "Read a file, directory listing, image, or PDF. Use offset and limit to page large files or directories; a truncated result names the next offset.",
+      "Read a file, directory listing, image, or PDF. Use offset and limit to page large files or directories; a truncated result names the next offset. Text lines are prefixed with their 1-based line number as <line>: <content>; the prefix is for reference and is not part of the file content.",
     parameters: {
       type: "object",
       properties: {
@@ -383,19 +409,19 @@ export const readTool: Tool = {
       }
     };
     if (st.isDirectory()) {
-      const content = await pageDirectory({
+      const page = await pageDirectory({
         displayPath,
         directoryPath: full,
         offset,
         limit,
         outputCap: ctx.maxToolOutputBytes ?? DEFAULT_OUTPUT_CAP,
       });
-      if (content !== "FILE_NOT_FOUND") noteRead();
+      if (!page.error) noteRead();
       return {
         toolCallId: call.id,
         name: "read",
-        content,
-        ...(content === "FILE_NOT_FOUND" ? { isError: true as const } : {}),
+        content: page.content,
+        ...(page.error ? { isError: true as const } : {}),
       };
     }
     let handle: FileHandle;

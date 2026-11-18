@@ -5,6 +5,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { invokeRead as read } from "./read-test-helpers.ts";
+import { readTool } from "../../dist/tools/index.js";
 
 // Contract: a range read stops at the page boundary and tells the model where to resume.
 test("read pages a long file with a continuation cursor", async () => {
@@ -145,6 +146,15 @@ test("read keeps a real line number in the cursor when a past-end tail is clippe
   assert.ok(cursor >= 1 && cursor <= 150, `unexpected cursor ${cursor}`);
   const second = await read(dir, { path: "tailcap.txt", offset: cursor, limit: 1 });
   assert.match(second.content, new RegExp(`${cursor}: L${cursor}`));
+});
+
+// Contract: the text header names the line range and the tool tells the model the prefix is reference only.
+test("read names the returned line range and marks line prefixes as reference", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "read-header-"));
+  writeFileSync(join(dir, "range.txt"), "a\nb\nc\n");
+  const result = await read(dir, { path: "range.txt", limit: 2 });
+  assert.match(result.content, /\(lines 1-2\)/);
+  assert.match(readTool.definition.description, /prefix is for reference/);
 });
 
 // Contract: the hash covers the whole file even when the model sees a single page.

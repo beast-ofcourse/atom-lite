@@ -2,7 +2,7 @@ import type { Message, AgentLimits } from "../types.js";
 import type { ProviderAdapter } from "../providers/types.js";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { loadProjectInstructions, statSignature } from "./instructions.js";
+import { INSTRUCTION_NAMES, loadProjectInstructions, statSignature } from "./instructions.js";
 import {
   DefaultSkillRegistry,
   skillCacheSignature,
@@ -439,8 +439,7 @@ export class ContextManager {
       `${workspace}|${this.opts.maxProjectInstructionBytes}|` +
       statSignature([
         userPath,
-        join(workspace, "AGENTS.md"),
-        join(workspace, "CLAUDE.md"),
+        ...INSTRUCTION_NAMES.map((name) => join(workspace, name)),
         ...this.discoveredInstructionPaths,
       ]);
     let instructions: string[];

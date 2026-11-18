@@ -14,7 +14,7 @@ export interface RecoveryFailure {
   message: string;
 }
 
-export type RecoveryResult = RecoveredPath | RecoveryFailure | null;
+export type RecoveryResult = RecoveredPath | RecoveryFailure;
 
 /** Fold Unicode look-alikes before comparing names. */
 const canonical = (name: string): string =>
@@ -40,7 +40,7 @@ function ranked(names: string[], wanted: string): string[] {
   return names
     .flatMap((name) => {
       const lower = canonical(name).toLowerCase();
-      if (lower === target) return [];
+      if (lower === target) return [{ name, tier: 0, distance: 0 }];
       const foundStem = canonical(stem(name)).toLowerCase();
       let tier: number | undefined;
       if (foundStem === targetStem) tier = 1;
@@ -93,8 +93,9 @@ async function usable(workspace: string, candidate: string): Promise<RecoveredPa
 
 /**
  * Try one bounded correction for a missing path: canonical name, same-stem
- * sibling, wrong root, then a ranked suggestion list. Never reads outside the
- * workspace and performs at most two directory lookups.
+ * sibling, then a ranked suggestion list. Wrong-root correction runs before
+ * this function. Never reads outside the workspace and performs at most two
+ * directory lookups.
  */
 export async function recoverReadPath(
   workspace: string,
@@ -118,15 +119,6 @@ export async function recoverReadPath(
   if (sameStem.length === 1) {
     const recovered = await usable(workspace, join(directory, sameStem[0]));
     if (recovered) return recovered;
-  }
-
-  if (isAbsolute(requested)) {
-    const parent = dirname(workspace);
-    if (!isWithinWorkspace(workspace, requested) && isWithinWorkspace(parent, requested)) {
-      const rerooted = join(workspace, relative(parent, requested));
-      const recovered = await usable(workspace, rerooted);
-      if (recovered) return recovered;
-    }
   }
 
   let suggestions = names;

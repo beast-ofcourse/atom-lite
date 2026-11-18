@@ -72,6 +72,20 @@ test("read returns a tail for a past-end directory offset", async () => {
   assert.doesNotMatch(result.content, /Continue reading with offset/);
 });
 
+// Contract: a past-end directory tail is bounded by limit and numbered from the real end of the listing.
+test("read bounds and numbers a past-end directory tail", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "read-dir-tail-bound-"));
+  for (let i = 0; i < 100; i++) mkdirSync(join(dir, `d${String(i).padStart(3, "0")}`));
+  for (let i = 0; i < 150; i++) writeFileSync(join(dir, `f${String(i).padStart(3, "0")}`), "");
+  const result = await read(dir, { path: ".", offset: 999, limit: 10 });
+  assert.match(result.content, /entries 241-250/);
+  assert.match(result.content, /offset 999 is past the end; the directory has 250 entries/);
+  const listed = result.content.split("\n").slice(1).filter((line) => line.length > 0 && !line.startsWith("[Output"));
+  assert.equal(listed.length, 10);
+  assert.equal(listed[0], "f140");
+  assert.equal(listed[9], "f149");
+});
+
 // Contract: an empty directory reports zero entries and is not a failed read.
 test("read reports an empty directory explicitly", async () => {
   const dir = mkdtempSync(join(tmpdir(), "read-dir-empty-"));

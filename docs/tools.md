@@ -4,7 +4,7 @@ Atom-lite ships built-in tools. The model chooses which to call; the runtime val
 
 | Tool        | Behavior                                                         |
 | ----------- | ---------------------------------------------------------------- |
-| `read`      | Inspect a file or directory, including images and PDFs, with optional ranges. |
+| `read`      | Inspect files, directories, images, and PDFs, with ranges. |
 | `write`     | Create or replace a file, guarded by `expected_hash`.            |
 | `edit`      | Precise find-and-replace edit, guarded by `expected_hash`.       |
 | `bash`      | Run a shell command. Tests, Git, builds, and formatters go here. |
@@ -18,7 +18,7 @@ Atom-lite ships built-in tools. The model chooses which to call; the runtime val
 
 ## Reading large files
 
-`read` returns a bounded page: at most 2000 lines or 50 KiB of content, whichever comes first. Lines longer than 2000 characters are clamped with a visible marker. When more content remains, the result ends with `[Output truncated. Continue reading with offset: N]`. Pass that offset to the next call to resume at the exact line.
+`read` returns a bounded page: at most 2000 lines or 50 KiB of content, whichever comes first. The header names the path, size, hash, and returned line range. Each text line is prefixed with its 1-based number for reference; the prefix is not file content. Lines longer than 2000 characters are clamped with a visible marker. When more content remains, the result ends with `[Output truncated. Continue reading with offset: N]`. Pass that offset to the next call to resume at the exact line.
 
 ```jsonc title="tool call"
 { "path": "src/large.ts", "offset": 2001, "limit": 2000 }

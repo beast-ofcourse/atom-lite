@@ -1,7 +1,7 @@
 import { readFileSync, existsSync, statSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 
-const INSTRUCTION_NAMES = ["AGENTS.md", "CLAUDE.md"];
+export const INSTRUCTION_NAMES = ["AGENTS.md", "CLAUDE.md"];
 
 /** Cheap change detector for a set of files (mtime + size). */
 export function statSignature(paths: string[]): string {
@@ -76,8 +76,7 @@ export function loadProjectInstructions(
     out.push(buf.subarray(0, maxBytes).toString("utf8"));
   };
   if (userInstructionsPath) pushFile(userInstructionsPath);
-  pushFile(join(workspace, "AGENTS.md"));
-  pushFile(join(workspace, "CLAUDE.md"));
+  for (const name of INSTRUCTION_NAMES) pushFile(join(workspace, name));
   for (const path of extraPaths) pushFile(path);
   return out;
 }

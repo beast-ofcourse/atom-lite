@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { invokeRead as read } from "./read-test-helpers.ts";
@@ -60,12 +60,28 @@ test("read suggests at most three ranked sibling names", async () => {
 });
 
 // Contract: recovery never reads or suggests paths outside the workspace.
-test("read keeps the workspace boundary during recovery", async () => {
+test("read rejects a recovery candidate that resolves outside the workspace", async () => {
   const dir = mkdtempSync(join(tmpdir(), "read-recover-boundary-"));
-  const result = await read(dir, { path: "../etc/passwd" });
+  const outside = mkdtempSync(join(tmpdir(), "read-recover-outside-"));
+  writeFileSync(join(outside, "secret.txt"), "secret content");
+  symlinkSync(join(outside, "secret.txt"), join(dir, "alias.txt"));
+  const result = await read(dir, { path: "alias.md" });
   assert.equal(result.isError, true);
-  assert.match(result.content, /PATH_OUTSIDE_WORKSPACE/);
-  assert.doesNotMatch(result.content, /Did you mean/);
+  assert.doesNotMatch(result.content, /secret content/);
+
+  const external = await read(dir, { path: "../etc/passwd" });
+  assert.equal(external.isError, true);
+  assert.match(external.content, /PATH_OUTSIDE_WORKSPACE/);
+  assert.doesNotMatch(external.content, /Did you mean/);
+});
+
+// Contract: a case-only difference is ranked as the first sibling suggestion.
+test("read suggests a sibling that differs only by case", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "read-recover-case-"));
+  writeFileSync(join(dir, "Notes.md"), "notes");
+  const result = await read(dir, { path: "notes.md" });
+  assert.equal(result.isError, true);
+  assert.match(result.content, /Did you mean one of these\?\nNotes\.md/);
 });
 
 // Contract: an unrecoverable miss keeps the short error vocabulary.
