@@ -61,6 +61,19 @@ test("persona body replaces default role instructions and keeps policy", () => {
   assert.equal(composePersonaSystemPrompt(base, undefined), base);
 });
 
+// Reason: spec — the default prompt must give a direct-answer path for general
+// knowledge, prefer Mermaid fences for concept diagrams, and keep image paths
+// inside the workspace so the web UI can serve them.
+test("default system prompt keeps general answers tool-free and images workspace-relative", () => {
+  assert.match(DEFAULT_SYSTEM_PROMPT, /answer directly from your own knowledge/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /do not call tools or read workspace files/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /```mermaid/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /Never generate diagrams as PNG files with Python/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /\.atom-lite\/media\//);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /workspace-relative path/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /Never use `\/tmp`/);
+});
+
 test("custom prompts without policy sections append the persona body", () => {
   const base = "Base tool policy.";
   const prompt = composePersonaSystemPrompt(base, {
