@@ -3,6 +3,7 @@ import type { FileHandle } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { isWithinWorkspace } from "../security/paths.js";
+import { recoverReadPath, rerootReadPath } from "./read-recovery.js";
 import type { Tool, ToolContext, ToolResult } from "./types.js";
 import type { ToolCall } from "../types.js";
 import { z } from "zod";
@@ -296,7 +297,17 @@ export const readTool: Tool = {
     }
     const { path, offset, limit } = parsed.data;
     const resolved = resolve(ctx.workspace, path);
-    const within = isWithinWorkspace(ctx.workspace, path);
+    let full = resolved;
+    let displayPath = path;
+    let within = isWithinWorkspace(ctx.workspace, path);
+    if (!within) {
+      const rerooted = rerootReadPath(ctx.workspace, path);
+      if (rerooted) {
+        full = rerooted.path;
+        displayPath = rerooted.displayPath;
+        within = true;
+      }
+    }
     if (!within) {
       if (ctx.approvals?.nonInteractive || !ctx.approvals?.handler) {
         return {
@@ -328,19 +339,45 @@ export const readTool: Tool = {
     // single syscall instead of two.
     let st;
     try {
-      st = await statAsync(resolved);
+      st = await statAsync(full);
     } catch {
-      return {
-        toolCallId: call.id,
-        name: "read",
-        content: "FILE_NOT_FOUND",
-        isError: true,
-      };
+      if (within) {
+        const recovered = await recoverReadPath(ctx.workspace, path, full);
+        if (recovered && "path" in recovered) {
+          full = recovered.path;
+          displayPath = recovered.displayPath;
+          try {
+            st = await statAsync(full);
+          } catch {
+            return {
+              toolCallId: call.id,
+              name: "read",
+              content: "FILE_NOT_FOUND",
+              isError: true,
+            };
+          }
+        } else if (recovered) {
+          return {
+            toolCallId: call.id,
+            name: "read",
+            content: recovered.message,
+            isError: true,
+          };
+        }
+      }
+      if (!st) {
+        return {
+          toolCallId: call.id,
+          name: "read",
+          content: "FILE_NOT_FOUND",
+          isError: true,
+        };
+      }
     }
     if (st.isDirectory()) {
       const content = await pageDirectory({
-        displayPath: path,
-        directoryPath: resolved,
+        displayPath,
+        directoryPath: full,
         offset,
         limit,
         outputCap: ctx.maxToolOutputBytes ?? DEFAULT_OUTPUT_CAP,
@@ -354,7 +391,7 @@ export const readTool: Tool = {
     }
     let handle: FileHandle;
     try {
-      handle = await open(resolved, "r");
+      handle = await open(full, "r");
     } catch {
       return {
         toolCallId: call.id,
@@ -381,16 +418,16 @@ export const readTool: Tool = {
           return {
             toolCallId: call.id,
             name: "read",
-            content: `MEDIA_TOO_LARGE: ${path} exceeds the ${MEDIA_LIMIT_LABEL} ingestion limit`,
+            content: `MEDIA_TOO_LARGE: ${displayPath} exceeds the ${MEDIA_LIMIT_LABEL} ingestion limit`,
             isError: true,
           };
         }
-        const buf = await readFile(resolved);
+        const buf = await readFile(full);
         const kind = mime === "application/pdf" ? "PDF" : "Image";
         return {
           toolCallId: call.id,
           name: "read",
-          content: `${kind} file: ${path} (${buf.length} bytes, ${mime})`,
+          content: `${kind} file: ${displayPath} (${buf.length} bytes, ${mime})`,
           images: [{ data: buf.toString("base64"), mime }],
         };
       }
@@ -406,7 +443,7 @@ export const readTool: Tool = {
       const content = await pageText({
         handle,
         first,
-        displayPath: path,
+        displayPath,
         size: st.size,
         offset,
         limit,
