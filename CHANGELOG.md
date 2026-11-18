@@ -8,11 +8,32 @@ becomes `0.18.1`.
 
 ## [Unreleased]
 
+## v0.18.3 — 2026-11-18
+
+### Added
+
+- `web`: the question dialog shows numbered steps, answered checkmarks, a live answered count, and arrow-key navigation between options.
+
+### Changed
+
+- `cli`: assistant text, thinking, and tool output invalidate the transcript every display frame (16 ms) instead of every 50 ms, so streamed text refreshes at the render rate.
+- `web`: streamed text drains up to 512 characters per 16 ms frame instead of 64 per 48 ms, so fast providers do not back up the display queue.
+
+### Fixed
+
+- `cli`: switching models no longer prints a "switched to" line into the transcript; the persisted choice is still recorded in the session log.
+
 ### Performance
 
-- `providers`: Gemini streams text and thinking deltas as they arrive instead of buffering the full response; a gated SSE test proves the first token is emitted before the response ends.
-- `cli`: assistant text, thinking, and tool output invalidate the transcript every display frame (16 ms) instead of every 50 ms, so streamed text refreshes at the render rate.
-- `web`: the first streamed token paints synchronously, and the client drains up to 512 characters per 16 ms frame instead of 64 per 48 ms, so fast providers do not back up the display queue.
+Measured on this machine with a local paced SSE server and a real browser. `bench` is non-gating.
+
+- `providers`: Gemini first delta arrives in 7.9 ms versus 398.8 ms for the full 20-chunk response. Earlier builds buffered the response, so first token waited for completion.
+- `web`: first token paints synchronously in 0.2 ms in a browser smoke test instead of waiting a 48 ms timer.
+- `cli`: stream append max 3.76 ms and uncached live 200-line frame 0.77 ms (both budget ≤ 16 ms).
+
+### Breaking
+
+- `context`: the repo map is now off by default. Set `context.repoMap.enabled` to `true` to restore it; the docs warn against enabling it in a home directory that contains several projects.
 
 ## v0.18.2 — 2026-11-18
 
