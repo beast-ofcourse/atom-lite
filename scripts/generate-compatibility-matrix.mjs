@@ -22,6 +22,18 @@ const hostConsumers = {
   unregisterTool: [
     ["src/extensions/tool-adapter.ts", "registries.tools.values()"],
   ],
+  wrapTool: [
+    ["src/extensions/tool-adapter.ts", "collectToolMiddleware(loader)"],
+  ],
+  provide: [
+    [
+      "src/extensions/loader.ts",
+      "const services: ServiceRegistry = new Map();",
+    ],
+  ],
+  consume: [
+    ["src/extensions/loader.ts", "orderByServices(discovered, declarations)"],
+  ],
   setActiveTools: [
     [
       "src/extensions/tool-adapter.ts",
@@ -126,7 +138,9 @@ function apiMethods() {
     source,
   )?.[1];
   if (!body) throw new Error(`Cannot parse ExtensionAPI from ${API_FILE}`);
-  return [...body.matchAll(/^\s{2}([A-Za-z_]\w*)\s*\(/gm)].map((m) => m[1]);
+  return [...body.matchAll(/^\s{2}([A-Za-z_]\w*)(?:<[^>]+>)?\s*\(/gm)].map(
+    (m) => m[1],
+  );
 }
 
 function locate(file, token) {

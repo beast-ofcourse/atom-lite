@@ -12,6 +12,13 @@ import { createDefaultExtensionUI } from "./ui.js";
 import { ExtensionBoundary, type BoundaryError } from "./boundary.js";
 import type { ExtensionContext } from "./types.js";
 import type { AtomEvent } from "./types.js";
+import type { ToolMiddlewareHandler } from "./tool-middleware.js";
+import {
+  orderByServices,
+  scanServiceDeclarations,
+  type ServiceDeclarations,
+  type ServiceRegistry,
+} from "./services.js";
 import { ExtensionCompatibilityError } from "./compatibility-error.js";
 import {
   PiSessionManager,
@@ -81,6 +88,8 @@ export interface StagedExtensionSet {
   extensions: LoadedExtension[];
   lifecycle: ExtensionLifecycleEvent[];
   generation: number;
+  /** Services published by this set; swapped in atomically at commit. */
+  services: ServiceRegistry;
 }
 
 export interface ExtensionReport {
@@ -162,6 +171,8 @@ export class ExtensionLoader {
   private pendingBroadcasts: PendingBroadcast[] = [];
   private loading = false;
   private readonly maxLifecycleEvents: number;
+  /** Services from the committed set; replaced on reload, cleared on unload. */
+  private services: ServiceRegistry = new Map();
 
   constructor(options: ExtensionLoaderOptions = {}) {
     this.options = options;
@@ -231,7 +242,10 @@ export class ExtensionLoader {
     return instance;
   }
 
-  private createStaging(entry: DiscoveredExtension): StagedExtension {
+  private createStaging(
+    entry: DiscoveredExtension,
+    services: ServiceRegistry = new Map(),
+  ): StagedExtension {
     const registries = createExtensionRegistries();
     const ctx: ExtensionContext = {
       workspace: this.workspace(),
@@ -287,6 +301,21 @@ export class ExtensionLoader {
       );
   }
 
+  /** Bind tool middleware to the current generation's boundary at registration. */
+  private wrapMiddleware(
+    extensionId: string,
+    toolName: string,
+    handler: ToolMiddlewareHandler,
+  ): ToolMiddlewareHandler {
+    const boundary = this.boundary;
+    return ((call, next) =>
+      boundary.run(
+        { extensionId, method: `wrapTool:${toolName}` },
+        () => handler(call, next),
+        { rethrow: true },
+      )) as ToolMiddlewareHandler;
+  }
+
   async loadAll(): Promise<LoadedExtension[]> {
     const staged = await this.stageExtensions();
     await this.commitStaged(staged);
@@ -314,8 +343,13 @@ export class ExtensionLoader {
     this.boundary = this.createBoundary(generation);
     this.lifecycle = [];
     try {
-      const extensions = await this.buildExtensions();
-      return { extensions, lifecycle: this.lifecycle, generation };
+      const built = await this.buildExtensions();
+      return {
+        extensions: built.extensions,
+        lifecycle: this.lifecycle,
+        generation,
+        services: built.services,
+      };
     } catch (error) {
       this.boundary = previous.boundary;
       this.lifecycle = previous.lifecycle;
@@ -335,6 +369,7 @@ export class ExtensionLoader {
   async commitStaged(staged: StagedExtensionSet): Promise<void> {
     this.extensions = staged.extensions;
     this.lifecycle = staged.lifecycle;
+    this.services = staged.services;
     this.generation = staged.generation;
     this.stagedGeneration = null;
     this.loading = false;
@@ -343,15 +378,57 @@ export class ExtensionLoader {
     await this.flushBroadcasts();
   }
 
-  private async buildExtensions(): Promise<LoadedExtension[]> {
+  private async buildExtensions(): Promise<{
+    extensions: LoadedExtension[];
+    services: ServiceRegistry;
+  }> {
     const discovered = this.discover();
     // Extension state is built aside and only committed by the caller.
     // A factory that throws must leave no registrations in the running host.
     const staged: LoadedExtension[] = [];
+    const services: ServiceRegistry = new Map();
     this.loading = true;
 
+    // Order activation by provide/consume edges before running any factory, so
+    // a consumer always sees its provider's service at activation time.
+    const declarations = new Map<string, ServiceDeclarations>();
     for (const entry of discovered) {
-      const staging = this.createStaging(entry);
+      let source = "";
+      try {
+        source = readFileSync(entry.entryPath, "utf8");
+      } catch {
+        // A missing file is reported by the normal activation failure path.
+      }
+      declarations.set(entry.id, scanServiceDeclarations(source));
+    }
+    const { order, cycle } = orderByServices(discovered, declarations);
+    const cyclic = new Set(cycle);
+    if (cyclic.size > 0) {
+      const error = new ExtensionCompatibilityError({
+        method: "consume",
+        tier: 1,
+        reason: `service dependency cycle detected among: ${cycle.join(", ")}`,
+      });
+      for (const entry of discovered.filter((item) => cyclic.has(item.id))) {
+        const failure = this.createStaging(entry, services);
+        await this.recordLifecycle(
+          "extension_error",
+          entry.id,
+          `${error.name}: ${error.message}`,
+          failure.registries,
+          failure.context,
+        );
+        staged.push({
+          ...failure,
+          status: "error",
+          error: `${error.name}: ${error.message}`,
+        });
+      }
+    }
+
+    for (const entry of order) {
+      if (cyclic.has(entry.id)) continue;
+      const staging = this.createStaging(entry, services);
 
       if (entry.errors.length > 0) {
         const error = entry.errors.join("; ");
@@ -409,6 +486,9 @@ export class ExtensionLoader {
             scopes: entry.manifest?.scopes,
             signal: () => this.options.signal?.(),
             onToolOutput: this.options.onToolOutput,
+            wrapMiddleware: (toolName, handler) =>
+              this.wrapMiddleware(entry.id, toolName, handler),
+            services,
           },
         );
         api.ui = staging.context.ui;
@@ -429,7 +509,12 @@ export class ExtensionLoader {
         );
         staged.push({ ...staging, status: "loaded" });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message =
+          error instanceof ExtensionCompatibilityError
+            ? `${error.name}: ${error.message}`
+            : error instanceof Error
+              ? error.message
+              : String(error);
         const errorStack =
           error instanceof Error ? (error.stack ?? error.message) : message;
         // A compatibility stub carries structured context. Surface it on the
@@ -447,7 +532,7 @@ export class ExtensionLoader {
             : {};
         // Discard the staged registries: the error record gets a fresh,
         // empty staging record so it exposes zero registrations.
-        const failure = this.createStaging(entry);
+        const failure = this.createStaging(entry, services);
         await this.recordLifecycle(
           "extension_error",
           entry.id,
@@ -466,7 +551,7 @@ export class ExtensionLoader {
     }
     // Staging only: the caller commits the new set atomically. Queued lifecycle
     // events are delivered once that commit makes the set live.
-    return staged;
+    return { extensions: staged, services };
   }
 
   private pushEvent(event: ExtensionLifecycleEvent): void {
@@ -622,6 +707,12 @@ export class ExtensionLoader {
 
   list(): LoadedExtension[] {
     return [...this.extensions];
+  }
+
+  /** Names of services in the committed set; empty after unload or a reload
+   * that publishes none. */
+  listServices(): string[] {
+    return [...this.services.keys()];
   }
 
   /** The extensions whose activation succeeded and whose state is live. */
@@ -782,6 +873,7 @@ export class ExtensionLoader {
       ),
     );
     this.extensions = [];
+    this.services = new Map();
     this.jiti = null;
     this.stagedGeneration = null;
     this.generation++;

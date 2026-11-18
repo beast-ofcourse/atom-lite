@@ -82,7 +82,7 @@ implementation.
 
 | Status        | Methods | Meaning                                  |
 | ------------- | ------- | ---------------------------------------- |
-| `supported`   | 18      | Effect is consumed by the host.          |
+| `supported`   | 21      | Effect is consumed by the host.          |
 | `reduced`     | 9       | Works with limits; see Reduced behavior. |
 | `no-op`       | 20      | Call is accepted; nothing consumes it.   |
 | `unsupported` | 7       | Failing stub; see Tier 3.                |
@@ -90,7 +90,8 @@ implementation.
 **`supported`:** `registerTool`, `unregisterTool`, `setActiveTools`,
 `getActiveTools`, `getAllTools`, `registerCommand`, `unregisterCommand`, `on`,
 `off`, `getToolsExpanded`, `setToolsExpanded`, `select`, `confirm`, `input`,
-`getWorkspace`, `getSession`, `isProjectTrusted`, `unregisterProvider`.
+`getWorkspace`, `getSession`, `isProjectTrusted`, `unregisterProvider`,
+`wrapTool`, `provide`, `consume`.
 
 **`reduced`:** `appendEntry`, `getSessionEntries`, `getSessionManager`, `notify`,
 `registerProvider`, `exec`, `fetch`, `log`, `supports`.
@@ -103,8 +104,65 @@ implementation.
 `setHiddenThinkingLabel`, `registerModel`.
 
 Tier 1 covers discovery, trust, module loading, tools, commands, events,
-session entries, dialogs, `exec`, and logging. The `no-op` methods above are
-accepted for compatibility but have no effect in this release.
+session entries, dialogs, `exec`, logging, tool middleware, and inter-extension
+services. The `no-op` methods above are accepted for compatibility but have no
+effect in this release.
+
+## Tool middleware and services
+
+Two extensions can cooperate on one tool or one typed service without module
+globals. Both are scoped to the load generation: unload and reload remove them
+with the extension set that registered them.
+
+### Tool middleware
+
+`pi.wrapTool(name, handler)` intercepts a built-in or extension tool. A wrapper
+gets `(call, next)`: `call` carries the tool call id, name, and arguments, and
+calling `next` proceeds inward to the next wrapper and then the tool's
+`execute`.
+Wrappers run in registration order — the first wrapper registered is outermost
+and runs first. Each may replace the result, reject the call by throwing, or
+abort (return no result), which becomes an error result for the model. Wrappers
+are bounded by the same generation, timeout, and error attribution as event
+handlers.
+
+```js
+export default function (pi) {
+  pi.wrapTool("bash", async (call, next) => {
+    const result = await next();
+    return { ...result, content: redact(result.content) };
+  });
+}
+```
+
+Wrapping never changes model visibility: a wrapper on a tool with
+`exposure: "hidden"` stays out of the model-visible set. The underlying tool
+keeps its definition, annotations, and exposure.
+
+### Services
+
+`pi.provide(name, api, version)` publishes a versioned service.
+`pi.consume(name, versionRange)` resolves one at activation. Extensions load in
+topological order by provide/consume edges, so a provider activates before its
+consumers. Semver ranges support `*`, `^`, `~`, `>=`, and exact `x.y.z`.
+
+```js
+// provider.js
+export default function (pi) {
+  pi.provide("greeter", { greet: (name) => `hi ${name}` }, "1.2.0");
+}
+
+// consumer.js — loads after the provider even if discovered first
+export default function (pi) {
+  const greeter = pi.consume("greeter", "^1.0.0");
+  pi.registerTool({ name: "greet", label: "Greet", description: "Greet", execute: async () => greeter.greet("Ada") });
+}
+```
+
+A missing service, an incompatible version, a duplicate provide name, or a
+dependency cycle raises `ExtensionCompatibilityError` naming the method, tier,
+and reason. The activation failure is attributed to the consuming extension in
+doctor output.
 
 ## Reduced behavior
 
@@ -174,8 +232,13 @@ marks which methods have an effect.
 **Tools**
 
 - `registerTool(tool)`, `unregisterTool(name)`
+- `wrapTool(name, handler)` — compose a wrapper around a built-in or extension tool in registration order
 - `setActiveTools(names)`, `getActiveTools()`, `getAllTools()`
 - `getToolsExpanded()`, `setToolsExpanded(expanded)`
+
+**Services**
+
+- `provide(name, api, version)`, `consume(name, versionRange)` — publish and resolve versioned services in dependency order
 
 **Commands**
 
