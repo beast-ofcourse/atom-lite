@@ -82,6 +82,22 @@ export interface ExtensionLifecycleEvent {
   phase?: BoundaryError["phase"];
 }
 
+/** Lifecycle events delivered to every sibling after the owner is committed. */
+const BROADCAST_EVENTS = new Set<AtomEvent>([
+  "extension_error",
+  "extension_load",
+  "extension_activate",
+]);
+
+interface PendingBroadcast {
+  event: ExtensionLifecycleEvent;
+  ownerId: string;
+  owner?: {
+    registries: ReturnType<typeof createExtensionRegistries>;
+    context?: ExtensionContext;
+  };
+}
+
 export interface ExtensionDiagnostic {
   id: string;
   source: string;
@@ -107,6 +123,8 @@ export class ExtensionLoader {
   private generation = 0;
   private boundary: ExtensionBoundary;
   private readonly handlerTimeoutMs: number;
+  private pendingBroadcasts: PendingBroadcast[] = [];
+  private loading = false;
 
   constructor(options: ExtensionLoaderOptions = {}) {
     this.options = options;
@@ -226,6 +244,7 @@ export class ExtensionLoader {
     // Extension state is built aside and only committed in one swap below.
     // A factory that throws must leave no registrations in the running host.
     const staged: LoadedExtension[] = [];
+    this.loading = true;
 
     for (const entry of discovered) {
       const staging = this.createStaging(entry);
@@ -326,6 +345,10 @@ export class ExtensionLoader {
     }
 
     this.extensions = staged;
+    this.loading = false;
+    // Siblings see lifecycle events only once the new set is live. A handler
+    // registered during staging cannot observe an extension from the old set.
+    await this.flushBroadcasts();
     return this.extensions;
   }
 
@@ -347,6 +370,15 @@ export class ExtensionLoader {
   ): Promise<void> {
     const event: ExtensionLifecycleEvent = { type, extensionId, error };
     this.pushEvent(event);
+    if (BROADCAST_EVENTS.has(type)) {
+      // Deliver to the owner and its siblings together, after the swap.
+      this.pendingBroadcasts.push({
+        event,
+        ownerId: extensionId,
+        owner: registries ? { registries, context: ctx } : undefined,
+      });
+      return;
+    }
     const targets = registries
       ? [{ registries, context: ctx }]
       : this.extensions.map((loaded) => ({
@@ -355,6 +387,19 @@ export class ExtensionLoader {
         }));
     for (const target of targets) {
       await this.dispatchHandlers(event, target.registries, target.context);
+    }
+  }
+
+  private async flushBroadcasts(): Promise<void> {
+    const pending = this.pendingBroadcasts.splice(0);
+    for (const { event, ownerId, owner } of pending) {
+      if (owner) {
+        await this.dispatchHandlers(event, owner.registries, owner.context);
+      }
+      for (const loaded of this.extensions) {
+        if (loaded.id === ownerId || loaded.status !== "loaded") continue;
+        await this.dispatchHandlers(event, loaded.registries, loaded.context);
+      }
     }
   }
 
@@ -377,28 +422,36 @@ export class ExtensionLoader {
           .catch((error) => {
             const err =
               error instanceof Error ? error : new Error(String(error));
-            this.reportError({
-              extensionId: event.extensionId,
-              method: `on:${event.type}`,
-              message: err.message,
-              stack: err.stack,
-              phase: "reject",
-            });
+            // A failure inside a broadcast must not queue another broadcast.
+            this.reportError(
+              {
+                extensionId: event.extensionId,
+                method: `on:${event.type}`,
+                message: err.message,
+                stack: err.stack,
+                phase: "reject",
+              },
+              false,
+            );
           }),
       ),
     );
   }
 
   /** Record one contained failure so it is visible in doctor exactly once. */
-  reportError(error: BoundaryError): void {
-    this.pushEvent({
+  reportError(error: BoundaryError, broadcast = true): void {
+    const event: ExtensionLifecycleEvent = {
       type: "extension_error",
       extensionId: error.extensionId,
       error: error.message,
       method: error.method,
       stack: error.stack,
       phase: error.phase,
-    });
+    };
+    this.pushEvent(event);
+    if (broadcast && this.loading) {
+      this.pendingBroadcasts.push({ event, ownerId: error.extensionId });
+    }
   }
 
   /**

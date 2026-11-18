@@ -50,12 +50,12 @@ reader outside `api.ts`; the matrix records its location as `{ file, line }`.
 code reads the value. `unsupported` methods are reserved for features with no
 implementation.
 
-| Status        | Methods | Meaning                                   |
-| ------------- | ------- | ----------------------------------------- |
-| `supported`   | 18      | Effect is consumed by the host.           |
-| `reduced`     | 6       | Works with limits; see Reduced behavior.  |
-| `no-op`       | 21      | Call is accepted; nothing consumes it.    |
-| `unsupported` | 0       | No implementation in this release.        |
+| Status        | Methods | Meaning                                  |
+| ------------- | ------- | ---------------------------------------- |
+| `supported`   | 18      | Effect is consumed by the host.          |
+| `reduced`     | 6       | Works with limits; see Reduced behavior. |
+| `no-op`       | 21      | Call is accepted; nothing consumes it.   |
+| `unsupported` | 0       | No implementation in this release.       |
 
 **`supported`:** `registerTool`, `unregisterTool`, `setActiveTools`,
 `getActiveTools`, `getAllTools`, `registerCommand`, `unregisterCommand`, `on`,
@@ -117,10 +117,22 @@ marks which methods have an effect.
 
 - `registerCommand(command)`, `unregisterCommand(name)`
 
-**Events** (`AtomEvent` values: `extension_load`, `extension_activate`, `extension_unload`, `extension_error`, `session_start`, `session_end`, `turn_start`, `turn_end`, `tool_call`, `tool_result`, `message`, `message_start`, `message_end`, `context_build`, `config_change`)
+**Events** (`AtomEvent` values):
+
+- Lifecycle: `extension_load`, `extension_activate`, `extension_unload`, `extension_error`, `session_start`, `session_end`, `session_shutdown`
+- Turn: `turn_start`, `turn_end`, `agent_before_settle`, `agent_settled`, `context_build`
+- Provider: `before_provider_request`, `after_provider_response`
+- Message: `message_start`, `message_end`
+- Tools: `tool_call`, `tool_result`, `tool_execution_start`, `tool_execution_end`, `tool_execution_update`
+- Settings: `config_change`
 
 - `on(event, handler)` → unsubscribe fn
 - `off(event, handler)`
+
+Every dispatch is awaited. A handler settles before the turn advances. For
+each extension, `extension_load` fires before `extension_activate`.
+`extension_error`, `extension_load`, and `extension_activate` reach sibling
+extensions once, after the new extension set is committed.
 
 **Session entries**
 

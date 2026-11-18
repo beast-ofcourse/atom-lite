@@ -5,15 +5,22 @@ export type AtomEvent =
   | "extension_error"
   | "session_start"
   | "session_end"
+  | "session_shutdown"
   | "turn_start"
   | "turn_end"
   | "tool_call"
   | "tool_result"
-  | "message"
   | "message_start"
   | "message_end"
   | "context_build"
-  | "config_change";
+  | "config_change"
+  | "before_provider_request"
+  | "after_provider_response"
+  | "agent_before_settle"
+  | "agent_settled"
+  | "tool_execution_start"
+  | "tool_execution_end"
+  | "tool_execution_update";
 
 export interface ExtensionTool {
   name: string;
