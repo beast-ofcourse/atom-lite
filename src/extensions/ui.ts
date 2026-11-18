@@ -1,6 +1,72 @@
 import type { ExtensionContext, ExtensionUIContext } from "./types.js";
 import type { ExtensionRegistries } from "./api.js";
 
+export interface DialogSettlers<T> {
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (reason?: unknown) => void;
+}
+
+/**
+ * Tracks dialog promises that are waiting on an overlay. When that overlay is
+ * torn down we reject them instead of leaving the extension's `await` pending
+ * forever, which would hang the turn.
+ */
+export class DialogBoundary {
+  private readonly pending = new Set<{
+    label: string;
+    reject: (error: Error) => void;
+  }>();
+
+  run<T>(
+    label: string,
+    setup: (settlers: DialogSettlers<T>) => void,
+  ): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      let settled = false;
+      const entry = {
+        label,
+        reject: (error: Error) => {
+          if (settled) return;
+          settled = true;
+          this.pending.delete(entry);
+          reject(error);
+        },
+      };
+      const safeResolve = (value: T | PromiseLike<T>) => {
+        if (settled) return;
+        settled = true;
+        this.pending.delete(entry);
+        resolve(value);
+      };
+      const safeReject = (reason?: unknown) =>
+        entry.reject(
+          reason instanceof Error ? reason : new Error(String(reason)),
+        );
+      // Wire the settlers before tracking the dialog: an app closes the
+      // previous overlay at the start of setup, which must not cancel this
+      // brand-new dialog.
+      try {
+        setup({ resolve: safeResolve, reject: safeReject });
+      } catch (error) {
+        safeReject(error);
+        return;
+      }
+      if (!settled) this.pending.add(entry);
+    });
+  }
+
+  cancelAll(reason = "dialog closed"): void {
+    for (const entry of [...this.pending]) {
+      entry.reject(new Error(`${reason}: ${entry.label}`));
+    }
+    this.pending.clear();
+  }
+
+  get size(): number {
+    return this.pending.size;
+  }
+}
+
 export interface ExtensionUICallbacks {
   notify?: (message: string, type?: "info" | "warning" | "error") => void;
   requestRender?: () => void;

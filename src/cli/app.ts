@@ -63,7 +63,7 @@ import {
 import { SessionLockError } from "../sessions/lock.js";
 import { randomUUID } from "node:crypto";
 import { ExtensionLoader } from "../extensions/loader.js";
-import { createDefaultExtensionUI } from "../extensions/ui.js";
+import { createDefaultExtensionUI, DialogBoundary } from "../extensions/ui.js";
 import type { ExtensionUICallbacks } from "../extensions/ui.js";
 import { resolveModelTools } from "../extensions/tool-adapter.js";
 import {
@@ -383,6 +383,13 @@ export async function run(args: string[]): Promise<void> {
     hasUI: interactive,
     uiFactory: (registries, ctx) =>
       createDefaultExtensionUI(registries, ctx, extensionUICallbacks),
+    onLifecycleEvent: (event) => {
+      if (event.type !== "extension_error") return;
+      const where = event.method ? ` ${event.method}` : "";
+      process.stderr.write(
+        `atom-lite: extension ${event.extensionId}${where}: ${event.error ?? "error"}\n`,
+      );
+    },
   });
   const pendingTrust = extensionLoader
     .discover()
@@ -403,9 +410,22 @@ export async function run(args: string[]): Promise<void> {
       `atom-lite: skipping ${untrustedAgents.length} untrusted project agent(s); run interactively to review\n`,
     );
   }
-  await extensionLoader.loadAll().catch(() => {
-    // Extension failures are reported per extension.
-  });
+  try {
+    await extensionLoader.loadAll();
+  } catch (error) {
+    // A top-level load failure is not an extension-scoped error; record it so
+    // it still appears in doctor and tell the user on stderr.
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? (error.stack ?? message) : message;
+    extensionLoader.reportError({
+      extensionId: "app",
+      method: "loadAll",
+      message,
+      stack,
+      phase: "reject",
+    });
+    process.stderr.write(`atom-lite: extension load failed: ${message}\n`);
+  }
   // Remove any previously bridged extension providers before re-bridging.
   for (const name of extensionProviderNames) {
     delete (config.providers as Record<string, unknown>)[name];
@@ -949,7 +969,16 @@ export async function run(args: string[]): Promise<void> {
     for (const loaded of extensionLoader.list()) {
       if (loaded.status !== "loaded") continue;
       for (const command of loaded.registries?.commands?.values?.() ?? []) {
-        out.push(command);
+        const run = command.run ?? command.handler;
+        out.push({
+          ...command,
+          run: (args: string, ctx: any) =>
+            extensionLoader.runBounded(
+              { extensionId: loaded.id, method: `command:/${command.name}` },
+              () => (typeof run === "function" ? run(args, ctx) : undefined),
+              { rethrow: true },
+            ),
+        });
       }
     }
     return out;
@@ -1102,6 +1131,7 @@ export async function run(args: string[]): Promise<void> {
   let expandTools = false;
   let uiModalOpen = false;
   let closeActiveOverlay: (() => void) | undefined;
+  const dialogBoundary = new DialogBoundary();
   const toolBoxes: ToolBox[] = [];
   const toolBoxesById = new Map<string, ToolBox>();
   let lastToolOutputInvalidateAt = 0;
@@ -1123,6 +1153,9 @@ export async function run(args: string[]): Promise<void> {
    * listener would keep consuming keys after it disappears from the screen.
    */
   function closeOverlay(): void {
+    // Reject any dialog promise still waiting on this overlay so an extension
+    // awaiting it cannot hang the turn after teardown.
+    dialogBoundary.cancelAll("dialog overlay closed");
     const close = closeActiveOverlay;
     closeActiveOverlay = undefined;
     close?.();
@@ -2747,7 +2780,7 @@ export async function run(args: string[]): Promise<void> {
   };
 
   extensionUICallbacks.select = (title, options, _opts) =>
-    new Promise((resolve) => {
+    dialogBoundary.run<string | undefined>("select", ({ resolve }) => {
       if (!interactive) {
         resolve(undefined);
         return;
@@ -2785,7 +2818,7 @@ export async function run(args: string[]): Promise<void> {
     });
 
   extensionUICallbacks.confirm = (title, message, _opts) =>
-    new Promise((resolve) => {
+    dialogBoundary.run<boolean>("confirm", ({ resolve }) => {
       if (!interactive) {
         resolve(false);
         return;
@@ -2823,7 +2856,7 @@ export async function run(args: string[]): Promise<void> {
     });
 
   extensionUICallbacks.input = (title, _placeholder, _opts) =>
-    new Promise((resolve) => {
+    dialogBoundary.run<string | undefined>("input", ({ resolve }) => {
       if (!interactive) {
         resolve(undefined);
         return;
@@ -3379,7 +3412,16 @@ export async function run(args: string[]): Promise<void> {
       return;
     }
     if (trimmed.startsWith("/")) {
-      const result = await commandRegistry.dispatch(trimmed, commandContext);
+      let result;
+      try {
+        result = await commandRegistry.dispatch(trimmed, commandContext);
+      } catch (error) {
+        appendLine(
+          `command failed: ${error instanceof Error ? error.message : String(error)}`,
+          theme.tokens.error,
+        );
+        return;
+      }
       if (result.exit) return;
       if (!result.handled) {
         appendLine(
@@ -3392,10 +3434,17 @@ export async function run(args: string[]): Promise<void> {
     // Skills remain invokable by bare name, but still run through the registry.
     const bare = bareCommandName(commandRegistry, trimmed);
     if (bare) {
-      await commandRegistry.dispatch(
-        `/${bare} ${trimmed.slice(bare.length)}`,
-        commandContext,
-      );
+      try {
+        await commandRegistry.dispatch(
+          `/${bare} ${trimmed.slice(bare.length)}`,
+          commandContext,
+        );
+      } catch (error) {
+        appendLine(
+          `command failed: ${error instanceof Error ? error.message : String(error)}`,
+          theme.tokens.error,
+        );
+      }
       return;
     }
 

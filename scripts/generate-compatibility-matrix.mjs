@@ -45,11 +45,11 @@ const rules = {
   ],
   on: [
     "supported",
-    [["src/extensions/loader.ts", "registries.handlers.get(type)"]],
+    [["src/extensions/loader.ts", "registries.handlers.get(event.type)"]],
   ],
   off: [
     "supported",
-    [["src/extensions/loader.ts", "registries.handlers.get(type)"]],
+    [["src/extensions/loader.ts", "registries.handlers.get(event.type)"]],
   ],
   appendEntry: [
     "supported",

@@ -9,6 +9,7 @@ import { loadConfig } from "../config/load.js";
 import { defaultAgentDir, userConfigDir } from "../config/paths.js";
 import { createExtensionAPI, createExtensionRegistries } from "./api.js";
 import { createDefaultExtensionUI } from "./ui.js";
+import { ExtensionBoundary, type BoundaryError } from "./boundary.js";
 import type { ExtensionContext } from "./types.js";
 import type { AtomEvent } from "./types.js";
 import {
@@ -30,11 +31,9 @@ export interface ExtensionLoaderOptions {
   packageRoots?: string[];
   trustedProjects?: string[];
   deniedProjects?: string[];
-  onLifecycleEvent?: (event: {
-    type: AtomEvent;
-    extensionId: string;
-    error?: string;
-  }) => void;
+  onLifecycleEvent?: (event: ExtensionLifecycleEvent) => void;
+  /** Maximum time a single extension callback may run before it is timed out. */
+  handlerTimeoutMs?: number;
 }
 
 export interface LoadedExtension {
@@ -75,6 +74,12 @@ export interface ExtensionLifecycleEvent {
   type: AtomEvent;
   extensionId: string;
   error?: string;
+  /** Event or method name behind a contained failure. */
+  method?: string;
+  /** Stack of a contained failure. */
+  stack?: string;
+  /** How a contained failure was classified. */
+  phase?: BoundaryError["phase"];
 }
 
 export interface ExtensionDiagnostic {
@@ -97,9 +102,22 @@ export class ExtensionLoader {
   private discovered: DiscoveredExtension[] = [];
   private lifecycle: ExtensionLifecycleEvent[] = [];
   private jiti: ReturnType<typeof createJiti> | null = null;
+  private generation = 0;
+  private boundary: ExtensionBoundary;
+  private readonly handlerTimeoutMs: number;
 
   constructor(options: ExtensionLoaderOptions = {}) {
     this.options = options;
+    this.handlerTimeoutMs = options.handlerTimeoutMs ?? 5_000;
+    this.boundary = this.createBoundary();
+  }
+
+  private createBoundary(): ExtensionBoundary {
+    return new ExtensionBoundary({
+      generation: () => this.generation,
+      timeoutMs: this.handlerTimeoutMs,
+      onError: (error) => this.reportError(error),
+    });
   }
 
   private workspace(): string {
@@ -168,13 +186,12 @@ export class ExtensionLoader {
     // lifecycle stream as activation failures, so doctor and `extension_error`
     // handlers see them.
     registries.reportError = (message) =>
-      this.recordLifecycle(
-        "extension_error",
-        entry.id,
+      this.reportError({
+        extensionId: entry.id,
+        method: "registerTool",
         message,
-        registries,
-        ctx,
-      );
+        phase: "throw",
+      });
     return {
       id: entry.id,
       source: entry.source,
@@ -185,7 +202,24 @@ export class ExtensionLoader {
     };
   }
 
+  /** Bind a handler to the current generation's boundary at registration. */
+  private wrapHandler(
+    extensionId: string,
+    event: AtomEvent,
+    handler: (...args: any[]) => unknown | Promise<unknown>,
+  ): (...args: any[]) => Promise<unknown> {
+    const boundary = this.boundary;
+    return (payload: unknown, ctx: ExtensionContext) =>
+      boundary.run({ extensionId, method: `on:${event}` }, () =>
+        handler(payload, ctx),
+      );
+  }
+
   async loadAll(): Promise<LoadedExtension[]> {
+    // Every load (including a reload) is a new generation. Handlers bound to
+    // the previous generation become stale and can no longer mutate this set.
+    this.generation++;
+    this.boundary = this.createBoundary();
     const discovered = this.discover();
     // Extension state is built aside and only committed in one swap below.
     // A factory that throws must leave no registrations in the running host.
@@ -196,7 +230,7 @@ export class ExtensionLoader {
 
       if (entry.errors.length > 0) {
         const error = entry.errors.join("; ");
-        this.recordLifecycle(
+        await this.recordLifecycle(
           "extension_error",
           entry.id,
           error,
@@ -244,29 +278,21 @@ export class ExtensionLoader {
           staging.context,
           staging.registries,
           "current",
+          {
+            wrapHandler: (event, handler) =>
+              this.wrapHandler(entry.id, event, handler),
+          },
         );
         api.ui = staging.context.ui;
         await factory(api);
-        this.emitToRegistries(
-          staging.registries,
-          staging.context,
-          "extension_load",
-          entry.id,
-        );
-        this.recordLifecycle(
+        await this.recordLifecycle(
           "extension_load",
           entry.id,
           undefined,
           staging.registries,
           staging.context,
         );
-        this.emitToRegistries(
-          staging.registries,
-          staging.context,
-          "extension_activate",
-          entry.id,
-        );
-        this.recordLifecycle(
+        await this.recordLifecycle(
           "extension_activate",
           entry.id,
           undefined,
@@ -281,14 +307,7 @@ export class ExtensionLoader {
         // Discard the staged registries: the error record gets a fresh,
         // empty staging record so it exposes zero registrations.
         const failure = this.createStaging(entry);
-        this.emitToRegistries(
-          failure.registries,
-          failure.context,
-          "extension_error",
-          entry.id,
-          message,
-        );
-        this.recordLifecycle(
+        await this.recordLifecycle(
           "extension_error",
           entry.id,
           message,
@@ -308,16 +327,24 @@ export class ExtensionLoader {
     return this.extensions;
   }
 
-  private recordLifecycle(
+  private pushEvent(event: ExtensionLifecycleEvent): void {
+    this.lifecycle.push(event);
+    try {
+      this.options.onLifecycleEvent?.(event);
+    } catch {
+      // A reporting callback must never break the extension host.
+    }
+  }
+
+  private async recordLifecycle(
     type: AtomEvent,
     extensionId: string,
     error?: string,
     registries?: ReturnType<typeof createExtensionRegistries>,
     ctx?: ExtensionContext,
-  ): void {
+  ): Promise<void> {
     const event: ExtensionLifecycleEvent = { type, extensionId, error };
-    this.lifecycle.push(event);
-    this.options.onLifecycleEvent?.({ type, extensionId, error });
+    this.pushEvent(event);
     const targets = registries
       ? [{ registries, context: ctx }]
       : this.extensions.map((loaded) => ({
@@ -325,34 +352,60 @@ export class ExtensionLoader {
           context: loaded.context,
         }));
     for (const target of targets) {
-      const handlers = target.registries.handlers.get(type);
-      if (!handlers) continue;
-      for (const handler of handlers) {
-        try {
-          void handler({ type, extensionId, error }, target.context!);
-        } catch {
-          // Handler failures must not break loading.
-        }
-      }
+      await this.dispatchHandlers(event, target.registries, target.context);
     }
   }
 
-  private emitToRegistries(
+  /**
+   * Handlers registered through the API are already wrapped in a Boundary.
+   * The safety net here covers handlers injected directly into a registry, so
+   * no callback can leave an unhandled rejection behind.
+   */
+  private async dispatchHandlers(
+    event: ExtensionLifecycleEvent,
     registries: ReturnType<typeof createExtensionRegistries>,
-    ctx: ExtensionContext,
-    type: AtomEvent,
-    extensionId: string,
-    error?: string,
-  ): void {
-    const handlers = registries.handlers.get(type);
+    ctx?: ExtensionContext,
+  ): Promise<void> {
+    const handlers = registries.handlers.get(event.type);
     if (!handlers) return;
-    for (const handler of handlers) {
-      try {
-        void handler({ type, extensionId, error }, ctx);
-      } catch {
-        // Handler failures must not break loading.
-      }
-    }
+    await Promise.all(
+      [...handlers].map((handler) =>
+        Promise.resolve()
+          .then(() => handler(event, ctx!))
+          .catch((error) => {
+            const err =
+              error instanceof Error ? error : new Error(String(error));
+            this.reportError({
+              extensionId: event.extensionId,
+              method: `on:${event.type}`,
+              message: err.message,
+              stack: err.stack,
+              phase: "reject",
+            });
+          }),
+      ),
+    );
+  }
+
+  /** Record one contained failure so it is visible in doctor exactly once. */
+  reportError(error: BoundaryError): void {
+    this.pushEvent({
+      type: "extension_error",
+      extensionId: error.extensionId,
+      error: error.message,
+      method: error.method,
+      stack: error.stack,
+      phase: error.phase,
+    });
+  }
+
+  /** Run an extension callback (e.g. a command) behind the current boundary. */
+  runBounded<T>(
+    meta: { extensionId: string; method: string },
+    fn: () => T | Promise<T>,
+    options?: { rethrow?: boolean },
+  ): Promise<T | undefined> {
+    return this.boundary.run(meta, fn, options);
   }
 
   list(): LoadedExtension[] {
@@ -437,33 +490,48 @@ export class ExtensionLoader {
         `${entry.id}\t${entry.source}${entry.origin ? `:${entry.origin}` : ""}\t${entry.manifest?.version ?? "-"}\t${status}\t${counts}\t${entry.entryPath}${error ? `\t${error}` : ""}`,
       );
     }
-    return lines.join("\n") || "No extensions discovered.";
+    const base = lines.join("\n") || "No extensions discovered.";
+    const errors = this.lifecycle.filter(
+      (event) => event.type === "extension_error",
+    );
+    if (errors.length === 0) return base;
+    const errorLines = errors.map(
+      (event) =>
+        `error\t${event.extensionId}\t${event.method ?? "unknown"}\t${event.phase ?? "reject"}\t${event.error ?? ""}${event.stack ? `\t${event.stack.split("\n")[0]}` : ""}`,
+    );
+    return `${base}\nboundary errors:\n${errorLines.join("\n")}`;
   }
 
-  notifySessionEnd(): void {
-    for (const loaded of this.extensions) {
-      this.recordLifecycle(
-        "session_end",
-        loaded.id,
-        undefined,
-        loaded.registries,
-        loaded.context,
-      );
-    }
+  async notifySessionEnd(): Promise<void> {
+    await Promise.all(
+      this.extensions.map((loaded) =>
+        this.recordLifecycle(
+          "session_end",
+          loaded.id,
+          undefined,
+          loaded.registries,
+          loaded.context,
+        ),
+      ),
+    );
   }
 
   async unloadAll(): Promise<void> {
-    for (const loaded of this.extensions) {
-      this.recordLifecycle(
-        "extension_unload",
-        loaded.id,
-        undefined,
-        loaded.registries,
-        loaded.context,
-      );
-    }
+    await Promise.all(
+      this.extensions.map((loaded) =>
+        this.recordLifecycle(
+          "extension_unload",
+          loaded.id,
+          undefined,
+          loaded.registries,
+          loaded.context,
+        ),
+      ),
+    );
     this.extensions = [];
     this.jiti = null;
+    this.generation++;
+    this.boundary = this.createBoundary();
   }
 }
 
