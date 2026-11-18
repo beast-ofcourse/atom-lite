@@ -1,24 +1,29 @@
 # Extensions
 
-Atom-lite hosts unmodified Pi coding-agent extensions in-process. Load one for a single run, or install it in a user or project directory.
+Atom-lite hosts Pi coding-agent extensions in-process. Load one for a single run, or install it in a user or project directory.
 
 ```bash
 atom-lite -e ./my-extension
-/extensions doctor
+/extensions doctor --json
 ```
 
 Project-local extensions load only after the project is trusted. See [Safety](./safety.md).
 
-## Supported Pi version
+## Compatibility source
 
-Atom-lite targets the Pi extension API shipped with
-`@earendil-works/pi-coding-agent` 1.4.x. The pinned release is recorded in
-`package.json` and the alias map in `src/extensions/loader.ts`. To upgrade:
+Atom-lite does not pin a Pi release. It loads extension modules through `jiti`
+and aliases Pi host specifiers to installed packages or bundled shims. The
+`ExtensionAPI` surface is defined in `src/extensions/api.ts`.
 
-1. Bump the Pi dependency and alias targets.
-2. Run `npm run typecheck && npm test`.
-3. Run the extension conformance fixtures under `tests/extensions/`.
-4. Update the compatibility matrix below.
+The generated matrix in `src/extensions/compatibility-matrix.ts` is the source
+of truth for what each method does. Regenerate it after changing the interface
+or a consumer:
+
+```bash
+npm run matrix:generate
+```
+
+`npm test` fails if the matrix is stale or a `supported` entry has no consumer.
 
 ## Discovery
 
@@ -37,52 +42,57 @@ Project extensions are skipped until the project is trusted. Interactive
 sessions prompt for approval; non-interactive runs skip untrusted project
 extensions. Trust decisions are stored in user config.
 
-## Compatibility tiers
+## Compatibility matrix
 
-### Tier 1 — works today
+Each `ExtensionAPI` method has one status. `supported` methods have a consumer
+in the host; the matrix records its `file:line`. `reduced` methods work with
+limits. `no-op` methods accept calls but no host code reads the value.
+`unsupported` methods are reserved for features with no implementation.
 
-- Discovery and trust
-- TypeScript loading without a build step
-- Tools, slash commands, and event handlers
-- Session entries and session read model
-- Status, notifications, dialogs, widgets, and overlays
-- `exec` and session inspection
-- Provider and model registration (OpenAI-compatible mapping)
+| Status        | Methods | Meaning                                   |
+| ------------- | ------- | ----------------------------------------- |
+| `supported`   | 25      | Effect is consumed by the host.           |
+| `reduced`     | 1       | Mapped with limits; see Reduced behavior.  |
+| `no-op`       | 19      | Call is accepted; nothing consumes it.    |
+| `unsupported` | 0       | No implementation in this release.        |
 
-### Tier 2 — compatible surface, staged
+**`supported`:** `registerTool`, `unregisterTool`, `setActiveTools`,
+`getActiveTools`, `getAllTools`, `registerCommand`, `unregisterCommand`, `on`,
+`off`, `appendEntry`, `getSessionEntries`, `notify`, `registerFlag`, `getFlag`,
+`getToolsExpanded`, `setToolsExpanded`, `select`, `confirm`, `input`,
+`getWorkspace`, `getSession`, `isProjectTrusted`, `unregisterProvider`, `exec`,
+`log`.
 
-- Tool, message, and entry renderers
-- Markdown transformers
-- Keyboard shortcuts and flags
-- Autocomplete providers
-- Custom footer/header/title
-- Working indicator and thinking label
+**`reduced`:** `registerProvider`.
 
-### Tier 3 — deliberately deferred
+**`no-op`:** `setStatus`, `registerWidget`, `unregisterWidget`,
+`registerToolRenderer`, `registerMessageRenderer`, `registerEntryRenderer`,
+`registerMarkdownTransformer`, `registerShortcut`, `addAutocompleteProvider`,
+`setWidget`, `setFooter`, `setHeader`, `setTitle`, `setWorkingMessage`,
+`setWorkingVisible`, `setWorkingIndicator`, `setHiddenThinkingLabel`,
+`getSessionManager`, `registerModel`.
 
-- Session tree navigation and forks
-- Codemode tool exposure
-- MCP server registration
-- OAuth providers
-- `virtualModel`
-- RPC mode
-- Custom editor components
+Tier 1 covers discovery, trust, module loading, tools, commands, events,
+session entries, dialogs, `exec`, and logging. The `no-op` methods above are
+accepted for compatibility but have no effect in this release.
 
-Tier 3 APIs fail loudly at registration with a clear compatibility error rather
-than silently no-oping.
+## Reduced behavior
 
-## Reduced compatibility
+`registerProvider` maps an OpenAI-compatible config into Atom-lite's provider
+list. Config keys `oauth`, `streamSimple`, `classifiers`, `refreshModels`, and
+`images` emit a reduced-compatibility warning and are not applied.
 
-Some Pi features are accepted but reduced:
+## Tier 3
 
-- OAuth, `streamSimple`, classifiers, image generation, and `refreshModels`
-  are reported as reduced-compatibility warnings.
-- Provider registration maps onto Atom-lite's OpenAI-compatible provider
-  factory.
+Tier 3 features are not implemented: session tree navigation and forks,
+codemode tool exposure, MCP server registration, OAuth providers, RPC mode, and
+custom editor components. They are absent from `ExtensionAPI`, so an extension
+that calls them throws a normal property error at runtime.
 
 ## ExtensionAPI reference
 
-The `pi` object passed to an extension is an `ExtensionAPI`. Full surface:
+The `pi` object passed to an extension is an `ExtensionAPI`. The matrix above
+marks which methods have an effect.
 
 **Identity / context**
 
@@ -90,7 +100,7 @@ The `pi` object passed to an extension is an `ExtensionAPI`. Full surface:
 - `ui` — `ExtensionUIContext` (see UI below)
 - `getWorkspace()` → string
 - `getSession()` → `{ id }`
-- `getSessionManager()` → any
+- `getSessionManager()` → any (currently no-op)
 - `isProjectTrusted()` → boolean
 
 **Tools**
@@ -102,7 +112,7 @@ The `pi` object passed to an extension is an `ExtensionAPI`. Full surface:
 
 - `registerCommand(command)`, `unregisterCommand(name)`
 
-**Events** (events are `AtomEvent` values: `extension_load`, `extension_activate`, `extension_unload`, `extension_error`, `session_start`, `session_end`, `turn_start`, `turn_end`, `tool_call`, `tool_result`, `message`, `message_start`, `message_end`, `context_build`, `config_change`)
+**Events** (`AtomEvent` values: `extension_load`, `extension_activate`, `extension_unload`, `extension_error`, `session_start`, `session_end`, `turn_start`, `turn_end`, `tool_call`, `tool_result`, `message`, `message_start`, `message_end`, `context_build`, `config_change`)
 
 - `on(event, handler)` → unsubscribe fn
 - `off(event, handler)`
@@ -114,24 +124,24 @@ The `pi` object passed to an extension is an `ExtensionAPI`. Full surface:
 
 **Status / notify**
 
-- `setStatus(part, value)`
+- `setStatus(part, value)` (no-op)
 - `notify(message, level?)` — level: `"info" | "warning" | "error"`
 
 **Widgets**
 
-- `registerWidget(location, widget)` — location: `"aboveInput" | "belowInput" | "footer"`
-- `unregisterWidget(id)`
-- `setWidget(key, content, options?)` — placement: `"aboveEditor" | "belowEditor"`
+- `registerWidget(location, widget)` — location: `"aboveInput" | "belowInput" | "footer"` (no-op)
+- `unregisterWidget(id)` (no-op)
+- `setWidget(key, content, options?)` — placement: `"aboveEditor" | "belowEditor"` (no-op)
 
-**Renderers / transformers**
+**Renderers / transformers** (no-op)
 
 - `registerToolRenderer(resolver)`, `registerMessageRenderer(customType, renderer)`, `registerEntryRenderer(customType, renderer)`, `registerMarkdownTransformer(transformer)`
 
 **Shortcuts / flags / autocomplete**
 
-- `registerShortcut(shortcut, options)`, `registerFlag(name, options)`, `getFlag(name)`, `addAutocompleteProvider(factory)`
+- `registerShortcut(shortcut, options)` (no-op), `registerFlag(name, options)`, `getFlag(name)`, `addAutocompleteProvider(factory)` (no-op)
 
-**UI chrome**
+**UI chrome** (no-op)
 
 - `setFooter(factory?)`, `setHeader(factory?)`, `setTitle(title)`
 - `setWorkingMessage(message?)`, `setWorkingVisible(visible)`, `setWorkingIndicator(options?)`, `setHiddenThinkingLabel(label?)`
@@ -145,7 +155,7 @@ The `pi` object passed to an extension is an `ExtensionAPI`. Full surface:
 
 **Providers / models**
 
-- `registerProvider(provider)`, `unregisterProvider(name)`, `registerModel(model)`
+- `registerProvider(provider)` (reduced), `unregisterProvider(name)`, `registerModel(model)` (no-op)
 
 **Exec / logging**
 
@@ -156,8 +166,13 @@ The `pi` object passed to an extension is an `ExtensionAPI`. Full surface:
 
 ## Diagnostics
 
-Use `/extensions` to list discovered extensions and `/extensions doctor` for
-per-extension load status, tool/command counts, and errors.
+`/extensions` lists discovered extensions and load status. `/extensions doctor`
+prints per-extension load status, tool/command counts, and errors.
+`/extensions doctor --json` prints an array with, per extension, `id`, `source`,
+`status`, `error`, `stack`, `toolCount`, `commandCount`, `eventCount`, and `apis`
+— the matrix entries for API calls found in that extension's entry file.
+
+The JSON list contains only methods that exist in `ExtensionAPI`.
 
 ## Migration notes
 
@@ -166,4 +181,11 @@ per-extension load status, tool/command counts, and errors.
 - Pi host module aliases (`pi-tui`, `pi-agent-core`, `pi-ai`, `typebox`,
   `@sinclair/typebox`, and legacy `@mariozechner/*`) resolve to Atom-lite's
   own copies.
-- Extensions that depend on Tier 3 APIs fail loudly at registration.
+- Check the matrix before relying on a method; `no-op` methods are accepted but
+  have no effect.
+
+## Next
+
+- [Commands](./commands.md)
+- [Safety](./safety.md)
+- [Troubleshooting](./troubleshooting.md)

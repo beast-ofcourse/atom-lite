@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { createJiti } from "jiti";
 import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { discoverExtensions, type DiscoveredExtension } from "./discovery.js";
 import { loadConfig } from "../config/load.js";
 import { defaultAgentDir, userConfigDir } from "../config/paths.js";
@@ -12,6 +12,10 @@ import { createDefaultExtensionUI } from "./ui.js";
 import { ExtensionBoundary, type BoundaryError } from "./boundary.js";
 import type { ExtensionContext } from "./types.js";
 import type { AtomEvent } from "./types.js";
+import {
+  compatibilityMatrix,
+  type CompatibilityMatrixEntry,
+} from "./compatibility-matrix.js";
 
 export interface ExtensionLoaderOptions {
   cliPaths?: string[];
@@ -76,6 +80,20 @@ export interface ExtensionLifecycleEvent {
   stack?: string;
   /** How a contained failure was classified. */
   phase?: BoundaryError["phase"];
+}
+
+export interface ExtensionDiagnostic {
+  id: string;
+  source: string;
+  origin?: string;
+  entryPath: string;
+  status: "loaded" | "error" | "skipped" | "discovered";
+  error?: string;
+  stack?: string;
+  toolCount: number;
+  commandCount: number;
+  eventCount: number;
+  apis: CompatibilityMatrixEntry[];
 }
 
 export class ExtensionLoader {
@@ -414,11 +432,37 @@ export class ExtensionLoader {
     });
   }
 
+  diagnostics(): ExtensionDiagnostic[] {
+    if (this.discovered.length === 0) this.discover();
+    const loadedByPath = new Map(
+      this.extensions.map((entry) => [entry.entryPath, entry]),
+    );
+    return this.discovered.map((entry) => {
+      const loaded = loadedByPath.get(entry.entryPath);
+      const error =
+        loaded?.error ?? (entry.errors.join("; ") || entry.skipReason);
+      return {
+        id: entry.id,
+        source: entry.source,
+        origin: entry.origin,
+        entryPath: entry.entryPath,
+        status: loaded?.status ?? (entry.skipReason ? "skipped" : "discovered"),
+        error: error || undefined,
+        stack: loaded?.errorStack,
+        toolCount: loaded?.registries.tools.size ?? 0,
+        commandCount: loaded?.registries.commands.size ?? 0,
+        eventCount: loaded?.registries.handlers.size ?? 0,
+        apis: calledMatrixApis(entry.entryPath),
+      };
+    });
+  }
+
+  doctorJson(): string {
+    return JSON.stringify(this.diagnostics(), null, 2);
+  }
+
   doctor(): string {
     if (this.discovered.length === 0) this.discover();
-    if (this.extensions.length === 0) {
-      // Ensure load state is available.
-    }
     const loadedByPath = new Map(
       this.extensions.map((entry) => [entry.entryPath, entry]),
     );
@@ -479,6 +523,20 @@ export class ExtensionLoader {
     this.generation++;
     this.boundary = this.createBoundary();
   }
+}
+
+/** Matrix entries for API methods that appear as calls in an extension file. */
+function calledMatrixApis(entryPath: string): CompatibilityMatrixEntry[] {
+  let source: string;
+  try {
+    source = readFileSync(entryPath, "utf8");
+  } catch {
+    return [];
+  }
+  const called = new Set(
+    [...source.matchAll(/\.([A-Za-z_]\w*)\s*\(/g)].map((match) => match[1]),
+  );
+  return compatibilityMatrix.filter((entry) => called.has(entry.method));
 }
 
 function buildAliasMap(): Record<string, string> {

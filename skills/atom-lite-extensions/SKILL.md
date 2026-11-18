@@ -6,19 +6,19 @@ license: MIT
 
 # Atom-lite Extensions
 
-Atom-lite hosts **unmodified Pi coding-agent extensions in-process**. An
-extension is a TypeScript/JavaScript module that exports a default (or
-`activate`) function receiving an `ExtensionAPI` (`pi`). It registers tools,
-commands, providers, models, widgets, and event handlers into Atom-lite's own
-runtime.
+Atom-lite hosts Pi coding-agent extensions in-process. An extension is a
+TypeScript/JavaScript module that exports a default (or `activate`) function
+receiving an `ExtensionAPI` (`pi`). It registers tools, commands, providers,
+models, widgets, and event handlers into Atom-lite's own runtime.
 
 Reference docs:
 
-- [docs/extensions.md](https://github.com/beast-ofcourse/atom-lite/blob/master/docs/extensions.md) — discovery, trust, compatibility tiers, diagnostics.
-- [src/extensions/types.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/types.ts) — full `ExtensionAPI` + registries.
+- [docs/extensions.md](https://github.com/beast-ofcourse/atom-lite/blob/master/docs/extensions.md) — discovery, trust, compatibility matrix, diagnostics.
+- [src/extensions/types.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/types.ts) — `ExtensionAPI` types and registries.
 - [src/extensions/api.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/api.ts) — runtime implementation.
-- [tests/extensions/](https://github.com/beast-ofcourse/atom-lite/tree/master/tests/extensions) — conformance fixtures.
-- Run `/extensions` and `/extensions doctor` inside atom-lite for live diagnostics.
+- [src/extensions/compatibility-matrix.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/compatibility-matrix.ts) — generated method status and consumers.
+- [tests/extensions/](https://github.com/beast-ofcourse/atom-lite/tree/master/tests/extensions) — extension tests.
+- Run `/extensions` and `/extensions doctor --json` inside atom-lite for live diagnostics.
 
 ## Minimal extension
 
@@ -42,7 +42,7 @@ export default function (pi: any) {
   pi.registerCommand({
     name: "hello",
     description: "Say hello",
-    async run(ctx, args) {
+    async run(args, ctx) {
       pi.notify(`hello ${args}`, "info");
     },
   });
@@ -58,7 +58,6 @@ Load it:
 
 ```bash
 atom-lite -e ./my-ext.ts
-# or place under .agents/skills? no — extensions live in extension dirs, see Discovery
 ```
 
 ## Discovery
@@ -112,14 +111,12 @@ pi.registerTool({
       details: { foo: 1 },
     };
   },
-  // optional custom rendering (Tier 2):
-  renderCall: (args, theme, context) => new Text(`call ${args}`),
-  renderResult: (result, options, theme, context) =>
-    new Text(result.content[0]?.text ?? ""),
 });
 pi.unregisterTool("my_tool");
 pi.setActiveTools(["my_tool"]);
 ```
+
+Check the compatibility matrix before relying on a tool method.
 
 ## Commands
 
@@ -138,27 +135,29 @@ pi.registerCommand({
 pi.unregisterCommand("mycmd");
 ```
 
-Commands become `/mycmd` in the palette and support autocomplete.
+Commands become `/mycmd` in the palette and support autocomplete. The handler
+signature is `run(args, ctx)`.
 
 ## Events
 
 ```ts
-const off = pi.on("assistant_delta", async (event, ctx) => {
+const off = pi.on("tool_call", async (event, ctx) => {
   /* ... */
 });
-pi.off("assistant_delta", handler);
+pi.off("tool_call", handler);
 ```
 
-Common events: `tool_call`, `tool_result`, `assistant_delta`, `assistant_text`,
-`thinking_delta`, `agent_start`, `agent_end`, `turn_start`, `turn_end`,
-`context_usage`, `model_switched`, `session_start`. Tier 3 events
-(session tree, forks) fail loudly.
+Valid events (`AtomEvent`): `extension_load`, `extension_activate`,
+`extension_unload`, `extension_error`, `session_start`, `session_end`,
+`turn_start`, `turn_end`, `tool_call`, `tool_result`, `message`, `message_start`,
+`message_end`, `context_build`, `config_change`. Tier 3 features are not
+implemented.
 
 ## UI
 
 ```ts
 pi.ui.notify("hello", "info");          // info | warning | error
-pi.setStatus("myext", "status text");   // undefined clears
+pi.setStatus("myext", "status text");   // undefined clears (no-op)
 pi.registerWidget("aboveInput", { id: "my-widget", location: "aboveInput", render: (width) => ["line1"] });
 pi.setWidget("key", ["line"], { placement: "aboveEditor" });
 pi.setFooter((tui, theme, data) => /* component */);
@@ -171,6 +170,10 @@ pi.setHiddenThinkingLabel("reasoning");
 pi.getToolsExpanded(); pi.setToolsExpanded(true);
 ```
 
+`registerWidget`, `setWidget`, `setFooter`, `setHeader`, `setTitle`,
+`setWorkingMessage`, `setWorkingVisible`, `setWorkingIndicator`,
+`setHiddenThinkingLabel`, and `setStatus` are `no-op` in the current matrix.
+
 Dialogs: `pi.select`, `pi.confirm`, `pi.input` (shown above).
 
 ## Session entries
@@ -178,7 +181,7 @@ Dialogs: `pi.select`, `pi.confirm`, `pi.input` (shown above).
 ```ts
 pi.appendEntry("custom_type", { foo: 1 });
 const entries = pi.getSessionEntries({ type: "custom_type" });
-pi.getSessionManager(); // read model
+pi.getSessionManager(); // no-op in the current matrix
 pi.getSession(); // { id }
 pi.getWorkspace();
 ```
@@ -190,7 +193,7 @@ pi.registerProvider({
   name: "myprovider",
   // OpenAI-compatible mapping; OAuth/streamSimple are reduced-compat
 });
-pi.registerModel({ id: "mymodel", provider: "myprovider", ... });
+pi.registerModel({ id: "mymodel", provider: "myprovider" }); // no-op
 pi.unregisterProvider("myprovider");
 ```
 
@@ -206,14 +209,14 @@ pi.log("debug message");
 ```ts
 pi.registerShortcut("ctrl+shift+x", {
   description: "do thing",
-  handler: async (ctx) => {},
+  handler: async (ctx) => {}, // no-op in the current matrix
 });
 pi.registerFlag("myflag", { type: "boolean", default: false });
 const v = pi.getFlag("myflag");
-pi.addAutocompleteProvider((tui, theme) => ({/* ... */}));
+pi.addAutocompleteProvider((tui, theme) => ({/* ... */})); // no-op
 ```
 
-## Renderers (Tier 2)
+## Renderers (no-op)
 
 ```ts
 pi.registerToolRenderer((toolName, next) => ({ renderCall, renderResult }));
@@ -224,16 +227,17 @@ pi.registerMarkdownTransformer((markdown) => markdown);
 
 ## Compatibility tiers
 
-- **Tier 1 (works today):** discovery, trust, TS loading, tools, commands, events,
-  session entries/read model, status/notify/dialogs/widgets/overlays, exec,
-  provider/model registration (OpenAI-compatible).
-- **Tier 2 (staged):** renderers, markdown transformers, shortcuts, flags,
-  autocomplete, custom footer/header/title, working indicator, thinking label.
-- **Tier 3 (deferred, fail loudly):** session tree/forks, codemode, MCP server
-  registration, OAuth providers, virtualModel, RPC mode, custom editors.
+- **Tier 1 (works today):** discovery, trust, module loading, tools, commands, events,
+  session entries, dialogs, `exec`, logging, provider registration.
+- **Tier 2 (no-op):** renderers, markdown transformers, shortcuts,
+  autocomplete, custom footer/header/title, working indicator, thinking label,
+  status, widgets.
+- **Tier 3 (not implemented):** session tree navigation, forks, codemode,
+  MCP server registration, OAuth providers, RPC mode, custom editors. These
+  methods are absent from `ExtensionAPI`.
 
-Reduced-compat features (OAuth, `streamSimple`, classifiers, image generation,
-`refreshModels`) emit warnings rather than failing.
+Reduced-compat provider keys (`oauth`, `streamSimple`, `classifiers`, image
+generation, `refreshModels`) emit warnings rather than failing.
 
 ## Diagnostics
 
@@ -241,6 +245,8 @@ Inside atom-lite:
 
 - `/extensions` — list discovered extensions + load status.
 - `/extensions doctor` — per-extension tools/commands/errors.
+- `/extensions doctor --json` — id, source, status, error with stack, counts,
+  and the matrix entry for every API the extension calls.
 
 ## Tips
 
@@ -248,11 +254,11 @@ Inside atom-lite:
 - Use `pi.appendEntry` for persisted state instead of module globals.
 - Trust project extensions before they load (`pi.isProjectTrusted()`).
 - Reload with `/reload` (or restart) after edits; module caching is disabled.
-- Test against `tests/extensions/` conformance fixtures.
+- See [tests/extensions/](https://github.com/beast-ofcourse/atom-lite/tree/master/tests/extensions) for runnable examples.
 
 ## Links
 
 - Docs: [docs/extensions.md](https://github.com/beast-ofcourse/atom-lite/blob/master/docs/extensions.md)
 - Types: [src/extensions/types.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/types.ts)
 - Runtime: [src/extensions/](https://github.com/beast-ofcourse/atom-lite/tree/master/src/extensions)
-- Pi extension API reference (installed): `~/.pi/agent/install/releases/1.4.0/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts`
+- Matrix: [src/extensions/compatibility-matrix.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/compatibility-matrix.ts)
