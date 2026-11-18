@@ -478,6 +478,7 @@ export async function run(args: string[]): Promise<void> {
     compactEveryNTurns: config.context.compactEveryNTurns ?? 0,
     compactionModel: config.context.compactionModel ?? null,
     cacheMode: config.context.cacheMode,
+    repoMap: config.context.repoMap,
     provider,
     model: modelOverride ?? provider.model ?? "default",
     userInstructionsPath: undefined,

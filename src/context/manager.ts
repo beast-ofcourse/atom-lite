@@ -8,7 +8,11 @@ import {
   skillCacheSignature,
 } from "../skills/registry.js";
 import { estimateMessageTokens } from "./budget.js";
-import { buildRepoMap, clearRepoMapCache } from "./repoMap.js";
+import {
+  buildRepoMap,
+  clearRepoMapCache,
+  type RepoMapOptions,
+} from "./repoMap.js";
 import { userConfigDir } from "../config/paths.js";
 import { recordModelUsage, type UsageLedger } from "../usage/ledger.js";
 import {
@@ -33,6 +37,8 @@ export interface ContextManagerOptions {
   usageLedger?: UsageLedger;
   /** Prompt-cache layout mode. Off preserves the original message order. */
   cacheMode?: "off" | "automatic" | "explicit";
+  /** Resolved repo-map settings. Defaults apply when omitted. */
+  repoMap?: RepoMapOptions;
 }
 
 /** State the runtime injects every turn and feeds into the summarizer. */
@@ -450,7 +456,11 @@ export class ContextManager {
     // The repo map is a trailing system message, never part of the base system
     // prompt, so the prompt-cache prefix stays stable. It is injected from the
     // same computation in both the normal and compacted builds below.
-    const repoMapText = buildRepoMap(workspace);
+    const repoMapText = buildRepoMap(
+      workspace,
+      this.opts.repoMap,
+      estimateMessageTokens,
+    );
     const repoMapMessages: Message[] = repoMapText
       ? [{ role: "system", content: repoMapText }]
       : [];
