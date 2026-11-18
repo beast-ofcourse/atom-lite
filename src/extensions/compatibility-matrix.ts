@@ -47,22 +47,22 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "registerCommand",
     status: "supported",
-    consumers: [{"file":"src/cli/app.ts","line":960}],
+    consumers: [{"file":"src/cli/app.ts","line":967}],
   },
   {
     method: "unregisterCommand",
     status: "supported",
-    consumers: [{"file":"src/cli/app.ts","line":960}],
+    consumers: [{"file":"src/cli/app.ts","line":967}],
   },
   {
     method: "on",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":416}],
+    consumers: [{"file":"src/extensions/loader.ts","line":417}],
   },
   {
     method: "off",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":416}],
+    consumers: [{"file":"src/extensions/loader.ts","line":417}],
   },
   {
     method: "appendEntry",
@@ -202,12 +202,12 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "getWorkspace",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":194}],
+    consumers: [{"file":"src/extensions/loader.ts","line":195}],
   },
   {
     method: "getSession",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":297}],
+    consumers: [{"file":"src/extensions/loader.ts","line":298}],
   },
   {
     method: "getSessionManager",
@@ -217,7 +217,7 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "isProjectTrusted",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":195}],
+    consumers: [{"file":"src/extensions/loader.ts","line":196}],
   },
   {
     method: "registerProvider",
