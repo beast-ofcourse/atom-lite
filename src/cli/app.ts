@@ -1754,7 +1754,6 @@ export async function run(args: string[]): Promise<void> {
     provider = createProvider(config, profile, model);
     runtime.switchModel(provider, model);
     refreshContextWindow();
-    appendLine(`switched to ${profile}/${model}`);
     await commitModelSelection(profile, model, (message) => {
       appendLine(`warning: could not persist model choice: ${message}`);
     });
@@ -3156,7 +3155,6 @@ export async function run(args: string[]): Promise<void> {
       );
       tui.requestRender();
     } else if (e.type === "model_switched") {
-      appendLine(`switched model to ${e.provider}/${e.model}`);
       if (typeof session.appendEvent === "function") {
         session.appendEvent({
           type: "model_switched",
