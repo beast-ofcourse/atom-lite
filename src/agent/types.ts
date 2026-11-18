@@ -6,6 +6,7 @@ import type { Tool } from "../tools/types.js";
 import type { ApprovalContext } from "../runtime/approvals.js";
 import type { QuestionContext } from "../runtime/questions.js";
 import type { ContextManager } from "../context/manager.js";
+import type { RepoMapOptions } from "../context/repoMap.js";
 import type { UsageLedger } from "../usage/ledger.js";
 
 export type AgentEvent =
@@ -86,6 +87,8 @@ export interface AgentRuntimeOptions {
   usageLedger?: UsageLedger;
   /** Prompt-cache layout mode for a default context manager. */
   cacheMode?: "off" | "automatic" | "explicit";
+  /** Repo-map settings for a default context manager. */
+  repoMap?: RepoMapOptions;
   /** Optional session token budget (hard stop when exceeded). */
   maxTokensPerSession?: number | null;
   /** Optional per-turn token soft warning threshold. */

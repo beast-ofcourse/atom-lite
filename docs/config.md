@@ -101,6 +101,7 @@ stored credential, then inline `apiKey`.
 | `compactEveryNTurns`         | integer >= 0                             | `0`     | Compact every N turns. `0` disables periodic compaction.      |
 | `compactionModel`            | non-empty string \| null                 | `null`  | Model for compaction summaries. `null` uses the active model. |
 | `cacheMode`                  | `"off"` \| `"automatic"` \| `"explicit"` | `"off"` | Prompt-cache layout mode. `off` keeps today's message order.  |
+| `repoMap`                    | object                                  | see below | Bounded repo map injected as a trailing system message.     |
 
 The model window is resolved from, in order: `providers.<name>.contextWindow`,
 live provider metadata, then a built-in table of known model families.
@@ -112,6 +113,25 @@ prefix bytes. `explicit` currently uses the same layout and emits no
 provider-specific cache markers. When `usage.ledgerEnabled` is true,
 its records include the prefix size, hash, and a drift flag. The layout changes
 message order, so compare answers and cost before adopting it for a workflow.
+
+### `context.repoMap`
+
+Atom-lite injects a compact map of workspace definitions into every agent turn.
+Set these keys in `context.repoMap` to resize or disable it. You can set them in
+either user or project config; project values win.
+
+| Key         | Type         | Default | Description                                                                |
+| ----------- | ------------ | ------- | -------------------------------------------------------------------------- |
+| `enabled`   | boolean      | `true`  | Turn the map off without removing the other keys.                          |
+| `maxTokens` | integer >= 0 | `1200`  | Budget for the final map message. `0` disables the map.                     |
+| `maxFiles`  | integer >= 0 | `400`   | Maximum number of workspace files considered when building the map.        |
+
+Set `enabled` to `false` or `maxTokens` to `0` to remove the map from model
+input; the rest of the input is unchanged. When definitions exceed the budget,
+Atom-lite drops the tail and adds an omission note. When no definition fits, it
+falls back to a ranked list of workspace-relative file paths with the same
+note. The budget is measured against the final system message object with a
+small headroom, so the reported size matches token accounting.
 
 ## `usage`
 

@@ -98,6 +98,12 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     );
   }
 
+  const userRepoMap = ((userRaw.context as Record<string, unknown> | undefined)
+    ?.repoMap ?? {}) as Record<string, unknown>;
+  const projectRepoMap = ((
+    projectRaw.context as Record<string, unknown> | undefined
+  )?.repoMap ?? {}) as Record<string, unknown>;
+
   const warn = options.onWarning ?? defaultWarning;
   if (
     projectRaw.mcpServers &&
@@ -134,6 +140,13 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
       ...DEFAULT_CONFIG.context,
       ...((userRaw.context as object) ?? {}),
       ...((projectRaw.context as object) ?? {}),
+      // Merge repoMap per key: a partial project override must not reset the
+      // user's other keys back to schema defaults.
+      repoMap: {
+        ...DEFAULT_CONFIG.context.repoMap,
+        ...userRepoMap,
+        ...projectRepoMap,
+      },
     },
     sessions: {
       ...DEFAULT_CONFIG.sessions,

@@ -25,6 +25,7 @@ export const DEFAULT_CONFIG = {
     compactEveryNTurns: 0,
     compactionModel: null as string | null,
     cacheMode: "off",
+    repoMap: { enabled: true, maxTokens: 1200, maxFiles: 400 },
   },
   sessions: { enabled: true, retentionDays: null as number | null },
   usage: {

@@ -8,6 +8,11 @@ import {
   skillCacheSignature,
 } from "../skills/registry.js";
 import { estimateMessageTokens } from "./budget.js";
+import {
+  buildRepoMap,
+  clearRepoMapCache,
+  type RepoMapOptions,
+} from "./repoMap.js";
 import { userConfigDir } from "../config/paths.js";
 import { recordModelUsage, type UsageLedger } from "../usage/ledger.js";
 import {
@@ -32,6 +37,8 @@ export interface ContextManagerOptions {
   usageLedger?: UsageLedger;
   /** Prompt-cache layout mode. Off preserves the original message order. */
   cacheMode?: "off" | "automatic" | "explicit";
+  /** Resolved repo-map settings. Defaults apply when omitted. */
+  repoMap?: RepoMapOptions;
 }
 
 /** State the runtime injects every turn and feeds into the summarizer. */
@@ -112,10 +119,11 @@ export class ContextManager {
     this.opts.systemPrompt = prompt;
   }
 
-  /** Drop cached instruction and skill indexes so the next build rescans disk. */
+  /** Drop cached instruction, skill, and repo-map indexes so the next build rescans disk. */
   invalidateCaches(): void {
     this.instructionCache = undefined;
     this.skillCache = undefined;
+    clearRepoMapCache();
   }
 
   setToolTokenOverhead(overhead: number): void {
@@ -140,6 +148,18 @@ export class ContextManager {
       toolTokenOverhead: this.toolTokenOverhead,
       compacted,
     });
+  }
+
+  /** Append the trailing repo map with its attribution to a build's arrays. */
+  private pushRepoMap(
+    messages: Message[],
+    categories: AttributionCategory[],
+    repoMapMessages: Message[],
+  ): void {
+    for (const message of repoMapMessages) {
+      messages.push(message);
+      categories.push("staticMessages");
+    }
   }
 
   noteUsage(used: number): void {
@@ -445,6 +465,18 @@ export class ContextManager {
       ? `${this.opts.systemPrompt}\n\n${skillIndex}`
       : this.opts.systemPrompt;
 
+    // The repo map is a trailing system message, never part of the base system
+    // prompt, so the prompt-cache prefix stays stable. It is injected from the
+    // same computation in both the normal and compacted builds below.
+    const repoMapText = buildRepoMap(
+      workspace,
+      this.opts.repoMap,
+      estimateMessageTokens,
+    );
+    const repoMapMessages: Message[] = repoMapText
+      ? [{ role: "system", content: repoMapText }]
+      : [];
+
     this.buildCount++;
     const periodic =
       this.compactEveryNTurns > 0 &&
@@ -504,6 +536,7 @@ export class ContextManager {
         messages.push(m);
         categories.push("projectInstructions");
       }
+      this.pushRepoMap(messages, categories, repoMapMessages);
     } else {
       for (const m of statics) {
         messages.push(m);
@@ -521,6 +554,7 @@ export class ContextManager {
         messages.push(m);
         categories.push("history");
       }
+      this.pushRepoMap(messages, categories, repoMapMessages);
     }
     const prefixEnd = cached
       ? 1 + memoryMessages.length + workingHistory.length
@@ -589,9 +623,7 @@ export class ContextManager {
     ];
     const compactedStatics: Message[] = statics;
     const compactedInstructions: Message[] = instructionMessages;
-    const compacted: Message[] = [
-      { role: "system", content: systemPrompt },
-    ];
+    const compacted: Message[] = [{ role: "system", content: systemPrompt }];
     const compactedCategories: AttributionCategory[] = ["systemPrompt"];
     if (cached) {
       for (const m of compactedMemory) {
@@ -610,6 +642,7 @@ export class ContextManager {
         compacted.push(m);
         compactedCategories.push("projectInstructions");
       }
+      this.pushRepoMap(compacted, compactedCategories, repoMapMessages);
     } else {
       for (const m of compactedStatics) {
         compacted.push(m);
@@ -627,6 +660,7 @@ export class ContextManager {
         compacted.push(m);
         compactedCategories.push("history");
       }
+      this.pushRepoMap(compacted, compactedCategories, repoMapMessages);
     }
     // Final value only; the intermediate assign was dead work.
     this.lastBuildTokens =
