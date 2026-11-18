@@ -47,22 +47,22 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "registerCommand",
     status: "supported",
-    consumers: [{"file":"src/cli/app.ts","line":966}],
+    consumers: [{"file":"src/cli/app.ts","line":969}],
   },
   {
     method: "unregisterCommand",
     status: "supported",
-    consumers: [{"file":"src/cli/app.ts","line":966}],
+    consumers: [{"file":"src/cli/app.ts","line":969}],
   },
   {
     method: "on",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":372}],
+    consumers: [{"file":"src/extensions/loader.ts","line":424}],
   },
   {
     method: "off",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":372}],
+    consumers: [{"file":"src/extensions/loader.ts","line":424}],
   },
   {
     method: "appendEntry",
@@ -202,12 +202,12 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "getWorkspace",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":177}],
+    consumers: [{"file":"src/extensions/loader.ts","line":193}],
   },
   {
     method: "getSession",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":279}],
+    consumers: [{"file":"src/extensions/loader.ts","line":333}],
   },
   {
     method: "getSessionManager",
@@ -217,17 +217,17 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "isProjectTrusted",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":178}],
+    consumers: [{"file":"src/extensions/loader.ts","line":194}],
   },
   {
     method: "registerProvider",
     status: "reduced",
-    consumers: [{"file":"src/cli/app.ts","line":429}],
+    consumers: [{"file":"src/cli/app.ts","line":432}],
   },
   {
     method: "unregisterProvider",
     status: "supported",
-    consumers: [{"file":"src/cli/app.ts","line":429}],
+    consumers: [{"file":"src/cli/app.ts","line":432}],
   },
   {
     method: "registerModel",

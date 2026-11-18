@@ -62,7 +62,10 @@ import {
 } from "../sessions/store.js";
 import { SessionLockError } from "../sessions/lock.js";
 import { randomUUID } from "node:crypto";
-import { ExtensionLoader } from "../extensions/loader.js";
+import {
+  ExtensionLoader,
+  type StagedExtensionSet,
+} from "../extensions/loader.js";
 import { createDefaultExtensionUI, DialogBoundary } from "../extensions/ui.js";
 import type { ExtensionUICallbacks } from "../extensions/ui.js";
 import { resolveModelTools } from "../extensions/tool-adapter.js";
@@ -1248,23 +1251,9 @@ export async function run(args: string[]): Promise<void> {
           appendLine(`atom-lite: ${selected.warning}`, theme.tokens.warning);
         }
 
-        void extensionLoader
-          .loadAll()
-          .then(() => {
-            runtime.setTools(currentTools(true));
-            refreshCommandRegistry(true);
-            appendLine(
-              `extensions: ${extensionLoader.processedCount()} processed (see /extensions)`,
-            );
-            tui.requestRender();
-          })
-          .catch((error) => {
-            extensionLoader.reportTopLevelError(error, "loadAll");
-            appendLine(
-              `extensions: reload failed: ${error instanceof Error ? error.message : String(error)}`,
-            );
-            tui.requestRender();
-          });
+        // Trust approval changes which extensions discover() sees, so use the
+        // same atomic path as /reload instead of a partial load.
+        void reloadExtensions();
       },
       options,
     );
@@ -2628,8 +2617,22 @@ export async function run(args: string[]): Promise<void> {
   }
 
   async function reloadExtensions(): Promise<void> {
+    // Build the replacement set first. Until staging succeeds the previous set
+    // stays live, so a failed reload changes nothing but the reported error.
+    let staged: StagedExtensionSet;
+    try {
+      staged = await extensionLoader.stageExtensions();
+    } catch (error) {
+      extensionLoader.reportTopLevelError(error, "loadAll");
+      appendLine(
+        `extensions: reload failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      tui.requestRender();
+      return;
+    }
+
     const previous = extensionLoader.loadedExtensions();
-    // Emit session_shutdown and extension_unload before unloading.
+    // Notify the outgoing set while its generation is still current.
     for (const loaded of previous) {
       const handlers = loaded.registries?.handlers?.get?.(
         "session_shutdown" as any,
@@ -2649,17 +2652,9 @@ export async function run(args: string[]): Promise<void> {
         }
       }
     }
-    await extensionLoader.unloadAll();
-    try {
-      await extensionLoader.loadAll();
-    } catch (error) {
-      extensionLoader.reportTopLevelError(error, "loadAll");
-      appendLine(
-        `extensions: reload failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      tui.requestRender();
-      return;
-    }
+    // One swap: the staged generation becomes live, old handlers go stale.
+    extensionLoader.commitStaged(staged);
+
     // Remove previously bridged providers, then re-bridge.
     for (const name of extensionProviderNames) {
       delete (config.providers as Record<string, unknown>)[name];
