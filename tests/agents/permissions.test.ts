@@ -78,8 +78,8 @@ test("custom prompts without policy sections append the persona body", () => {
 });
 
 test("default system prompt keeps the persona policy marker splittable", () => {
-  // composePersonaSystemPrompt replaces role instructions with the active
-  // persona body by slicing on the "\n\nTask discipline:" marker. If this
+  // Reason: regression — composePersonaSystemPrompt replaces role instructions
+  // with the active persona body by slicing on the "\n\nTools:" marker. If this
   // prompt loses the marker (e.g. a rewrite renames the section), persona
   // bodies stop replacing role instructions — a silent behavior regression.
   const prompt = composePersonaSystemPrompt(DEFAULT_SYSTEM_PROMPT, {
@@ -88,6 +88,6 @@ test("default system prompt keeps the persona policy marker splittable", () => {
   });
   assert.ok(prompt.includes("Review for correctness."));
   assert.ok(!prompt.includes("Read context before editing"));
-  assert.ok(prompt.includes("Task discipline:"));
+  assert.ok(!prompt.includes("Task discipline:"));
   assert.ok(prompt.includes("Tools:"));
 });
