@@ -8,6 +8,39 @@ becomes `0.18.1`.
 
 ## [Unreleased]
 
+## v0.18.2 — 2026-11-18
+
+### Added
+
+- `tools`: `read` returns bounded pages with a continuation cursor, so a long file resumes at the exact next line instead of ending in a dead-end truncation marker.
+- `tools`: `read` lists directories with sorted entries, trailing separators, and the same paging cursor as text.
+- `tools`: `read` detects images and PDFs from file bytes, attaches them inline, and enforces a 20 MiB media ingestion limit.
+- `tools`: `read` corrects mistyped paths from a same-stem sibling, Unicode look-alikes, or a wrong-root absolute path, and suggests up to three ranked siblings otherwise.
+- `context`: `read` discovers `AGENTS.md` and `CLAUDE.md` beside the path and injects them as project instructions for the session.
+
+### Changed
+
+- `tools`: text pages carry a header with the path, size, hash, and returned line range; line-number prefixes are model-visible reference, not file content.
+- `tools`: the runtime `maxToolOutputBytes` cap stays authoritative; internal 50 KiB and 2000-line budgets bound each page before that cap applies.
+- `agent`: the default system prompt answers general-knowledge questions directly without tools, prefers Mermaid fences for concept diagrams, and keeps inline image paths inside the workspace.
+- `docs`: tool reference and troubleshooting describe paging, directory listings, media, path recovery, and the new media errors.
+
+### Fixed
+
+- `tools`: clipped read output now names the first unseen line, including after the output cap clips a page or a past-end tail.
+- `tools`: NUL detection applies only to the consumed page, and the sha256 header still covers the whole file after a paged read.
+- `tools`: directory listings sort by raw name, bound past-end tails, and keep header ranges consistent with the entries shown.
+- `context`: adding or changing a discovered instruction file invalidates the context cache on the next build.
+
+### Performance
+
+Measured on this machine, 15 runs, 1024 KiB file. `bench` is non-gating.
+
+- `read full`: overhead 9.52 ms (budget ≤ 5 ms, over).
+- `read partial`: overhead 7.43 ms (budget ≤ 5 ms, over).
+- `write`: overhead 5.01 ms (budget ≤ 5 ms, over).
+- `startup`: `--version` 266.1 ms (budget ≤ 300 ms).
+
 ## v0.18.1 — 2026-11-18
 
 ### Added
