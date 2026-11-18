@@ -1,5 +1,4 @@
-import { open, readFile, readdir, stat as statAsync } from "node:fs/promises";
-import type { Dirent } from "node:fs";
+import { open, opendir, readFile, stat as statAsync } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
@@ -15,6 +14,8 @@ const TAIL_LINES = 100;
 const MAX_LINE_CHARS = 2000;
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
+const MEDIA_LIMIT_LABEL = `${MAX_MEDIA_BYTES / (1024 * 1024)} MiB`;
+const DEFAULT_OUTPUT_CAP = 30000;
 const LINE_TRUNCATED = `... (line truncated to ${MAX_LINE_CHARS} chars)`;
 
 /** Detect media from bytes alone, so an extension cannot turn text into an attachment. */
@@ -59,6 +60,34 @@ interface PageInput {
 }
 
 const continuationHint = (line: number): string => `[Output truncated. Continue reading with offset: ${line}]`;
+
+interface PageLabels {
+  empty: string;
+  clipped: string;
+}
+
+/** Assemble a bounded page from a header and one string per item. */
+function renderPaged(
+  header: string,
+  items: string[],
+  firstItem: number,
+  next: number | undefined,
+  outputCap: number,
+  labels: PageLabels,
+): string {
+  const rendered = [...items];
+  const budget = Math.min(MAX_READ_BYTES, outputCap);
+  let cursor = next;
+  const render = (): string =>
+    [header, ...rendered, ...(cursor === undefined ? [] : [continuationHint(cursor)])].join("\n");
+  while (rendered.length > 0 && Buffer.byteLength(render()) > budget) {
+    rendered.pop();
+    cursor = firstItem + rendered.length;
+  }
+  if (rendered.length === 0 && cursor === undefined) return `${header}\n${labels.empty}`;
+  const body = rendered.length > 0 ? rendered.join("\n") : labels.clipped;
+  return cursor === undefined ? `${header}\n${body}` : `${header}\n${body}\n${continuationHint(cursor)}`;
+}
 
 /** Keep a readable prefix of a very long line, counting code points not UTF-16 units. */
 function clampLine(line: string): string {
@@ -151,51 +180,61 @@ async function pageText(input: PageInput): Promise<string> {
     header += " (0 lines)";
   }
 
-  const numbered = selected.map((entry) => `${entry.lineNumber}: ${entry.text}`);
-  const render = (): string =>
-    [header, ...numbered, ...(next === undefined ? [] : [continuationHint(next)])].join("\n");
-  while (numbered.length > 0 && Buffer.byteLength(render()) > outputCap) {
-    const dropped = selected.pop()!;
-    numbered.pop();
-    next = dropped.lineNumber;
-  }
-
   if (selected.some((entry) => entry.hasNul)) return `Binary file detected (${size} bytes).`;
-  const body =
-    numbered.length > 0 ? numbered.join("\n") : next === undefined ? "(empty)" : "(no lines fit the output cap)";
-  return next === undefined ? `${header}\n${body}` : `${header}\n${body}\n${continuationHint(next)}`;
+  return renderPaged(
+    header,
+    selected.map((entry) => `${entry.lineNumber}: ${entry.text}`),
+    requested,
+    next,
+    outputCap,
+    { empty: "(empty)", clipped: "(no lines fit the output cap)" },
+  );
 }
 
-/** List a directory as a paged, sorted set of names. Symlinks are shown but never followed. */
-function pageDirectory(
-  displayPath: string,
-  entries: Dirent[],
-  offset: number | undefined,
-  limit: number | undefined,
-  outputCap: number,
-): string {
+interface DirectoryInput {
+  displayPath: string;
+  directoryPath: string;
+  offset: number | undefined;
+  limit: number | undefined;
+  outputCap: number;
+}
+
+/** Stream a directory and retain only the requested slice. Symlinks are shown but never followed. */
+async function pageDirectory(input: DirectoryInput): Promise<string> {
+  const { displayPath, directoryPath, offset, limit, outputCap } = input;
   const requested = offset ?? 1;
   const maxLines = Math.min(limit ?? MAX_READ_LINES, MAX_READ_LINES);
-  const visible = entries
-    .map((entry) => ({ name: entry.name + (entry.isDirectory() ? "/" : ""), directory: entry.isDirectory() }))
-    .sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
-  const window = visible.slice(requested - 1, requested - 1 + maxLines);
-  let next = requested - 1 + window.length < visible.length ? requested + window.length : undefined;
-  const header = (): string =>
-    window.length === 0
-      ? `Directory: ${displayPath} (0 entries)`
-      : `Directory: ${displayPath} (entries ${requested}-${requested + window.length - 1})`;
-  const render = (): string =>
-    [header(), ...window.map((entry) => entry.name), ...(next === undefined ? [] : [continuationHint(next)])].join(
-      "\n",
-    );
-  while (window.length > 0 && Buffer.byteLength(render()) > outputCap) {
-    window.pop();
-    next = requested + window.length;
+  const end = requested - 1 + maxLines;
+  const directories: string[] = [];
+  const files: string[] = [];
+  const keep = (names: string[], name: string): void => {
+    const index = names.findIndex((current) => current.localeCompare(name) > 0);
+    names.splice(index === -1 ? names.length : index, 0, name);
+    if (names.length > end) names.pop();
+  };
+  let total = 0;
+  let dir;
+  try {
+    dir = await opendir(directoryPath);
+  } catch {
+    return "FILE_NOT_FOUND";
   }
-  const body =
-    window.length > 0 ? window.map((entry) => entry.name).join("\n") : next === undefined ? "(empty)" : "(no entries fit the output cap)";
-  return next === undefined ? `${header()}\n${body}` : `${header()}\n${body}\n${continuationHint(next)}`;
+  // `for await` closes the directory handle when iteration ends. Keep only the
+  // smallest names needed for this page instead of materializing the whole listing.
+  for await (const entry of dir) {
+    total++;
+    keep(entry.isDirectory() ? directories : files, entry.name);
+  }
+  const visible = [...directories.map((name) => `${name}/`), ...files].slice(requested - 1, end);
+  const next = end < total ? end + 1 : undefined;
+  const header =
+    visible.length === 0
+      ? `Directory: ${displayPath} (0 entries)`
+      : `Directory: ${displayPath} (entries ${requested}-${requested + visible.length - 1})`;
+  return renderPaged(header, visible, requested, next, outputCap, {
+    empty: "(empty)",
+    clipped: "(no entries fit the output cap)",
+  });
 }
 
 export const readTool: Tool = {
@@ -204,7 +243,8 @@ export const readTool: Tool = {
   annotations: { readOnlyHint: true },
   definition: {
     name: "read",
-    description: "Read a file or a selected range of lines.",
+    description:
+      "Read a file, directory listing, image, or PDF. Use offset and limit to page large files or directories; a truncated result names the next offset.",
     parameters: {
       type: "object",
       properties: {
@@ -270,21 +310,18 @@ export const readTool: Tool = {
       };
     }
     if (st.isDirectory()) {
-      let entries: Dirent[];
-      try {
-        entries = await readdir(resolved, { withFileTypes: true });
-      } catch {
-        return {
-          toolCallId: call.id,
-          name: "read",
-          content: "FILE_NOT_FOUND",
-          isError: true,
-        };
-      }
+      const content = await pageDirectory({
+        displayPath: path,
+        directoryPath: resolved,
+        offset,
+        limit,
+        outputCap: ctx.maxToolOutputBytes ?? DEFAULT_OUTPUT_CAP,
+      });
       return {
         toolCallId: call.id,
         name: "read",
-        content: pageDirectory(path, entries, offset, limit, ctx.maxToolOutputBytes ?? 30000),
+        content,
+        ...(content === "FILE_NOT_FOUND" ? { isError: true as const } : {}),
       };
     }
     let handle: FileHandle;
@@ -304,19 +341,19 @@ export const readTool: Tool = {
       const first = firstBuffer.subarray(0, bytesRead);
       const mime = detectMediaMime(first);
       if (mime) {
-        if (st.size > MAX_MEDIA_BYTES) {
-          return {
-            toolCallId: call.id,
-            name: "read",
-            content: `MEDIA_TOO_LARGE: ${path} exceeds the 20 MiB ingestion limit`,
-            isError: true,
-          };
-        }
         if (!ctx.supportsVision) {
           return {
             toolCallId: call.id,
             name: "read",
             content: "vision not supported by current model",
+            isError: true,
+          };
+        }
+        if (st.size > MAX_MEDIA_BYTES) {
+          return {
+            toolCallId: call.id,
+            name: "read",
+            content: `MEDIA_TOO_LARGE: ${path} exceeds the ${MEDIA_LIMIT_LABEL} ingestion limit`,
             isError: true,
           };
         }
@@ -337,7 +374,7 @@ export const readTool: Tool = {
           isError: true,
         };
       }
-      const cap = ctx.maxToolOutputBytes ?? 30000;
+      const cap = ctx.maxToolOutputBytes ?? DEFAULT_OUTPUT_CAP;
       const content = await pageText({
         handle,
         first,

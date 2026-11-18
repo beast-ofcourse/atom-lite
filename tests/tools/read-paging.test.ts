@@ -4,22 +4,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readTool } from "../../dist/tools/index.js";
-
-function ctx(workspace: string, maxToolOutputBytes?: number) {
-  return {
-    workspace,
-    signal: new AbortController().signal,
-    ...(maxToolOutputBytes === undefined ? {} : { maxToolOutputBytes }),
-  };
-}
-
-async function read(workspace: string, args: Record<string, unknown>, maxToolOutputBytes?: number) {
-  return readTool.execute(
-    { id: "1", name: "read", arguments: args },
-    ctx(workspace, maxToolOutputBytes) as any,
-  );
-}
+import { invokeRead as read } from "./read-test-helpers.ts";
 
 // Contract: a range read stops at the page boundary and tells the model where to resume.
 test("read pages a long file with a continuation cursor", async () => {
@@ -78,14 +63,14 @@ test("read applies the runtime output cap before the internal budget and keeps t
   const dir = mkdtempSync(join(tmpdir(), "read-cap-"));
   writeFileSync(join(dir, "cap.txt"), "abcdefghij\n".repeat(10));
 
-  const first = await read(dir, { path: "cap.txt" }, 200);
+  const first = await read(dir, { path: "cap.txt" }, { maxToolOutputBytes: 200 });
   const match = first.content.match(/Continue reading with offset: (\d+)/);
   assert.ok(match, first.content);
   const cursor = Number(match![1]);
   assert.ok(cursor > 1 && cursor <= 10, `unexpected cursor ${cursor}`);
   assert.ok(!first.content.includes(`${cursor}: `), first.content);
 
-  const second = await read(dir, { path: "cap.txt", offset: cursor }, 200);
+  const second = await read(dir, { path: "cap.txt", offset: cursor }, { maxToolOutputBytes: 200 });
   assert.match(second.content, new RegExp(`${cursor}: abcdefghij`));
 });
 
@@ -142,7 +127,7 @@ test("read returns a bounded tail for a past-end offset and reports empty files"
 test("read reports a tiny output cap without claiming an empty file", async () => {
   const dir = mkdtempSync(join(tmpdir(), "read-tiny-cap-"));
   writeFileSync(join(dir, "tiny.txt"), "abcdefghij\n".repeat(10));
-  const result = await read(dir, { path: "tiny.txt" }, 100);
+  const result = await read(dir, { path: "tiny.txt" }, { maxToolOutputBytes: 100 });
   assert.match(result.content, /no lines fit the output cap/);
   assert.match(result.content, /Continue reading with offset: 1/);
   assert.doesNotMatch(result.content, /\(empty\)/);

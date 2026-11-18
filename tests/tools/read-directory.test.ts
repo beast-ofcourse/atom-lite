@@ -3,19 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readTool } from "../../dist/tools/index.js";
-
-function ctx(workspace: string, mode?: "plan" | "yolo") {
-  return {
-    workspace,
-    signal: new AbortController().signal,
-    ...(mode === undefined ? {} : { mode }),
-  };
-}
-
-async function read(workspace: string, args: Record<string, unknown>, mode?: "plan" | "yolo") {
-  return readTool.execute({ id: "1", name: "read", arguments: args }, ctx(workspace, mode) as any);
-}
+import { invokeRead as read } from "./read-test-helpers.ts";
 
 // Contract: a directory path returns a sorted listing with directories first, never a not-found error.
 test("read lists a directory with directories first and a trailing separator", async () => {
@@ -29,6 +17,24 @@ test("read lists a directory with directories first and a trailing separator", a
   const result = await read(dir, { path: "." });
   assert.match(result.content, /^Directory: \./);
   assert.deepEqual(result.content.split("\n").slice(1), ["alpha/", "zeta/", "a.txt", "b.txt", "link.txt"]);
+});
+
+// Regression: sort raw names before adding the trailing separator, so prefix siblings stay in name order.
+test("read sorts prefix-related directories by name", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "read-dir-sort-"));
+  mkdirSync(join(dir, "a-b"));
+  mkdirSync(join(dir, "a"));
+  const result = await read(dir, { path: "." });
+  assert.deepEqual(result.content.split("\n").slice(1), ["a/", "a-b/"]);
+});
+
+// Contract: a raised output cap cannot push a directory listing past the internal 50 KiB page budget.
+test("read bounds a directory listing by the internal byte budget", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "read-dir-budget-"));
+  for (let i = 0; i < 300; i++) writeFileSync(join(dir, "x".repeat(190) + i), "");
+  const result = await read(dir, { path: "." }, { maxToolOutputBytes: 100000 });
+  assert.match(result.content, /Continue reading with offset/);
+  assert.ok(Buffer.byteLength(result.content) <= 50 * 1024, `${Buffer.byteLength(result.content)} bytes`);
 });
 
 // Contract: directory listings page with the same continuation cursor as text reads.
@@ -64,11 +70,11 @@ test("read reports an empty directory explicitly", async () => {
 test("read keeps containment and plan-mode access for directories", async () => {
   const dir = mkdtempSync(join(tmpdir(), "read-dir-safe-"));
   mkdirSync(join(dir, "sub"));
-  const outside = await read(dir, { path: ".." }, "plan");
+  const outside = await read(dir, { path: ".." }, { mode: "plan" });
   assert.equal(outside.isError, true);
   assert.match(outside.content, /PATH_OUTSIDE_WORKSPACE/);
 
-  const inside = await read(dir, { path: "sub" }, "plan");
+  const inside = await read(dir, { path: "sub" }, { mode: "plan" });
   assert.equal(inside.isError, undefined);
   assert.match(inside.content, /^Directory: sub/);
 });

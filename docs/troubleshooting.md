@@ -37,6 +37,10 @@ Another process owns the session. The refusal names the holder. Close that termi
 
 `FILE_CHANGED_SINCE_READ` means the file changed after the agent read it. Ask the agent to re-read the file, then retry. Do not disable hash guards.
 
+## A media read is refused
+
+`MEDIA_TOO_LARGE` means the image or PDF exceeds the 20 MiB ingestion limit. Point the agent at a smaller copy or a text export. `vision not supported by current model` means the active model cannot accept attachments; switch to a vision-capable model. See [Tools](./tools.md#reading-large-files).
+
 ## A tool needs approval
 
 In the terminal, press `y`, `n`, or `t`, or use arrows and Enter; Escape denies. In the browser, use the dialog buttons. If the tab dropped, reconnect; an unanswered approval is denied after the grace period. Non-interactive runs always deny. See [Safety](./safety.md).

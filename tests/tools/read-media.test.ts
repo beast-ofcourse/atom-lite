@@ -3,18 +3,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readTool } from "../../dist/tools/index.js";
+import { invokeRead as read } from "./read-test-helpers.ts";
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01]);
 const PDF = Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n");
-
-function ctx(workspace: string, supportsVision: boolean) {
-  return { workspace, signal: new AbortController().signal, supportsVision };
-}
-
-async function read(workspace: string, args: Record<string, unknown>, supportsVision = true) {
-  return readTool.execute({ id: "1", name: "read", arguments: args }, ctx(workspace, supportsVision) as any);
-}
 
 // Contract: media detection uses bytes, not the filename, so renamed images still attach.
 test("read detects images by magic bytes regardless of extension", async () => {
@@ -61,13 +53,13 @@ test("read attaches a PDF with its mime type and name", async () => {
 // Contract: media ingestion is bounded at 20 MiB and the error names the limit and file.
 test("read rejects media larger than 20 MiB with a named limit", async () => {
   const dir = mkdtempSync(join(tmpdir(), "read-media-limit-"));
-  const huge = Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(21 * 1024 * 1024)]);
-  writeFileSync(join(dir, "huge.pdf"), huge);
-  const result = await read(dir, { path: "huge.pdf" });
+  const huge = Buffer.concat([PNG, Buffer.alloc(21 * 1024 * 1024)]);
+  writeFileSync(join(dir, "huge.png"), huge);
+  const result = await read(dir, { path: "huge.png" });
   assert.equal(result.isError, true);
   assert.match(result.content, /MEDIA_TOO_LARGE/);
   assert.match(result.content, /20 MiB/);
-  assert.match(result.content, /huge\.pdf/);
+  assert.match(result.content, /huge\.png/);
 });
 
 // Contract: media needs a vision-capable model, with an explicit error otherwise.
@@ -76,10 +68,21 @@ test("read rejects images and PDFs when the model has no vision support", async 
   writeFileSync(join(dir, "pic.png"), PNG);
   writeFileSync(join(dir, "doc.pdf"), PDF);
   for (const name of ["pic.png", "doc.pdf"]) {
-    const result = await read(dir, { path: name }, false);
+    const result = await read(dir, { path: name }, { supportsVision: false });
     assert.equal(result.isError, true);
     assert.match(result.content, /vision not supported/);
   }
+});
+
+// Contract: the capability error wins over the ingest limit for a non-vision model.
+test("read reports missing vision before the media size limit", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "read-media-vision-first-"));
+  const huge = Buffer.concat([PDF, Buffer.alloc(21 * 1024 * 1024)]);
+  writeFileSync(join(dir, "huge.pdf"), huge);
+  const result = await read(dir, { path: "huge.pdf" }, { supportsVision: false });
+  assert.equal(result.isError, true);
+  assert.match(result.content, /vision not supported/);
+  assert.doesNotMatch(result.content, /MEDIA_TOO_LARGE/);
 });
 
 // Contract: the text file size cap stays at 10 MiB after the media cap was added.
