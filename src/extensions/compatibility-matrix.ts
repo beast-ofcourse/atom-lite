@@ -47,22 +47,22 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "registerCommand",
     status: "supported",
-    consumers: [{"file":"src/cli/app.ts","line":985}],
+    consumers: [{"file":"src/cli/app.ts","line":1018}],
   },
   {
     method: "unregisterCommand",
     status: "supported",
-    consumers: [{"file":"src/cli/app.ts","line":985}],
+    consumers: [{"file":"src/cli/app.ts","line":1018}],
   },
   {
     method: "on",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":521}],
+    consumers: [{"file":"src/extensions/loader.ts","line":531}],
   },
   {
     method: "off",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":521}],
+    consumers: [{"file":"src/extensions/loader.ts","line":531}],
   },
   {
     method: "appendEntry",
@@ -202,12 +202,12 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "getWorkspace",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":226}],
+    consumers: [{"file":"src/extensions/loader.ts","line":228}],
   },
   {
     method: "getSession",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":382}],
+    consumers: [{"file":"src/extensions/loader.ts","line":392}],
   },
   {
     method: "getSessionManager",
@@ -217,17 +217,17 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "isProjectTrusted",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":227}],
+    consumers: [{"file":"src/extensions/loader.ts","line":229}],
   },
   {
     method: "registerProvider",
     status: "reduced",
-    consumers: [{"file":"src/cli/app.ts","line":438}],
+    consumers: [{"file":"src/cli/app.ts","line":470}],
   },
   {
     method: "unregisterProvider",
     status: "supported",
-    consumers: [{"file":"src/cli/app.ts","line":438}],
+    consumers: [{"file":"src/cli/app.ts","line":470}],
   },
   {
     method: "registerModel",

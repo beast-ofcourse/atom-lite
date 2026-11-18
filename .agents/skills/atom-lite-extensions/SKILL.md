@@ -13,11 +13,11 @@ models, widgets, and event handlers into Atom-lite's own runtime.
 
 Reference docs:
 
-- `docs/extensions.md` — discovery, trust, compatibility matrix, diagnostics.
-- `src/extensions/types.ts` — `ExtensionAPI` types and registries.
-- `src/extensions/api.ts` — runtime implementation.
-- `src/extensions/compatibility-matrix.ts` — generated method status and consumers.
-- `tests/extensions/` — extension tests.
+- [docs/extensions.md](https://github.com/beast-ofcourse/atom-lite/blob/master/docs/extensions.md) — discovery, trust, compatibility matrix, diagnostics.
+- [src/extensions/types.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/types.ts) — `ExtensionAPI` types and registries.
+- [src/extensions/api.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/api.ts) — runtime implementation.
+- [src/extensions/compatibility-matrix.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/compatibility-matrix.ts) — generated method status and consumers.
+- [tests/extensions/](https://github.com/beast-ofcourse/atom-lite/tree/master/tests/extensions) — extension tests.
 - Run `/extensions` and `/extensions doctor --json` inside atom-lite for live diagnostics.
 
 ## Minimal extension
@@ -149,16 +149,20 @@ pi.off("tool_call", handler);
 
 Valid events (`AtomEvent`): `extension_load`, `extension_activate`,
 `extension_unload`, `extension_error`, `session_start`, `session_end`,
-`turn_start`, `turn_end`, `tool_call`, `tool_result`, `message`, `message_start`,
-`message_end`, `context_build`, `config_change`. Tier 3 APIs are failing stubs;
-check `pi.supports(name)` before calling one.
+`session_shutdown`, `turn_start`, `turn_end`, `agent_before_settle`,
+`agent_settled`, `context_build`, `before_provider_request`,
+`after_provider_response`, `message_start`, `message_end`, `tool_call`,
+`tool_result`, `tool_execution_start`, `tool_execution_end`,
+`tool_execution_update`, `config_change`. Tier 3 APIs are failing stubs; check
+`pi.supports(name)` before calling one. `supports()` checks the method, not its
+arguments.
 
 ## UI
 
 ```ts
 pi.ui.notify("hello", "info");          // info | warning | error
 pi.setStatus("myext", "status text");   // undefined clears (no-op)
-pi.registerWidget("aboveInput", { id: "above", location: "aboveInput", render: (w) => ["line1"] });
+pi.registerWidget("aboveInput", { id: "my-widget", location: "aboveInput", render: (width) => ["line1"] });
 pi.setWidget("key", ["line"], { placement: "aboveEditor" });
 pi.setFooter((tui, theme, data) => /* component */);
 pi.setHeader((tui, theme) => /* component */);
@@ -236,10 +240,13 @@ pi.registerMarkdownTransformer((markdown) => markdown);
   exposure, MCP server registration, OAuth providers, RPC mode, custom editors,
   and model factories. Each throws `ExtensionCompatibilityError` naming the
   method, tier, and a replacement. Check `pi.supports(name)` first;
-  `pi.apiVersion` identifies the API surface.
+  `pi.apiVersion` identifies the API surface. `supports()` checks method
+  availability only: `registerTool` reports `true` but still throws for
+  `exposure: "codemode"`.
 
-Reduced-compat provider keys (`oauth`, `streamSimple`, `classifiers`, image
-generation, `refreshModels`) emit warnings rather than failing.
+Provider config keys outside the mapped set (`baseUrl`, `apiKey`, `headers`,
+`authHeader`, `models`) and identity keys (`name`, `id`, `config`) emit a
+reduced-compatibility warning naming the key and are not applied.
 
 ## Diagnostics
 
@@ -256,11 +263,11 @@ Inside atom-lite:
 - Use `pi.appendEntry` for persisted state instead of module globals.
 - Trust project extensions before they load (`pi.isProjectTrusted()`).
 - Reload with `/reload` (or restart) after edits; module caching is disabled.
-- See `tests/extensions/` for runnable examples.
+- See [tests/extensions/](https://github.com/beast-ofcourse/atom-lite/tree/master/tests/extensions) for runnable examples.
 
 ## Links
 
-- Docs: `docs/extensions.md`
-- Types: `src/extensions/types.ts`
-- Runtime: `src/extensions/`
-- Matrix: `src/extensions/compatibility-matrix.ts`
+- Docs: [docs/extensions.md](https://github.com/beast-ofcourse/atom-lite/blob/master/docs/extensions.md)
+- Types: [src/extensions/types.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/types.ts)
+- Runtime: [src/extensions/](https://github.com/beast-ofcourse/atom-lite/tree/master/src/extensions)
+- Matrix: [src/extensions/compatibility-matrix.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/compatibility-matrix.ts)

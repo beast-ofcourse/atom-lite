@@ -115,6 +115,56 @@ test("failed reload keeps the old tool and command set live and reports the erro
   }
 });
 
+test("a failed stage does not leak queued broadcasts into the next commit", async () => {
+  // Ticket 08: a rejection queued mid-stage must be rolled back with the rest
+  // of the staging state, or the next commit delivers a phantom error.
+  const dir = tempDir();
+  const file = join(dir, "ext.js");
+  try {
+    // An invalid tool calls reportError(), which queues an extension_error
+    // broadcast while loading is in progress.
+    writeFileSync(
+      file,
+      "export default (api) => { api.registerTool({ name: 'bad', description: '', execute: async () => 1 }); };\n",
+    );
+    const loader = makeLoader(dir);
+    await loader.loadAll();
+
+    const originalBuild = (loader as any).buildExtensions.bind(loader);
+    (loader as any).buildExtensions = async () => {
+      await originalBuild();
+      throw new Error("stage failed after queueing");
+    };
+    await assert.rejects(
+      () => loader.stageExtensions(),
+      /stage failed after queueing/,
+    );
+    (loader as any).buildExtensions = originalBuild;
+
+    const marker = join(dir, "stale-broadcast-fired");
+    // Use a different extension id so the stale broadcast is delivered to a
+    // sibling rather than skipped as its own owner.
+    rmSync(file);
+    writeFileSync(
+      join(dir, "watcher.js"),
+      [
+        'import { writeFileSync } from "node:fs";',
+        `export default (api) => { api.on("extension_error", () => writeFileSync(${JSON.stringify(marker)}, "leaked")); };`,
+        "",
+      ].join("\n"),
+    );
+    await loader.loadAll();
+
+    assert.equal(
+      existsSync(marker),
+      false,
+      "a broadcast queued by the failed stage leaked into the next commit",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("previous generation handlers still fire during staging before the swap", async () => {
   const dir = tempDir();
   const marker = join(dir, "shutdown-fired");

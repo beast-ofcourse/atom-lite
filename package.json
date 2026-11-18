@@ -61,6 +61,8 @@
     "format:check": "prettier --check .",
     "docs:check": "node scripts/check-docs.mjs",
     "matrix:generate": "node scripts/generate-compatibility-matrix.mjs",
+    "skills:sync": "node scripts/sync-skills.mjs",
+    "skills:check": "node scripts/sync-skills.mjs --check",
     "prepack": "npm run build",
     "prepublishOnly": "npm run typecheck && npm test",
     "eval": "npm run build && node scripts/eval.mjs",

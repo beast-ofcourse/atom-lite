@@ -10,10 +10,15 @@
 // stale selection state behind.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   createExtensionAPI,
   createExtensionRegistries,
 } from "../../dist/extensions/api.js";
+import { ExtensionLoader } from "../../dist/extensions/loader.js";
+import { availableProviderNames } from "../../dist/providers/catalog.js";
 import type { ExtensionContext } from "../../dist/extensions/types.js";
 
 function makeApi(): ReturnType<typeof createExtensionAPI> {
@@ -89,4 +94,50 @@ test("unregistered model cannot be selected", () => {
     registries.models.map((model) => model.id),
     ["kept-model"],
   );
+});
+
+test("unregisterProvider removes the provider from host model selection", async () => {
+  // Ticket 09: filtering registries.models alone is not enough. The host
+  // selection path reads config.providers and modelCache, so both must lose
+  // the provider in the same call. availableProviderNames() is the function
+  // the host's model picker uses.
+  const dir = mkdtempSync(join(tmpdir(), "atom-lite-provider-gate-"));
+  try {
+    writeFileSync(
+      join(dir, "bridge.js"),
+      [
+        "export default (api) => {",
+        "  api.registerProvider({ name: 'bridge', config: { baseUrl: 'https://example.invalid/v1', models: [{ id: 'm1' }] } });",
+        "  api.unregisterProvider('bridge');",
+        "};",
+        "",
+      ].join("\n"),
+    );
+    const config = {
+      providers: {
+        bridge: { type: "openai-compatible", model: "m1" },
+        keep: { type: "openai-compatible", model: "k1" },
+      },
+    } as any;
+    const modelCache = new Map<string, { models: string[]; at: number }>([
+      ["bridge", { models: ["m1"], at: Date.now() }],
+    ]);
+    const removed: string[] = [];
+    const loader = new ExtensionLoader({
+      userDir: dir,
+      agentDir: join(dir, "agent"),
+      onProviderUnregistered: (name) => {
+        removed.push(name);
+        delete config.providers[name];
+        modelCache.delete(name);
+      },
+    });
+    await loader.loadAll();
+
+    assert.deepEqual(removed, ["bridge"]);
+    assert.equal(modelCache.has("bridge"), false);
+    assert.deepEqual(availableProviderNames(config).sort(), ["keep"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -131,6 +131,31 @@ test("every Tier 3 stub throws a typed error and supports() reports false", () =
   assert.equal((pi as any).supports("registerTool"), true);
 });
 
+test("supports() reports method availability, not argument compatibility", () => {
+  // Ticket 10: supports() is true for implemented methods, including those
+  // that reject particular arguments. It must not be read as a promise that
+  // every call with any arguments will succeed.
+  const { api: pi } = api();
+  assert.equal(pi.supports("registerTool"), true);
+  assert.equal(pi.supports("registerModel"), true, "no-op methods are true");
+  assert.equal(pi.supports("registerMcpServer"), false, "Tier 3 is false");
+
+  assert.throws(
+    () =>
+      pi.registerTool({
+        name: "cm",
+        label: "c",
+        description: "d",
+        exposure: "codemode",
+        execute: async () => 1,
+      } as any),
+    (error: any) =>
+      error.name === "ExtensionCompatibilityError" &&
+      error.method === "registerTool",
+    "a supported method can still reject an unsupported argument",
+  );
+});
+
 test("codemode exposure is rejected at registration with a compatibility error", async () => {
   const { registries, api: pi } = api();
   const tool = {

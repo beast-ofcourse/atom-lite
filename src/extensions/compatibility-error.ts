@@ -61,7 +61,10 @@ export function tier3Stub(
   };
 }
 
-/** True when calling `method` will not throw a compatibility error. */
+/**
+ * True when `method` exists and is not a Tier 3 stub. Argument-level checks
+ * (such as rejecting `exposure: "codemode"`) are separate and can still throw.
+ */
 export function methodSupported(method: string): boolean {
   const entry = compatibilityMatrix.find((row) => row.method === method);
   return entry !== undefined && entry.status !== "unsupported";

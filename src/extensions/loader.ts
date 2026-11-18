@@ -43,6 +43,8 @@ export interface ExtensionLoaderOptions {
   session?: ExtensionSessionLike;
   /** Keep the lifecycle stream bounded across reloads. */
   maxLifecycleEvents?: number;
+  /** Called when an extension unregisters a provider so host selection updates. */
+  onProviderUnregistered?: (name: string) => void;
 }
 
 export interface LoadedExtension {
@@ -251,6 +253,8 @@ export class ExtensionLoader {
         message,
         phase: "throw",
       });
+    registries.onProviderUnregistered = (name) =>
+      this.options.onProviderUnregistered?.(name);
     return {
       id: entry.id,
       source: entry.source,
@@ -292,6 +296,9 @@ export class ExtensionLoader {
       boundary: this.boundary,
       lifecycle: this.lifecycle,
       stagedGeneration: this.stagedGeneration,
+      // Copy: staging appends to the same array, so a reference would be
+      // mutated and a rollback would restore nothing.
+      pendingBroadcasts: [...this.pendingBroadcasts],
     };
     const generation = this.generation + 1;
     this.stagedGeneration = generation;
@@ -304,6 +311,9 @@ export class ExtensionLoader {
       this.boundary = previous.boundary;
       this.lifecycle = previous.lifecycle;
       this.stagedGeneration = previous.stagedGeneration;
+      // Events queued mid-stage belong to the discarded set. Without this a
+      // later commit flushes them into the replacement set.
+      this.pendingBroadcasts = previous.pendingBroadcasts;
       this.loading = false;
       throw error;
     }
@@ -613,6 +623,37 @@ export class ExtensionLoader {
 
   lifecycleEvents(): ExtensionLifecycleEvent[] {
     return [...this.lifecycle];
+  }
+
+  /**
+   * Deliver a host-owned event to every loaded extension, awaiting each
+   * handler. Single dispatch seam for turn and host events; a rejecting
+   * handler is contained as `extension_error` instead of escaping.
+   */
+  async dispatchEvent(event: AtomEvent, payload?: unknown): Promise<unknown[]> {
+    const results: unknown[] = [];
+    for (const loaded of this.loadedExtensions()) {
+      const handlers = loaded.registries.handlers.get(event);
+      if (!handlers) continue;
+      for (const handler of handlers) {
+        try {
+          results.push(await handler(payload, loaded.context ?? ({} as any)));
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          this.reportError(
+            {
+              extensionId: loaded.id,
+              method: `on:${event}`,
+              message: err.message,
+              stack: err.stack,
+              phase: "reject",
+            },
+            false,
+          );
+        }
+      }
+    }
+    return results;
   }
 
   report(): ExtensionReport[] {

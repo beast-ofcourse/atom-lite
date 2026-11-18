@@ -109,6 +109,16 @@ const unsupported = new Set([
   "registerCustomEditor",
 ]);
 
+// One table drives both status resolution and validation. Rule order is
+// precedence: reduced methods may also carry host-consumer evidence, so the
+// documented limits win over the `supported` classification.
+const statusRules = [
+  { status: "unsupported", members: unsupported },
+  { status: "no-op", members: noOp },
+  { status: "reduced", members: reduced },
+  { status: "supported", members: new Set(Object.keys(hostConsumers)) },
+];
+
 function apiMethods() {
   const source = readFileSync(join(root, API_FILE), "utf8");
   const body = /export interface ExtensionAPI \{([\s\S]*?)\n\}/.exec(
@@ -126,51 +136,43 @@ function locate(file, token) {
   return { file, line: index + 1 };
 }
 
-/** Derive one status from implementation and host-consumer evidence. */
+/** Derive one status from implementation and the shared rule table. */
 function statusFor(method, implemented) {
   if (!implemented) return "unsupported";
-  if (unsupported.has(method)) return "unsupported";
-  if (reduced.has(method)) return "reduced";
-  if (noOp.has(method)) return "no-op";
-  if (hostConsumers[method]?.length > 0) return "supported";
+  const rule = statusRules.find((entry) => entry.members.has(method));
+  if (rule) return rule.status;
   throw new Error(`No status evidence for ExtensionAPI method '${method}'`);
 }
 
 function validate(methods) {
   const implemented = new Set(methods);
-  for (const set of [reduced, noOp, unsupported]) {
-    for (const method of set) {
+  for (const rule of statusRules) {
+    for (const method of rule.members) {
       if (!implemented.has(method)) {
         throw new Error(
-          `Status map names a method not in ${API_FILE}: '${method}'`,
+          `Status map (${rule.status}) names a method not in ${API_FILE}: '${method}'`,
+        );
+      }
+      const resolved = statusFor(method, true);
+      // `reduced` may also list host-consumer evidence; every other overlap
+      // is a configuration error, not a valid precedence rule.
+      const allowed =
+        resolved === rule.status ||
+        (rule.status === "supported" && resolved === "reduced");
+      if (!allowed) {
+        throw new Error(
+          `'${method}' has conflicting status evidence (${rule.status})`,
         );
       }
     }
   }
-  for (const method of reduced) {
-    if (noOp.has(method)) {
-      throw new Error(`'${method}' is both reduced and no-op`);
-    }
-    if (unsupported.has(method)) {
-      throw new Error(`'${method}' is both reduced and unsupported`);
-    }
-  }
-  for (const method of unsupported) {
-    if (noOp.has(method)) {
-      throw new Error(`'${method}' is both no-op and unsupported`);
-    }
-  }
-  for (const method of Object.keys(hostConsumers)) {
-    if (!implemented.has(method)) {
-      throw new Error(
-        `Host consumer has no method in ${API_FILE}: '${method}'`,
-      );
-    }
-    if (noOp.has(method)) {
-      throw new Error(`no-op method '${method}' has host consumer evidence`);
-    }
-    if (unsupported.has(method)) {
-      throw new Error(`unsupported method '${method}' has host consumer evidence`);
+  for (const [method, evidence] of Object.entries(hostConsumers)) {
+    for (const [file] of evidence) {
+      if (file === API_FILE) {
+        throw new Error(
+          `'${method}': a supported consumer cannot be ${API_FILE}`,
+        );
+      }
     }
   }
 }
@@ -182,13 +184,6 @@ function generate() {
   const entries = methods.map((method) => {
     const status = statusFor(method, implemented.has(method));
     const evidence = hostConsumers[method] ?? [];
-    for (const [file] of evidence) {
-      if (file === API_FILE) {
-        throw new Error(
-          `'${method}': a supported consumer cannot be ${API_FILE}`,
-        );
-      }
-    }
     return {
       method,
       status,

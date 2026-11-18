@@ -20,7 +20,6 @@ export interface ExtensionSessionLike {
   appendEvent?: (event: Record<string, unknown>) => unknown;
   /** Persists non-message events even before a session's first message. */
   appendDurableEvent?: (event: Record<string, unknown>) => unknown;
-  flush?: () => Promise<void>;
 }
 
 export interface PiSessionManagerOptions {

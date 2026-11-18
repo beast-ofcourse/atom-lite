@@ -144,6 +144,20 @@ import { installEditorKeybindings } from "./editor-keybindings.js";
 import { createMainRow } from "./main-layout.js";
 import type { QuestionContext, QuestionOutcome } from "../runtime/questions.js";
 
+/**
+ * Interactive exit path: notify extensions before tearing the host down.
+ * Kept separate from the TUI so the ordering is observable with fakes.
+ */
+export async function closeInteractiveSession(
+  loader: Pick<ExtensionLoader, "notifySessionEnd">,
+  shutdown: () => Promise<void>,
+  exit: (code: number) => void,
+): Promise<void> {
+  await loader.notifySessionEnd().catch(() => {});
+  await shutdown();
+  exit(0);
+}
+
 export async function run(args: string[]): Promise<void> {
   installEditorKeybindings();
   let providerOverride: string | undefined;
@@ -399,6 +413,24 @@ export async function run(args: string[]): Promise<void> {
         `atom-lite: extension ${event.extensionId}${where}: ${event.error ?? "error"}\n`,
       );
     },
+    onProviderUnregistered: (name) => {
+      // The bridged provider lives only in memory. Drop it from every host
+      // selection source in the same call as the API unregister.
+      delete (config.providers as Record<string, unknown>)[name];
+      modelCache.delete(name);
+      extensionProviderNames.delete(name);
+      if (provider.id === name) {
+        const fallback = availableProviderNames(config).find(
+          (candidate) => candidate !== name,
+        );
+        if (fallback) {
+          void switchToModel(
+            fallback,
+            String(profileConfig(fallback)?.model ?? "default"),
+          );
+        }
+      }
+    },
   });
   const pendingTrust = extensionLoader
     .discover()
@@ -471,24 +503,40 @@ export async function run(args: string[]): Promise<void> {
       mcpTools: includeMcp ? createMcpTools(mcpManager) : [],
       useTools,
     });
-  const extensionDispatch = async (event: AtomEvent, payload: any) => {
-    const results: any[] = [];
-    for (const loaded of extensionLoader.loadedExtensions()) {
-      const handlers = loaded.registries.handlers.get(event);
-      if (!handlers) continue;
-      for (const handler of handlers) {
-        try {
-          results.push(await handler(payload, loaded.context ?? ({} as any)));
-        } catch (error) {
-          // eslint-disable-next-line no-console
-          console.error(
-            `[extension:${loaded.id}] handler error: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-      }
+  // The loader owns handler dispatch; the CLI delegates so every host event
+  // goes through the same awaited, error-contained seam.
+  const extensionDispatch = (event: AtomEvent, payload: any) =>
+    extensionLoader.dispatchEvent(event, payload);
+
+  /**
+   * Persist a model switch with the ephemeral flag for bridged providers and
+   * announce it. Shared by the web switch and /model so neither can forget the
+   * flag or the config_change dispatch.
+   */
+  async function commitModelSelection(
+    profile: string,
+    model: string,
+    reportPersistError: (message: string) => void,
+  ): Promise<void> {
+    try {
+      saveProviderSelection(
+        profile,
+        { model },
+        {
+          defaultProvider: profile,
+          ephemeral: extensionProviderNames.has(profile),
+        },
+      );
+    } catch (err) {
+      reportPersistError(err instanceof Error ? err.message : String(err));
     }
-    return results;
-  };
+    await extensionDispatch("config_change", {
+      type: "config_change",
+      scope: "model",
+      provider: profile,
+      model,
+    });
+  }
 
   const usageLedger = config.usage.ledgerEnabled
     ? new FileUsageLedger(
@@ -596,21 +644,6 @@ export async function run(args: string[]): Promise<void> {
       if (!pcfg) return { error: `unknown provider: ${profile}` };
       pcfg.model = model;
       config.defaultProvider = profile;
-      try {
-        saveProviderSelection(
-          profile,
-          { model },
-          {
-            defaultProvider: profile,
-            ephemeral: extensionProviderNames.has(profile),
-          },
-        );
-      } catch (err) {
-        // A read-only config must not block the live switch.
-        process.stderr.write(
-          `atom-lite: could not persist model choice: ${err instanceof Error ? err.message : String(err)}\n`,
-        );
-      }
       modelByProvider.set(profile, model);
       modelOverride = model;
       provider = createProvider(config, profile, model);
@@ -623,11 +656,11 @@ export async function run(args: string[]): Promise<void> {
           `atom-lite: could not refresh model metadata: ${err instanceof Error ? err.message : String(err)}\n`,
         );
       }
-      await extensionDispatch("config_change", {
-        type: "config_change",
-        scope: "model",
-        provider: profile,
-        model,
+      await commitModelSelection(profile, model, (message) => {
+        // A read-only config must not block the live switch.
+        process.stderr.write(
+          `atom-lite: could not persist model choice: ${message}\n`,
+        );
       });
       return { provider: profile, model, models: webModels() };
     };
@@ -1673,31 +1706,14 @@ export async function run(args: string[]): Promise<void> {
     }
     pcfg.model = model;
     config.defaultProvider = profile;
-    try {
-      saveProviderSelection(
-        profile,
-        { model },
-        {
-          defaultProvider: profile,
-          ephemeral: extensionProviderNames.has(profile),
-        },
-      );
-    } catch (err) {
-      appendLine(
-        `warning: could not persist model choice: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
     modelByProvider.set(profile, model);
     modelOverride = model;
     provider = createProvider(config, profile, model);
     runtime.switchModel(provider, model);
     refreshContextWindow();
     appendLine(`switched to ${profile}/${model}`);
-    await extensionDispatch("config_change", {
-      type: "config_change",
-      scope: "model",
-      provider: profile,
-      model,
+    await commitModelSelection(profile, model, (message) => {
+      appendLine(`warning: could not persist model choice: ${message}`);
     });
   }
 
@@ -2283,17 +2299,16 @@ export async function run(args: string[]): Promise<void> {
     runTurn,
     isTurnActive: () => activeTurnController !== null,
     requestExit: () => {
-      void extensionLoader
-        .notifySessionEnd()
-        .catch(() => {})
-        .finally(() => {
-          void shutdownLsp().finally(() => {
-            void mcpManager.close().finally(() => {
+      void closeInteractiveSession(
+        extensionLoader,
+        () =>
+          shutdownLsp().finally(() =>
+            mcpManager.close().finally(() => {
               tui.stop();
-              process.exit(0);
-            });
-          });
-        });
+            }),
+          ),
+        (code) => process.exit(code),
+      );
     },
   };
 

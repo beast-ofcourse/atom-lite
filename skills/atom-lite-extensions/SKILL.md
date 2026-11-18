@@ -149,9 +149,13 @@ pi.off("tool_call", handler);
 
 Valid events (`AtomEvent`): `extension_load`, `extension_activate`,
 `extension_unload`, `extension_error`, `session_start`, `session_end`,
-`turn_start`, `turn_end`, `tool_call`, `tool_result`, `message`, `message_start`,
-`message_end`, `context_build`, `config_change`. Tier 3 APIs are failing stubs;
-check `pi.supports(name)` before calling one.
+`session_shutdown`, `turn_start`, `turn_end`, `agent_before_settle`,
+`agent_settled`, `context_build`, `before_provider_request`,
+`after_provider_response`, `message_start`, `message_end`, `tool_call`,
+`tool_result`, `tool_execution_start`, `tool_execution_end`,
+`tool_execution_update`, `config_change`. Tier 3 APIs are failing stubs; check
+`pi.supports(name)` before calling one. `supports()` checks the method, not its
+arguments.
 
 ## UI
 
@@ -236,10 +240,13 @@ pi.registerMarkdownTransformer((markdown) => markdown);
   exposure, MCP server registration, OAuth providers, RPC mode, custom editors,
   and model factories. Each throws `ExtensionCompatibilityError` naming the
   method, tier, and a replacement. Check `pi.supports(name)` first;
-  `pi.apiVersion` identifies the API surface.
+  `pi.apiVersion` identifies the API surface. `supports()` checks method
+  availability only: `registerTool` reports `true` but still throws for
+  `exposure: "codemode"`.
 
-Reduced-compat provider keys (`oauth`, `streamSimple`, `classifiers`, image
-generation, `refreshModels`) emit warnings rather than failing.
+Provider config keys outside the mapped set (`baseUrl`, `apiKey`, `headers`,
+`authHeader`, `models`) and identity keys (`name`, `id`, `config`) emit a
+reduced-compatibility warning naming the key and are not applied.
 
 ## Diagnostics
 

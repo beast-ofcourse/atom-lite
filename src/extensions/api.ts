@@ -95,7 +95,11 @@ export interface ExtensionAPI {
 
   /** Version of this ExtensionAPI surface; use with `supports` to branch. */
   apiVersion: string;
-  /** True when calling `method` will not throw a compatibility error. */
+  /**
+   * True when `method` exists and is not a Tier 3 stub. It does not validate
+   * arguments: `registerTool()` still throws for `exposure: "codemode"` while
+   * this returns true for `registerTool`.
+   */
   supports(method: string): boolean;
 
   // Tier 3 stubs. Each throws ExtensionCompatibilityError at the call site.
@@ -137,6 +141,8 @@ export interface ExtensionRegistries {
   status: Map<string, string | undefined>;
   /** Host hook for rejections that must surface as `extension_error`. */
   reportError?: (message: string) => void;
+  /** Host hook to drop a provider from model selection in the same call. */
+  onProviderUnregistered?: (name: string) => void;
 }
 
 export function createExtensionRegistries(): ExtensionRegistries {
@@ -385,6 +391,9 @@ export function createExtensionAPI(
       registries.models = registries.models.filter(
         (model) => model.provider !== name,
       );
+      // The host keeps its own provider config and model cache for selection.
+      // Drop them here so an unregistered model cannot be picked next turn.
+      registries.onProviderUnregistered?.(name);
     },
     registerModel: (model) => {
       registries.models.push(model);

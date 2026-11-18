@@ -1,7 +1,6 @@
 import type { SlashCommand } from "@earendil-works/pi-tui";
 import type { Skill } from "../skills/registry.js";
 import type { AgentPersona } from "../agents/registry.js";
-import type { ExtensionContext } from "../extensions/types.js";
 import { execFileSync } from "node:child_process";
 
 /**
@@ -76,8 +75,6 @@ export interface CommandContext {
   /** Manage project trust for extensions/agents. Takes effect on reload. */
   setProjectTrust(decision: "allow" | "deny" | "reset"): void;
   requestExit(): void;
-  /** Extension context for the command being dispatched, when applicable. */
-  extension?: ExtensionContext;
 }
 
 export interface ParsedCommand {
@@ -769,10 +766,7 @@ export function createCommandRegistry(
       async run(ctx, args) {
         // Extension handlers get the same ExtensionContext tools and hooks
         // receive. Built-ins keep CommandContext untouched.
-        const handlerCtx =
-          (command as any).extensionContext ??
-          (ctx as CommandContext).extension ??
-          ctx;
+        const handlerCtx = (command as any).extensionContext ?? ctx;
         if (typeof command.run === "function") {
           await command.run(args, handlerCtx);
         } else if (typeof command.handler === "function") {

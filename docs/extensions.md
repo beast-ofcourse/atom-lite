@@ -50,12 +50,12 @@ reader outside `api.ts`; the matrix records its location as `{ file, line }`.
 code reads the value. `unsupported` methods are reserved for features with no
 implementation.
 
-| Status        | Methods | Meaning                                   |
-| ------------- | ------- | ----------------------------------------- |
-| `supported`   | 18      | Effect is consumed by the host.           |
-| `reduced`     | 8       | Works with limits; see Reduced behavior.  |
-| `no-op`       | 20      | Call is accepted; nothing consumes it.    |
-| `unsupported` | 7       | Failing stub; see Tier 3.                 |
+| Status        | Methods | Meaning                                  |
+| ------------- | ------- | ---------------------------------------- |
+| `supported`   | 18      | Effect is consumed by the host.          |
+| `reduced`     | 8       | Works with limits; see Reduced behavior. |
+| `no-op`       | 20      | Call is accepted; nothing consumes it.   |
+| `unsupported` | 7       | Failing stub; see Tier 3.                |
 
 **`supported`:** `registerTool`, `unregisterTool`, `setActiveTools`,
 `getActiveTools`, `getAllTools`, `registerCommand`, `unregisterCommand`, `on`,
@@ -79,15 +79,18 @@ accepted for compatibility but have no effect in this release.
 ## Reduced behavior
 
 `registerProvider` maps an OpenAI-compatible config into Atom-lite's provider
-list. Config keys `oauth`, `streamSimple`, `classifiers`, `refreshModels`, and
-`images` emit a reduced-compatibility warning and are not applied.
+list. The host applies `baseUrl`, `apiKey`, `headers`, `authHeader`, and
+`models`; identity keys (`name`, `id`, `config`) are ignored. Every other config
+key emits a reduced-compatibility warning naming that key and is not applied.
 
 `appendEntry` and `getSessionEntries` persist custom entries in the session
 event log and read them back after resume; no host view renders them.
 `getSessionManager()` returns a real read model over the live session. `notify`,
 `exec`, and `log` run, but their output is not surfaced in the host UI.
-`supports(method)` returns `true` for every method that will not throw a
-compatibility error, including `no-op` methods.
+`supports(method)` returns `false` only for Tier 3 stubs; implemented and
+`no-op` methods return `true`. It does not validate arguments: registering a
+tool with `exposure: "codemode"` still throws even though
+`supports("registerTool")` is `true`.
 
 ## Tier 3
 
@@ -105,7 +108,7 @@ error. Use `"direct"` or `"model-only"` instead.
 Check `pi.supports(name)` before calling a deferred API, and read
 `pi.apiVersion` to branch on the API surface:
 
-```ts
+```text
 if (pi.supports("registerMcpServer")) {
   pi.registerMcpServer({ name: "fs" });
 }
@@ -125,7 +128,7 @@ marks which methods have an effect.
 - `getSessionManager()` → a Pi session read model over the live session; entries persist across resume
 - `isProjectTrusted()` → boolean
 - `apiVersion` → string version of this API surface
-- `supports(method)` → boolean; `false` for Tier 3 stubs
+- `supports(method)` → boolean; `false` only for Tier 3 stubs; see Reduced behavior
 
 **Tools**
 

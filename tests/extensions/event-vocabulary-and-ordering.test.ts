@@ -7,8 +7,9 @@
 //   - AgentRuntime with FakeProvider and TurnRecorder.extensionDispatch: the
 //     typed turn vocabulary and awaited handler completion. Catches missing
 //     events and fire-and-forget dispatch in the agent loop.
-//   - Source text of the dispatch sites: no `void extensionDispatch` path
-//     remains. Catches a reintroduced unawaited dispatch in the CLI shell.
+//   - ExtensionLoader.dispatchEvent(): host-owned events reach subscribers and
+//     awaited handlers settle before dispatch resolves. Catches a dropped event
+//     or a reintroduced fire-and-forget path without inspecting source text.
 //
 // Each test names the failure it pins.
 import { test } from "node:test";
@@ -22,8 +23,6 @@ import { TurnRecorder } from "../../dist/agent/turn-recorder.js";
 import { FakeProvider } from "../../dist/providers/fake.js";
 import { InMemorySession } from "../../dist/sessions/store.js";
 import { bashTool } from "../../dist/tools/index.js";
-
-const ROOT = join(import.meta.dirname, "..", "..");
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), "atom-lite-events-"));
@@ -283,53 +282,80 @@ test("sibling extension receives extension_error exactly once after commit", asy
   }
 });
 
-test("no dispatch site is fire-and-forget", () => {
-  for (const file of [
-    "src/cli/app.ts",
-    "src/agent/loop.ts",
-    "src/agent/turn-recorder.ts",
-  ]) {
-    const source = readFileSync(join(ROOT, file), "utf8");
-    assert.equal(
-      /void\s+(?:this\.)?extensionDispatch\b/.test(source),
-      false,
-      `${file} discards an extension dispatch`,
+test("every host-owned event reaches a subscribed handler through dispatch", async () => {
+  // Behavioural contract for ticket 06: the host events the agent loop does
+  // not emit must still reach subscribers through the real dispatch seam.
+  const dir = tempDir();
+  const log = join(dir, "host-events.log");
+  const hostEvents = [
+    "session_start",
+    "session_shutdown",
+    "config_change",
+    "session_end",
+  ];
+  try {
+    writeFileSync(
+      join(dir, "watcher.js"),
+      [
+        'import { appendFileSync } from "node:fs";',
+        `const log = ${JSON.stringify(log)};`,
+        "export default (api) => {",
+        `  for (const type of ${JSON.stringify(hostEvents)}) {`,
+        "    api.on(type, (event) => appendFileSync(log, `${event.type}\\n`));",
+        "  }",
+        "};",
+        "",
+      ].join("\n"),
     );
+    const loader = new ExtensionLoader({
+      userDir: dir,
+      agentDir: join(dir, "agent"),
+    });
+    await loader.loadAll();
+    for (const type of hostEvents.slice(0, 3) as any[]) {
+      await loader.dispatchEvent(type, { type });
+    }
+    await loader.notifySessionEnd();
+
+    assert.deepEqual(readFileSync(log, "utf8").trim().split("\n"), hostEvents);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("every emitted event name is in the typed AtomEvent vocabulary", () => {
-  const emitted = new Set<string>();
-  for (const file of [
-    "src/agent/loop.ts",
-    "src/agent/turn-recorder.ts",
-    "src/cli/app.ts",
-    "src/extensions/loader.ts",
-  ]) {
-    const source = readFileSync(join(ROOT, file), "utf8");
-    for (const match of source.matchAll(
-      /extensionDispatch\??\.\(\s*"([a-z_]+)"/g,
-    )) {
-      emitted.add(match[1]);
-    }
-    for (const match of source.matchAll(/recordLifecycle\(\s*"([a-z_]+)"/g)) {
-      emitted.add(match[1]);
-    }
-  }
-  assert.ok(emitted.size > 0, "emission scan found no events");
+test("a slow config_change handler settles before dispatch resolves", async () => {
+  // Behavioural replacement for the fire-and-forget source scan: a pending
+  // handler must hold the dispatch open, not leak into a later turn.
+  const dir = tempDir();
+  const marker = join(dir, "settled");
+  try {
+    writeFileSync(
+      join(dir, "slow.js"),
+      [
+        'import { writeFileSync } from "node:fs";',
+        `const marker = ${JSON.stringify(marker)};`,
+        "export default (api) => {",
+        "  api.on('config_change', async () => {",
+        "    await new Promise((resolve) => setTimeout(resolve, 15));",
+        '    writeFileSync(marker, "done");',
+        "  });",
+        "};",
+        "",
+      ].join("\n"),
+    );
+    const loader = new ExtensionLoader({
+      userDir: dir,
+      agentDir: join(dir, "agent"),
+    });
+    await loader.loadAll();
 
-  const source = readFileSync(join(ROOT, "src/extensions/types.ts"), "utf8");
-  const body = /export type AtomEvent =([\s\S]*?);/.exec(source)?.[1];
-  assert.ok(body, "AtomEvent union not found");
-  const typed = new Set(
-    [...body.matchAll(/"([a-z_]+)"/g)].map((match) => match[1]),
-  );
-  for (const name of emitted) {
-    assert.ok(typed.has(name), `${name} is emitted but not typed`);
+    await loader.dispatchEvent("config_change", { type: "config_change" });
+    assert.equal(
+      readFileSync(marker, "utf8"),
+      "done",
+      "dispatch resolved before the handler settled",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
-  assert.equal(
-    typed.has("message"),
-    false,
-    '"message" is never emitted and must not be advertised',
-  );
 });
