@@ -374,6 +374,14 @@ export const readTool: Tool = {
         };
       }
     }
+    const noteRead = (): void => {
+      if (!ctx.onReadPath) return;
+      try {
+        ctx.onReadPath(full);
+      } catch {
+        // Instruction discovery must never fail an otherwise successful read.
+      }
+    };
     if (st.isDirectory()) {
       const content = await pageDirectory({
         displayPath,
@@ -382,6 +390,7 @@ export const readTool: Tool = {
         limit,
         outputCap: ctx.maxToolOutputBytes ?? DEFAULT_OUTPUT_CAP,
       });
+      if (content !== "FILE_NOT_FOUND") noteRead();
       return {
         toolCallId: call.id,
         name: "read",
@@ -424,6 +433,7 @@ export const readTool: Tool = {
         }
         const buf = await readFile(full);
         const kind = mime === "application/pdf" ? "PDF" : "Image";
+        noteRead();
         return {
           toolCallId: call.id,
           name: "read",
@@ -449,6 +459,7 @@ export const readTool: Tool = {
         limit,
         outputCap: cap,
       });
+      noteRead();
       return { toolCallId: call.id, name: "read", content };
     } finally {
       await handle.close();

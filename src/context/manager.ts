@@ -77,6 +77,7 @@ const DEFAULT_MAX_INPUT = 128000;
 export class ContextManager {
   private opts: ContextManagerOptions;
   private instructionCache?: { signature: string; text: string[] };
+  private discoveredInstructionPaths: string[] = [];
   private skillCache?: { workspace: string; signature: string; index: string };
   private modelContextWindow: number | undefined;
   private compactedThisBuild = false;
@@ -117,6 +118,17 @@ export class ContextManager {
 
   setSystemPrompt(prompt: string): void {
     this.opts.systemPrompt = prompt;
+  }
+
+  /** Register instruction files discovered beside reads. Returns true when any path is new. */
+  noteDiscoveredInstructions(paths: string[]): boolean {
+    let added = false;
+    for (const path of paths) {
+      if (this.discoveredInstructionPaths.includes(path)) continue;
+      this.discoveredInstructionPaths.push(path);
+      added = true;
+    }
+    return added;
   }
 
   /** Drop cached instruction, skill, and repo-map indexes so the next build rescans disk. */
@@ -429,6 +441,7 @@ export class ContextManager {
         userPath,
         join(workspace, "AGENTS.md"),
         join(workspace, "CLAUDE.md"),
+        ...this.discoveredInstructionPaths,
       ]);
     let instructions: string[];
     if (this.instructionCache?.signature === instructionSignature) {
@@ -438,6 +451,7 @@ export class ContextManager {
         workspace,
         this.opts.maxProjectInstructionBytes,
         userPath,
+        this.discoveredInstructionPaths,
       );
       this.instructionCache = {
         signature: instructionSignature,

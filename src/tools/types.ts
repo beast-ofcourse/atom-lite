@@ -44,6 +44,8 @@ export interface ToolContext {
   todos?: import("../runtime/todos.js").TodoStore;
   /** Session goal, if available. */
   goal?: import("../runtime/goal.js").GoalStore;
+  /** Called after a successful read so nearby project instructions can be discovered. */
+  onReadPath?: (path: string) => void;
   /** Live output from a running command, forwarded to the UI. */
   onToolOutput?: (
     call: ToolCall,

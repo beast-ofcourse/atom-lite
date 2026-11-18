@@ -32,6 +32,8 @@ Images and PDFs are detected from file bytes, not extensions, and attach to the 
 
 A missing path is corrected when one sibling has the same stem with another extension, when a name differs only by Unicode look-alikes, or when an absolute path was written from the workspace's parent directory. Otherwise the error names up to three ranked sibling suggestions, and a missing folder names its nearest existing parent. Recovery never reads outside the workspace.
 
+`AGENTS.md` and `CLAUDE.md` files beside a path you read become project instructions for the session. The walk stops at the workspace root; root-level instruction files are always injected, and duplicates are loaded once.
+
 ## Scheduling
 
 A tool-call batch runs with at most `runtime.maxParallelToolCalls` (default `10`) concurrent calls. Per-file read/write locks prevent conflicting edits. `bash` is a global exclusive barrier unless `runtime.bashConcurrency` is `parallel`.

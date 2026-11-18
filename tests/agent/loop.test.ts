@@ -1,3 +1,4 @@
+// Reason: spec — a read must register nearby AGENTS.md so the next context build sees it.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AgentRuntime } from "../../dist/agent/loop.js";
@@ -10,7 +11,8 @@ import {
   todoTool,
 } from "../../dist/tools/index.js";
 import { TodoStore } from "../../dist/runtime/todos.js";
-import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, existsSync } from "node:fs";
+import { ContextManager } from "../../dist/context/manager.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -47,6 +49,39 @@ test("agent loop executes a read tool then returns final answer", async () => {
   assert.equal(result, "done");
   // tool result recorded
   assert.ok(session.messages.some((m) => m.role === "tool"));
+});
+
+test("agent loop injects instructions discovered by a read", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-nested-"));
+  mkdirSync(join(dir, "sub"));
+  writeFileSync(join(dir, "sub", "AGENTS.md"), "nested loop guidance");
+  writeFileSync(join(dir, "sub", "file.txt"), "body\n");
+  const provider = new FakeProvider([
+    { toolCalls: [{ id: "c1", name: "read", arguments: { path: "sub/file.txt" } }] },
+    { text: "done" },
+  ]);
+  const contextManager = new ContextManager({
+    systemPrompt: "system",
+    maxInputTokens: null,
+    reserveOutputTokens: 100,
+    compactAtPercent: 85,
+    maxProjectInstructionBytes: 30000,
+    provider,
+    model: "fake",
+    userInstructionsPath: join(dir, "missing-user-AGENTS.md"),
+  });
+  const runtime = new AgentRuntime({
+    provider,
+    workspace: dir,
+    tools: [readTool],
+    contextManager,
+  });
+  const session = new InMemorySession("s1", dir);
+  assert.equal(await runtime.runAgentTurn("read a file", session, new AbortController().signal), "done");
+  const built = (await contextManager.build(dir, []))
+    .map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)))
+    .join("\n");
+  assert.match(built, /nested loop guidance/);
 });
 
 test("agent loop forwards streamed bash output and tool diffs", async () => {

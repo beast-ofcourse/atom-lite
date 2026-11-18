@@ -9,6 +9,7 @@ import {
   getDiagnostics as getLspDiagnostics,
 } from "../lsp/index.js";
 import { ContextManager } from "../context/manager.js";
+import { discoverInstructionPaths } from "../context/instructions.js";
 import { DEFAULT_SYSTEM_PROMPT } from "./system-prompt.js";
 import { BackgroundTaskManager } from "../runtime/background-tasks.js";
 import { TodoStore } from "../runtime/todos.js";
@@ -222,6 +223,16 @@ export class AgentRuntime {
   /** Force the next context build to rescan AGENTS.md and skills from disk. */
   invalidateContextCaches(): void {
     this.contextManager.invalidateCaches();
+  }
+
+  /** Register instruction files found beside a path the agent just read. */
+  noteReadPath(readPath: string): void {
+    try {
+      const discovered = discoverInstructionPaths(this.workspace, readPath);
+      this.contextManager.noteDiscoveredInstructions(discovered);
+    } catch {
+      // Discovery is best effort; a read must not fail because of it.
+    }
   }
 
   getPersona(): AgentPersona | undefined {
@@ -851,6 +862,7 @@ export class AgentRuntime {
           signal,
           maxBashTimeMs: this.limits.maxBashTimeMs,
           maxToolOutputBytes: this.limits.maxToolOutputBytes,
+          onReadPath: (readPath: string) => this.noteReadPath(readPath),
           approvals: this.approvals,
           questions: this.questions,
           agentPermissions: this.persona?.permissions,

@@ -4,6 +4,7 @@ export interface ReadTestOptions {
   maxToolOutputBytes?: number;
   supportsVision?: boolean;
   mode?: "plan" | "yolo";
+  onReadPath?: (path: string) => void;
 }
 
 /** Call the built read tool with a minimal context; tests assert only model-visible results. */

@@ -1,5 +1,7 @@
 import { readFileSync, existsSync, statSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
+
+const INSTRUCTION_NAMES = ["AGENTS.md", "CLAUDE.md"];
 
 /** Cheap change detector for a set of files (mtime + size). */
 export function statSignature(paths: string[]): string {
@@ -15,10 +17,46 @@ export function statSignature(paths: string[]): string {
     .join("|");
 }
 
+/** Find instruction files beside a read target, walking up to the workspace root exclusive. */
+export function discoverInstructionPaths(workspace: string, target: string): string[] {
+  try {
+    if (!existsSync(target) || !isAbsolute(target)) return [];
+    const root = realpathSync(workspace);
+    const resolved = realpathSync(target);
+    let cursor = statSync(resolved).isDirectory() ? resolved : dirname(resolved);
+    const found: string[] = [];
+    const seen = new Set<string>();
+    for (;;) {
+      const rel = relative(root, cursor);
+      if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) break;
+      for (const name of INSTRUCTION_NAMES) {
+        const candidate = join(cursor, name);
+        if (!existsSync(candidate)) continue;
+        let key = candidate;
+        try {
+          key = realpathSync(candidate);
+        } catch {
+          // Keep the lexical path when the file cannot be resolved.
+        }
+        if (seen.has(key)) continue;
+        seen.add(key);
+        found.push(candidate);
+      }
+      const parent = dirname(cursor);
+      if (parent === cursor) break;
+      cursor = parent;
+    }
+    return found;
+  } catch {
+    return [];
+  }
+}
+
 export function loadProjectInstructions(
   workspace: string,
   maxBytes: number,
   userInstructionsPath?: string,
+  extraPaths: string[] = [],
 ): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -40,5 +78,6 @@ export function loadProjectInstructions(
   if (userInstructionsPath) pushFile(userInstructionsPath);
   pushFile(join(workspace, "AGENTS.md"));
   pushFile(join(workspace, "CLAUDE.md"));
+  for (const path of extraPaths) pushFile(path);
   return out;
 }
