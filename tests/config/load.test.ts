@@ -114,3 +114,63 @@ test("project config cannot override user ui settings", () => {
   assert.equal(cfg.ui.theme, "light");
   assert.equal(cfg.ui.mouse, true);
 });
+
+test("context.repoMap gets its defaults when the keys are absent", () => {
+  const dir = mkdtempSync(join(tmpdir(), "atom-"));
+  const cfg = loadConfig({
+    projectRoot: dir,
+    userConfigPath: join(dir, "nope.json"),
+  });
+  assert.deepEqual((cfg.context as any).repoMap, {
+    enabled: true,
+    maxTokens: 1200,
+    maxFiles: 400,
+  });
+});
+
+test("context.repoMap accepts explicit values", () => {
+  const dir = mkdtempSync(join(tmpdir(), "atom-"));
+  mkdirSync(join(dir, ".atom-lite"));
+  writeFileSync(
+    join(dir, ".atom-lite", "config.json"),
+    JSON.stringify({
+      context: { repoMap: { enabled: false, maxTokens: 0, maxFiles: 12 } },
+    }),
+  );
+  const cfg = loadConfig({
+    projectRoot: dir,
+    userConfigPath: join(dir, "nope.json"),
+  });
+  assert.deepEqual((cfg.context as any).repoMap, {
+    enabled: false,
+    maxTokens: 0,
+    maxFiles: 12,
+  });
+});
+
+test("context.repoMap rejects a negative maxTokens", () => {
+  const dir = mkdtempSync(join(tmpdir(), "atom-"));
+  mkdirSync(join(dir, ".atom-lite"));
+  writeFileSync(
+    join(dir, ".atom-lite", "config.json"),
+    JSON.stringify({ context: { repoMap: { maxTokens: -1 } } }),
+  );
+  assert.throws(() =>
+    loadConfig({ projectRoot: dir, userConfigPath: join(dir, "nope.json") }),
+  );
+});
+
+test("an old config without context.repoMap still loads", () => {
+  const dir = mkdtempSync(join(tmpdir(), "atom-"));
+  mkdirSync(join(dir, ".atom-lite"));
+  writeFileSync(
+    join(dir, ".atom-lite", "config.json"),
+    JSON.stringify({ context: { compactAtPercent: 70 } }),
+  );
+  const cfg = loadConfig({
+    projectRoot: dir,
+    userConfigPath: join(dir, "nope.json"),
+  });
+  assert.equal(cfg.context.compactAtPercent, 70);
+  assert.equal((cfg.context as any).repoMap.enabled, true);
+});

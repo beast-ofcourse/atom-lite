@@ -38,6 +38,14 @@ export const RuntimeConfigSchema = z
   })
   .strict();
 
+export const RepoMapConfigSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    maxTokens: z.number().int().nonnegative().default(1200),
+    maxFiles: z.number().int().nonnegative().default(400),
+  })
+  .strict();
+
 export const ContextConfigSchema = z
   .object({
     maxInputTokens: z.number().int().positive().nullable().default(null),
@@ -52,6 +60,8 @@ export const ContextConfigSchema = z
     compactionModel: z.string().min(1).nullable().default(null),
     /** Prompt-cache prefix layout: off keeps today's message order. */
     cacheMode: z.enum(["off", "automatic", "explicit"]).default("off"),
+    /** Bounded, deterministic repo map injected as trailing context. */
+    repoMap: RepoMapConfigSchema.prefault({}),
   })
   .strict();
 

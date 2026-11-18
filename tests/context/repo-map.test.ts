@@ -10,8 +10,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ContextManager } from "../../dist/context/manager.js";
+import { estimateMessageTokens } from "../../dist/context/budget.js";
 
 const HEADER = "Repository map:";
+
+interface RepoMapSettings {
+  enabled: boolean;
+  maxTokens: number;
+  maxFiles: number;
+}
 
 function stubProvider(): any {
   return {
@@ -27,7 +34,7 @@ function stubProvider(): any {
   };
 }
 
-function manager(dir: string): ContextManager {
+function manager(dir: string, repoMap?: RepoMapSettings): ContextManager {
   return new ContextManager({
     systemPrompt: "system",
     maxInputTokens: null,
@@ -37,6 +44,7 @@ function manager(dir: string): ContextManager {
     provider: stubProvider(),
     model: "test",
     userInstructionsPath: join(dir, "user-AGENTS.md"),
+    ...(repoMap ? { repoMap } : {}),
   });
 }
 
@@ -167,4 +175,106 @@ test("the map is included in token accounting used for compaction", async () => 
   const withoutMap = await cm.build(dir, []);
   assert.equal(mapText(withoutMap), "");
   assert.ok(cm.getLastBuildTokens() < tokensWithMap);
+});
+
+test("enabled:false removes only the map and leaves the rest of model input unchanged", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-disabled-"));
+  writeFileSync(
+    join(dir, "math.ts"),
+    "export function add(a: number): number { return a; }\n",
+  );
+  const withMap = await manager(dir).build(dir, []);
+  assert.match(mapText(withMap), /^Repository map:/);
+
+  const disabled = await manager(dir, {
+    enabled: false,
+    maxTokens: 1200,
+    maxFiles: 400,
+  }).build(dir, []);
+  assert.equal(mapText(disabled), "");
+  const withoutMapMessages = withMap.filter(
+    (m) =>
+      !(typeof m.content === "string" && m.content.startsWith(HEADER)),
+  );
+  assert.deepEqual(disabled, withoutMapMessages);
+});
+
+test("a zero token budget produces no map header", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-zero-budget-"));
+  writeFileSync(join(dir, "api.ts"), "export function alpha() {}\n");
+  const messages = await manager(dir, {
+    enabled: true,
+    maxTokens: 0,
+    maxFiles: 400,
+  }).build(dir, []);
+  assert.equal(mapText(messages), "");
+});
+
+test("the map stays within its token budget and notes omitted definitions", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-budget-"));
+  for (let i = 0; i < 14; i++) {
+    const longParams = Array.from(
+      { length: 12 },
+      (_, j) => `param${j}: SomeLongTypeName${j}`,
+    ).join(", ");
+    writeFileSync(
+      join(dir, `mod${i}.ts`),
+      `export function fn${i}(${longParams}): SomeReturnType { return value; }\n`,
+    );
+  }
+  const maxTokens = 160;
+  const messages = await manager(dir, {
+    enabled: true,
+    maxTokens,
+    maxFiles: 400,
+  }).build(dir, []);
+  const map = mapText(messages);
+
+  assert.match(map, /^Repository map:/);
+  assert.match(map, /mod\d+\.ts:1: export function fn/);
+  assert.match(map, /omit/i);
+  assert.ok(estimateMessageTokens({ role: "system", content: map }) <= maxTokens);
+});
+
+test("a workspace too large for any definition degrades to a ranked file list", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-fallback-"));
+  const long = "a".repeat(180);
+  for (let i = 0; i < 3; i++) {
+    writeFileSync(
+      join(dir, `f${i}.ts`),
+      `export function long${i}(${long}): SomeLongReturnType { return value; }\n`,
+    );
+  }
+  const maxTokens = 40;
+  const messages = await manager(dir, {
+    enabled: true,
+    maxTokens,
+    maxFiles: 400,
+  }).build(dir, []);
+  const map = mapText(messages);
+
+  assert.match(map, /^Repository map:/);
+  assert.match(map, /f0\.ts/);
+  assert.match(map, /f1\.ts/);
+  assert.match(map, /f2\.ts/);
+  assert.doesNotMatch(map, /export function/);
+  assert.match(map, /omit/i);
+  assert.ok(estimateMessageTokens({ role: "system", content: map }) <= maxTokens);
+});
+
+test("maxFiles caps the number of files considered", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-max-files-"));
+  for (let i = 0; i < 5; i++) {
+    writeFileSync(join(dir, `f${i}.ts`), `export function fn${i}() {}\n`);
+  }
+  const messages = await manager(dir, {
+    enabled: true,
+    maxTokens: 1200,
+    maxFiles: 2,
+  }).build(dir, []);
+  const map = mapText(messages);
+  const paths = new Set(
+    [...map.matchAll(/(f\d)\.ts:\d+:/g)].map((m) => m[1]),
+  );
+  assert.equal(paths.size, 2);
 });
