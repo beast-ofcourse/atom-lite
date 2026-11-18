@@ -125,6 +125,91 @@ export class GeminiAdapter implements ProviderAdapter {
     return headers;
   }
 
+  /** Shared request body for generate() and stream(). */
+  private buildBody(
+    request: ModelRequest,
+    systemInstruction: any,
+    contents: any[],
+  ): any {
+    const body: any = { contents };
+    if (systemInstruction) body.systemInstruction = systemInstruction;
+    const effort = (request.options as any)?.effort;
+    const temperature = (request.options as any)?.temperature;
+    if (effort || typeof temperature === "number") {
+      body.generationConfig = { ...(body.generationConfig ?? {}) };
+      if (effort) {
+        const budget =
+          effort === "low" ? 1024 : effort === "high" ? 16384 : 4096;
+        body.generationConfig.thinkingConfig = { thinkingBudget: budget };
+      }
+      if (typeof temperature === "number") {
+        body.generationConfig.temperature = temperature;
+      }
+    }
+    if (request.tools && request.tools.length) {
+      body.tools = [
+        {
+          functionDeclarations: request.tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            parameters: t.parameters,
+          })),
+        },
+      ];
+    }
+    return body;
+  }
+
+  /** Shared POST with transient-failure retries. */
+  private async postWithRetries(
+    url: string,
+    body: any,
+    requestId: string,
+    signal: AbortSignal | undefined,
+  ): Promise<Response> {
+    let res: Response | undefined;
+    let lastErr: Error | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: this.buildHeaders(requestId),
+          body: JSON.stringify(body),
+          signal,
+        });
+      } catch (err) {
+        lastErr = new Error(
+          `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        if (attempt < 2) {
+          await delay(200 * (attempt + 1), signal);
+          continue;
+        }
+        throw lastErr;
+      }
+      if (res.ok) break;
+      const text = await res.text().catch(() => "");
+      if (res.status === 401 || res.status === 403)
+        throw new Error(`PROVIDER_AUTH_FAILED: ${text}`);
+      if (isRetryableStatus(res.status)) {
+        lastErr = new Error(
+          res.status === 429
+            ? `PROVIDER_RATE_LIMITED: ${text}`
+            : `PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`,
+        );
+        if (attempt < 2) {
+          await delay(retryDelayMs(res, attempt, 500), signal);
+          continue;
+        }
+        throw lastErr;
+      }
+      throw new Error(`PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`);
+    }
+    if (!res || !res.ok)
+      throw lastErr ?? new Error("PROVIDER_INVALID_RESPONSE");
+    return res;
+  }
+
   private fetchModelList(): Promise<any[]> {
     if (!this.apiKey) return Promise.resolve([]);
     if (!this.modelList) {
@@ -174,74 +259,15 @@ export class GeminiAdapter implements ProviderAdapter {
   async generate(request: ModelRequest): Promise<ModelResponse> {
     if (!this.apiKey) throw new Error("PROVIDER_AUTH_FAILED: missing API key");
     const { systemInstruction, contents } = toGeminiContents(request.messages);
-    const url = `${this.baseUrl}/v1beta/models/${encodeURIComponent(this.model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
-    const body: any = { contents };
-    if (systemInstruction) body.systemInstruction = systemInstruction;
-    const effort = (request.options as any)?.effort;
-    const temperature = (request.options as any)?.temperature;
-    if (effort || typeof temperature === "number") {
-      body.generationConfig = { ...(body.generationConfig ?? {}) };
-      if (effort) {
-        const budget =
-          effort === "low" ? 1024 : effort === "high" ? 16384 : 4096;
-        body.generationConfig.thinkingConfig = { thinkingBudget: budget };
-      }
-      if (typeof temperature === "number") {
-        body.generationConfig.temperature = temperature;
-      }
-    }
-    if (request.tools && request.tools.length) {
-      body.tools = [
-        {
-          functionDeclarations: request.tools.map((t) => ({
-            name: t.name,
-            description: t.description,
-            parameters: t.parameters,
-          })),
-        },
-      ];
-    }
+    const body = this.buildBody(request, systemInstruction, contents);
     const requestId = resolveRequestId(request.requestId);
-    let res: Response | undefined;
-    let lastErr: Error | undefined;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        res = await fetch(url, {
-          method: "POST",
-          headers: this.buildHeaders(requestId),
-          body: JSON.stringify(body),
-          signal: request.signal,
-        });
-      } catch (err) {
-        lastErr = new Error(
-          `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        if (attempt < 2) {
-          await delay(200 * (attempt + 1), request.signal);
-          continue;
-        }
-        throw lastErr;
-      }
-      if (res.ok) break;
-      const text = await res.text().catch(() => "");
-      if (res.status === 401 || res.status === 403)
-        throw new Error(`PROVIDER_AUTH_FAILED: ${text}`);
-      if (isRetryableStatus(res.status)) {
-        lastErr = new Error(
-          res.status === 429
-            ? `PROVIDER_RATE_LIMITED: ${text}`
-            : `PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`,
-        );
-        if (attempt < 2) {
-          await delay(retryDelayMs(res, attempt, 500), request.signal);
-          continue;
-        }
-        throw lastErr;
-      }
-      throw new Error(`PROVIDER_INVALID_RESPONSE: ${res.status} ${text}`);
-    }
-    if (!res || !res.ok)
-      throw lastErr ?? new Error("PROVIDER_INVALID_RESPONSE");
+    const url = `${this.baseUrl}/v1beta/models/${encodeURIComponent(this.model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
+    const res = await this.postWithRetries(
+      url,
+      body,
+      requestId,
+      request.signal,
+    );
     const json = (await res.json()) as any;
     const candidate = json.candidates?.[0];
     const parts = candidate?.content?.parts ?? [];
@@ -281,12 +307,117 @@ export class GeminiAdapter implements ProviderAdapter {
   }
 
   async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
-    const resp = await this.generate(request);
-    const thinking = (resp.metadata as any)?.thinking;
-    if (thinking) yield { type: "thinking", text: thinking };
-    if (resp.message.content?.[0]?.type === "text") {
-      yield { type: "text", text: (resp.message.content[0] as any).text };
+    if (!this.apiKey) throw new Error("PROVIDER_AUTH_FAILED: missing API key");
+    const { systemInstruction, contents } = toGeminiContents(request.messages);
+    const body = this.buildBody(request, systemInstruction, contents);
+    const requestId = resolveRequestId(request.requestId);
+    const url = `${this.baseUrl}/v1beta/models/${encodeURIComponent(this.model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(this.apiKey)}`;
+    const res = await this.postWithRetries(
+      url,
+      body,
+      requestId,
+      request.signal,
+    );
+
+    let text = "";
+    let thinking = "";
+    const toolCalls: ToolCall[] = [];
+    let usage: TokenUsage | undefined;
+    let providerState: any;
+    let safety = false;
+
+    // One SSE chunk (or one element of a plain-JSON array) may carry several
+    // parts. Emit text/thinking immediately; tool calls go in the done event.
+    const handle = (json: any): ModelStreamEvent[] => {
+      const out: ModelStreamEvent[] = [];
+      if (!json || typeof json !== "object") return out;
+      if (json.usageMetadata) usage = parseGeminiUsage(json.usageMetadata);
+      for (const candidate of Array.isArray(json.candidates)
+        ? json.candidates
+        : []) {
+        if (candidate?.finishReason === "SAFETY") safety = true;
+        const parts = candidate?.content?.parts ?? [];
+        if (candidate?.content && parts.length) {
+          providerState = candidate.content;
+        }
+        for (const part of parts) {
+          if (typeof part?.text !== "string") continue;
+          if (part.thought) {
+            thinking += part.text;
+            out.push({ type: "thinking", text: part.text });
+          } else {
+            text += part.text;
+            out.push({ type: "text", text: part.text });
+          }
+        }
+        for (const part of parts) {
+          if (!part?.functionCall) continue;
+          toolCalls.push({
+            id: `gemini_${toolCalls.length}`,
+            name: part.functionCall.name,
+            arguments: parseArgs(JSON.stringify(part.functionCall.args ?? {})),
+          });
+        }
+      }
+      return out;
+    };
+
+    const isSse = (res.headers.get("content-type") ?? "").includes(
+      "event-stream",
+    );
+    if (isSse && res.body) {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const consumeData = (data: string): ModelStreamEvent[] => {
+        if (!data || data === "[DONE]") return [];
+        try {
+          return handle(JSON.parse(data));
+        } catch {
+          return [];
+        }
+      };
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data:")) continue;
+          for (const event of consumeData(trimmed.slice(5).trim())) yield event;
+        }
+      }
+      const tail = buffer.trim();
+      if (tail.startsWith("data:")) {
+        for (const event of consumeData(tail.slice(5).trim())) yield event;
+      }
+    } else {
+      // Some compatible gateways ignore alt=sse and return one JSON body.
+      const json: any = await res.json().catch(() => undefined);
+      const chunks = Array.isArray(json) ? json : [json];
+      for (const chunk of chunks) {
+        for (const event of handle(chunk)) yield event;
+      }
     }
-    yield { type: "done", response: resp };
+
+    if (safety) throw new Error("PROVIDER_INVALID_RESPONSE: safety block");
+    yield {
+      type: "done",
+      response: {
+        message: {
+          role: "assistant",
+          content: text ? [{ type: "text", text }] : undefined,
+          toolCalls: toolCalls.length ? toolCalls : undefined,
+          providerState,
+        },
+        toolCalls,
+        finishReason: toolCalls.length ? "tool_calls" : "stop",
+        usage,
+        metadata: thinking ? { thinking } : undefined,
+        requestId,
+      },
+    };
   }
 }
