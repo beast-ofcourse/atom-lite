@@ -8,6 +8,7 @@ import {
   skillCacheSignature,
 } from "../skills/registry.js";
 import { estimateMessageTokens } from "./budget.js";
+import { buildRepoMap, clearRepoMapCache } from "./repoMap.js";
 import { userConfigDir } from "../config/paths.js";
 import { recordModelUsage, type UsageLedger } from "../usage/ledger.js";
 import {
@@ -112,10 +113,11 @@ export class ContextManager {
     this.opts.systemPrompt = prompt;
   }
 
-  /** Drop cached instruction and skill indexes so the next build rescans disk. */
+  /** Drop cached instruction, skill, and repo-map indexes so the next build rescans disk. */
   invalidateCaches(): void {
     this.instructionCache = undefined;
     this.skillCache = undefined;
+    clearRepoMapCache();
   }
 
   setToolTokenOverhead(overhead: number): void {
@@ -445,6 +447,14 @@ export class ContextManager {
       ? `${this.opts.systemPrompt}\n\n${skillIndex}`
       : this.opts.systemPrompt;
 
+    // The repo map is a trailing system message, never part of the base system
+    // prompt, so the prompt-cache prefix stays stable. It is injected from the
+    // same computation in both the normal and compacted builds below.
+    const repoMapText = buildRepoMap(workspace);
+    const repoMapMessages: Message[] = repoMapText
+      ? [{ role: "system", content: repoMapText }]
+      : [];
+
     this.buildCount++;
     const periodic =
       this.compactEveryNTurns > 0 &&
@@ -504,6 +514,10 @@ export class ContextManager {
         messages.push(m);
         categories.push("projectInstructions");
       }
+      for (const m of repoMapMessages) {
+        messages.push(m);
+        categories.push("staticMessages");
+      }
     } else {
       for (const m of statics) {
         messages.push(m);
@@ -520,6 +534,10 @@ export class ContextManager {
       for (const m of workingHistory) {
         messages.push(m);
         categories.push("history");
+      }
+      for (const m of repoMapMessages) {
+        messages.push(m);
+        categories.push("staticMessages");
       }
     }
     const prefixEnd = cached
@@ -610,6 +628,10 @@ export class ContextManager {
         compacted.push(m);
         compactedCategories.push("projectInstructions");
       }
+      for (const m of repoMapMessages) {
+        compacted.push(m);
+        compactedCategories.push("staticMessages");
+      }
     } else {
       for (const m of compactedStatics) {
         compacted.push(m);
@@ -626,6 +648,10 @@ export class ContextManager {
       for (const m of recent) {
         compacted.push(m);
         compactedCategories.push("history");
+      }
+      for (const m of repoMapMessages) {
+        compacted.push(m);
+        compactedCategories.push("staticMessages");
       }
     }
     // Final value only; the intermediate assign was dead work.
