@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## v0.18.0 — 2026-11-18
+
 ### Added
 
 - `tools`: `question` asks you to choose labeled options or type an answer mid-turn. Supports multi-select, a custom-answer row, tabs, and a review step; dismissal stops the turn instead of inventing an answer.
@@ -19,9 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`: the favicon is now an `A` monogram with an orbital ring and nucleus, legible at 16px and richer at 32px and above.
 - `web`: a chat's row menu can pin or unpin it; pinned chats stay in a `Pinned` group above the dated history and the choice is stored locally.
 - `web`: the sidebar workspace path opens the host OS's native folder picker on Linux, macOS, Windows, and Android/Termux, and switches the workspace to the selected directory.
+- `agent`: the system prompt tells the model when to show generated images inline in the web UI.
+
+### Changed
+
+- `web`: the desktop transcript widens to 900px while the composer stays at 768px; MCP and persona state labels are clearer and low-contrast metadata is raised.
+- `web`: the home state drops the four suggestion chips and the "Atom-lite can make mistakes" disclaimer; the heading sits directly above the composer.
+- `repo`: the git skill automates audit, branch, commit, gates, merge, and cleanup behind an explicit push gate; local agent and Playwright artifacts are ignored.
 
 ### Fixed
 
+- `cli`/`web`: sub-second turns show their measured duration (`0.4s`) instead of rounding to a misleading `0s`.
 - `web`: the slash-command menu no longer flickers shut while a turn streams, or when session/context updates and viewport resizes arrive.
 
 ## v0.17.0 — 2026-11-16
