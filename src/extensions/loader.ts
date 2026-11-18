@@ -29,6 +29,7 @@ import {
   compatibilityMatrix,
   type CompatibilityMatrixEntry,
 } from "./compatibility-matrix.js";
+import { describeScopes, scopeModeForManifest } from "./manifest.js";
 
 export interface ExtensionLoaderOptions {
   cliPaths?: string[];
@@ -53,6 +54,10 @@ export interface ExtensionLoaderOptions {
   maxLifecycleEvents?: number;
   /** Called when an extension unregisters a provider so host selection updates. */
   onProviderUnregistered?: (name: string) => void;
+  /** Host turn signal, read per exec call so turn abort cancels children. */
+  signal?: () => AbortSignal | undefined;
+  /** Host seam for streaming `pi.exec` output into `tool_output` events. */
+  onToolOutput?: (stream: "stdout" | "stderr", text: string) => void;
 }
 
 export interface LoadedExtension {
@@ -149,6 +154,10 @@ export interface ExtensionDiagnostic {
   apis: CompatibilityMatrixEntry[];
   /** Store metadata only: entry count and version, never values. */
   store?: ExtensionStoreInfo;
+  /** `legacy-unscoped` when no manifest was declared, otherwise `scoped`. */
+  scopeMode: "legacy-unscoped" | "scoped";
+  /** Exact declared scopes, rendered for the trust prompt and doctor. */
+  scopes: string[];
   /** Lifecycle stream from lifecycleEvents(), scoped to this extension. */
   lifecycleEvents: ExtensionLifecycleEvent[];
 }
@@ -484,6 +493,9 @@ export class ExtensionLoader {
             wrapHandler: (event, handler) =>
               this.wrapHandler(entry.id, event, handler),
             store: staging.store,
+            scopes: entry.manifest?.scopes,
+            signal: () => this.options.signal?.(),
+            onToolOutput: this.options.onToolOutput,
             wrapMiddleware: (toolName, handler) =>
               this.wrapMiddleware(entry.id, toolName, handler),
             services,
@@ -823,6 +835,8 @@ export class ExtensionLoader {
         eventCount: loaded?.registries.handlers.size ?? 0,
         apis: calledMatrixApis(entry.entryPath),
         store: this.storeInfo(loaded),
+        scopeMode: scopeModeForManifest(entry.manifest?.scopes),
+        scopes: describeScopes(entry.manifest?.scopes),
         lifecycleEvents: this.lifecycle.filter(
           (event) => event.extensionId === entry.id,
         ),
@@ -851,7 +865,7 @@ export class ExtensionLoader {
         ? `${loaded.registries.tools.size} tools, ${loaded.registries.commands.size} commands, ${loaded.registries.handlers.size} event types${storeInfo ? `, ${storeInfo.entryCount} store entries v${storeInfo.version}` : ""}`
         : "not loaded";
       lines.push(
-        `${entry.id}\t${entry.source}${entry.origin ? `:${entry.origin}` : ""}\t${entry.manifest?.version ?? "-"}\t${status}\t${counts}\t${entry.entryPath}${error ? `\t${error}` : ""}`,
+        `${entry.id}\t${entry.source}${entry.origin ? `:${entry.origin}` : ""}\t${entry.manifest?.version ?? "-"}\t${status}\t${counts}\t${scopeModeForManifest(entry.manifest?.scopes)}\t${entry.entryPath}${error ? `\t${error}` : ""}`,
       );
     }
     const base = lines.join("\n") || "No extensions discovered.";

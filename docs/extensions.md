@@ -42,6 +42,36 @@ Project extensions are skipped until the project is trusted. Interactive
 sessions prompt for approval; non-interactive runs skip untrusted project
 extensions. Trust decisions are stored in user config.
 
+The prompt lists the exact scopes an extension declares. Declare them under
+`permissions` in the `atom` (or `pi`) manifest field:
+
+```jsonc title="package.json"
+{
+  "atom": {
+    "extensions": ["./index.js"],
+    "permissions": {
+      "files": { "read": ["src/**"], "write": [] },
+      "network": { "hosts": ["api.example.com"] },
+      "exec": { "commands": ["git"] },
+      "providers": false,
+      "ui": true,
+      "session": { "read": true, "write": false },
+    },
+  },
+}
+```
+
+Every scope is opt-in: omitting a scope denies it. An extension with no
+`permissions` object runs in `legacy-unscoped` mode with every scope allowed,
+so existing extensions keep working. `/extensions doctor` labels each extension
+`scoped` or `legacy-unscoped` and lists its declared scopes.
+
+Denied calls throw `ExtensionCompatibilityError` naming the scope: `exec`
+checks its command allowlist, `fetch` checks its host allowlist,
+`registerProvider` requires `providers`, UI methods (including `pi.ui.*`)
+require `ui`, and session entry methods require the matching `session` read or
+write right. `exec` matches the declared command by exact string or basename.
+
 ## Compatibility matrix
 
 Each `ExtensionAPI` method has one status. A `supported` method has a host
@@ -53,7 +83,7 @@ implementation.
 | Status        | Methods | Meaning                                  |
 | ------------- | ------- | ---------------------------------------- |
 | `supported`   | 21      | Effect is consumed by the host.          |
-| `reduced`     | 8       | Works with limits; see Reduced behavior. |
+| `reduced`     | 9       | Works with limits; see Reduced behavior. |
 | `no-op`       | 20      | Call is accepted; nothing consumes it.   |
 | `unsupported` | 7       | Failing stub; see Tier 3.                |
 
@@ -64,7 +94,7 @@ implementation.
 `wrapTool`, `provide`, `consume`.
 
 **`reduced`:** `appendEntry`, `getSessionEntries`, `getSessionManager`, `notify`,
-`registerProvider`, `exec`, `log`, `supports`.
+`registerProvider`, `exec`, `fetch`, `log`, `supports`.
 
 **`no-op`:** `setStatus`, `registerWidget`, `unregisterWidget`,
 `registerToolRenderer`, `registerMessageRenderer`, `registerEntryRenderer`,
@@ -143,8 +173,19 @@ key emits a reduced-compatibility warning naming that key and is not applied.
 
 `appendEntry` and `getSessionEntries` persist custom entries in the session
 event log and read them back after resume; no host view renders them.
-`getSessionManager()` returns a real read model over the live session. `notify`,
-`exec`, and `log` run, but their output is not surfaced in the host UI.
+`getSessionManager()` returns a real read model over the live session. `notify`
+and `log` run, but their output is not surfaced in the host UI.
+
+`exec` spawns a child process without blocking the event loop. It defaults to a
+30 s timeout and a 10 MiB capture limit per stream; a timeout, an abort signal,
+or an exceeded buffer kills the child and reports its signal in the result.
+Options are `cwd`, `timeoutMs`, `env` (overrides `process.env`), `signal`,
+`maxBuffer`, and an `onOutput` callback receiving `(stream, text)` for live output. The host also
+forwards output through the `tool_output` event. `fetch(url, init?)` is a
+host proxy limited to `network.hosts`; it strips `Authorization`,
+`Proxy-Authorization`, and `Cookie` headers, checks every redirect against the
+same allowlist, and returns a standard `Response`.
+
 `supports(method)` returns `false` only for Tier 3 stubs; implemented and
 `no-op` methods return `true`. It does not validate arguments: registering a
 tool with `exposure: "codemode"` still throws even though
@@ -317,7 +358,8 @@ behavior.
 
 **Exec / logging**
 
-- `exec(command, args?, options?)` → `Promise<ExecResult>`
+- `exec(command, args?, options?)` → `Promise<ExecResult>` (cancellable; scope-gated)
+- `fetch(url, init?)` → `Promise<Response>` (host-allowlisted proxy)
 - `log(message)`
 
 **UI context (`pi.ui`)** — also exposes: `editor`, `onTerminalInput`, `custom`, `pasteToEditor`, `setEditorText`, `getEditorText`, `getTheme`, `setTheme`.
@@ -330,7 +372,8 @@ version, and errors. `/extensions doctor --json` prints an array with, per
 extension, `id`, `source`, `status`, `error`, `stack`, `toolCount`,
 `commandCount`, `eventCount`, `apis` — the matrix entries for API calls found in
 that extension's entry file — `store` (`entryCount` and `version`, never
-values), and `lifecycleEvents`, the lifecycle records from that extension.
+values), `scopeMode` / `scopes` (sandbox classification and declared scope
+list), and `lifecycleEvents`, the lifecycle records from that extension.
 
 The JSON list contains only methods that exist in `ExtensionAPI`. Called Tier 3
 methods carry their `unsupported` matrix entry; containment errors include the

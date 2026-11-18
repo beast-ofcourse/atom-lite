@@ -121,11 +121,21 @@ export interface ExecResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  /** Signal that ended the child (for example `SIGTERM` on abort/timeout). */
+  signal?: string | null;
 }
 
 export interface ExecOptions {
   cwd?: string;
   timeoutMs?: number;
+  /** Environment overrides; defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
+  /** Cancels the child when aborted. */
+  signal?: AbortSignal;
+  /** Maximum captured bytes per stream; defaults to 10 MiB. */
+  maxBuffer?: number;
+  /** Receives live stdout/stderr chunks from the child. */
+  onOutput?: (stream: "stdout" | "stderr", text: string) => void;
 }
 
 export type ExtensionEventHandler = (

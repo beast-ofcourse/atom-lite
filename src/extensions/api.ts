@@ -11,6 +11,7 @@ import type {
   ExtensionUIContext,
   ExtensionEventHandler,
 } from "./types.js";
+import { spawn } from "node:child_process";
 import { createDefaultExtensionUI } from "./ui.js";
 import { validateExtensionTool } from "./tool-validation.js";
 import { ExtensionStore } from "./store.js";
@@ -30,6 +31,18 @@ import {
   methodSupported,
   tier3Stub,
 } from "./compatibility-error.js";
+import {
+  EXTENSION_EXEC_MAX_BUFFER,
+  EXTENSION_EXEC_TIMEOUT_MS,
+  isCommandAllowed,
+  isHostAllowed,
+  isProviderAllowed,
+  isSessionReadAllowed,
+  isSessionWriteAllowed,
+  isUIAllowed,
+  scopeDeniedError,
+  type ScopeManifest,
+} from "./manifest.js";
 
 export interface ExtensionAPI {
   id: string;
@@ -108,6 +121,8 @@ export interface ExtensionAPI {
     args?: string[],
     options?: ExecOptions,
   ): Promise<ExecResult>;
+  /** Host-proxied fetch limited to the hosts declared in the manifest. */
+  fetch(url: string, init?: RequestInit): Promise<Response>;
   log(message: string): void;
 
   /** Publish a versioned service for sibling extensions to consume. */
@@ -221,6 +236,12 @@ export interface CreateExtensionAPIOptions {
   store?: ExtensionStore;
   /** Where a host-owned store is created when none is supplied. */
   agentDir?: string;
+  /** Declared capability scopes; undefined keeps legacy-unscoped behavior. */
+  scopes?: ScopeManifest;
+  /** Host turn signal, read per call so reloads/turns can cancel children. */
+  signal?: () => AbortSignal | undefined;
+  /** Host seam for streaming exec output into `tool_output` events. */
+  onToolOutput?: (stream: "stdout" | "stderr", text: string) => void;
   /** Wrap a tool middleware handler so it runs behind the host's boundary. */
   wrapMiddleware?: (
     toolName: string,
@@ -229,6 +250,105 @@ export interface CreateExtensionAPIOptions {
   /** Services shared by the extensions in one load generation. */
   services?: ServiceRegistry;
 }
+
+interface ExecRunOptions extends ExecOptions {
+  workspace: string;
+  turnSignal?: AbortSignal;
+  hostOutput?: (stream: "stdout" | "stderr", text: string) => void;
+}
+
+/**
+ * Cancellable, bounded child process. Replaces the old blocking execFileSync:
+ * aborts propagate, output streams through the host seam, and both a timeout
+ * and maxBuffer kill the child instead of growing an unbounded string.
+ */
+function runCancellableExec(
+  command: string,
+  args: string[],
+  run: ExecRunOptions,
+): Promise<ExecResult> {
+  const timeoutMs = run.timeoutMs ?? EXTENSION_EXEC_TIMEOUT_MS;
+  const maxBuffer = run.maxBuffer ?? EXTENSION_EXEC_MAX_BUFFER;
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: run.cwd ?? run.workspace,
+      env: { ...process.env, ...run.env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let killedSignal: string | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const finish = (exitCode: number, signal: string | null): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+      for (const candidate of [run.signal, run.turnSignal]) {
+        candidate?.removeEventListener("abort", onAbort);
+      }
+      resolve({ stdout, stderr, exitCode, signal });
+    };
+    const terminate = (signal: NodeJS.Signals = "SIGTERM"): void => {
+      if (settled || child.killed) return;
+      killedSignal = signal;
+      child.kill(signal);
+      // A child that ignores SIGTERM must not outlive the turn.
+      killTimer = setTimeout(() => {
+        if (!settled) child.kill("SIGKILL");
+      }, 1000);
+      killTimer.unref?.();
+    };
+    const onAbort = (): void => terminate("SIGTERM");
+
+    const collect = (
+      stream: "stdout" | "stderr",
+      chunk: Buffer | string,
+    ): void => {
+      const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+      const current = stream === "stdout" ? stdout : stderr;
+      const room = Math.max(0, maxBuffer - current.length);
+      if (stream === "stdout") stdout += text.slice(0, room);
+      else stderr += text.slice(0, room);
+      run.onOutput?.(stream, text);
+      run.hostOutput?.(stream, text);
+      if (text.length > room) terminate("SIGTERM");
+    };
+    child.stdout?.on("data", (chunk: Buffer | string) =>
+      collect("stdout", chunk),
+    );
+    child.stderr?.on("data", (chunk: Buffer | string) =>
+      collect("stderr", chunk),
+    );
+
+    for (const candidate of [run.signal, run.turnSignal]) {
+      if (!candidate) continue;
+      if (candidate.aborted) onAbort();
+      else candidate.addEventListener("abort", onAbort, { once: true });
+    }
+    timer = setTimeout(() => terminate("SIGTERM"), timeoutMs);
+    timer.unref?.();
+
+    child.on("error", () => finish(killedSignal ? 137 : 1, killedSignal));
+    child.on("close", (code, signal) =>
+      finish(code ?? (killedSignal ? 137 : 1), signal ?? killedSignal),
+    );
+  });
+}
+
+/** Strip credentials before handing a request to a scoped extension. */
+function credentialFreeInit(init?: RequestInit): RequestInit {
+  const headers = new Headers(init?.headers as any);
+  headers.delete("authorization");
+  headers.delete("proxy-authorization");
+  headers.delete("cookie");
+  return { ...init, headers, redirect: "manual" };
+}
+
+const FETCH_MAX_REDIRECTS = 5;
 
 export function createExtensionAPI(
   id: string,
@@ -243,6 +363,25 @@ export function createExtensionAPI(
     options.store ??
     new ExtensionStore({ id, agentDir: options.agentDir ?? defaultAgentDir() });
   const services = options.services ?? new Map();
+  const scopes = options.scopes;
+  const requireUI = (method: string): void => {
+    if (!isUIAllowed(scopes)) throw scopeDeniedError("ui", method);
+  };
+  // `pi.ui` is a second entry to the same UI surface. Without this wrapper an
+  // extension could bypass the gate by calling `pi.ui.select` directly.
+  if (scopes && !isUIAllowed(scopes)) {
+    const denied = new Proxy(ctx.ui, {
+      get(target, property, receiver) {
+        if (typeof property === "symbol" || property === "then") {
+          return Reflect.get(target, property, receiver);
+        }
+        return () => {
+          throw scopeDeniedError("ui", String(property));
+        };
+      },
+    });
+    ctx.ui = denied;
+  }
   // Map a registered handler to its wrapped form so `off`/unsubscribe removes
   // exactly what `on` added.
   const wrapped = new Map<
@@ -337,12 +476,26 @@ export function createExtensionAPI(
       registries.handlers.get(event)?.delete(registered);
     },
     appendEntry: (type, data) => {
+      if (!isSessionWriteAllowed(scopes)) {
+        throw scopeDeniedError(
+          "session",
+          "appendEntry",
+          "write is not declared",
+        );
+      }
       if (ctx.sessionManager?.appendEntry) {
         return ctx.sessionManager.appendEntry(type, data);
       }
       registries.entries.push({ type, data });
     },
     getSessionEntries: (filter) => {
+      if (!isSessionReadAllowed(scopes)) {
+        throw scopeDeniedError(
+          "session",
+          "getSessionEntries",
+          "read is not declared",
+        );
+      }
       if (ctx.sessionManager?.getEntries) {
         return ctx.sessionManager
           .getEntries()
@@ -356,7 +509,16 @@ export function createExtensionAPI(
         filter?.type ? entry.type === filter.type : true,
       );
     },
-    getSessionManager: () => ctx.sessionManager,
+    getSessionManager: () => {
+      if (!isSessionReadAllowed(scopes)) {
+        throw scopeDeniedError(
+          "session",
+          "getSessionManager",
+          "read is not declared",
+        );
+      }
+      return ctx.sessionManager;
+    },
     setStatus: (part, value) => {
       registries.status.set(part, value);
     },
@@ -365,9 +527,11 @@ export function createExtensionAPI(
       console.error(`[extension:${id}] ${level ?? "info"}: ${message}`);
     },
     registerWidget: (_location, widget) => {
+      requireUI("registerWidget");
       registries.widgets.set(widget.id, widget);
     },
     unregisterWidget: (widgetId) => {
+      requireUI("unregisterWidget");
       registries.widgets.delete(widgetId);
     },
     registerToolRenderer: (resolver) => {
@@ -394,24 +558,65 @@ export function createExtensionAPI(
     addAutocompleteProvider: (factory) => {
       registries.autocompleteProviders.push(factory);
     },
-    setWidget: (key, content, options) =>
-      ctx.ui.setWidget(key, content, options),
-    setFooter: (factory) => ctx.ui.setFooter(factory),
-    setHeader: (factory) => ctx.ui.setHeader(factory),
-    setTitle: (title) => ctx.ui.setTitle(title),
-    setWorkingMessage: (message) => ctx.ui.setWorkingMessage(message),
-    setWorkingVisible: (visible) => ctx.ui.setWorkingVisible(visible),
-    setWorkingIndicator: (options) => ctx.ui.setWorkingIndicator(options),
-    setHiddenThinkingLabel: (label) => ctx.ui.setHiddenThinkingLabel(label),
-    getToolsExpanded: () => ctx.ui.getToolsExpanded(),
-    setToolsExpanded: (expanded) => ctx.ui.setToolsExpanded(expanded),
-    select: (title, options) => ctx.ui.select(title, options),
-    confirm: (title, message) => ctx.ui.confirm(title, message),
-    input: (title, placeholder) => ctx.ui.input(title, placeholder),
+    setWidget: (key, content, options) => {
+      requireUI("setWidget");
+      return ctx.ui.setWidget(key, content, options);
+    },
+    setFooter: (factory) => {
+      requireUI("setFooter");
+      return ctx.ui.setFooter(factory);
+    },
+    setHeader: (factory) => {
+      requireUI("setHeader");
+      return ctx.ui.setHeader(factory);
+    },
+    setTitle: (title) => {
+      requireUI("setTitle");
+      return ctx.ui.setTitle(title);
+    },
+    setWorkingMessage: (message) => {
+      requireUI("setWorkingMessage");
+      return ctx.ui.setWorkingMessage(message);
+    },
+    setWorkingVisible: (visible) => {
+      requireUI("setWorkingVisible");
+      return ctx.ui.setWorkingVisible(visible);
+    },
+    setWorkingIndicator: (options) => {
+      requireUI("setWorkingIndicator");
+      return ctx.ui.setWorkingIndicator(options);
+    },
+    setHiddenThinkingLabel: (label) => {
+      requireUI("setHiddenThinkingLabel");
+      return ctx.ui.setHiddenThinkingLabel(label);
+    },
+    getToolsExpanded: () => {
+      requireUI("getToolsExpanded");
+      return ctx.ui.getToolsExpanded();
+    },
+    setToolsExpanded: (expanded) => {
+      requireUI("setToolsExpanded");
+      return ctx.ui.setToolsExpanded(expanded);
+    },
+    select: (title, options) => {
+      requireUI("select");
+      return ctx.ui.select(title, options);
+    },
+    confirm: (title, message) => {
+      requireUI("confirm");
+      return ctx.ui.confirm(title, message);
+    },
+    input: (title, placeholder) => {
+      requireUI("input");
+      return ctx.ui.input(title, placeholder);
+    },
     getWorkspace: () => ctx.workspace,
     getSession: () => ({ id: sessionId }),
     isProjectTrusted: () => ctx.trusted,
     registerProvider: (providerOrName: any, config?: any) => {
+      if (!isProviderAllowed(scopes)) {
+        throw scopeDeniedError("providers", "registerProvider");
+      }
       const name =
         typeof providerOrName === "string"
           ? providerOrName
@@ -452,26 +657,54 @@ export function createExtensionAPI(
     registerModel: (model) => {
       registries.models.push(model);
     },
-    exec: async (command, args = [], options = {}) => {
-      const { execFileSync } = await import("node:child_process");
+    exec: async (command, args = [], execOptions = {}) => {
+      if (!isCommandAllowed(scopes, command)) {
+        throw scopeDeniedError(
+          "exec",
+          "exec",
+          `command '${command}' is not allowlisted`,
+        );
+      }
+      return runCancellableExec(command, args, {
+        ...execOptions,
+        workspace: ctx.workspace,
+        turnSignal: options.signal?.(),
+        hostOutput: options.onToolOutput,
+      });
+    },
+    fetch: async (url, init) => {
+      let target: URL;
       try {
-        const stdout = execFileSync(command, args, {
-          cwd: options.cwd ?? ctx.workspace,
-          encoding: "utf8",
-          timeout: options.timeoutMs,
-        });
-        return { stdout, stderr: "", exitCode: 0 };
-      } catch (error) {
-        const failure = error as {
-          stdout?: string;
-          stderr?: string;
-          status?: number;
-        };
-        return {
-          stdout: failure.stdout ?? "",
-          stderr: failure.stderr ?? "",
-          exitCode: failure.status ?? 1,
-        };
+        target = new URL(url);
+      } catch {
+        throw scopeDeniedError("network", "fetch", "invalid URL");
+      }
+      // Follow redirects ourselves so a denied host cannot be reached through
+      // an allowlisted one. Credentials are stripped on every hop.
+      for (let hop = 0; ; hop++) {
+        target.username = "";
+        target.password = "";
+        if (!isHostAllowed(scopes, target.hostname)) {
+          throw scopeDeniedError(
+            "network",
+            "fetch",
+            `host '${target.hostname}' is not allowlisted`,
+          );
+        }
+        const response = await fetch(
+          target.toString(),
+          credentialFreeInit(init),
+        );
+        const location = response.headers.get("location");
+        if (
+          hop >= FETCH_MAX_REDIRECTS ||
+          !location ||
+          response.status < 300 ||
+          response.status >= 400
+        ) {
+          return response;
+        }
+        target = new URL(location, target);
       }
     },
     log: (message) => {
