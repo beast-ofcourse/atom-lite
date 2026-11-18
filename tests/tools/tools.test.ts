@@ -140,14 +140,14 @@ test("symlink escape rejected", async () => {
 test("read offset/limit slices lines without changing numbering", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   writeFileSync(join(dir, "range.txt"), "a\nbb\nccc\n");
-  const cases: Array<[number | undefined, number | undefined, string]> = [
-    [1, 2, "1: a\n2: bb"],
-    [2, 2, "2: bb\n3: ccc"],
-    [3, 5, "3: ccc\n4: "],
-    [2, 1, "2: bb"],
-    [9, 1, "(empty)"],
+  const cases: Array<[number | undefined, number | undefined, string, string | null]> = [
+    [1, 2, "1: a\n2: bb", "Continue reading with offset: 3"],
+    [2, 2, "2: bb\n3: ccc", null],
+    [3, 5, "3: ccc", null],
+    [2, 1, "2: bb", "Continue reading with offset: 3"],
+    [9, 1, "3: ccc", null],
   ];
-  for (const [offset, limit, expected] of cases) {
+  for (const [offset, limit, expected, cursor] of cases) {
     const r = await readTool.execute(
       {
         id: "1",
@@ -156,8 +156,15 @@ test("read offset/limit slices lines without changing numbering", async () => {
       },
       ctx(dir),
     );
-    assert.ok(r.content.endsWith(expected), `${offset}/${limit}: ${r.content}`);
+    assert.ok(r.content.includes(expected), `${offset}/${limit}: ${r.content}`);
+    if (cursor) assert.ok(r.content.includes(cursor), `${offset}/${limit}: ${r.content}`);
+    else assert.doesNotMatch(r.content, /Continue reading with offset/);
   }
+  const pastEnd = await readTool.execute(
+    { id: "1", name: "read", arguments: { path: "range.txt", offset: 9 } },
+    ctx(dir),
+  );
+  assert.match(pastEnd.content, /offset 9 is past the end; the file has 3 lines/);
 });
 
 test("read handles CRLF ranges", async () => {
@@ -171,7 +178,7 @@ test("read handles CRLF ranges", async () => {
     },
     ctx(dir),
   );
-  assert.match(r.content, /2: b$/);
+  assert.match(r.content, /2: b/);
   assert.ok(!r.content.includes("\r"), "CR should be stripped");
 });
 

@@ -16,6 +16,16 @@ Atom-lite ships built-in tools. The model chooses which to call; the runtime val
 | `todo`      | Maintain the session task ledger.                                |
 | `question`  | Ask you to choose an option or type an answer mid-turn.          |
 
+## Reading large files
+
+`read` returns a bounded page: at most 2000 lines or 50 KiB of content, whichever comes first. Lines longer than 2000 characters are clamped with a visible marker. When more content remains, the result ends with `[Output truncated. Continue reading with offset: N]`. Pass that offset to the next call to resume at the exact line.
+
+```jsonc title="tool call"
+{ "path": "src/large.ts", "offset": 2001, "limit": 2000 }
+```
+
+The runtime [`maxToolOutputBytes`](./config.md) cap is authoritative and applies on top of these bounds. With its default of `30000`, the smaller cap wins. If the cap clips first, the cursor still names the first line you did not see. An offset past the end returns the file's last lines and states the actual line count.
+
 ## Scheduling
 
 A tool-call batch runs with at most `runtime.maxParallelToolCalls` (default `10`) concurrent calls. Per-file read/write locks prevent conflicting edits. `bash` is a global exclusive barrier unless `runtime.bashConcurrency` is `parallel`.
