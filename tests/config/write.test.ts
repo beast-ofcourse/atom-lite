@@ -56,6 +56,26 @@ test("saveProviderSelection merges into an existing profile", () => {
   assert.equal(raw.providers.openai.model, "gpt-4.1");
 });
 
+// Regression (ticket 09): an extension-bridged provider exists only in memory.
+// A `/model` switch must not persist a provider profile containing just a model
+// key, which would leave a broken profile behind after the extension is gone.
+test("ephemeral provider selection does not write a partial provider to config.json", () => {
+  const path = tempConfigPath();
+  const original = JSON.stringify({
+    defaultProvider: "openai",
+    providers: {
+      openai: { type: "openai-compatible", model: "gpt-4o-mini" },
+    },
+  });
+  writeFileSync(path, original);
+  saveProviderSelection(
+    "extension-provider",
+    { model: "extension-model" },
+    { defaultProvider: "extension-provider", ephemeral: true, path },
+  );
+  assert.equal(readFileSync(path, "utf8"), original);
+});
+
 test("saveProviderModel only changes the model", () => {
   const path = tempConfigPath();
   saveProviderSelection(

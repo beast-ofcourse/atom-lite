@@ -159,11 +159,12 @@ export class ExtensionLoader {
 
   private getJiti(): ReturnType<typeof createJiti> {
     if (this.jiti) return this.jiti;
-    const alias = buildAliasMap();
+    const { alias, virtualModules } = resolveHostModules();
     const instance = createJiti(import.meta.url, {
       moduleCache: false,
       fsCache: false,
       alias,
+      virtualModules,
       interopDefault: true,
     });
     this.jiti = instance;
@@ -589,51 +590,77 @@ function calledMatrixApis(entryPath: string): CompatibilityMatrixEntry[] {
   return compatibilityMatrix.filter((entry) => called.has(entry.method));
 }
 
-function buildAliasMap(): Record<string, string> {
+/**
+ * Provider aliases for Pi-compatible host modules. Modules that have no real
+ * install are served as in-memory stubs instead of empty files written under
+ * `node_modules/.atom-lite-shims`. Modules that are genuinely missing and have
+ * no host stub are left unresolved so the extension fails loudly.
+ */
+function resolveHostModules(): {
+  alias: Record<string, string>;
+  virtualModules: Record<string, unknown>;
+} {
   const require = createRequire(import.meta.url);
   const alias: Record<string, string> = {};
+  const virtualModules: Record<string, unknown> = {};
 
   const piTuiPath = safeResolve("@earendil-works/pi-tui", require);
   const typeboxPath = safeResolve("typebox", require);
-
   const piNodeModules = findPiNodeModules();
-  const piAgentCorePath =
-    safeResolve("@earendil-works/pi-agent-core", require, piNodeModules) ??
-    shimPath("pi-agent-core");
-  const piAiPath =
-    safeResolve("@earendil-works/pi-ai", require, piNodeModules) ??
-    shimPath("pi-ai");
-  const piHostPath = shimPath("pi-host");
+  const piAgentCorePath = safeResolve(
+    "@earendil-works/pi-agent-core",
+    require,
+    piNodeModules,
+  );
+  const piAiPath = safeResolve("@earendil-works/pi-ai", require, piNodeModules);
 
-  const tuiTargets = piTuiPath ? [piTuiPath] : [];
-  const typeboxTargets = typeboxPath ? [typeboxPath] : [];
-
-  const pairs: Array<[string, string | undefined]> = [
-    ["pi-tui", piTuiPath],
-    ["@earendil-works/pi-tui", piTuiPath],
-    ["@mariozechner/pi-tui", piTuiPath],
-    ["typebox", typeboxPath],
-    ["@sinclair/typebox", typeboxPath],
-    ["pi-agent-core", piAgentCorePath],
-    ["@earendil-works/pi-agent-core", piAgentCorePath],
-    ["@mariozechner/pi-agent-core", piAgentCorePath],
-    ["pi-ai", piAiPath],
-    ["@earendil-works/pi-ai", piAiPath],
-    ["@mariozechner/pi-ai", piAiPath],
-    ["@earendil-works/pi-coding-agent", piHostPath],
-    ["@mariozechner/pi-coding-agent", piHostPath],
+  const groups: Array<{
+    specifiers: string[];
+    target: string | undefined;
+    stubWhenMissing: boolean;
+  }> = [
+    {
+      specifiers: ["pi-tui", "@earendil-works/pi-tui", "@mariozechner/pi-tui"],
+      target: piTuiPath,
+      stubWhenMissing: false,
+    },
+    {
+      specifiers: ["typebox", "@sinclair/typebox"],
+      target: typeboxPath,
+      stubWhenMissing: false,
+    },
+    {
+      specifiers: [
+        "pi-agent-core",
+        "@earendil-works/pi-agent-core",
+        "@mariozechner/pi-agent-core",
+      ],
+      target: piAgentCorePath,
+      stubWhenMissing: true,
+    },
+    {
+      specifiers: ["pi-ai", "@earendil-works/pi-ai", "@mariozechner/pi-ai"],
+      target: piAiPath,
+      stubWhenMissing: true,
+    },
+    {
+      specifiers: [
+        "@earendil-works/pi-coding-agent",
+        "@mariozechner/pi-coding-agent",
+      ],
+      target: undefined,
+      stubWhenMissing: true,
+    },
   ];
 
-  for (const [key, value] of pairs) {
-    if (value) alias[key] = value;
+  for (const { specifiers, target, stubWhenMissing } of groups) {
+    for (const specifier of specifiers) {
+      if (target) alias[specifier] = target;
+      else if (stubWhenMissing) virtualModules[specifier] = {};
+    }
   }
 
-  // Ensure shims exist.
-  ensureShim("pi-agent-core");
-  ensureShim("pi-ai");
-  ensureShim("pi-host");
-
-  return alias;
+  return { alias, virtualModules };
 }
 
 function safeResolve(
@@ -651,51 +678,35 @@ function safeResolve(
   }
 }
 
+/** Compare release directory names by numeric segments, not lexically. */
+export function compareVersionNames(a: string, b: string): number {
+  const left = a.split(/[.-]/);
+  const right = b.split(/[.-]/);
+  for (let i = 0; i < Math.max(left.length, right.length); i++) {
+    const l = left[i] ?? "";
+    const r = right[i] ?? "";
+    const ln = Number(l);
+    const rn = Number(r);
+    if (l !== "" && r !== "" && Number.isFinite(ln) && Number.isFinite(rn)) {
+      if (ln !== rn) return ln - rn;
+    } else {
+      const lexical = l.localeCompare(r);
+      if (lexical !== 0) return lexical;
+    }
+  }
+  return 0;
+}
+
 function findPiNodeModules(): string | undefined {
-  const candidates: string[] = [];
-  const home = homedir();
-  const base = join(home, ".pi", "agent", "install", "releases");
-  if (existsSync(base)) {
-    try {
-      const releases = readdirSync(base)
-        .map((name) => join(base, name, "node_modules"))
-        .filter((dir) => existsSync(dir));
-      // Pick the last (highest version) release directory.
-      releases.sort();
-      if (releases.length > 0) candidates.push(releases[releases.length - 1]);
-    } catch {
-      // ignore
-    }
-  }
-  return candidates[0];
-}
-
-function shimDir(): string {
-  return resolve(process.cwd(), "node_modules", ".atom-lite-shims");
-}
-
-function shimPath(name: string): string {
-  return join(shimDir(), `${name}.js`);
-}
-
-function ensureShim(name: string): void {
-  const dir = shimDir();
+  const base = join(homedir(), ".pi", "agent", "install", "releases");
+  if (!existsSync(base)) return undefined;
   try {
-    if (!existsSync(dir)) {
-      // create via fs
-      const { mkdirSync, writeFileSync } = require("node:fs");
-      mkdirSync(dir, { recursive: true });
-    }
+    const releases = readdirSync(base)
+      .filter((name) => existsSync(join(base, name, "node_modules")))
+      .sort(compareVersionNames);
+    if (releases.length === 0) return undefined;
+    return join(base, releases[releases.length - 1], "node_modules");
   } catch {
-    // ignore
-  }
-  const file = shimPath(name);
-  if (!existsSync(file)) {
-    try {
-      const { writeFileSync } = require("node:fs");
-      writeFileSync(file, "module.exports = {};\n");
-    } catch {
-      // ignore
-    }
+    return undefined;
   }
 }

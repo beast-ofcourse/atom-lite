@@ -588,7 +588,14 @@ export async function run(args: string[]): Promise<void> {
       pcfg.model = model;
       config.defaultProvider = profile;
       try {
-        saveProviderSelection(profile, { model }, { defaultProvider: profile });
+        saveProviderSelection(
+          profile,
+          { model },
+          {
+            defaultProvider: profile,
+            ephemeral: extensionProviderNames.has(profile),
+          },
+        );
       } catch (err) {
         // A read-only config must not block the live switch.
         process.stderr.write(
@@ -1661,7 +1668,14 @@ export async function run(args: string[]): Promise<void> {
     pcfg.model = model;
     config.defaultProvider = profile;
     try {
-      saveProviderSelection(profile, { model }, { defaultProvider: profile });
+      saveProviderSelection(
+        profile,
+        { model },
+        {
+          defaultProvider: profile,
+          ephemeral: extensionProviderNames.has(profile),
+        },
+      );
     } catch (err) {
       appendLine(
         `warning: could not persist model choice: ${err instanceof Error ? err.message : String(err)}`,
