@@ -12,6 +12,7 @@ import type {
   ExtensionEventHandler,
 } from "./types.js";
 import { createDefaultExtensionUI } from "./ui.js";
+import { validateExtensionTool } from "./tool-validation.js";
 
 export interface ExtensionAPI {
   id: string;
@@ -114,6 +115,8 @@ export interface ExtensionRegistries {
   entries: Array<{ type: string; data: unknown }>;
   activeTools: Set<string> | null;
   status: Map<string, string | undefined>;
+  /** Host hook for rejections that must surface as `extension_error`. */
+  reportError?: (message: string) => void;
 }
 
 export function createExtensionRegistries(): ExtensionRegistries {
@@ -153,6 +156,15 @@ export function createExtensionAPI(
     id,
     ui: ctx.ui,
     registerTool: (tool) => {
+      const errors = validateExtensionTool(tool);
+      if (errors.length > 0) {
+        const name =
+          tool && typeof tool.name === "string" ? tool.name : "<unnamed>";
+        registries.reportError?.(
+          `tool "${name}" rejected at registration: ${errors.join("; ")}`,
+        );
+        return;
+      }
       registries.tools.set(tool.name, tool);
     },
     unregisterTool: (name) => {

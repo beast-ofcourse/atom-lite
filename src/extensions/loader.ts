@@ -164,6 +164,17 @@ export class ExtensionLoader {
     ctx.ui =
       this.options.uiFactory?.(registries, ctx) ??
       createDefaultExtensionUI(registries, ctx);
+    // Registration rejections are attributed to this extension in the same
+    // lifecycle stream as activation failures, so doctor and `extension_error`
+    // handlers see them.
+    registries.reportError = (message) =>
+      this.recordLifecycle(
+        "extension_error",
+        entry.id,
+        message,
+        registries,
+        ctx,
+      );
     return {
       id: entry.id,
       source: entry.source,
