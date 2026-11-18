@@ -17,12 +17,12 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "registerTool",
     status: "supported",
-    consumers: ["src/extensions/tool-adapter.ts:197"],
+    consumers: ["src/extensions/tool-adapter.ts:203"],
   },
   {
     method: "unregisterTool",
     status: "supported",
-    consumers: ["src/extensions/tool-adapter.ts:197"],
+    consumers: ["src/extensions/tool-adapter.ts:203"],
   },
   {
     method: "setActiveTools",
@@ -42,12 +42,12 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "registerCommand",
     status: "supported",
-    consumers: ["src/cli/app.ts:955"],
+    consumers: ["src/cli/app.ts:951"],
   },
   {
     method: "unregisterCommand",
     status: "supported",
-    consumers: ["src/cli/app.ts:955"],
+    consumers: ["src/cli/app.ts:951"],
   },
   {
     method: "on",
