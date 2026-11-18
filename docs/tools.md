@@ -4,7 +4,7 @@ Atom-lite ships built-in tools. The model chooses which to call; the runtime val
 
 | Tool        | Behavior                                                         |
 | ----------- | ---------------------------------------------------------------- |
-| `read`      | Inspect a file, with optional line ranges.                       |
+| `read`      | Inspect a file or directory, with optional line or entry ranges. |
 | `write`     | Create or replace a file, guarded by `expected_hash`.            |
 | `edit`      | Precise find-and-replace edit, guarded by `expected_hash`.       |
 | `bash`      | Run a shell command. Tests, Git, builds, and formatters go here. |
@@ -25,6 +25,8 @@ Atom-lite ships built-in tools. The model chooses which to call; the runtime val
 ```
 
 The runtime [`maxToolOutputBytes`](./config.md) cap is authoritative and applies on top of these bounds. With its default of `30000`, the smaller cap wins. If the cap clips first, the cursor still names the first line you did not see. An offset past the end returns the file's last lines and states the actual line count.
+
+A directory path lists its entries instead of failing. Directories come first with a trailing `/`, then files in name order. Use the same `offset` and `limit` arguments to page the listing; the cursor follows the same form as text reads. Symlinks appear as entries but are not followed.
 
 ## Scheduling
 

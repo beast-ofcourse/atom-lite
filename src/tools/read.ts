@@ -1,4 +1,5 @@
-import { open, readFile, stat as statAsync } from "node:fs/promises";
+import { open, readFile, readdir, stat as statAsync } from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import { resolve, extname } from "node:path";
 import { createHash } from "node:crypto";
@@ -173,6 +174,38 @@ async function pageText(input: PageInput): Promise<string> {
   return next === undefined ? `${header}\n${body}` : `${header}\n${body}\n${continuationHint(next)}`;
 }
 
+/** List a directory as a paged, sorted set of names. Symlinks are shown but never followed. */
+function pageDirectory(
+  displayPath: string,
+  entries: Dirent[],
+  offset: number | undefined,
+  limit: number | undefined,
+  outputCap: number,
+): string {
+  const requested = offset ?? 1;
+  const maxLines = Math.min(limit ?? MAX_READ_LINES, MAX_READ_LINES);
+  const visible = entries
+    .map((entry) => ({ name: entry.name + (entry.isDirectory() ? "/" : ""), directory: entry.isDirectory() }))
+    .sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
+  const window = visible.slice(requested - 1, requested - 1 + maxLines);
+  let next = requested - 1 + window.length < visible.length ? requested + window.length : undefined;
+  const header = (): string =>
+    window.length === 0
+      ? `Directory: ${displayPath} (0 entries)`
+      : `Directory: ${displayPath} (entries ${requested}-${requested + window.length - 1})`;
+  const render = (): string =>
+    [header(), ...window.map((entry) => entry.name), ...(next === undefined ? [] : [continuationHint(next)])].join(
+      "\n",
+    );
+  while (window.length > 0 && Buffer.byteLength(render()) > outputCap) {
+    window.pop();
+    next = requested + window.length;
+  }
+  const body =
+    window.length > 0 ? window.map((entry) => entry.name).join("\n") : next === undefined ? "(empty)" : "(no entries fit the output cap)";
+  return next === undefined ? `${header()}\n${body}` : `${header()}\n${body}\n${continuationHint(next)}`;
+}
+
 export const readTool: Tool = {
   // Read-only: reads never mutate workspace paths, so the executor takes a
   // read lock instead of serializing on a write lock.
@@ -245,11 +278,21 @@ export const readTool: Tool = {
       };
     }
     if (st.isDirectory()) {
+      let entries: Dirent[];
+      try {
+        entries = await readdir(resolved, { withFileTypes: true });
+      } catch {
+        return {
+          toolCallId: call.id,
+          name: "read",
+          content: "FILE_NOT_FOUND",
+          isError: true,
+        };
+      }
       return {
         toolCallId: call.id,
         name: "read",
-        content: "FILE_NOT_FOUND: path is a directory",
-        isError: true,
+        content: pageDirectory(path, entries, offset, limit, ctx.maxToolOutputBytes ?? 30000),
       };
     }
     if (st.size > MAX_FILE_BYTES) {
