@@ -6,6 +6,8 @@ import { renderMermaidBlocks } from "./mermaid.js";
 export const STREAM_LIVE_LINES = 200;
 /** Extra live lines tolerated before a batch is sealed. */
 export const STREAM_SEAL_BATCH = 200;
+/** Max age of cached transcript lines while streaming (one display frame). */
+export const STREAM_INVALIDATE_MS = 16;
 const DEFAULT_MARKDOWN_THEME: MarkdownTheme = {
   heading: (t) => t,
   link: (t) => t,
@@ -64,7 +66,7 @@ export class StreamText {
       }
       this.live.setText(this.buffer);
       const now = Date.now();
-      if (now - this.lastInvalidateAt >= 50) {
+      if (now - this.lastInvalidateAt >= STREAM_INVALIDATE_MS) {
         this.transcript.invalidate();
         this.lastInvalidateAt = now;
       }
