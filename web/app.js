@@ -17,6 +17,7 @@
 //             | list_skills | list_mcp | set_mcp_enabled
 
 import { buildDiffModel } from "./diff.js";
+import { createPacedText } from "./stream-text.js";
 import {
   normalizeTodos,
   todoCounts,
@@ -133,9 +134,6 @@ const TODO_WIDTH_KEY = "atom-lite.web.todos-width";
 const TODO_DEFAULT_WIDTH = 300;
 const TODO_MIN_WIDTH = 240;
 const TODO_MAX_WIDTH = 480;
-const STREAM_FRAME_MS = 48;
-const STREAM_CHARS_PER_FRAME = 64;
-const STREAM_FINAL_MULTIPLIER = 4;
 const MARKDOWN_CACHE_LIMIT = 300;
 const MARKDOWN_CACHE_MAX_CHARS = 20_000;
 const HISTORY_PAGE_EVENTS = 80;
@@ -539,85 +537,6 @@ function resetMermaidBlocks() {
     block.classList.remove("rendered", "failed");
   }
   renderMermaidBlocks();
-}
-
-/**
- * Present text at a bounded pace without holding data hostage. Arrival is
- * immediate; only the visible tail is scheduled. A finalizing stream drains
- * faster so `turn_end` still settles quickly.
- */
-function createPacedText({ onUpdate, onFinalize }) {
-  let queue = [];
-  let visible = "";
-  let raw = "";
-  let timer = null;
-  let finalizing = false;
-  let done = false;
-
-  function schedule() {
-    if (timer === null && queue.length > 0) {
-      timer = setTimeout(drain, STREAM_FRAME_MS);
-    }
-  }
-
-  function drain() {
-    timer = null;
-    const budget =
-      STREAM_CHARS_PER_FRAME * (finalizing ? STREAM_FINAL_MULTIPLIER : 1);
-    let remaining = budget;
-    while (remaining > 0 && queue.length > 0) {
-      const head = queue[0];
-      if (head.length <= remaining) {
-        visible += head;
-        queue.shift();
-        remaining -= head.length;
-      } else {
-        visible += head.slice(0, remaining);
-        queue[0] = head.slice(remaining);
-        remaining = 0;
-      }
-    }
-    onUpdate?.(visible);
-    if (queue.length > 0) {
-      schedule();
-    } else if (finalizing) {
-      finalizing = false;
-      done = true;
-      onFinalize?.(raw);
-    }
-  }
-
-  return {
-    push(text) {
-      if (!text || done) return;
-      raw += text;
-      queue.push(text);
-      schedule();
-    },
-    finalize() {
-      if (done) return;
-      finalizing = true;
-      if (timer !== null) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      if (queue.length === 0) {
-        done = true;
-        onFinalize?.(raw);
-        return;
-      }
-      drain();
-    },
-    cancel() {
-      if (timer !== null) clearTimeout(timer);
-      timer = null;
-      queue = [];
-      visible = "";
-      raw = "";
-      finalizing = false;
-      done = true;
-    },
-  };
 }
 
 /* ---------------- clipboard ---------------- */
@@ -3365,7 +3284,9 @@ function setQuestionBusy(busy, label) {
 
 function isQuestionAnswered(index) {
   const draft = questionDraft[index];
-  return Boolean(draft && (draft.selected.length > 0 || draft.custom.trim() !== ""));
+  return Boolean(
+    draft && (draft.selected.length > 0 || draft.custom.trim() !== ""),
+  );
 }
 
 function updateQuestionProgress() {
@@ -3416,7 +3337,9 @@ function renderQuestionFields() {
     const draft = questionDraft[index];
     const hasOptions = question.options.length > 0;
     const field = document.createElement("section");
-    field.className = hasOptions ? "question-field question-field--choices" : "question-field";
+    field.className = hasOptions
+      ? "question-field question-field--choices"
+      : "question-field";
     const textId = `question-text-${index}`;
     field.setAttribute("role", "group");
     field.setAttribute("aria-labelledby", textId);
@@ -3496,12 +3419,16 @@ function renderQuestionFields() {
     custom.className = "question-custom";
     const customLabel = document.createElement("span");
     customLabel.className = "question-custom-label";
-    customLabel.textContent = hasOptions ? "Or type your own answer" : "Your answer";
+    customLabel.textContent = hasOptions
+      ? "Or type your own answer"
+      : "Your answer";
     const input = document.createElement("input");
     input.className = "field question-custom-input";
     input.type = "text";
     input.value = draft.custom;
-    input.placeholder = hasOptions ? "Type your own answer" : "Type your answer";
+    input.placeholder = hasOptions
+      ? "Type your own answer"
+      : "Type your answer";
     input.setAttribute(
       "aria-label",
       `${hasOptions ? "Custom answer" : "Answer"} for ${question.header || `question ${index + 1}`}`,
