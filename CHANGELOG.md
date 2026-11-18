@@ -8,6 +8,12 @@ becomes `0.18.1`.
 
 ## [Unreleased]
 
+### Performance
+
+- `providers`: Gemini streams text and thinking deltas as they arrive instead of buffering the full response; a gated SSE test proves the first token is emitted before the response ends.
+- `cli`: assistant text, thinking, and tool output invalidate the transcript every display frame (16 ms) instead of every 50 ms, so streamed text refreshes at the render rate.
+- `web`: the first streamed token paints synchronously, and the client drains up to 512 characters per 16 ms frame instead of 64 per 48 ms, so fast providers do not back up the display queue.
+
 ## v0.18.2 — 2026-11-18
 
 ### Added
