@@ -133,6 +133,20 @@ test("read reports a tiny output cap without claiming an empty file", async () =
   assert.doesNotMatch(result.content, /\(empty\)/);
 });
 
+// Regression: a clipped past-end tail must point at a real line, not an offset still past EOF.
+test("read keeps a real line number in the cursor when a past-end tail is clipped", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "read-tail-cursor-"));
+  const lines = Array.from({ length: 150 }, (_, i) => `L${i + 1}` + "x".repeat(1000));
+  writeFileSync(join(dir, "tailcap.txt"), lines.join("\n") + "\n");
+  const first = await read(dir, { path: "tailcap.txt", offset: 999, limit: 100 });
+  const match = first.content.match(/Continue reading with offset: (\d+)/);
+  assert.ok(match, first.content.slice(0, 200));
+  const cursor = Number(match![1]);
+  assert.ok(cursor >= 1 && cursor <= 150, `unexpected cursor ${cursor}`);
+  const second = await read(dir, { path: "tailcap.txt", offset: cursor, limit: 1 });
+  assert.match(second.content, new RegExp(`${cursor}: L${cursor}`));
+});
+
 // Contract: the hash covers the whole file even when the model sees a single page.
 test("read hashes the whole file even when only one page is returned", async () => {
   const dir = mkdtempSync(join(tmpdir(), "read-hash-"));

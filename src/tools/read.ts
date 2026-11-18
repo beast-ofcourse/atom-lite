@@ -68,7 +68,7 @@ interface PageLabels {
 
 /** Assemble a bounded page from a header and one string per item. */
 function renderPaged(
-  header: string,
+  headerFor: (count: number) => string,
   items: string[],
   firstItem: number,
   next: number | undefined,
@@ -79,11 +79,12 @@ function renderPaged(
   const budget = Math.min(MAX_READ_BYTES, outputCap);
   let cursor = next;
   const render = (): string =>
-    [header, ...rendered, ...(cursor === undefined ? [] : [continuationHint(cursor)])].join("\n");
+    [headerFor(rendered.length), ...rendered, ...(cursor === undefined ? [] : [continuationHint(cursor)])].join("\n");
   while (rendered.length > 0 && Buffer.byteLength(render()) > budget) {
     rendered.pop();
     cursor = firstItem + rendered.length;
   }
+  const header = headerFor(rendered.length);
   if (rendered.length === 0 && cursor === undefined) return `${header}\n${labels.empty}`;
   const body = rendered.length > 0 ? rendered.join("\n") : labels.clipped;
   return cursor === undefined ? `${header}\n${body}` : `${header}\n${body}\n${continuationHint(cursor)}`;
@@ -159,12 +160,13 @@ async function pageText(input: PageInput): Promise<string> {
   if (pending.length > 0) pushLine(pending);
 
   let selected: LineEntry[];
+  let firstItem = requested;
   let next: number | undefined;
   let pastEnd = false;
   if (requested > totalLines && totalLines > 0) {
     pastEnd = true;
-    const from = Math.max(1, totalLines - Math.min(limit ?? TAIL_LINES, TAIL_LINES) + 1);
-    selected = tail.filter((entry) => entry.lineNumber >= from);
+    firstItem = Math.max(1, totalLines - Math.min(limit ?? TAIL_LINES, TAIL_LINES) + 1);
+    selected = tail.filter((entry) => entry.lineNumber >= firstItem);
   } else {
     selected = entries;
     next = firstUnseen;
@@ -182,9 +184,9 @@ async function pageText(input: PageInput): Promise<string> {
 
   if (selected.some((entry) => entry.hasNul)) return `Binary file detected (${size} bytes).`;
   return renderPaged(
-    header,
+    () => header,
     selected.map((entry) => `${entry.lineNumber}: ${entry.text}`),
-    requested,
+    firstItem,
     next,
     outputCap,
     { empty: "(empty)", clipped: "(no lines fit the output cap)" },
@@ -207,10 +209,18 @@ async function pageDirectory(input: DirectoryInput): Promise<string> {
   const end = requested - 1 + maxLines;
   const directories: string[] = [];
   const files: string[] = [];
+  const tailDirectories: string[] = [];
+  const tailFiles: string[] = [];
+  const tailSize = Math.min(limit ?? TAIL_LINES, TAIL_LINES);
   const keep = (names: string[], name: string): void => {
     const index = names.findIndex((current) => current.localeCompare(name) > 0);
     names.splice(index === -1 ? names.length : index, 0, name);
     if (names.length > end) names.pop();
+  };
+  const keepLargest = (names: string[], name: string): void => {
+    const index = names.findIndex((current) => current.localeCompare(name) > 0);
+    names.splice(index === -1 ? names.length : index, 0, name);
+    if (names.length > tailSize) names.shift();
   };
   let total = 0;
   let dir;
@@ -220,18 +230,36 @@ async function pageDirectory(input: DirectoryInput): Promise<string> {
     return "FILE_NOT_FOUND";
   }
   // `for await` closes the directory handle when iteration ends. Keep only the
-  // smallest names needed for this page instead of materializing the whole listing.
+  // smallest names needed for this page, plus a small tail for past-end reads.
   for await (const entry of dir) {
     total++;
-    keep(entry.isDirectory() ? directories : files, entry.name);
+    const name = entry.name;
+    if (entry.isDirectory()) {
+      keep(directories, name);
+      keepLargest(tailDirectories, name);
+    } else {
+      keep(files, name);
+      keepLargest(tailFiles, name);
+    }
   }
-  const visible = [...directories.map((name) => `${name}/`), ...files].slice(requested - 1, end);
-  const next = end < total ? end + 1 : undefined;
-  const header =
-    visible.length === 0
-      ? `Directory: ${displayPath} (0 entries)`
-      : `Directory: ${displayPath} (entries ${requested}-${requested + visible.length - 1})`;
-  return renderPaged(header, visible, requested, next, outputCap, {
+  const pastEnd = requested > total && total > 0;
+  const firstItem = pastEnd ? Math.max(1, total - tailSize + 1) : requested;
+  const visible = pastEnd
+    ? [...tailDirectories.map((name) => `${name}/`), ...tailFiles]
+    : [...directories.map((name) => `${name}/`), ...files].slice(requested - 1, end);
+  const next = pastEnd || end >= total ? undefined : end + 1;
+  const headerFor = (count: number): string => {
+    const base =
+      count === 0
+        ? `Directory: ${displayPath} (0 entries)`
+        : `Directory: ${displayPath} (entries ${firstItem}-${firstItem + count - 1})`;
+    return pastEnd
+      ? `${base} (offset ${requested} is past the end; the directory has ${total} ${
+          total === 1 ? "entry" : "entries"
+        })`
+      : base;
+  };
+  return renderPaged(headerFor, visible, firstItem, next, outputCap, {
     empty: "(empty)",
     clipped: "(no entries fit the output cap)",
   });

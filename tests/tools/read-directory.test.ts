@@ -35,6 +35,10 @@ test("read bounds a directory listing by the internal byte budget", async () => 
   const result = await read(dir, { path: "." }, { maxToolOutputBytes: 100000 });
   assert.match(result.content, /Continue reading with offset/);
   assert.ok(Buffer.byteLength(result.content) <= 50 * 1024, `${Buffer.byteLength(result.content)} bytes`);
+  const range = result.content.match(/entries (\d+)-(\d+)/);
+  assert.ok(range, result.content.slice(0, 120));
+  const listed = result.content.split("\n").slice(1).filter((line) => line.length > 0 && !line.startsWith("[Output"));
+  assert.equal(Number(range![2]) - Number(range![1]) + 1, listed.length);
 });
 
 // Contract: directory listings page with the same continuation cursor as text reads.
@@ -54,6 +58,18 @@ test("read pages a directory listing with a continuation cursor", async () => {
   const last = await read(dir, { path: ".", offset: 5, limit: 2 });
   assert.match(last.content, /f5/);
   assert.doesNotMatch(last.content, /Continue reading with offset/);
+});
+
+// Contract: a past-end directory offset returns the last entries and states the real entry count.
+test("read returns a tail for a past-end directory offset", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "read-dir-tail-"));
+  for (const name of ["f1", "f2", "f3", "f4", "f5"]) writeFileSync(join(dir, name), name);
+  const result = await read(dir, { path: ".", offset: 99, limit: 2 });
+  assert.match(result.content, /offset 99 is past the end; the directory has 5 entries/);
+  assert.match(result.content, /f4/);
+  assert.match(result.content, /f5/);
+  assert.doesNotMatch(result.content, /f1/);
+  assert.doesNotMatch(result.content, /Continue reading with offset/);
 });
 
 // Contract: an empty directory reports zero entries and is not a failed read.
