@@ -838,6 +838,9 @@ export class AgentRuntime {
           }
         }
 
+        // Tool callbacks are synchronous: collect their dispatch promises here
+        // and await them after the batch so no update handler outlives the turn.
+        const pendingUpdates: Promise<unknown>[] = [];
         const ctx = {
           workspace: this.workspace,
           mode: this.mode,
@@ -863,13 +866,17 @@ export class AgentRuntime {
               stream,
               text,
             });
-            void this.extensionDispatch?.("tool_execution_update", {
-              type: "tool_execution_update",
-              toolCallId: call.id,
-              name: call.name,
-              stream,
-              text,
-            });
+            pendingUpdates.push(
+              Promise.resolve().then(() =>
+                this.extensionDispatch?.("tool_execution_update", {
+                  type: "tool_execution_update",
+                  toolCallId: call.id,
+                  name: call.name,
+                  stream,
+                  text,
+                }),
+              ),
+            );
           },
         };
 
@@ -953,6 +960,8 @@ export class AgentRuntime {
           undefined,
           this.bashConcurrency,
         );
+        await Promise.all(pendingUpdates);
+
         if (
           execResults.some((result: any) => result?.name === "todo") &&
           this.toolMap.has("todo")

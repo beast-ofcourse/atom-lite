@@ -69,6 +69,7 @@ import {
 import { createDefaultExtensionUI, DialogBoundary } from "../extensions/ui.js";
 import type { ExtensionUICallbacks } from "../extensions/ui.js";
 import { resolveModelTools } from "../extensions/tool-adapter.js";
+import type { AtomEvent } from "../extensions/types.js";
 import {
   denyProject,
   isProjectDenied,
@@ -465,10 +466,10 @@ export async function run(args: string[]): Promise<void> {
       mcpTools: includeMcp ? createMcpTools(mcpManager) : [],
       useTools,
     });
-  const extensionDispatch = async (event: string, payload: any) => {
+  const extensionDispatch = async (event: AtomEvent, payload: any) => {
     const results: any[] = [];
     for (const loaded of extensionLoader.loadedExtensions()) {
-      const handlers = loaded.registries.handlers.get(event as any);
+      const handlers = loaded.registries.handlers.get(event);
       if (!handlers) continue;
       for (const handler of handlers) {
         try {
@@ -555,7 +556,7 @@ export async function run(args: string[]): Promise<void> {
     runtime.setTools(currentTools(true));
   };
 
-  void extensionDispatch("session_start", {
+  await extensionDispatch("session_start", {
     type: "session_start",
     reason: "startup",
   });
@@ -585,7 +586,7 @@ export async function run(args: string[]): Promise<void> {
           label: item.description ?? providerLabel(provider),
         };
       });
-    const webSwitchModel = (profile: string, model: string) => {
+    const webSwitchModel = async (profile: string, model: string) => {
       const pcfg = ensureProfile(profile);
       if (!pcfg) return { error: `unknown provider: ${profile}` };
       pcfg.model = model;
@@ -617,7 +618,7 @@ export async function run(args: string[]): Promise<void> {
           `atom-lite: could not refresh model metadata: ${err instanceof Error ? err.message : String(err)}\n`,
         );
       }
-      void extensionDispatch("config_change", {
+      await extensionDispatch("config_change", {
         type: "config_change",
         scope: "model",
         provider: profile,
@@ -1648,7 +1649,7 @@ export async function run(args: string[]): Promise<void> {
     });
   }
 
-  function switchToModel(profile: string, model: string): void {
+  async function switchToModel(profile: string, model: string): Promise<void> {
     const pcfg = ensureProfile(profile);
     if (!pcfg) {
       appendLine(`unknown provider: ${profile}`);
@@ -1676,7 +1677,7 @@ export async function run(args: string[]): Promise<void> {
     runtime.switchModel(provider, model);
     refreshContextWindow();
     appendLine(`switched to ${profile}/${model}`);
-    void extensionDispatch("config_change", {
+    await extensionDispatch("config_change", {
       type: "config_change",
       scope: "model",
       provider: profile,
@@ -1693,7 +1694,7 @@ export async function run(args: string[]): Promise<void> {
     }
     const knownModels = modelsFor(provider.id);
     if (knownModels.includes(rest)) {
-      switchToModel(provider.id, rest);
+      void switchToModel(provider.id, rest);
       return;
     }
     const slash = rest.indexOf("/");
@@ -1701,17 +1702,20 @@ export async function run(args: string[]): Promise<void> {
       const profile = rest.slice(0, slash);
       const model = rest.slice(slash + 1);
       if (profileConfig(profile) || getPreset(profile)) {
-        switchToModel(profile, model);
+        void switchToModel(profile, model);
         return;
       }
     }
     if (profileConfig(rest) || getPreset(rest)) {
       ensureProfile(rest);
       const pcfg = profileConfig(rest);
-      switchToModel(rest, String(pcfg?.model ?? modelOverride ?? "default"));
+      void switchToModel(
+        rest,
+        String(pcfg?.model ?? modelOverride ?? "default"),
+      );
       return;
     }
-    switchToModel(provider.id, rest);
+    void switchToModel(provider.id, rest);
   }
 
   function openModelPicker(): void {
@@ -1732,7 +1736,7 @@ export async function run(args: string[]): Promise<void> {
         const sep = item.value.indexOf("\u0000");
         const profile = item.value.slice(0, sep);
         const model = item.value.slice(sep + 1);
-        switchToModel(profile, model);
+        void switchToModel(profile, model);
       },
       onCancel: () => {
         uiModalOpen = false;
@@ -2634,9 +2638,7 @@ export async function run(args: string[]): Promise<void> {
     const previous = extensionLoader.loadedExtensions();
     // Notify the outgoing set while its generation is still current.
     for (const loaded of previous) {
-      const handlers = loaded.registries?.handlers?.get?.(
-        "session_shutdown" as any,
-      );
+      const handlers = loaded.registries?.handlers?.get?.("session_shutdown");
       if (handlers) {
         for (const handler of handlers) {
           try {
@@ -2653,7 +2655,7 @@ export async function run(args: string[]): Promise<void> {
       }
     }
     // One swap: the staged generation becomes live, old handlers go stale.
-    extensionLoader.commitStaged(staged);
+    await extensionLoader.commitStaged(staged);
 
     // Remove previously bridged providers, then re-bridge.
     for (const name of extensionProviderNames) {
@@ -2750,7 +2752,7 @@ export async function run(args: string[]): Promise<void> {
     appendLine(
       `extensions: ${extensionLoader.processedCount()} reloaded (see /extensions)`,
     );
-    void extensionDispatch("config_change", {
+    await extensionDispatch("config_change", {
       type: "config_change",
       scope: "extensions",
     });

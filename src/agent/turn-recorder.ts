@@ -1,9 +1,13 @@
 import type { Message } from "../types.js";
+import type { AtomEvent } from "../extensions/types.js";
 
 export interface TurnRecorderOptions {
   session: { appendMessage(message: Message): void };
   onEvent?: (event: unknown) => void;
-  extensionDispatch?: (event: string, payload: any) => Promise<any[]> | any[];
+  extensionDispatch?: (
+    event: AtomEvent,
+    payload: any,
+  ) => Promise<any[]> | any[];
 }
 
 export class TurnRecorder {
@@ -39,7 +43,7 @@ export class TurnRecorder {
     ) {
       (message as any).thinking = response.metadata.thinking;
     }
-    void this.extensionDispatch?.("message_start", {
+    await this.extensionDispatch?.("message_start", {
       type: "message_start",
       message,
     });

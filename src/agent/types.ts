@@ -8,6 +8,7 @@ import type { QuestionContext } from "../runtime/questions.js";
 import type { ContextManager } from "../context/manager.js";
 import type { RepoMapOptions } from "../context/repoMap.js";
 import type { UsageLedger } from "../usage/ledger.js";
+import type { AtomEvent } from "../extensions/types.js";
 
 export type AgentEvent =
   | { type: "assistant_delta"; text: string }
@@ -109,8 +110,11 @@ export interface AgentRuntimeOptions {
   goalStore?: import("../runtime/goal.js").GoalStore;
   /** Optional steering queue drained into the turn between iterations. */
   steeringQueue?: string[];
-  /** Optional dispatcher for Pi extension events. */
-  extensionDispatch?: (event: string, payload: any) => Promise<any[]> | any[];
+  /** Optional dispatcher for typed extension events. */
+  extensionDispatch?: (
+    event: AtomEvent,
+    payload: any,
+  ) => Promise<any[]> | any[];
 }
 
 export interface ContextUsage {
