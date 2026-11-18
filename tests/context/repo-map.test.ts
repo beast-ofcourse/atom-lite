@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  chmodSync,
+  mkdirSync,
   mkdtempSync,
   statSync,
   unlinkSync,
@@ -8,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { ContextManager } from "../../dist/context/manager.js";
 import { estimateMessageTokens } from "../../dist/context/budget.js";
 
@@ -315,8 +317,7 @@ test("enabled:false removes only the map and leaves the rest of model input unch
   }).build(dir, []);
   assert.equal(mapText(disabled), "");
   const withoutMapMessages = withMap.filter(
-    (m) =>
-      !(typeof m.content === "string" && m.content.startsWith(HEADER)),
+    (m) => !(typeof m.content === "string" && m.content.startsWith(HEADER)),
   );
   assert.deepEqual(disabled, withoutMapMessages);
 });
@@ -355,7 +356,9 @@ test("the map stays within its token budget and notes omitted definitions", asyn
   assert.match(map, /^Repository map:/);
   assert.match(map, /mod\d+\.ts:1: export function fn/);
   assert.match(map, /omit/i);
-  assert.ok(estimateMessageTokens({ role: "system", content: map }) <= maxTokens);
+  assert.ok(
+    estimateMessageTokens({ role: "system", content: map }) <= maxTokens,
+  );
 });
 
 test("a workspace too large for any definition degrades to a ranked file list", async () => {
@@ -381,7 +384,9 @@ test("a workspace too large for any definition degrades to a ranked file list", 
   assert.match(map, /f2\.ts/);
   assert.doesNotMatch(map, /export function/);
   assert.match(map, /omit/i);
-  assert.ok(estimateMessageTokens({ role: "system", content: map }) <= maxTokens);
+  assert.ok(
+    estimateMessageTokens({ role: "system", content: map }) <= maxTokens,
+  );
 });
 
 test("maxFiles caps the number of files considered", async () => {
@@ -395,8 +400,224 @@ test("maxFiles caps the number of files considered", async () => {
     maxFiles: 2,
   }).build(dir, []);
   const map = mapText(messages);
-  const paths = new Set(
-    [...map.matchAll(/(f\d)\.ts:\d+:/g)].map((m) => m[1]),
-  );
+  const paths = new Set([...map.matchAll(/(f\d)\.ts:\d+:/g)].map((m) => m[1]));
   assert.equal(paths.size, 2);
+});
+
+test("a name used across many files ranks ahead of a name confined to one file", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-ranking-"));
+  writeFileSync(
+    join(dir, "a.ts"),
+    ['import { shared } from "./z";', "export function lonely() {}"].join("\n"),
+  );
+  writeFileSync(join(dir, "b.ts"), 'import { shared } from "./z";\n');
+  writeFileSync(join(dir, "c.ts"), "shared;\n");
+  writeFileSync(join(dir, "z.ts"), "export function shared() {}\n");
+
+  const map = mapText(await manager(dir).build(dir, []));
+
+  assert.match(map, /z\.ts:1: export function shared/);
+  assert.match(map, /a\.ts:2: export function lonely/);
+  assert.ok(
+    map.indexOf("z.ts:1:") < map.indexOf("a.ts:2:"),
+    `expected shared to outrank lonely:\n${map}`,
+  );
+});
+
+test("ranking ties break by path then line, independent of creation order", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-ties-"));
+  // Create in reverse path order to prove output does not follow the filesystem.
+  writeFileSync(join(dir, "b.ts"), "export function beta() {}\n");
+  writeFileSync(
+    join(dir, "a.ts"),
+    ["export function alpha() {}", "", "export function alpha2() {}"].join(
+      "\n",
+    ),
+  );
+
+  const map = mapText(await manager(dir).build(dir, []));
+
+  const alpha = map.indexOf("a.ts:1:");
+  const alpha2 = map.indexOf("a.ts:3:");
+  const beta = map.indexOf("b.ts:1:");
+  assert.ok(alpha >= 0 && alpha2 >= 0 && beta >= 0, map);
+  assert.ok(alpha < alpha2, map);
+  assert.ok(alpha2 < beta, map);
+});
+
+test("high-signal project files are boosted in the ranking", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-high-signal-"));
+  writeFileSync(join(dir, "alpha.ts"), "export function ordinary() {}\n");
+  writeFileSync(
+    join(dir, "vite.config.ts"),
+    "export function configHelper() {}\n",
+  );
+
+  const map = mapText(await manager(dir).build(dir, []));
+
+  assert.match(map, /vite\.config\.ts:1: export function configHelper/);
+  assert.match(map, /alpha\.ts:1: export function ordinary/);
+  assert.ok(map.indexOf("vite.config.ts:1:") < map.indexOf("alpha.ts:1:"), map);
+});
+
+test("dependency, build-output, VCS, hidden and scratch directories are skipped", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-hygiene-"));
+  const skipped: Array<[string, string]> = [
+    [".hidden/hidden.ts", "hiddenDef"],
+    ["node_modules/dep.ts", "depDef"],
+    ["dist/built.ts", "builtDef"],
+    ["build/compiled.ts", "compiledDef"],
+    [".git/vcs.ts", "vcsDef"],
+    [".scratch/note.ts", "noteDef"],
+    ["vendor/v.ts", "vendorDef"],
+    ["target/target.ts", "targetDef"],
+    ["scratch/s.ts", "scratchDef"],
+    ["CVS/c.ts", "cvsDef"],
+  ];
+  for (const [rel, name] of skipped) {
+    const file = join(dir, rel);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, `export function ${name}() {}\n`);
+  }
+  writeFileSync(join(dir, "keep.ts"), "export function keptDef() {}\n");
+
+  const map = mapText(await manager(dir).build(dir, []));
+
+  assert.match(map, /keptDef/);
+  for (const [, name] of skipped) {
+    assert.doesNotMatch(map, new RegExp(name), `unexpected ${name} in map`);
+  }
+});
+
+test("project instruction files are not duplicated in the map", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-instructions-"));
+  writeFileSync(
+    join(dir, "AGENTS.md"),
+    "export function instructionOnly() {}\n",
+  );
+  writeFileSync(join(dir, "CLAUDE.md"), "export function claudeOnly() {}\n");
+  writeFileSync(join(dir, "src.ts"), "export function realDef() {}\n");
+
+  const map = mapText(await manager(dir).build(dir, []));
+
+  assert.match(map, /realDef/);
+  assert.doesNotMatch(map, /instructionOnly/);
+  assert.doesNotMatch(map, /claudeOnly/);
+});
+
+test("oversized, minified, unreadable and malformed files are isolated", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-isolation-"));
+  writeFileSync(
+    join(dir, "oversized.ts"),
+    `export function oversizedDef() {}\n${"x".repeat(70 * 1024)}\n`,
+  );
+  const minifiedParams = Array.from({ length: 100 }, (_, i) => `p${i}`).join(
+    ", ",
+  );
+  writeFileSync(
+    join(dir, "minified.ts"),
+    `export function minifiedDef(${minifiedParams}) {}\n`,
+  );
+  const unreadable = join(dir, "unreadable.ts");
+  writeFileSync(unreadable, "export function unreadableDef() {}\n");
+  chmodSync(unreadable, 0);
+  writeFileSync(
+    join(dir, "malformed.ts"),
+    "export function malformedDef() {}\n\0\0",
+  );
+  writeFileSync(join(dir, "good.ts"), "export function goodDef() {}\n");
+
+  const messages = await manager(dir).build(dir, []);
+  const map = mapText(messages);
+
+  assert.match(map, /goodDef/);
+  for (const name of [
+    "oversizedDef",
+    "minifiedDef",
+    "unreadableDef",
+    "malformedDef",
+  ]) {
+    assert.doesNotMatch(map, new RegExp(name), `unexpected ${name} in map`);
+  }
+  chmodSync(unreadable, 0o644);
+});
+
+test("legitimately long signature lines are capped without dropping the definition", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-signature-cap-"));
+  const params = Array.from(
+    { length: 12 },
+    (_, i) => `param${i}: LongTypeName${i}`,
+  ).join(", ");
+  writeFileSync(
+    join(dir, "long.ts"),
+    `export function longSignature(${params}): ReturnType { return value; }\n`,
+  );
+
+  const map = mapText(await manager(dir).build(dir, []));
+
+  assert.match(map, /long\.ts:1: export function longSignature/);
+  assert.doesNotMatch(map, /param11/);
+  assert.match(map, /…/);
+});
+
+test("identical workspaces over the file cap produce identical, path-sorted output", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-cap-order-"));
+  for (let i = 9; i >= 0; i--) {
+    writeFileSync(join(dir, `f${i}.ts`), `export function fn${i}() {}\n`);
+  }
+  const settings = { enabled: true, maxTokens: 1200, maxFiles: 3 };
+  const cm = manager(dir, settings);
+  const first = mapText(await cm.build(dir, []));
+  cm.invalidateCaches();
+  const second = mapText(await cm.build(dir, []));
+
+  assert.equal(second, first);
+  assert.deepEqual(
+    [...first.matchAll(/(f\d)\.ts:\d+:/g)].map((m) => m[1]),
+    ["f0", "f1", "f2"],
+  );
+});
+
+test("traversal order is case-sensitive lexicographic before the cap", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-case-order-"));
+  writeFileSync(join(dir, "alpha.ts"), "export function lower() {}\n");
+  writeFileSync(join(dir, "Beta.ts"), "export function upperB() {}\n");
+  writeFileSync(join(dir, "Alpha.ts"), "export function upperA() {}\n");
+
+  const map = mapText(
+    await manager(dir, { enabled: true, maxTokens: 1200, maxFiles: 2 }).build(
+      dir,
+      [],
+    ),
+  );
+
+  assert.match(map, /Alpha\.ts:1: export function upperA/);
+  assert.match(map, /Beta\.ts:1: export function upperB/);
+  assert.doesNotMatch(map, /lower/);
+});
+
+test("the file-list fallback ranks high-signal files first", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-fallback-rank-"));
+  const long = "a".repeat(180);
+  writeFileSync(
+    join(dir, "alpha.ts"),
+    `export function ordinary(${long}): Ret { return v; }\n`,
+  );
+  writeFileSync(
+    join(dir, "vite.config.ts"),
+    `export function configHelper(${long}): Ret { return v; }\n`,
+  );
+
+  const map = mapText(
+    await manager(dir, { enabled: true, maxTokens: 50, maxFiles: 400 }).build(
+      dir,
+      [],
+    ),
+  );
+
+  assert.match(map, /^Repository map:/);
+  assert.match(map, /vite\.config\.ts/);
+  assert.match(map, /alpha\.ts/);
+  assert.doesNotMatch(map, /export function/);
+  assert.ok(map.indexOf("vite.config.ts") < map.indexOf("alpha.ts"), map);
 });

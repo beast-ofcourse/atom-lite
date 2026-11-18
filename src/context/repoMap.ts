@@ -36,8 +36,7 @@ const TS_JS_DECLARATION =
 const PYTHON_DECLARATION = /^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)/;
 
 /** Go declarations: functions (including receiver methods) and types. */
-const GO_DECLARATION =
-  /^\s*(?:func\s+(?:\([^)]*\)\s*)?|type\s+)([A-Za-z_]\w*)/;
+const GO_DECLARATION = /^\s*(?:func\s+(?:\([^)]*\)\s*)?|type\s+)([A-Za-z_]\w*)/;
 
 /** Rust declarations, with optional visibility/qualifier prefixes and generics. */
 const RUST_DECLARATION =
@@ -127,6 +126,98 @@ function patternFor(rel: string): RegExp {
 /** One signature line never consumes more than this many characters. */
 const MAX_SIGNATURE_CHARS = 200;
 
+/** Files larger than this are skipped (generated bundles, checked-in data). */
+const MAX_FILE_BYTES = 64 * 1024;
+
+/** Short files with at most two non-empty lines are treated as minified. */
+const MINIFIED_MIN_CHARS = 400;
+const MINIFIED_MAX_LINES = 2;
+
+/** Ranking score: base + weighted log of cross-file usage + high-signal boost. */
+const RANK_BASE = 1;
+const RANK_USAGE_WEIGHT = 1;
+const HIGH_SIGNAL_BOOST = 1000;
+
+/** Project instruction files are injected separately by the context manager. */
+const INSTRUCTION_FILES = new Set(["AGENTS.md", "CLAUDE.md"]);
+
+/** Directory names skipped anywhere in a workspace-relative path. */
+const SKIP_DIRECTORIES = new Set([
+  // dependencies
+  "node_modules",
+  "bower_components",
+  "vendor",
+  "third_party",
+  "third-party",
+  "external",
+  "deps",
+  "venv",
+  "site-packages",
+  "Pods",
+  "Carthage",
+  // build output
+  "dist",
+  "build",
+  "out",
+  "target",
+  "bin",
+  "obj",
+  "coverage",
+  "__pycache__",
+  "artifacts",
+  "generated",
+  // version control
+  "CVS",
+  // local application state and private scratch notes
+  "scratch",
+  "scratchpad",
+  "tmp",
+  "temp",
+  "logs",
+]);
+
+/** True for a path inside a skipped directory or naming an instruction file. */
+function isSkippedPath(rel: string): boolean {
+  const parts = rel.split("/");
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (parts[i].startsWith(".") || SKIP_DIRECTORIES.has(parts[i])) return true;
+  }
+  return INSTRUCTION_FILES.has(parts[parts.length - 1]);
+}
+
+/**
+ * True for conventional entry points (readmes, manifests, build/compiler
+ * configs, container definitions, CI configs). Definitions in these files get
+ * a ranking boost so stack conventions surface early.
+ */
+function isHighSignal(rel: string): boolean {
+  const base = rel.slice(rel.lastIndexOf("/") + 1);
+  const lower = base.toLowerCase();
+  if (/^readme(\.|$)/.test(lower)) return true;
+  if (
+    /^(package(-lock)?\.json|yarn\.lock|pnpm-lock\.yaml|cargo\.(toml|lock)|go\.(mod|sum)|pyproject\.toml|setup\.(py|cfg)|requirements.*\.txt|pipfile(\.lock)?|gemfile(\.lock)?|pom\.xml|build\.gradle(\.kts)?|composer\.json|mix\.exs|pubspec\.yaml)$/.test(
+      lower,
+    )
+  )
+    return true;
+  if (
+    /^(tsconfig.*\.json|jsconfig.*\.json|makefile|cmakelists\.txt|dockerfile|docker-compose\..*|procfile|azure-pipelines\..*|gitlab-ci\..*|\.travis\..*)$/.test(
+      lower,
+    )
+  )
+    return true;
+  return /\.config\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(lower);
+}
+
+/** Every identifier token in a file, including import/call usages. */
+function identifierSet(source: string): Set<string> {
+  const out = new Set<string>();
+  const re = /[A-Za-z_$][\w$]*/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(source)) !== null) out.add(match[0]);
+  return out;
+}
+
 interface CachedMap {
   signature: string;
   text: string;
@@ -183,8 +274,11 @@ function collectFiles(workspace: string, maxFiles: number): string[] {
     }
   };
   visit(workspace, "");
+  // Order is established lexicographically (case-sensitive) before skip rules
+  // and caps, so output never depends on filesystem enumeration order.
   const sorted = out.sort();
-  return maxFiles >= sorted.length ? sorted : sorted.slice(0, maxFiles);
+  const kept = sorted.filter((rel) => !isSkippedPath(rel));
+  return maxFiles >= kept.length ? kept : kept.slice(0, maxFiles);
 }
 
 function fileSignature(
@@ -217,28 +311,109 @@ function cap(line: string): string {
     : trimmed;
 }
 
-/** One capped signature line per definition, grouped by file order. */
-function definitionLines(workspace: string, files: string[]): string[] {
-  const lines: string[] = [];
-  for (const rel of files) {
-    try {
-      const source = readFileSync(join(workspace, rel), "utf8");
-      const sourceLines = source.split(/\r?\n/);
-      const declaration = patternFor(rel);
-      const extracted: Array<{ line: number; signature: string }> = [];
-      for (let i = 0; i < sourceLines.length; i++) {
-        if (declaration.test(sourceLines[i])) {
-          extracted.push({ line: i + 1, signature: sourceLines[i] });
-        }
-      }
-      for (const def of extracted) {
-        lines.push(`${rel}:${def.line}: ${cap(def.signature)}`);
-      }
-    } catch {
-      // A single unreadable file is skipped; other definitions still appear.
+interface Definition {
+  name: string;
+  line: number;
+  signature: string;
+}
+
+interface FileScan {
+  rel: string;
+  identifiers: Set<string>;
+  definitions: Definition[];
+  highSignal: boolean;
+}
+
+/** Read and extract one file. Any per-file failure yields null (skip it). */
+function scanFile(workspace: string, rel: string): FileScan | null {
+  try {
+    const path = join(workspace, rel);
+    const stat = statSync(path);
+    if (
+      !stat.isFile() ||
+      stat.size > MAX_FILE_BYTES ||
+      (stat.mode & 0o444) === 0
+    )
+      return null;
+    const source = readFileSync(path, "utf8");
+    if (source.includes("\0")) return null;
+    const sourceLines = source.split(/\r?\n/);
+    const nonEmpty = sourceLines.filter((line) => line.trim().length > 0);
+    if (
+      source.length > MINIFIED_MIN_CHARS &&
+      nonEmpty.length <= MINIFIED_MAX_LINES
+    )
+      return null;
+    const declaration = patternFor(rel);
+    const definitions: Definition[] = [];
+    for (let i = 0; i < sourceLines.length; i++) {
+      const match = declaration.exec(sourceLines[i]);
+      if (!match) continue;
+      // Every declaration pattern captures the declaration name last.
+      definitions.push({
+        name: match[match.length - 1],
+        line: i + 1,
+        signature: sourceLines[i],
+      });
+    }
+    return {
+      rel,
+      identifiers: identifierSet(source),
+      definitions,
+      highSignal: isHighSignal(rel),
+    };
+  } catch {
+    // A single unreadable or malformed file is skipped; others still appear.
+    return null;
+  }
+}
+
+interface RankedDefinition extends Definition {
+  path: string;
+  score: number;
+}
+
+/** Deterministic order: score desc, then path asc, then line asc. */
+function compareRanked(a: RankedDefinition, b: RankedDefinition): number {
+  if (a.score !== b.score) return b.score - a.score;
+  if (a.path !== b.path) return a.path < b.path ? -1 : 1;
+  return a.line - b.line;
+}
+
+/**
+ * Rank definitions by a usage-occurrence signal: the number of distinct
+ * files whose identifier set contains the definition name, plus a boost for
+ * high-signal project files. Ties break by path then line.
+ */
+function rankedDefinitions(
+  workspace: string,
+  files: string[],
+): RankedDefinition[] {
+  const scans = files
+    .map((rel) => scanFile(workspace, rel))
+    .filter(
+      (scan): scan is FileScan => scan !== null && scan.definitions.length > 0,
+    );
+
+  const filesByName = new Map<string, number>();
+  for (const scan of scans) {
+    for (const name of scan.identifiers) {
+      filesByName.set(name, (filesByName.get(name) ?? 0) + 1);
     }
   }
-  return lines;
+
+  const ranked: RankedDefinition[] = [];
+  for (const scan of scans) {
+    for (const def of scan.definitions) {
+      const count = Math.max(1, filesByName.get(def.name) ?? 1);
+      const score =
+        RANK_BASE +
+        RANK_USAGE_WEIGHT * Math.log(count) +
+        (scan.highSignal ? HIGH_SIGNAL_BOOST : 0);
+      ranked.push({ ...def, path: scan.rel, score });
+    }
+  }
+  return ranked.sort(compareRanked);
 }
 
 /**
@@ -252,8 +427,28 @@ function render(
   maxTokens: number,
   estimate: TokenEstimator,
 ): string {
-  const defs = definitionLines(workspace, files);
-  if (defs.length === 0) return "";
+  const ranked = rankedDefinitions(workspace, files);
+  if (ranked.length === 0) return "";
+  const defs = ranked.map(
+    (def) => `${def.path}:${def.line}: ${cap(def.signature)}`,
+  );
+
+  // Files inherit their best definition's score; files without definitions
+  // sort to the end, then path breaks the tie. The file-list fallback uses
+  // the same ranking as the definition rendering.
+  const bestByPath = new Map<string, number>();
+  for (const def of ranked) {
+    bestByPath.set(
+      def.path,
+      Math.max(bestByPath.get(def.path) ?? -Infinity, def.score),
+    );
+  }
+  const rankedFiles = [...files].sort((a, b) => {
+    const scoreA = bestByPath.get(a) ?? -Infinity;
+    const scoreB = bestByPath.get(b) ?? -Infinity;
+    if (scoreA !== scoreB) return scoreB - scoreA;
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
 
   const budget = Math.max(0, maxTokens - TOKEN_HEADROOM);
   const joinLines = (lines: string[]): string => lines.join("\n");
@@ -270,7 +465,7 @@ function render(
     ...defs.slice(0, count),
     OMISSION_NOTE,
   ];
-  if (!fits(withNote(1))) return renderFileList(files, fits, joinLines);
+  if (!fits(withNote(1))) return renderFileList(rankedFiles, fits, joinLines);
 
   let lo = 1;
   let hi = defs.length;
