@@ -9,6 +9,11 @@ test("turn stats format the measured duration and generation speed", () => {
   assert.equal(formatTurnStats(454_000, 1000, 18_000), "7m 34s · 56 tok/s");
 });
 
+test("turn stats keep sub-second durations honest", () => {
+  assert.equal(formatTurnStats(420, 240, 420), "0.4s · 571 tok/s");
+  assert.equal(formatTurnStats(0, 240, 420), "0s · 571 tok/s");
+});
+
 test("turn stats omit a rate when the provider reported no usage", () => {
   assert.equal(formatTurnStats(4_200, 0, 0), "4s");
   assert.equal(formatTurnStats(4_200, 120, 0), "4s");

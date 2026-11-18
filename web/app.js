@@ -38,7 +38,6 @@ const inputEl = document.getElementById("input");
 const sendEl = document.getElementById("send");
 const sendIcon = sendEl.querySelector("use");
 const queuedEl = document.getElementById("queued");
-const suggestionsEl = document.getElementById("suggestions");
 const contextValueEl = document.getElementById("context-value");
 const contextFillEl = document.getElementById("context-fill");
 const contextNoteEl = document.getElementById("context-note");
@@ -803,7 +802,11 @@ function addUserMessage(text, forceScroll = false) {
 }
 
 function formatDuration(ms) {
-  const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  const elapsed = Math.max(0, Number(ms) || 0);
+  // A sub-second turn is real work; show the measured fraction instead of a
+  // rounded "0s" that reads like a placeholder.
+  if (elapsed > 0 && elapsed < 1000) return `${(elapsed / 1000).toFixed(1)}s`;
+  const total = Math.floor(elapsed / 1000);
   if (total < 60) return `${total}s`;
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
@@ -1570,9 +1573,6 @@ function updateSessionControls() {
   effortButton.disabled = readOnly;
   modeButton.disabled = readOnly;
   attachButton.disabled = readOnly;
-  for (const suggestion of suggestionsEl.querySelectorAll(".suggestion")) {
-    suggestion.disabled = readOnly;
-  }
   for (const row of sessionsEl.querySelectorAll(".session-item")) {
     row.disabled = readOnly;
   }
@@ -3764,17 +3764,6 @@ newSessionEl.addEventListener("click", () => {
   sessionSearchEl.value = "";
   send({ type: "new_session" });
   closeMobileSidebar();
-});
-
-suggestionsEl.addEventListener("click", (event) => {
-  const target = event.target;
-  if (!(target instanceof Element) || readOnly) return;
-  const suggestion = target.closest(".suggestion");
-  if (!suggestion) return;
-  inputEl.value = suggestion.dataset.prompt ?? "";
-  resizeInput();
-  syncSendState();
-  inputEl.focus();
 });
 
 function moveSelection(container, selector, index, delta) {

@@ -14,13 +14,24 @@ export function formatTokensPerSecond(
   return `${Math.round(outputTokens / (modelMs / 1000))} tok/s`;
 }
 
+/**
+ * End-of-turn elapsed time. Sub-second turns keep a measured fraction instead
+ * of rounding to a misleading "0s"; the live activity spinner keeps the coarser
+ * formatElapsed.
+ */
+function formatTurnElapsed(ms: number): string {
+  const elapsed = Math.max(0, ms);
+  if (elapsed > 0 && elapsed < 1000) return `${(elapsed / 1000).toFixed(1)}s`;
+  return formatElapsed(elapsed);
+}
+
 /** One end-of-turn metadata line: elapsed wall time and generation speed. */
 export function formatTurnStats(
   elapsedMs: number,
   outputTokens: number,
   modelMs: number,
 ): string {
-  const parts = [formatElapsed(Math.max(0, elapsedMs))];
+  const parts = [formatTurnElapsed(elapsedMs)];
   const rate = formatTokensPerSecond(outputTokens, modelMs);
   if (rate) parts.push(rate);
   return parts.join(" · ");

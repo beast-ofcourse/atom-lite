@@ -136,7 +136,7 @@ stylesheet owns colour, so there is no vendored highlight theme.
 
 | Token            | Size | Use                                     |
 | ---------------- | ---- | --------------------------------------- |
-| `--text-xs`      | 12px | group labels, metadata, disclaimer      |
+| `--text-xs`      | 12px | group labels, metadata, footnotes       |
 | `--text-sm`      | 13px | sidebar meta, tool summary, code header |
 | `--text-ui`      | 14px | sidebar rows, buttons, tool names       |
 | `--text-base`    | 16px | prose, user bubble, composer            |
@@ -169,7 +169,7 @@ transitions collapse.
 │   session rows (40px)             │                                      │
 │ Yesterday                         │                                      │
 │   …                               │   composer 768px, 28px radius        │
-│ workspace footer                  │   suggestion chips / disclaimer      │
+│ workspace footer                  │                                      │
 └───────────────────────────────────┴──────────────────────────────────────┘
 ```
 
@@ -201,9 +201,13 @@ transitions collapse.
   **Rename**, and **Delete**. Pinned chats render in a `Pinned` group above the
   dated groups, sorted by update time; the set persists in `localStorage` under
   `atom-lite.web.pinned` and is cleaned when a chat is deleted.
+- Above the footer sits the context window: a `Context` label with a compact
+  `used/window` value (`1.5k / 200k`), a 3px fill, and a percentage note. It is
+  the web mirror of the TUI status-bar token meter and shows `—` / `no usage
+yet` until the runtime reports real usage; a new chat resets it.
 - Footer is a workspace/account block: avatar disc, a one-line working-directory
-  hint that opens the explorer, provider · model, and a theme toggle. Clicking
-  the path or `Ctrl/Cmd+O` opens the directory explorer.
+  hint, provider · model, and a theme toggle. Clicking the path opens the host
+  OS native folder picker; `Ctrl/Cmd+O` opens the in-app directory explorer.
 - Resize: the sidebar's right edge is a drag handle (220–420px, 260px default).
   The separator supports arrows, Shift+arrows, Home, and double-click reset.
   Width persists in `localStorage` under `atom-lite.web.sidebar-width`; the
@@ -254,6 +258,11 @@ and the resizer is hidden.
 - Copy is a 28px icon button under the response, revealed on hover and focus,
   always visible on touch. It copies the raw model text and confirms with a
   check for 1.2s.
+- End of turn adds a `msg-stats` line beside the copy icon: measured wall time
+  (`7m 34s`, or `0.4s` for a sub-second turn) and output-token throughput
+  (`56 tok/s`). Both come from the server's real timing and provider usage;
+  the rate is omitted when the provider reported no output or no call timing,
+  so no placeholder number is ever shown. The same formatting ships in the TUI.
 - The transcript has `aria-live="polite"`; streaming content is announced but
   never visually animated.
 
@@ -349,8 +358,7 @@ pulse marks the active state. Clicking it stops the turn, as does Escape and
 `/stop`; Enter in the textarea still queues a steering message. Reduced motion
 keeps a static ring instead of the pulse.
 Disabled send uses `--send-disabled` and keeps its shape. Queued steering
-messages appear above the composer as small `Queued` rows. The disclaimer below
-is 12px `--text-faint`: "Atom-lite can make mistakes. Check important info."
+messages appear above the composer as small `Queued` rows.
 
 ### Voice input
 
@@ -365,11 +373,8 @@ disabled with a tooltip explaining why.
 ### Home state
 
 On a new conversation: the model header stays, the transcript is empty, and a
-centered stack holds `What can I help with?` at 28px/400, the composer, and four
-suggestion chips (`Explain this codebase`, `Find a bug`, `Write tests`,
-`Review my changes`). Chips are real controls: clicking fills the composer and
-focuses it. The stack is vertically centered between the header and the bottom
-of the viewport; it never overlaps the disclaimer.
+centered stack holds `What can I help with?` at 28px/400 above the composer. The
+stack is vertically centered between the header and the bottom of the viewport.
 
 ### Agent overlay
 
@@ -597,6 +602,13 @@ and the fake provider, dark and light, 1440×900 and 390×844.
   the final render settles. No entrance animation is attached to streamed text.
   Scroll updates are coalesced to one frame and respect user scroll-up.
 
+- **Turn stats and context window (2026-11-18):** with a timed provider that
+  reported 240 output tokens over one 420ms call, the finished reply showed
+  `0.4s · 571 tok/s` beside the copy icon and the sidebar showed `1.5k / 200k`
+  at `1% used`. A new chat reset the meter to `—` / `no usage yet`. The copy
+  button remained functional alongside the stats, dark and light themes both
+  cleared 4.5:1 for the faint stat text, a 760px viewport auto-collapsed the
+  sidebar without overflow, and the browser logged 0 errors.
 - **Native workspace picker (2026-11-17):** the footer path triggered the host
   picker bridge and switched to the selected directory with a workspace toast;
   the cancel path is covered by the protocol test. The GTK, macOS, and Windows
@@ -633,6 +645,11 @@ and the fake provider, dark and light, 1440×900 and 390×844.
   a turn. The detector returned no primary findings at 1440×900 or 390×844;
   composer placeholder contrast is 6.4:1 dark and 6.6:1 light, and task
   metadata is 12px.
+- **Composer cleanup (2026-11-18):** the four suggestion chips and the
+  `Atom-lite can make mistakes` line were removed from markup, styles, and event
+  wiring. In the browser the home state is just the heading above the composer,
+  a finished turn still reports its measured stats, and the DOM has no
+  `.suggestion` or `.disclaimer` nodes in either state. No console errors.
 
 Accepted limitation: `aria-live="polite"` on the transcript means a screen
 reader may announce streamed updates; this is deliberate for a streaming
