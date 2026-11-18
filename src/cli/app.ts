@@ -415,6 +415,7 @@ export async function run(args: string[]): Promise<void> {
   // Bridge Pi-style extension providers into Atom-lite's config so they
   // appear in /provider, /model, and the command palette.
   for (const loaded of extensionLoader.list()) {
+    if (loaded.status !== "loaded") continue;
     for (const [name, provider] of loaded.registries?.providers ?? new Map()) {
       const cfg = (provider as any)?.config ?? {};
       const firstModel =
@@ -446,6 +447,7 @@ export async function run(args: string[]): Promise<void> {
   const extensionDispatch = async (event: string, payload: any) => {
     const results: any[] = [];
     for (const loaded of extensionLoader.list()) {
+      if (loaded.status !== "loaded") continue;
       const handlers = loaded.registries.handlers.get(event as any);
       if (!handlers) continue;
       for (const handler of handlers) {
@@ -949,6 +951,7 @@ export async function run(args: string[]): Promise<void> {
   const collectExtensionCommands = () => {
     const out: any[] = [];
     for (const loaded of extensionLoader.list()) {
+      if (loaded.status !== "loaded") continue;
       for (const command of loaded.registries?.commands?.values?.() ?? []) {
         out.push(command);
       }
@@ -1231,7 +1234,7 @@ export async function run(args: string[]): Promise<void> {
             ]);
             refreshCommandRegistry(true);
             appendLine(
-              `extensions: ${extensionLoader.list().length} processed (see /extensions)`,
+              `extensions: ${extensionLoader.processedCount()} processed (see /extensions)`,
             );
             tui.requestRender();
           })
@@ -2603,6 +2606,7 @@ export async function run(args: string[]): Promise<void> {
     const previous = extensionLoader.list();
     // Emit session_shutdown and extension_unload before unloading.
     for (const loaded of previous) {
+      if (loaded.status !== "loaded") continue;
       const handlers = loaded.registries?.handlers?.get?.(
         "session_shutdown" as any,
       );
@@ -2638,6 +2642,7 @@ export async function run(args: string[]): Promise<void> {
     }
     extensionProviderNames.clear();
     for (const loaded of extensionLoader.list()) {
+      if (loaded.status !== "loaded") continue;
       for (const [name, provider] of loaded.registries?.providers ??
         new Map()) {
         const cfg = (provider as any)?.config ?? {};
@@ -2708,6 +2713,7 @@ export async function run(args: string[]): Promise<void> {
 
     // Emit session_start with reason reload.
     for (const loaded of extensionLoader.list()) {
+      if (loaded.status !== "loaded") continue;
       const handlers = loaded.registries?.handlers?.get?.(
         "session_start" as any,
       );
@@ -2728,7 +2734,7 @@ export async function run(args: string[]): Promise<void> {
     }
     refreshCommandRegistry(true);
     appendLine(
-      `extensions: ${extensionLoader.list().length} reloaded (see /extensions)`,
+      `extensions: ${extensionLoader.processedCount()} reloaded (see /extensions)`,
     );
     void extensionDispatch("config_change", {
       type: "config_change",

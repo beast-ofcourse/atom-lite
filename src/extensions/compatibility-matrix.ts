@@ -17,12 +17,12 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "registerTool",
     status: "supported",
-    consumers: ["src/extensions/tool-adapter.ts:194"],
+    consumers: ["src/extensions/tool-adapter.ts:197"],
   },
   {
     method: "unregisterTool",
     status: "supported",
-    consumers: ["src/extensions/tool-adapter.ts:194"],
+    consumers: ["src/extensions/tool-adapter.ts:197"],
   },
   {
     method: "setActiveTools",
@@ -42,22 +42,22 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "registerCommand",
     status: "supported",
-    consumers: ["src/cli/app.ts:952"],
+    consumers: ["src/cli/app.ts:955"],
   },
   {
     method: "unregisterCommand",
     status: "supported",
-    consumers: ["src/cli/app.ts:952"],
+    consumers: ["src/cli/app.ts:955"],
   },
   {
     method: "on",
     status: "supported",
-    consumers: ["src/extensions/loader.ts:309"],
+    consumers: ["src/extensions/loader.ts:317"],
   },
   {
     method: "off",
     status: "supported",
-    consumers: ["src/extensions/loader.ts:309"],
+    consumers: ["src/extensions/loader.ts:317"],
   },
   {
     method: "appendEntry",
@@ -217,12 +217,12 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "registerProvider",
     status: "reduced",
-    consumers: ["src/cli/app.ts:418"],
+    consumers: ["src/cli/app.ts:419"],
   },
   {
     method: "unregisterProvider",
     status: "supported",
-    consumers: ["src/cli/app.ts:418"],
+    consumers: ["src/cli/app.ts:419"],
   },
   {
     method: "registerModel",
