@@ -1,7 +1,7 @@
 import { open, readFile, readdir, stat as statAsync } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
-import { resolve, extname } from "node:path";
+import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { isWithinWorkspace } from "../security/paths.js";
 import type { Tool, ToolContext, ToolResult } from "./types.js";
@@ -14,32 +14,24 @@ const MAX_READ_BYTES = 50 * 1024;
 const TAIL_LINES = 100;
 const MAX_LINE_CHARS = 2000;
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
 const LINE_TRUNCATED = `... (line truncated to ${MAX_LINE_CHARS} chars)`;
 
-function detectImageMime(path: string, buf: Buffer | Uint8Array): string | null {
-  const ext = extname(path).toLowerCase();
-  const byExt: Record<string, string> = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-  };
-  let magic: string | null = null;
-  if (buf.length >= 4) {
-    const b = buf as Buffer;
-    if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) magic = "image/png";
-    else if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) magic = "image/jpeg";
-    else if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) magic = "image/gif";
-    else if (
-      buf.length >= 12 &&
-      b.subarray(0, 4).toString() === "RIFF" &&
-      b.subarray(8, 12).toString() === "WEBP"
-    )
-      magic = "image/webp";
-  }
-  if (byExt[ext]) return magic ?? byExt[ext];
-  return magic;
+/** Detect media from bytes alone, so an extension cannot turn text into an attachment. */
+function detectMediaMime(buf: Uint8Array): string | null {
+  const b = buf as Buffer;
+  if (buf.length >= 4 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (buf.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (buf.length >= 6 && (b.subarray(0, 6).toString() === "GIF87a" || b.subarray(0, 6).toString() === "GIF89a"))
+    return "image/gif";
+  if (
+    buf.length >= 12 &&
+    b.subarray(0, 4).toString() === "RIFF" &&
+    b.subarray(8, 12).toString() === "WEBP"
+  )
+    return "image/webp";
+  if (buf.length >= 5 && b.subarray(0, 5).toString() === "%PDF-") return "application/pdf";
+  return null;
 }
 
 const ArgsSchema = z
@@ -295,15 +287,6 @@ export const readTool: Tool = {
         content: pageDirectory(path, entries, offset, limit, ctx.maxToolOutputBytes ?? 30000),
       };
     }
-    if (st.size > MAX_FILE_BYTES) {
-      return {
-        toolCallId: call.id,
-        name: "read",
-        content: "FILE_TOO_LARGE",
-        isError: true,
-      };
-    }
-
     let handle: FileHandle;
     try {
       handle = await open(resolved, "r");
@@ -319,8 +302,16 @@ export const readTool: Tool = {
       const firstBuffer = Buffer.allocUnsafe(Math.min(CHUNK_BYTES, st.size || 1));
       const { bytesRead } = await handle.read(firstBuffer, 0, firstBuffer.length, 0);
       const first = firstBuffer.subarray(0, bytesRead);
-      const mime = detectImageMime(resolved, first);
+      const mime = detectMediaMime(first);
       if (mime) {
+        if (st.size > MAX_MEDIA_BYTES) {
+          return {
+            toolCallId: call.id,
+            name: "read",
+            content: `MEDIA_TOO_LARGE: ${path} exceeds the 20 MiB ingestion limit`,
+            isError: true,
+          };
+        }
         if (!ctx.supportsVision) {
           return {
             toolCallId: call.id,
@@ -330,11 +321,20 @@ export const readTool: Tool = {
           };
         }
         const buf = await readFile(resolved);
+        const kind = mime === "application/pdf" ? "PDF" : "Image";
         return {
           toolCallId: call.id,
           name: "read",
-          content: `Image file: ${path} (${buf.length} bytes, ${mime})`,
+          content: `${kind} file: ${path} (${buf.length} bytes, ${mime})`,
           images: [{ data: buf.toString("base64"), mime }],
+        };
+      }
+      if (st.size > MAX_FILE_BYTES) {
+        return {
+          toolCallId: call.id,
+          name: "read",
+          content: "FILE_TOO_LARGE",
+          isError: true,
         };
       }
       const cap = ctx.maxToolOutputBytes ?? 30000;
