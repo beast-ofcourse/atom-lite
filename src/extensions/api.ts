@@ -141,14 +141,29 @@ export function createExtensionRegistries(): ExtensionRegistries {
   };
 }
 
+export interface CreateExtensionAPIOptions {
+  /** Wrap an event handler so it runs behind the host's boundary. */
+  wrapHandler?: (
+    event: AtomEvent,
+    handler: ExtensionEventHandler,
+  ) => ExtensionEventHandler;
+}
+
 export function createExtensionAPI(
   id: string,
   ctx: ExtensionContext,
   registries: ExtensionRegistries,
   sessionId: string,
+  options: CreateExtensionAPIOptions = {},
 ): ExtensionAPI {
   if (typeof ctx.hasUI !== "boolean") ctx.hasUI = false;
   if (!ctx.ui) ctx.ui = createDefaultExtensionUI(registries, ctx);
+  // Map a registered handler to its wrapped form so `off`/unsubscribe removes
+  // exactly what `on` added.
+  const wrapped = new Map<
+    ExtensionEventHandler,
+    Map<AtomEvent, ExtensionEventHandler>
+  >();
   return {
     id,
     ui: ctx.ui,
@@ -189,11 +204,21 @@ export function createExtensionAPI(
       if (!registries.handlers.has(event)) {
         registries.handlers.set(event, new Set());
       }
-      registries.handlers.get(event)!.add(handler);
-      return () => registries.handlers.get(event)?.delete(handler);
+      const registered = options.wrapHandler
+        ? options.wrapHandler(event, handler)
+        : handler;
+      registries.handlers.get(event)!.add(registered);
+      let byEvent = wrapped.get(handler);
+      if (!byEvent) {
+        byEvent = new Map();
+        wrapped.set(handler, byEvent);
+      }
+      byEvent.set(event, registered);
+      return () => registries.handlers.get(event)?.delete(registered);
     },
     off: (event, handler) => {
-      registries.handlers.get(event)?.delete(handler);
+      const registered = wrapped.get(handler)?.get(event) ?? handler;
+      registries.handlers.get(event)?.delete(registered);
     },
     appendEntry: (type, data) => {
       if (ctx.sessionManager?.appendEntry) {

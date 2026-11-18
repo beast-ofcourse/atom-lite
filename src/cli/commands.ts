@@ -91,6 +91,8 @@ export interface CommandDispatchResult {
   /** True when the command name did not exist. */
   unknown?: boolean;
   name?: string;
+  /** A contained command failure, surfaced on a user-visible line. */
+  error?: string;
 }
 
 /** Run git in a workspace; throws on failure so callers can map it to a message. */
@@ -196,7 +198,23 @@ export class CommandRegistry {
       return { handled: true, unknown: true, name: parsed.name };
     }
 
-    await command.run(ctx, parsed.args, parsed.raw);
+    try {
+      await command.run(ctx, parsed.args, parsed.raw);
+    } catch (error) {
+      // A command (extension or built-in) must never reject into onSubmit as
+      // an unhandled promise failure. Contain it and show a user-visible line.
+      const message = error instanceof Error ? error.message : String(error);
+      try {
+        ctx.appendLine(`command /${command.name} failed: ${message}`);
+      } catch {
+        // Reporting must not turn a contained failure into a new one.
+      }
+      return {
+        handled: true,
+        name: command.name,
+        error: message,
+      };
+    }
     return { handled: true, exit: command.exits === true, name: command.name };
   }
 }
