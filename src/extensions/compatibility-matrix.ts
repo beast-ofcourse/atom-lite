@@ -22,27 +22,32 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "registerTool",
     status: "supported",
-    consumers: [{"file":"src/extensions/tool-adapter.ts","line":261}],
+    consumers: [{"file":"src/extensions/tool-adapter.ts","line":269}],
   },
   {
     method: "unregisterTool",
     status: "supported",
-    consumers: [{"file":"src/extensions/tool-adapter.ts","line":261}],
+    consumers: [{"file":"src/extensions/tool-adapter.ts","line":269}],
+  },
+  {
+    method: "wrapTool",
+    status: "supported",
+    consumers: [{"file":"src/extensions/tool-adapter.ts","line":255}],
   },
   {
     method: "setActiveTools",
     status: "supported",
-    consumers: [{"file":"src/extensions/tool-adapter.ts","line":260}],
+    consumers: [{"file":"src/extensions/tool-adapter.ts","line":268}],
   },
   {
     method: "getActiveTools",
     status: "supported",
-    consumers: [{"file":"src/extensions/tool-adapter.ts","line":260}],
+    consumers: [{"file":"src/extensions/tool-adapter.ts","line":268}],
   },
   {
     method: "getAllTools",
     status: "supported",
-    consumers: [{"file":"src/extensions/tool-adapter.ts","line":261}],
+    consumers: [{"file":"src/extensions/tool-adapter.ts","line":269}],
   },
   {
     method: "registerCommand",
@@ -57,12 +62,12 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "on",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":554}],
+    consumers: [{"file":"src/extensions/loader.ts","line":652}],
   },
   {
     method: "off",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":554}],
+    consumers: [{"file":"src/extensions/loader.ts","line":652}],
   },
   {
     method: "appendEntry",
@@ -202,12 +207,12 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "getWorkspace",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":251}],
+    consumers: [{"file":"src/extensions/loader.ts","line":270}],
   },
   {
     method: "getSession",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":413}],
+    consumers: [{"file":"src/extensions/loader.ts","line":499}],
   },
   {
     method: "getSessionManager",
@@ -217,7 +222,7 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "isProjectTrusted",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":252}],
+    consumers: [{"file":"src/extensions/loader.ts","line":271}],
   },
   {
     method: "registerProvider",
@@ -247,12 +252,22 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "span",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":750}],
+    consumers: [{"file":"src/extensions/loader.ts","line":874}],
   },
   {
     method: "metric",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":750}],
+    consumers: [{"file":"src/extensions/loader.ts","line":874}],
+  },
+  {
+    method: "provide",
+    status: "supported",
+    consumers: [{"file":"src/extensions/loader.ts","line":412}],
+  },
+  {
+    method: "consume",
+    status: "supported",
+    consumers: [{"file":"src/extensions/loader.ts","line":427}],
   },
   {
     method: "supports",

@@ -52,7 +52,7 @@ implementation.
 
 | Status        | Methods | Meaning                                  |
 | ------------- | ------- | ---------------------------------------- |
-| `supported`   | 18      | Effect is consumed by the host.          |
+| `supported`   | 21      | Effect is consumed by the host.          |
 | `reduced`     | 8       | Works with limits; see Reduced behavior. |
 | `no-op`       | 20      | Call is accepted; nothing consumes it.   |
 | `unsupported` | 7       | Failing stub; see Tier 3.                |
@@ -60,7 +60,8 @@ implementation.
 **`supported`:** `registerTool`, `unregisterTool`, `setActiveTools`,
 `getActiveTools`, `getAllTools`, `registerCommand`, `unregisterCommand`, `on`,
 `off`, `getToolsExpanded`, `setToolsExpanded`, `select`, `confirm`, `input`,
-`getWorkspace`, `getSession`, `isProjectTrusted`, `unregisterProvider`.
+`getWorkspace`, `getSession`, `isProjectTrusted`, `unregisterProvider`,
+`wrapTool`, `provide`, `consume`.
 
 **`reduced`:** `appendEntry`, `getSessionEntries`, `getSessionManager`, `notify`,
 `registerProvider`, `exec`, `log`, `supports`.
@@ -73,8 +74,65 @@ implementation.
 `setHiddenThinkingLabel`, `registerModel`.
 
 Tier 1 covers discovery, trust, module loading, tools, commands, events,
-session entries, dialogs, `exec`, and logging. The `no-op` methods above are
-accepted for compatibility but have no effect in this release.
+session entries, the durable store, dialogs, `exec`, logging, tool middleware,
+and inter-extension services. The `no-op` methods above are accepted for
+compatibility but have no effect in this release.
+
+## Tool middleware and services
+
+Two extensions can cooperate on one tool or one typed service without module
+globals. Both are scoped to the load generation: unload and reload remove them
+with the extension set that registered them.
+
+### Tool middleware
+
+`pi.wrapTool(name, handler)` intercepts a built-in or extension tool. A wrapper
+gets `(call, next)`: `call` carries the tool call id, name, and arguments, and
+calling `next` proceeds inward to the next wrapper and then the tool's
+`execute`.
+Wrappers run in registration order — the first wrapper registered is outermost
+and runs first. Each may replace the result, reject the call by throwing, or
+abort (return no result), which becomes an error result for the model. Wrappers
+are bounded by the same generation, timeout, and error attribution as event
+handlers.
+
+```js
+export default function (pi) {
+  pi.wrapTool("bash", async (call, next) => {
+    const result = await next();
+    return { ...result, content: redact(result.content) };
+  });
+}
+```
+
+Wrapping never changes model visibility: a wrapper on a tool with
+`exposure: "hidden"` stays out of the model-visible set. The underlying tool
+keeps its definition, annotations, and exposure.
+
+### Services
+
+`pi.provide(name, api, version)` publishes a versioned service.
+`pi.consume(name, versionRange)` resolves one at activation. Extensions load in
+topological order by provide/consume edges, so a provider activates before its
+consumers. Semver ranges support `*`, `^`, `~`, `>=`, and exact `x.y.z`.
+
+```js
+// provider.js
+export default function (pi) {
+  pi.provide("greeter", { greet: (name) => `hi ${name}` }, "1.2.0");
+}
+
+// consumer.js — loads after the provider even if discovered first
+export default function (pi) {
+  const greeter = pi.consume("greeter", "^1.0.0");
+  pi.registerTool({ name: "greet", label: "Greet", description: "Greet", execute: async () => greeter.greet("Ada") });
+}
+```
+
+A missing service, an incompatible version, a duplicate provide name, or a
+dependency cycle raises `ExtensionCompatibilityError` naming the method, tier,
+and reason. The activation failure is attributed to the consuming extension in
+doctor output.
 
 ## Reduced behavior
 
@@ -114,6 +172,50 @@ if (pi.supports("registerMcpServer")) {
 }
 ```
 
+## Durable store
+
+`pi.store` keeps JSON state across restarts and reloads without module globals.
+State lives in one file per extension at
+`<agentDir>/extension-state/<id>.json`, where `agentDir` is Atom-lite's agent
+directory. It is separate from the session log (which is deleted with a
+session) and from user config (which holds settings, not extension state).
+
+The file shape is `{ "version": 1, "value": { ... } }`, where each key in
+`value` is a `pi.store` entry. The serialized file is capped at 1 MiB per
+extension. `set`, `delete`, and a migration result that exceed the cap throw
+`ExtensionCompatibilityError` and leave the store unchanged.
+
+Set `version` and `migrate` at the top of `activate` before calling `get`,
+`set`, or `delete`:
+
+```ts
+export default function (pi) {
+  pi.store.version = 2;
+  pi.store.migrate = (oldVersion, value) => ({
+    ...value,
+    n: (value.n ?? 0) + 1,
+  });
+
+  const n = pi.store.get("n");
+  pi.store.set("n", (n ?? 0) + 1);
+}
+```
+
+At activation the host reads the file once. When the stored version is older,
+it calls the `pi.store.migrate` hook once and writes the result at the
+registered version. A newer stored version throws
+`ExtensionCompatibilityError` on `store.migrate` instead of dropping keys; the
+extension is reported as failed in doctor. An older version with no `migrate`
+hook fails the same way.
+
+Uninstalling or unregistering an extension archives its file as
+`<id>.json.bak`. A later archive replaces the previous backup. Call
+`pi.store.archive()` from the extension, or the loader's `archiveStore` method
+when the host removes an extension.
+
+`/extensions doctor` prints only the entry count and schema version for each
+store. Values never appear in doctor output.
+
 ## ExtensionAPI reference
 
 The `pi` object passed to an extension is an `ExtensionAPI`. The matrix above
@@ -133,8 +235,13 @@ marks which methods have an effect.
 **Tools**
 
 - `registerTool(tool)`, `unregisterTool(name)`
+- `wrapTool(name, handler)` — compose a wrapper around a built-in or extension tool in registration order
 - `setActiveTools(names)`, `getActiveTools()`, `getAllTools()`
 - `getToolsExpanded()`, `setToolsExpanded(expanded)`
+
+**Services**
+
+- `provide(name, api, version)`, `consume(name, versionRange)` — publish and resolve versioned services in dependency order
 
 **Commands**
 
@@ -161,6 +268,18 @@ extensions once, after the new extension set is committed.
 
 - `appendEntry(type, data)`
 - `getSessionEntries(filter?)`
+
+**Durable store**
+
+- `pi.store.get(key)` → the stored JSON value, or `undefined`
+- `pi.store.set(key, value)` — write a JSON-serializable value
+- `pi.store.delete(key)` → boolean
+- `pi.store.version` — integer schema version this extension understands; default `1`
+- `pi.store.migrate` — optional synchronous hook `(oldVersion, value)`, called once at activation
+- `pi.store.archive()` — move the store file to `<id>.json.bak`
+
+See [Durable store](#durable-store) for the file location, size cap, and failure
+behavior.
 
 **Status / notify**
 
@@ -216,13 +335,15 @@ span results never appear in diagnostics.
 ## Diagnostics
 
 `/extensions` lists discovered extensions and load status. `/extensions doctor`
-prints per-extension load status, tool/command counts, and errors.
-`/extensions doctor --json` prints an array with, per extension, `id`, `source`,
-`status`, `error`, `stack`, `toolCount`, `commandCount`, `eventCount`, `apis`
-— the matrix entries for API calls found in that extension's entry file — and
-`lifecycleEvents`, the lifecycle records from that extension. It also reports
-`errorCount` and `lastError` for contained failures, plus `observability` with
-`spanCount`, `metricCount`, `errorCount`, and `lastError` for span failures.
+prints per-extension load status, tool/command counts, store entry count and
+version, observability counts, and errors. `/extensions doctor --json` prints an
+array with, per extension, `id`, `source`, `status`, `error`, `stack`,
+`toolCount`, `commandCount`, `eventCount`, `apis` — the matrix entries for API
+calls found in that extension's entry file — `store` (`entryCount` and
+`version`, never values), and `lifecycleEvents`, the lifecycle records from that
+extension. It also reports `errorCount` and `lastError` for contained failures,
+plus `observability` with `spanCount`, `metricCount`, `errorCount`, and
+`lastError` for span failures.
 
 The JSON list contains only methods that exist in `ExtensionAPI`. Called Tier 3
 methods carry their `unsupported` matrix entry; containment errors include the
