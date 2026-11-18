@@ -74,9 +74,9 @@ implementation.
 `setHiddenThinkingLabel`, `registerModel`.
 
 Tier 1 covers discovery, trust, module loading, tools, commands, events,
-session entries, dialogs, `exec`, logging, tool middleware, and inter-extension
-services. The `no-op` methods above are accepted for compatibility but have no
-effect in this release.
+session entries, the durable store, dialogs, `exec`, logging, tool middleware,
+and inter-extension services. The `no-op` methods above are accepted for
+compatibility but have no effect in this release.
 
 ## Tool middleware and services
 
@@ -172,6 +172,50 @@ if (pi.supports("registerMcpServer")) {
 }
 ```
 
+## Durable store
+
+`pi.store` keeps JSON state across restarts and reloads without module globals.
+State lives in one file per extension at
+`<agentDir>/extension-state/<id>.json`, where `agentDir` is Atom-lite's agent
+directory. It is separate from the session log (which is deleted with a
+session) and from user config (which holds settings, not extension state).
+
+The file shape is `{ "version": 1, "value": { ... } }`, where each key in
+`value` is a `pi.store` entry. The serialized file is capped at 1 MiB per
+extension. `set`, `delete`, and a migration result that exceed the cap throw
+`ExtensionCompatibilityError` and leave the store unchanged.
+
+Set `version` and `migrate` at the top of `activate` before calling `get`,
+`set`, or `delete`:
+
+```ts
+export default function (pi) {
+  pi.store.version = 2;
+  pi.store.migrate = (oldVersion, value) => ({
+    ...value,
+    n: (value.n ?? 0) + 1,
+  });
+
+  const n = pi.store.get("n");
+  pi.store.set("n", (n ?? 0) + 1);
+}
+```
+
+At activation the host reads the file once. When the stored version is older,
+it calls the `pi.store.migrate` hook once and writes the result at the
+registered version. A newer stored version throws
+`ExtensionCompatibilityError` on `store.migrate` instead of dropping keys; the
+extension is reported as failed in doctor. An older version with no `migrate`
+hook fails the same way.
+
+Uninstalling or unregistering an extension archives its file as
+`<id>.json.bak`. A later archive replaces the previous backup. Call
+`pi.store.archive()` from the extension, or the loader's `archiveStore` method
+when the host removes an extension.
+
+`/extensions doctor` prints only the entry count and schema version for each
+store. Values never appear in doctor output.
+
 ## ExtensionAPI reference
 
 The `pi` object passed to an extension is an `ExtensionAPI`. The matrix above
@@ -225,6 +269,18 @@ extensions once, after the new extension set is committed.
 - `appendEntry(type, data)`
 - `getSessionEntries(filter?)`
 
+**Durable store**
+
+- `pi.store.get(key)` → the stored JSON value, or `undefined`
+- `pi.store.set(key, value)` — write a JSON-serializable value
+- `pi.store.delete(key)` → boolean
+- `pi.store.version` — integer schema version this extension understands; default `1`
+- `pi.store.migrate` — optional synchronous hook `(oldVersion, value)`, called once at activation
+- `pi.store.archive()` — move the store file to `<id>.json.bak`
+
+See [Durable store](#durable-store) for the file location, size cap, and failure
+behavior.
+
 **Status / notify**
 
 - `setStatus(part, value)` (no-op)
@@ -269,11 +325,12 @@ extensions once, after the new extension set is committed.
 ## Diagnostics
 
 `/extensions` lists discovered extensions and load status. `/extensions doctor`
-prints per-extension load status, tool/command counts, and errors.
-`/extensions doctor --json` prints an array with, per extension, `id`, `source`,
-`status`, `error`, `stack`, `toolCount`, `commandCount`, `eventCount`, `apis`
-— the matrix entries for API calls found in that extension's entry file — and
-`lifecycleEvents`, the lifecycle records from that extension.
+prints per-extension load status, tool/command counts, store entry count and
+version, and errors. `/extensions doctor --json` prints an array with, per
+extension, `id`, `source`, `status`, `error`, `stack`, `toolCount`,
+`commandCount`, `eventCount`, `apis` — the matrix entries for API calls found in
+that extension's entry file — `store` (`entryCount` and `version`, never
+values), and `lifecycleEvents`, the lifecycle records from that extension.
 
 The JSON list contains only methods that exist in `ExtensionAPI`. Called Tier 3
 methods carry their `unsupported` matrix entry; containment errors include the

@@ -16,6 +16,7 @@ Reference docs:
 - [docs/extensions.md](https://github.com/beast-ofcourse/atom-lite/blob/master/docs/extensions.md) — discovery, trust, compatibility matrix, diagnostics.
 - [src/extensions/types.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/types.ts) — `ExtensionAPI` types and registries.
 - [src/extensions/api.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/api.ts) — runtime implementation.
+- [src/extensions/store.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/store.ts) — durable store implementation.
 - [src/extensions/compatibility-matrix.ts](https://github.com/beast-ofcourse/atom-lite/blob/master/src/extensions/compatibility-matrix.ts) — generated method status and consumers.
 - [tests/extensions/](https://github.com/beast-ofcourse/atom-lite/tree/master/tests/extensions) — extension tests.
 - Run `/extensions` and `/extensions doctor --json` inside atom-lite for live diagnostics.
@@ -220,6 +221,36 @@ pi.getSession(); // { id: real session id }
 pi.getWorkspace();
 ```
 
+## Durable store
+
+`pi.store` persists JSON state across restarts and reloads. State lives at
+`<agentDir>/extension-state/<id>.json` with shape
+`{ "version": 1, "value": { ... } }`. The serialized file is capped at 1 MiB
+per extension; exceeding it throws `ExtensionCompatibilityError`.
+
+Set `version` and `migrate` before the first `get`/`set`/`delete`. The host
+calls the `pi.store.migrate` hook once at activation when the stored version
+is older. A newer stored version throws `ExtensionCompatibilityError` on
+`store.migrate`.
+
+```ts
+export default function (pi) {
+  pi.store.version = 2;
+  pi.store.migrate = (oldVersion, value) => ({
+    ...value,
+    n: (value.n ?? 0) + 1,
+  });
+
+  const n = pi.store.get("n");
+  pi.store.set("n", (n ?? 0) + 1);
+}
+```
+
+`pi.store.delete(key)` removes one entry. Uninstall/unregister archives the
+file as `<id>.json.bak` (a later archive replaces the old one): call
+`pi.store.archive()` or the loader's `archiveStore` method. Doctor reports entry
+count and version only, never values.
+
 ## Providers & models
 
 ```ts
@@ -262,8 +293,8 @@ pi.registerMarkdownTransformer((markdown) => markdown);
 ## Compatibility tiers
 
 - **Tier 1 (works today):** discovery, trust, module loading, tools, commands, events,
-  session entries, dialogs, `exec`, logging, provider registration, tool
-  middleware, inter-extension services.
+  session entries, durable store, dialogs, `exec`, logging, provider
+  registration, tool middleware, inter-extension services.
 - **Tier 2 (no-op):** renderers, markdown transformers, shortcuts, flags,
   autocomplete, custom footer/header/title, working indicator, thinking label,
   status, widgets.
@@ -284,14 +315,16 @@ reduced-compatibility warning naming the key and are not applied.
 Inside atom-lite:
 
 - `/extensions` — list discovered extensions + load status.
-- `/extensions doctor` — per-extension tools/commands/errors.
+- `/extensions doctor` — per-extension tools/commands/store count and version/errors.
 - `/extensions doctor --json` — id, source, status, error with stack, counts,
-  and the matrix entry for every API the extension calls.
+  store entry count and version (never values), and the matrix entry for every
+  API the extension calls.
 
 ## Tips
 
 - Keep extensions dependency-free or bundle deps; host aliases cover Pi modules.
-- Use `pi.appendEntry` for persisted state instead of module globals.
+- Use `pi.store` for extension state that must survive restart; use
+  `pi.appendEntry` for session entries. Neither needs module globals.
 - Trust project extensions before they load (`pi.isProjectTrusted()`).
 - Reload with `/reload` (or restart) after edits; module caching is disabled.
 - See [tests/extensions/](https://github.com/beast-ofcourse/atom-lite/tree/master/tests/extensions) for runnable examples.
