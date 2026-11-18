@@ -29,12 +29,17 @@ Never write a changelog or release note from memory. Derive every bullet from th
 
 ### 2. Bump version
 
+Always bump the patch number. Change size never selects a different part:
+
+- `0.18.0` → `0.18.1`.
+- `1.2.9` → `1.2.10`.
+
 1. Read `package.json` `version`.
-2. Choose the next version per semver:
-   - patch: bug fixes, perf, docs, refactors with no API change.
-   - minor: new features, new commands/tools, backward-compatible behavior changes.
-   - major: breaking changes to CLI, config, session format, or public API.
+2. Add 1 to the last segment. Keep the major and minor segments unchanged.
 3. Update `version` in `package.json`. No other field changes unless explicitly needed.
+
+Breaking changes still use a patch bump under this rule; describe them under
+`### Breaking` in the changelog and release notes so users are not surprised.
 
 ### 3. Write the CHANGELOG entry
 
@@ -185,5 +190,6 @@ Tell the user: version shipped, npm link, GitHub release link, and any bench del
 
 ## Notes
 
-- The `.agents/` directory is gitignored except for the tracked `atom-lite-extensions` skill. If you want this skill committed, adjust `.gitignore` or track it explicitly.
+- This skill is tracked in git. Amend it in the same release commit when the
+  procedure changes.
 - Re-running this skill updates the same procedure; keep it idempotent.

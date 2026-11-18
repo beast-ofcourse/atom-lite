@@ -2,10 +2,44 @@
 
 All notable changes to this project are documented here.
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Every release increments the patch number, regardless of change size: `0.18.0`
+becomes `0.18.1`.
 
 ## [Unreleased]
+
+## v0.18.1 — 2026-11-18
+
+### Added
+
+- `context`: a default-on repo map injects a bounded map of workspace definitions into every turn, with deterministic relevance ranking and TS/JS, Python, Go, Rust, and generic sources; `context.repoMap` keys resize or disable it.
+- `extensions`: a generated compatibility matrix and `/extensions doctor --json` name the supported, reduced, no-op, and unsupported APIs for each extension.
+- `extensions`: `pi.store` persists namespaced JSON state across restarts and reloads with versioned migrations and archiving on unload.
+- `extensions`: `pi.wrapTool` intercepts built-in and extension tools; `pi.provide` and `pi.consume` share versioned services between extensions.
+- `extensions`: a capability manifest exposes declared scopes in the trust prompt, enforces `exec` and `fetch` allowlists, and reports denied scopes with a typed compatibility error.
+- `extensions`: `atom-lite extension test` runs a fixture with a fake provider, fake TUI, and fake session; `pi.span` and `pi.metric` record bounded observability data in doctor.
+- `cli`: `matrix:generate`, `skills:sync`, and `skills:check` keep generated artifacts and the shipped extension skill in sync.
+- `agent`: the system prompt gives per-tool guidance, including when to use `question`, `todo`, `goal`, and `task`.
+
+### Changed
+
+- `extensions`: activation and reload are transactional. A factory that throws or a reload that fails leaves zero new registrations and keeps the previous set live.
+- `extensions`: the model-visible tool set resolves from the live loader on every refresh, so tool changes, `--no-tools`, and reload take effect immediately.
+- `extensions`: tool registration validates name and schema, renames collisions deterministically, filters hidden tools from the model, and rejects stale definition hashes.
+- `extensions`: turn, message, tool, and lifecycle events are typed and awaited; handlers run behind catch, timeout, and a reload generation guard.
+- `extensions`: `getSessionManager` returns a real session read model, entries persist through resume, and extension commands receive `ExtensionContext`.
+- `release`: version bumps always increment the patch number, regardless of change size.
+
+### Fixed
+
+- `extensions`: async lifecycle handlers, command handlers, and dialog promises no longer leak unhandled rejections or hang when an overlay closes.
+- `extensions`: removing an extension drops its providers and models from selection and does not persist partial provider config to `config.json`.
+- `extensions`: `exec` no longer blocks the event loop and enforces `maxBuffer` in bytes for multi-byte output.
+- `extensions`: compatibility documentation, diagnostics, and the shipped skill now match the implemented API.
+
+### Breaking
+
+- `extensions`: deferred (Tier 3) APIs now throw a typed `ExtensionCompatibilityError` instead of a raw `TypeError`. Check `pi.supports(name)` before calling one.
 
 ## v0.18.0 — 2026-11-18
 
