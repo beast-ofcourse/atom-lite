@@ -13,6 +13,7 @@ import { ExtensionBoundary, type BoundaryError } from "./boundary.js";
 import type { ExtensionContext } from "./types.js";
 import type { AtomEvent } from "./types.js";
 import { ExtensionCompatibilityError } from "./compatibility-error.js";
+import { ExtensionStore, type ExtensionStoreInfo } from "./store.js";
 import {
   PiSessionManager,
   type ExtensionSessionLike,
@@ -57,6 +58,7 @@ export interface LoadedExtension {
   errorStack?: string;
   registries: ReturnType<typeof createExtensionRegistries>;
   context?: ExtensionContext;
+  store?: ExtensionStore;
 }
 
 interface StagedExtension {
@@ -66,6 +68,7 @@ interface StagedExtension {
   entryPath: string;
   registries: ReturnType<typeof createExtensionRegistries>;
   context: ExtensionContext;
+  store: ExtensionStore;
 }
 
 /**
@@ -135,6 +138,8 @@ export interface ExtensionDiagnostic {
   commandCount: number;
   eventCount: number;
   apis: CompatibilityMatrixEntry[];
+  /** Store metadata only: entry count and version, never values. */
+  store?: ExtensionStoreInfo;
   /** Lifecycle stream from lifecycleEvents(), scoped to this extension. */
   lifecycleEvents: ExtensionLifecycleEvent[];
 }
@@ -262,6 +267,10 @@ export class ExtensionLoader {
       entryPath: entry.entryPath,
       registries,
       context: ctx,
+      store: new ExtensionStore({
+        id: entry.id,
+        agentDir: this.options.agentDir ?? defaultAgentDir(),
+      }),
     };
   }
 
@@ -397,10 +406,14 @@ export class ExtensionLoader {
           {
             wrapHandler: (event, handler) =>
               this.wrapHandler(entry.id, event, handler),
+            store: staging.store,
           },
         );
         api.ui = staging.context.ui;
         await factory(api);
+        // The extension declares store.version/migrate in its factory. Run a
+        // pending migration once here even when the factory never read state.
+        staging.store.activate();
         await this.recordLifecycle(
           "extension_load",
           entry.id,
@@ -678,6 +691,25 @@ export class ExtensionLoader {
     });
   }
 
+  /** Store metadata is safe to print; values never leave the store module. */
+  private storeInfo(loaded?: LoadedExtension): ExtensionStoreInfo | undefined {
+    if (!loaded?.store) return undefined;
+    try {
+      return loaded.store.info();
+    } catch {
+      // A store that failed activation is reported through extension_error; it
+      // must not break the doctor command.
+      return undefined;
+    }
+  }
+
+  /** Archive an extension's durable state on unregister/uninstall. */
+  archiveStore(id: string): void {
+    for (const loaded of this.extensions) {
+      if (loaded.id === id) loaded.store?.archive();
+    }
+  }
+
   diagnostics(): ExtensionDiagnostic[] {
     if (this.discovered.length === 0) this.discover();
     const loadedByPath = new Map(
@@ -699,6 +731,7 @@ export class ExtensionLoader {
         commandCount: loaded?.registries.commands.size ?? 0,
         eventCount: loaded?.registries.handlers.size ?? 0,
         apis: calledMatrixApis(entry.entryPath),
+        store: this.storeInfo(loaded),
         lifecycleEvents: this.lifecycle.filter(
           (event) => event.extensionId === entry.id,
         ),
@@ -722,8 +755,9 @@ export class ExtensionLoader {
         loaded?.status ?? (entry.skipReason ? "skipped" : "discovered");
       const error =
         loaded?.error ?? (entry.errors.join("; ") || entry.skipReason);
+      const storeInfo = this.storeInfo(loaded);
       const counts = loaded
-        ? `${loaded.registries.tools.size} tools, ${loaded.registries.commands.size} commands, ${loaded.registries.handlers.size} event types`
+        ? `${loaded.registries.tools.size} tools, ${loaded.registries.commands.size} commands, ${loaded.registries.handlers.size} event types${storeInfo ? `, ${storeInfo.entryCount} store entries v${storeInfo.version}` : ""}`
         : "not loaded";
       lines.push(
         `${entry.id}\t${entry.source}${entry.origin ? `:${entry.origin}` : ""}\t${entry.manifest?.version ?? "-"}\t${status}\t${counts}\t${entry.entryPath}${error ? `\t${error}` : ""}`,

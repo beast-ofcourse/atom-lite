@@ -13,6 +13,8 @@ import type {
 } from "./types.js";
 import { createDefaultExtensionUI } from "./ui.js";
 import { validateExtensionTool } from "./tool-validation.js";
+import { ExtensionStore } from "./store.js";
+import { defaultAgentDir } from "../config/paths.js";
 import {
   EXTENSION_API_VERSION,
   ExtensionCompatibilityError,
@@ -23,6 +25,8 @@ import {
 export interface ExtensionAPI {
   id: string;
   ui: ExtensionUIContext;
+  /** Durable, namespaced key/value state; see ExtensionStore. */
+  store: ExtensionStore;
   registerTool(tool: ExtensionTool): void;
   unregisterTool(name: string): void;
   setActiveTools(names: string[]): void;
@@ -192,6 +196,10 @@ export interface CreateExtensionAPIOptions {
     event: AtomEvent,
     handler: ExtensionEventHandler,
   ) => ExtensionEventHandler;
+  /** Host-owned store instance, shared with diagnostics. */
+  store?: ExtensionStore;
+  /** Where a host-owned store is created when none is supplied. */
+  agentDir?: string;
 }
 
 export function createExtensionAPI(
@@ -203,6 +211,9 @@ export function createExtensionAPI(
 ): ExtensionAPI {
   if (typeof ctx.hasUI !== "boolean") ctx.hasUI = false;
   if (!ctx.ui) ctx.ui = createDefaultExtensionUI(registries, ctx);
+  const store =
+    options.store ??
+    new ExtensionStore({ id, agentDir: options.agentDir ?? defaultAgentDir() });
   // Map a registered handler to its wrapped form so `off`/unsubscribe removes
   // exactly what `on` added.
   const wrapped = new Map<
@@ -212,6 +223,7 @@ export function createExtensionAPI(
   return {
     id,
     ui: ctx.ui,
+    store,
     registerTool: (tool) => {
       if (tool?.exposure === "codemode") {
         throw new ExtensionCompatibilityError({
