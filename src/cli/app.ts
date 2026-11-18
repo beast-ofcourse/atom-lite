@@ -69,6 +69,7 @@ import {
 import { createDefaultExtensionUI, DialogBoundary } from "../extensions/ui.js";
 import type { ExtensionUICallbacks } from "../extensions/ui.js";
 import { resolveModelTools } from "../extensions/tool-adapter.js";
+import { describeScopes } from "../extensions/manifest.js";
 import type { AtomEvent } from "../extensions/types.js";
 import {
   denyProject,
@@ -396,6 +397,8 @@ export async function run(args: string[]): Promise<void> {
       return process.env[value.slice(2, -1)] ?? value;
     return value;
   }
+  /** Current turn's signal, read by `pi.exec` so turn abort cancels children. */
+  let activeExtensionSignal: AbortSignal | undefined;
   const extensionLoader = new ExtensionLoader({
     cliPaths: extensionPaths,
     cwd: process.cwd(),
@@ -412,6 +415,20 @@ export async function run(args: string[]): Promise<void> {
       process.stderr.write(
         `atom-lite: extension ${event.extensionId}${where}: ${event.error ?? "error"}\n`,
       );
+    },
+    signal: () => activeExtensionSignal,
+    onToolOutput: (stream, text) => {
+      try {
+        (session as any)?.appendEvent?.({
+          type: "tool_output",
+          toolCallId: "pi.exec",
+          name: "pi.exec",
+          stream,
+          text,
+        });
+      } catch {
+        // Observability must not break a running extension.
+      }
     },
     onProviderUnregistered: (name) => {
       // The bridged provider lives only in memory. Drop it from every host
@@ -848,6 +865,7 @@ export async function run(args: string[]): Promise<void> {
     const controller = new AbortController();
     const onSigint = () => controller.abort();
     process.on("SIGINT", onSigint);
+    activeExtensionSignal = controller.signal;
     try {
       if (useTools) {
         await mcpManager.syncTools();
@@ -878,6 +896,7 @@ export async function run(args: string[]): Promise<void> {
         );
       process.exitCode = 1;
     } finally {
+      activeExtensionSignal = undefined;
       // Every terminal mode emits session_end, including --json and one-shot.
       await extensionLoader.notifySessionEnd();
       await mcpManager.close().catch(() => {});
@@ -1249,6 +1268,7 @@ export async function run(args: string[]): Promise<void> {
         entryPath: entry.entryPath,
         version: entry.manifest?.version,
         capabilities: entry.manifest?.capabilities ?? [],
+        scopes: describeScopes(entry.manifest?.scopes),
       })),
       ...untrustedAgents.map((agent) => ({
         id: `${agent.name} (agent)`,
@@ -1334,6 +1354,7 @@ export async function run(args: string[]): Promise<void> {
     turnModelMs = 0;
     const controller = new AbortController();
     activeTurnController = controller;
+    activeExtensionSignal = controller.signal;
     try {
       if (useTools) {
         await mcpManager.syncTools();
@@ -1364,6 +1385,7 @@ export async function run(args: string[]): Promise<void> {
       }
     } finally {
       activeTurnController = null;
+      activeExtensionSignal = undefined;
       activity.stop();
       if (turnStartedAt > 0) {
         appendLine(

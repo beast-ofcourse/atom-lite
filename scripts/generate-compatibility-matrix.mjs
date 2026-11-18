@@ -68,6 +68,7 @@ const reduced = new Set([
   "getSessionManager",
   "notify",
   "exec",
+  "fetch",
   "log",
 ]);
 

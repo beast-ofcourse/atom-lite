@@ -72,6 +72,31 @@ Project-local extensions are **skipped until the project is trusted**. Interacti
 sessions prompt for approval; non-interactive runs skip untrusted ones. Trust
 decisions are stored in user config. Check trust with `pi.isProjectTrusted()`.
 
+## Capability manifest
+
+Declare scopes under `permissions` in the `atom` (or `pi`) manifest field:
+
+```jsonc title="package.json"
+{
+  "atom": {
+    "extensions": ["./index.js"],
+    "permissions": {
+      "files": { "read": ["src/**"], "write": [] },
+      "network": { "hosts": ["api.example.com"] },
+      "exec": { "commands": ["git"] },
+      "providers": false,
+      "ui": true,
+      "session": { "read": true, "write": false },
+    },
+  },
+}
+```
+
+The trust prompt shows these exact scopes. Omitted scopes are denied. With no
+`permissions` object the extension runs `legacy-unscoped` with every scope
+allowed, and doctor labels it as such. Denied calls throw
+`ExtensionCompatibilityError` naming the scope.
+
 ## Module shape
 
 Both forms are accepted (migration-friendly):
@@ -206,7 +231,16 @@ pi.unregisterProvider("myprovider");
 ```ts
 const res = await pi.exec("git", ["status"], { cwd: pi.getWorkspace() });
 pi.log("debug message");
+
+// Host-proxied, limited to the hosts declared in network.hosts.
+const page = await pi.fetch("https://api.example.com/health");
 ```
+
+`exec` spawns a child without blocking: 30 s default timeout, 10 MiB default
+`maxBuffer`, `env` defaults to `process.env`, and an `onOutput` callback
+receiving `(stream, text)` streams live output. Pass `signal` to cancel the child; turn abort cancels it
+automatically. `fetch` strips `Authorization`, `Proxy-Authorization`, and
+`Cookie` headers and returns a standard `Response`.
 
 ## Shortcuts, flags, autocomplete
 
@@ -232,7 +266,7 @@ pi.registerMarkdownTransformer((markdown) => markdown);
 ## Compatibility tiers
 
 - **Tier 1 (works today):** discovery, trust, module loading, tools, commands, events,
-  session entries, dialogs, `exec`, logging, provider registration.
+  session entries, dialogs, `exec`, `fetch`, logging, provider registration.
 - **Tier 2 (no-op):** renderers, markdown transformers, shortcuts, flags,
   autocomplete, custom footer/header/title, working indicator, thinking label,
   status, widgets.
@@ -255,7 +289,7 @@ Inside atom-lite:
 - `/extensions` — list discovered extensions + load status.
 - `/extensions doctor` — per-extension tools/commands/errors.
 - `/extensions doctor --json` — id, source, status, error with stack, counts,
-  and the matrix entry for every API the extension calls.
+  the matrix entry for every API the extension calls, and `scopeMode` / `scopes`.
 
 ## Tips
 

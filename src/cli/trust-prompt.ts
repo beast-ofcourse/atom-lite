@@ -19,6 +19,8 @@ export interface TrustReviewEntry {
   entryPath: string;
   version?: string;
   capabilities: string[];
+  /** Declared capability scopes, rendered in place of the generic list. */
+  scopes?: string[];
 }
 
 export type ProjectTrustDecision = "approve" | "deny";
@@ -95,10 +97,11 @@ export class ProjectTrustPrompt implements Component {
       for (const line of wrapTextWithAnsi(entry.entryPath, inner)) {
         lines.push(panelRow(`  ${dim(line)}`, panelWidth, yellow));
       }
+      const declared = entry.scopes ?? entry.capabilities;
       const capabilities =
-        entry.capabilities.length > 0
-          ? entry.capabilities.join(", ")
-          : "no declared capabilities";
+        declared.length > 0
+          ? `${entry.scopes ? "scopes" : "capabilities"}: ${declared.join(", ")}`
+          : `no declared ${entry.scopes ? "scopes" : "capabilities"}`;
       for (const line of wrapTextWithAnsi(capabilities, inner)) {
         lines.push(panelRow(`  ${dim(line)}`, panelWidth, yellow));
       }

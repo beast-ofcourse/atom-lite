@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { parseScopeManifest, type ScopeManifest } from "./manifest.js";
 
 export type ExtensionSource = "cli" | "user" | "project" | "package";
 
@@ -8,6 +9,8 @@ export interface ExtensionManifest {
   version?: string;
   extensions: string[];
   capabilities: string[];
+  /** Declared capability scopes. Undefined means legacy-unscoped. */
+  scopes?: ScopeManifest;
   engines?: { "atom-lite"?: string };
   /** Which manifest field declared the extension entrypoints. */
   kind?: "pi" | "atom";
@@ -129,6 +132,12 @@ function parseManifest(raw: unknown): {
     }
   }
 
+  const permissionsRaw =
+    declaration.permissions ?? (isRecord(atom) ? atom.permissions : undefined);
+  const { manifest: scopes, errors: scopeErrors } =
+    parseScopeManifest(permissionsRaw);
+  errors.push(...scopeErrors);
+
   let engines: ExtensionManifest["engines"];
   const enginesRaw = isRecord(atom) ? atom.engines : undefined;
   if (enginesRaw !== undefined) {
@@ -152,6 +161,7 @@ function parseManifest(raw: unknown): {
       version: typeof raw.version === "string" ? raw.version : undefined,
       extensions,
       capabilities,
+      scopes,
       engines,
       kind: field,
     },
