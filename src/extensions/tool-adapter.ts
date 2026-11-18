@@ -176,13 +176,18 @@ export function extensionToolToAgentTool(
   return tool;
 }
 
-export function collectExtensionTools(loader: {
+export interface ToolSourceLoader {
   list: () => Array<{
     status: string;
-    registries: { tools: Map<string, ExtensionTool> };
+    registries: {
+      tools: Map<string, ExtensionTool>;
+      activeTools?: Set<string> | null;
+    };
     context?: ExtensionContext;
   }>;
-}): Tool[] {
+}
+
+export function collectExtensionTools(loader: ToolSourceLoader): Tool[] {
   const out: Tool[] = [];
   for (const loaded of loader.list()) {
     // Only successfully activated extensions contribute tools to the model.
@@ -194,9 +199,39 @@ export function collectExtensionTools(loader: {
       ui: null as any,
       log: () => {},
     };
+    const active = loaded.registries.activeTools;
     for (const tool of loaded.registries.tools.values()) {
+      // setActiveTools narrows the model-visible set; registration still keeps
+      // the tool available to commands and other tools.
+      if (active && !active.has(tool.name)) continue;
       out.push(extensionToolToAgentTool(tool, ctx));
     }
   }
   return out;
+}
+
+export interface ToolResolutionOptions {
+  builtInTools?: Tool[];
+  mcpTools?: Tool[];
+  loader?: ToolSourceLoader | null;
+  /** False for --no-tools: no tool definitions reach the model at all. */
+  useTools?: boolean;
+}
+
+/**
+ * Resolve the complete model-visible tool set from current state. Call this at
+ * every refresh point (turn start, MCP change, reload, trust approval) so a
+ * runtime tool mutation or reload is reflected on the next turn. No caller
+ * keeps a cached snapshot.
+ */
+export function resolveModelTools(options: ToolResolutionOptions): Tool[] {
+  if (options.useTools === false) return [];
+  const extensionTools = options.loader
+    ? collectExtensionTools(options.loader)
+    : [];
+  return [
+    ...(options.builtInTools ?? []),
+    ...extensionTools,
+    ...(options.mcpTools ?? []),
+  ];
 }

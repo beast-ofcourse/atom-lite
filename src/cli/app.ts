@@ -65,7 +65,7 @@ import { randomUUID } from "node:crypto";
 import { ExtensionLoader } from "../extensions/loader.js";
 import { createDefaultExtensionUI } from "../extensions/ui.js";
 import type { ExtensionUICallbacks } from "../extensions/ui.js";
-import { collectExtensionTools } from "../extensions/tool-adapter.js";
+import { resolveModelTools } from "../extensions/tool-adapter.js";
 import {
   denyProject,
   isProjectDenied,
@@ -442,8 +442,16 @@ export async function run(args: string[]): Promise<void> {
     }
   }
 
-  const extensionTools = collectExtensionTools(extensionLoader);
-  const allTools = [...builtInTools, ...extensionTools];
+  // Resolve the model-visible tool set from current loader/MCP state at every
+  // refresh point. No cached snapshot: a runtime mutation or reload must be
+  // visible on the next turn, and --no-tools must suppress every tool source.
+  const currentTools = (includeMcp: boolean) =>
+    resolveModelTools({
+      builtInTools,
+      loader: extensionLoader,
+      mcpTools: includeMcp ? createMcpTools(mcpManager) : [],
+      useTools,
+    });
   const extensionDispatch = async (event: string, payload: any) => {
     const results: any[] = [];
     for (const loaded of extensionLoader.list()) {
@@ -513,7 +521,7 @@ export async function run(args: string[]): Promise<void> {
     provider,
     model: modelOverride ?? provider.model,
     workspace: process.cwd(),
-    tools: allTools,
+    tools: currentTools(false),
     approvals,
     questions,
     persona: configuredAgent.persona,
@@ -532,11 +540,7 @@ export async function run(args: string[]): Promise<void> {
   });
 
   mcpManager.onToolsChanged = () => {
-    runtime.setTools([
-      ...builtInTools,
-      ...extensionTools,
-      ...createMcpTools(mcpManager),
-    ]);
+    runtime.setTools(currentTools(true));
   };
 
   void extensionDispatch("session_start", {
@@ -707,11 +711,7 @@ export async function run(args: string[]): Promise<void> {
       mcpStatus: () => mcpManager.status(),
       setMcpEnabled: async (name, enabled) => {
         await mcpManager.setEnabled(name, enabled);
-        runtime.setTools([
-          ...builtInTools,
-          ...extensionTools,
-          ...createMcpTools(mcpManager),
-        ]);
+        runtime.setTools(currentTools(true));
         return mcpManager.status();
       },
       mode: currentMode,
@@ -785,11 +785,7 @@ export async function run(args: string[]): Promise<void> {
     try {
       if (useTools) {
         await mcpManager.syncTools();
-        runtime.setTools([
-          ...builtInTools,
-          ...extensionTools,
-          ...createMcpTools(mcpManager),
-        ]);
+        runtime.setTools(currentTools(true));
       }
       const result = await runtime.runAgentTurn(
         oneShot || " ",
@@ -1227,11 +1223,7 @@ export async function run(args: string[]): Promise<void> {
         void extensionLoader
           .loadAll()
           .then(() => {
-            runtime.setTools([
-              ...builtInTools,
-              ...collectExtensionTools(extensionLoader),
-              ...createMcpTools(mcpManager),
-            ]);
+            runtime.setTools(currentTools(true));
             refreshCommandRegistry(true);
             appendLine(
               `extensions: ${extensionLoader.processedCount()} processed (see /extensions)`,
@@ -1276,11 +1268,7 @@ export async function run(args: string[]): Promise<void> {
     try {
       if (useTools) {
         await mcpManager.syncTools();
-        runtime.setTools([
-          ...builtInTools,
-          ...extensionTools,
-          ...createMcpTools(mcpManager),
-        ]);
+        runtime.setTools(currentTools(true));
       }
       const turnResult = await runtime.runAgentTurn(
         prompt,
@@ -2679,11 +2667,7 @@ export async function run(args: string[]): Promise<void> {
     } catch {
       // ignore
     }
-    runtime.setTools([
-      ...builtInTools,
-      ...collectExtensionTools(extensionLoader),
-      ...createMcpTools(mcpManager),
-    ]);
+    runtime.setTools(currentTools(true));
 
     // Force context caches (AGENTS.md and skills) and registries to rescan.
     runtime.invalidateContextCaches();
@@ -3161,11 +3145,7 @@ export async function run(args: string[]): Promise<void> {
       }
       if (useTools) {
         await mcpManager.syncTools();
-        runtime.setTools([
-          ...builtInTools,
-          ...extensionTools,
-          ...createMcpTools(mcpManager),
-        ]);
+        runtime.setTools(currentTools(true));
       }
       appendLine(formatMcpStatus(mcpManager.status()));
       return;
