@@ -57,6 +57,16 @@ interface StagedExtension {
   context: ExtensionContext;
 }
 
+/**
+ * A complete replacement extension set, built aside by stageExtensions().
+ * Nothing in the live host changes until commitStaged() performs the swap.
+ */
+export interface StagedExtensionSet {
+  extensions: LoadedExtension[];
+  lifecycle: ExtensionLifecycleEvent[];
+  generation: number;
+}
+
 export interface ExtensionReport {
   id: string;
   source: string;
@@ -105,6 +115,8 @@ export class ExtensionLoader {
   private lifecycle: ExtensionLifecycleEvent[] = [];
   private jiti: ReturnType<typeof createJiti> | null = null;
   private generation = 0;
+  /** Pending generation during staging; null once a set is committed. */
+  private stagedGeneration: number | null = null;
   private boundary: ExtensionBoundary;
   private readonly handlerTimeoutMs: number;
 
@@ -114,9 +126,13 @@ export class ExtensionLoader {
     this.boundary = this.createBoundary();
   }
 
-  private createBoundary(): ExtensionBoundary {
+  private createBoundary(generation = this.generation): ExtensionBoundary {
     return new ExtensionBoundary({
-      generation: () => this.generation,
+      generation: () => generation,
+      // While staging, both generations are live. The commit removes the old
+      // one; a rollback removes the new one and restores the old boundary.
+      isLive: () =>
+        generation === this.generation || generation === this.stagedGeneration,
       timeoutMs: this.handlerTimeoutMs,
       onError: (error) => this.reportError(error),
     });
@@ -218,12 +234,50 @@ export class ExtensionLoader {
   }
 
   async loadAll(): Promise<LoadedExtension[]> {
-    // Every load (including a reload) is a new generation. Handlers bound to
-    // the previous generation become stale and can no longer mutate this set.
-    this.generation++;
-    this.boundary = this.createBoundary();
+    const staged = await this.stageExtensions();
+    this.commitStaged(staged);
+    return this.extensions;
+  }
+
+  /**
+   * Build a replacement set without touching the live extension list. The
+   * candidate gets a pending generation, so the outgoing set stays live until
+   * commit; a failed stage restores the previous generation and lifecycle log,
+   * making a failed reload indistinguishable from no reload apart from the
+   * reported error.
+   */
+  async stageExtensions(): Promise<StagedExtensionSet> {
+    const previous = {
+      boundary: this.boundary,
+      lifecycle: this.lifecycle,
+      stagedGeneration: this.stagedGeneration,
+    };
+    const generation = this.generation + 1;
+    this.stagedGeneration = generation;
+    this.boundary = this.createBoundary(generation);
+    this.lifecycle = [];
+    try {
+      const extensions = await this.buildExtensions();
+      return { extensions, lifecycle: this.lifecycle, generation };
+    } catch (error) {
+      this.boundary = previous.boundary;
+      this.lifecycle = previous.lifecycle;
+      this.stagedGeneration = previous.stagedGeneration;
+      throw error;
+    }
+  }
+
+  /** Commit a staged set as the one atomic swap. */
+  commitStaged(staged: StagedExtensionSet): void {
+    this.extensions = staged.extensions;
+    this.lifecycle = staged.lifecycle;
+    this.generation = staged.generation;
+    this.stagedGeneration = null;
+  }
+
+  private async buildExtensions(): Promise<LoadedExtension[]> {
     const discovered = this.discover();
-    // Extension state is built aside and only committed in one swap below.
+    // Extension state is built aside and only committed by the caller.
     // A factory that throws must leave no registrations in the running host.
     const staged: LoadedExtension[] = [];
 
@@ -324,9 +378,7 @@ export class ExtensionLoader {
         });
       }
     }
-
-    this.extensions = staged;
-    return this.extensions;
+    return staged;
   }
 
   private pushEvent(event: ExtensionLifecycleEvent): void {
@@ -570,6 +622,7 @@ export class ExtensionLoader {
     );
     this.extensions = [];
     this.jiti = null;
+    this.stagedGeneration = null;
     this.generation++;
     this.boundary = this.createBoundary();
   }
