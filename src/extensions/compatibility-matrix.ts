@@ -47,22 +47,22 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "registerCommand",
     status: "supported",
-    consumers: [{"file":"src/cli/app.ts","line":970}],
+    consumers: [{"file":"src/cli/app.ts","line":985}],
   },
   {
     method: "unregisterCommand",
     status: "supported",
-    consumers: [{"file":"src/cli/app.ts","line":970}],
+    consumers: [{"file":"src/cli/app.ts","line":985}],
   },
   {
     method: "on",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":500}],
+    consumers: [{"file":"src/extensions/loader.ts","line":521}],
   },
   {
     method: "off",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":500}],
+    consumers: [{"file":"src/extensions/loader.ts","line":521}],
   },
   {
     method: "appendEntry",
@@ -202,32 +202,32 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "getWorkspace",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":216}],
+    consumers: [{"file":"src/extensions/loader.ts","line":226}],
   },
   {
     method: "getSession",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":365}],
+    consumers: [{"file":"src/extensions/loader.ts","line":382}],
   },
   {
     method: "getSessionManager",
-    status: "no-op",
+    status: "reduced",
     consumers: [],
   },
   {
     method: "isProjectTrusted",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":217}],
+    consumers: [{"file":"src/extensions/loader.ts","line":227}],
   },
   {
     method: "registerProvider",
     status: "reduced",
-    consumers: [{"file":"src/cli/app.ts","line":433}],
+    consumers: [{"file":"src/cli/app.ts","line":438}],
   },
   {
     method: "unregisterProvider",
     status: "supported",
-    consumers: [{"file":"src/cli/app.ts","line":433}],
+    consumers: [{"file":"src/cli/app.ts","line":438}],
   },
   {
     method: "registerModel",

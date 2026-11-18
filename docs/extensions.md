@@ -53,8 +53,8 @@ implementation.
 | Status        | Methods | Meaning                                   |
 | ------------- | ------- | ----------------------------------------- |
 | `supported`   | 18      | Effect is consumed by the host.           |
-| `reduced`     | 7       | Works with limits; see Reduced behavior.  |
-| `no-op`       | 21      | Call is accepted; nothing consumes it.    |
+| `reduced`     | 8       | Works with limits; see Reduced behavior.  |
+| `no-op`       | 20      | Call is accepted; nothing consumes it.    |
 | `unsupported` | 7       | Failing stub; see Tier 3.                 |
 
 **`supported`:** `registerTool`, `unregisterTool`, `setActiveTools`,
@@ -62,15 +62,15 @@ implementation.
 `off`, `getToolsExpanded`, `setToolsExpanded`, `select`, `confirm`, `input`,
 `getWorkspace`, `getSession`, `isProjectTrusted`, `unregisterProvider`.
 
-**`reduced`:** `appendEntry`, `getSessionEntries`, `notify`, `registerProvider`,
-`exec`, `log`, `supports`.
+**`reduced`:** `appendEntry`, `getSessionEntries`, `getSessionManager`, `notify`,
+`registerProvider`, `exec`, `log`, `supports`.
 
 **`no-op`:** `setStatus`, `registerWidget`, `unregisterWidget`,
 `registerToolRenderer`, `registerMessageRenderer`, `registerEntryRenderer`,
 `registerMarkdownTransformer`, `registerShortcut`, `registerFlag`, `getFlag`,
 `addAutocompleteProvider`, `setWidget`, `setFooter`, `setHeader`, `setTitle`,
 `setWorkingMessage`, `setWorkingVisible`, `setWorkingIndicator`,
-`setHiddenThinkingLabel`, `getSessionManager`, `registerModel`.
+`setHiddenThinkingLabel`, `registerModel`.
 
 Tier 1 covers discovery, trust, module loading, tools, commands, events,
 session entries, dialogs, `exec`, and logging. The `no-op` methods above are
@@ -82,11 +82,12 @@ accepted for compatibility but have no effect in this release.
 list. Config keys `oauth`, `streamSimple`, `classifiers`, `refreshModels`, and
 `images` emit a reduced-compatibility warning and are not applied.
 
-`appendEntry` and `getSessionEntries` keep entries in the extension's own
-registry; no host view reads them. `notify`, `exec`, and `log` run, but their
-output is not surfaced in the host UI. `supports(method)` returns `true` for
-every method that will not throw a compatibility error, including `no-op`
-methods.
+`appendEntry` and `getSessionEntries` persist custom entries in the session
+event log and read them back after resume; no host view renders them.
+`getSessionManager()` returns a real read model over the live session. `notify`,
+`exec`, and `log` run, but their output is not surfaced in the host UI.
+`supports(method)` returns `true` for every method that will not throw a
+compatibility error, including `no-op` methods.
 
 ## Tier 3
 
@@ -121,7 +122,7 @@ marks which methods have an effect.
 - `ui` — `ExtensionUIContext` (see UI below)
 - `getWorkspace()` → string
 - `getSession()` → `{ id }`
-- `getSessionManager()` → any (currently no-op)
+- `getSessionManager()` → a Pi session read model over the live session; entries persist across resume
 - `isProjectTrusted()` → boolean
 - `apiVersion` → string version of this API surface
 - `supports(method)` → boolean; `false` for Tier 3 stubs
