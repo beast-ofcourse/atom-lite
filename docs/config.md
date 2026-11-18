@@ -101,7 +101,7 @@ stored credential, then inline `apiKey`.
 | `compactEveryNTurns`         | integer >= 0                             | `0`     | Compact every N turns. `0` disables periodic compaction.      |
 | `compactionModel`            | non-empty string \| null                 | `null`  | Model for compaction summaries. `null` uses the active model. |
 | `cacheMode`                  | `"off"` \| `"automatic"` \| `"explicit"` | `"off"` | Prompt-cache layout mode. `off` keeps today's message order.  |
-| `repoMap`                    | object                                  | see below | Bounded repo map injected as a trailing system message.     |
+| `repoMap`                    | object                                  | see below | Opt-in bounded repo map injected as a trailing system message. |
 
 The model window is resolved from, in order: `providers.<name>.contextWindow`,
 live provider metadata, then a built-in table of known model families.
@@ -116,15 +116,19 @@ message order, so compare answers and cost before adopting it for a workflow.
 
 ### `context.repoMap`
 
-Atom-lite injects a compact map of workspace definitions into every agent turn.
-Set these keys in `context.repoMap` to resize or disable it. You can set them in
-either user or project config; project values win.
+The repo map is off by default. Set `context.repoMap.enabled` to `true` to inject
+a compact map of workspace definitions into every agent turn. You can set these
+keys in either user or project config; project values win.
 
 | Key         | Type         | Default | Description                                                                |
 | ----------- | ------------ | ------- | -------------------------------------------------------------------------- |
-| `enabled`   | boolean      | `true`  | Turn the map off without removing the other keys.                          |
+| `enabled`   | boolean      | `false` | Turn the map on without changing the other keys.                           |
 | `maxTokens` | integer >= 0 | `1200`  | Budget for the final map message. `0` disables the map.                     |
 | `maxFiles`  | integer >= 0 | `400`   | Maximum number of workspace files considered when building the map.        |
+
+> **Note:** The map scans the whole workspace recursively, including nested
+> project directories. Enable it at a workspace root you want mapped, not in a
+> home directory that contains several projects.
 
 Set `enabled` to `false` or `maxTokens` to `0` to remove the map from model
 input; the rest of the input is unchanged. When definitions exceed the budget,

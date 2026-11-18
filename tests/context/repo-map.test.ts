@@ -13,7 +13,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ContextManager } from "../../dist/context/manager.js";
 import { estimateMessageTokens } from "../../dist/context/budget.js";
-import type { RepoMapOptions } from "../../dist/context/repoMap.js";
+import {
+  buildRepoMap,
+  DEFAULT_REPO_MAP_OPTIONS,
+  type RepoMapOptions,
+} from "../../dist/context/repoMap.js";
 
 const HEADER = "Repository map:";
 
@@ -35,7 +39,7 @@ function stubProvider(): any {
   };
 }
 
-function manager(dir: string, repoMap?: RepoMapOptions): ContextManager {
+function manager(dir: string, repoMap: RepoMapOptions = settings()): ContextManager {
   return new ContextManager({
     systemPrompt: "system",
     maxInputTokens: null,
@@ -45,7 +49,7 @@ function manager(dir: string, repoMap?: RepoMapOptions): ContextManager {
     provider: stubProvider(),
     model: "test",
     userInstructionsPath: join(dir, "user-AGENTS.md"),
-    ...(repoMap ? { repoMap } : {}),
+    repoMap,
   });
 }
 
@@ -55,6 +59,14 @@ function mapText(messages: any[]): string {
   );
   return found ? found.content : "";
 }
+
+// Reason: the map must stay out of model input unless the user opts in.
+test("the repo map is off by default", () => {
+  assert.equal(DEFAULT_REPO_MAP_OPTIONS.enabled, false);
+  const dir = mkdtempSync(join(tmpdir(), "atom-"));
+  writeFileSync(join(dir, "a.ts"), "export function a() {}\n");
+  assert.equal(buildRepoMap(dir), "");
+});
 
 // Reason: spec (lines 15-16, 78) — definitions carry workspace-relative path, line number, and a signature line; bodies are excluded.
 test("TypeScript and JavaScript definitions appear with path, line number, and signature", async () => {

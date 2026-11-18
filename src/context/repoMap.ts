@@ -14,7 +14,7 @@ export interface RepoMapOptions {
 
 /** Defaults used when no config has been wired into the context manager. */
 export const DEFAULT_REPO_MAP_OPTIONS: RepoMapOptions = {
-  enabled: true,
+  enabled: false,
   maxTokens: 1200,
   maxFiles: 400,
 };

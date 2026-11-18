@@ -40,7 +40,7 @@ export const RuntimeConfigSchema = z
 
 export const RepoMapConfigSchema = z
   .object({
-    enabled: z.boolean().default(true),
+    enabled: z.boolean().default(false),
     maxTokens: z.number().int().nonnegative().default(1200),
     maxFiles: z.number().int().nonnegative().default(400),
   })

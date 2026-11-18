@@ -123,6 +123,25 @@ test("context.repoMap gets its defaults when the keys are absent", () => {
     userConfigPath: join(dir, "nope.json"),
   });
   assert.deepEqual((cfg.context as any).repoMap, {
+    enabled: false,
+    maxTokens: 1200,
+    maxFiles: 400,
+  });
+});
+
+// Reason: the repo map is opt-in; an explicit enable must survive config loading.
+test("context.repoMap can be enabled explicitly", () => {
+  const dir = mkdtempSync(join(tmpdir(), "atom-"));
+  mkdirSync(join(dir, ".atom-lite"));
+  writeFileSync(
+    join(dir, ".atom-lite", "config.json"),
+    JSON.stringify({ context: { repoMap: { enabled: true } } }),
+  );
+  const cfg = loadConfig({
+    projectRoot: dir,
+    userConfigPath: join(dir, "nope.json"),
+  });
+  assert.deepEqual((cfg.context as any).repoMap, {
     enabled: true,
     maxTokens: 1200,
     maxFiles: 400,
@@ -176,7 +195,7 @@ test("an old config without context.repoMap still loads", () => {
     userConfigPath: join(dir, "nope.json"),
   });
   assert.equal(cfg.context.compactAtPercent, 70);
-  assert.equal((cfg.context as any).repoMap.enabled, true);
+  assert.equal((cfg.context as any).repoMap.enabled, false);
 });
 
 // Reason: spec (line 123) — project values win per key, so a partial project override keeps the user's other keys.
