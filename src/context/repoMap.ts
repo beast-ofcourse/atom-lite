@@ -5,10 +5,25 @@ import { extname, join } from "node:path";
 export const REPO_MAP_HEADER = "Repository map:";
 
 /** Line-oriented declaration pattern for the TypeScript/JavaScript family. */
-const DECLARATION =
+const TS_JS_DECLARATION =
   /^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(function|class|interface|type|enum|const|let|var)\s+([A-Za-z_$][\w$]*)/;
 
-const SOURCE_EXTENSIONS = new Set([
+/** Python declarations: plain and async functions plus classes. */
+const PYTHON_DECLARATION = /^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)/;
+
+/** Go declarations: functions (including receiver methods) and types. */
+const GO_DECLARATION =
+  /^\s*(?:func\s+(?:\([^)]*\)\s*)?|type\s+)([A-Za-z_]\w*)/;
+
+/** Rust declarations, with optional visibility/qualifier prefixes and generics. */
+const RUST_DECLARATION =
+  /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?(?:const\s+)?(?:extern\s+)?(?:fn|struct|enum|trait|impl|mod)\s+(?:<[^>]*>\s*)?([A-Za-z_]\w*)/;
+
+/** Generic declaration fallback for languages with no dedicated family. */
+const GENERIC_DECLARATION =
+  /^\s*(?:(?:public|private|protected|static|final|abstract|virtual|override|export|default|extern|inline|async|const|let|var|mut|open|sealed)\s+)*(?:function|func|fn|def|class|struct|enum|interface|trait|implementation|impl|module|mod|type|record|object|method|proc|procedure|subroutine|sub)\s+([A-Za-z_$][\w$]*)/;
+
+const TS_JS_EXTENSIONS = new Set([
   ".ts",
   ".tsx",
   ".mts",
@@ -18,6 +33,72 @@ const SOURCE_EXTENSIONS = new Set([
   ".mjs",
   ".cjs",
 ]);
+const PYTHON_EXTENSIONS = new Set([".py", ".pyw"]);
+const GO_EXTENSIONS = new Set([".go"]);
+const RUST_EXTENSIONS = new Set([".rs"]);
+
+/** Languages with no dedicated family still get a partial map via the generic pattern. */
+const GENERIC_EXTENSIONS = new Set([
+  ".java",
+  ".c",
+  ".cc",
+  ".cpp",
+  ".cxx",
+  ".h",
+  ".hh",
+  ".hpp",
+  ".hxx",
+  ".cs",
+  ".vb",
+  ".rb",
+  ".php",
+  ".swift",
+  ".kt",
+  ".kts",
+  ".scala",
+  ".groovy",
+  ".gradle",
+  ".lua",
+  ".pl",
+  ".pm",
+  ".r",
+  ".ex",
+  ".exs",
+  ".erl",
+  ".clj",
+  ".cljs",
+  ".hs",
+  ".ml",
+  ".mli",
+  ".fs",
+  ".fsx",
+  ".dart",
+  ".nim",
+  ".zig",
+  ".sql",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".ps1",
+]);
+
+const SOURCE_EXTENSIONS = new Set([
+  ...TS_JS_EXTENSIONS,
+  ...PYTHON_EXTENSIONS,
+  ...GO_EXTENSIONS,
+  ...RUST_EXTENSIONS,
+  ...GENERIC_EXTENSIONS,
+]);
+
+/** Declaration pattern for a source file, keyed by its extension. */
+function patternFor(rel: string): RegExp {
+  const ext = extname(rel).toLowerCase();
+  if (PYTHON_EXTENSIONS.has(ext)) return PYTHON_DECLARATION;
+  if (GO_EXTENSIONS.has(ext)) return GO_DECLARATION;
+  if (RUST_EXTENSIONS.has(ext)) return RUST_DECLARATION;
+  if (TS_JS_EXTENSIONS.has(ext)) return TS_JS_DECLARATION;
+  return GENERIC_DECLARATION;
+}
 
 /** One signature line never consumes more than this many characters. */
 const MAX_SIGNATURE_CHARS = 200;
@@ -36,8 +117,9 @@ export function clearRepoMapCache(): void {
 }
 
 /**
- * Build a compact, deterministic map of a workspace's TypeScript/JavaScript
- * definitions. Returns an empty string when nothing is extractable or on any
+ * Build a compact, deterministic map of a workspace's source definitions
+ * across the supported language families and a generic fallback. Returns an
+ * empty string when nothing is extractable or on any
  * whole-pipeline failure, so callers need no special cases. Reads only; never
  * writes to the workspace and never contacts a provider.
  */
@@ -104,9 +186,10 @@ function render(workspace: string, files: string[]): string {
     try {
       const source = readFileSync(join(workspace, rel), "utf8");
       const sourceLines = source.split(/\r?\n/);
+      const declaration = patternFor(rel);
       const extracted: Array<{ line: number; signature: string }> = [];
       for (let i = 0; i < sourceLines.length; i++) {
-        if (DECLARATION.test(sourceLines[i])) {
+        if (declaration.test(sourceLines[i])) {
           extracted.push({ line: i + 1, signature: sourceLines[i] });
         }
       }

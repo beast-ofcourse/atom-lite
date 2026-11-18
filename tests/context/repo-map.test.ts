@@ -168,3 +168,125 @@ test("the map is included in token accounting used for compaction", async () => 
   assert.equal(mapText(withoutMap), "");
   assert.ok(cm.getLastBuildTokens() < tokensWithMap);
 });
+
+test("Python class and function declarations appear with path, line number, and signature", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-py-"));
+  writeFileSync(
+    join(dir, "models.py"),
+    [
+      "class User:",
+      "    pass",
+      "",
+      "def get_user(id):",
+      "    return None",
+      "",
+      "async def async_fetch(url):",
+      "    pass",
+    ].join("\n"),
+  );
+
+  const map = mapText(await manager(dir).build(dir, []));
+
+  assert.match(map, /^Repository map:/);
+  assert.match(map, /models\.py:1: class User/);
+  assert.match(map, /models\.py:4: def get_user/);
+  assert.match(map, /models\.py:7: async def async_fetch/);
+  assert.doesNotMatch(map, /return None/);
+});
+
+test("Go function and type declarations appear with path, line number, and signature", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-go-"));
+  writeFileSync(
+    join(dir, "server.go"),
+    [
+      "package main",
+      "",
+      "type Server struct {",
+      "    Addr string",
+      "}",
+      "",
+      "func NewServer(addr string) *Server {",
+      "    return &Server{Addr: addr}",
+      "}",
+      "",
+      "func (s *Server) Start() error {",
+      "    return nil",
+      "}",
+    ].join("\n"),
+  );
+
+  const map = mapText(await manager(dir).build(dir, []));
+
+  assert.match(map, /^Repository map:/);
+  assert.match(map, /server\.go:3: type Server struct/);
+  assert.match(map, /server\.go:7: func NewServer/);
+  assert.match(map, /server\.go:11: func \(s \*Server\) Start/);
+  assert.doesNotMatch(map, /return &Server/);
+});
+
+test("Rust function, struct, enum, trait, impl, and module declarations appear", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-rs-"));
+  writeFileSync(
+    join(dir, "lib.rs"),
+    [
+      "pub mod net;",
+      "",
+      "pub struct Config {",
+      "    pub host: String,",
+      "}",
+      "",
+      "pub enum Status {",
+      "    Ok,",
+      "    Err,",
+      "}",
+      "",
+      "pub trait Runnable {",
+      "    fn run(&self);",
+      "}",
+      "",
+      "impl Config {",
+      "    pub fn new() -> Self {",
+      "        Self { host: String::new() }",
+      "    }",
+      "}",
+      "",
+      "fn helper() {}",
+    ].join("\n"),
+  );
+
+  const map = mapText(await manager(dir).build(dir, []));
+
+  assert.match(map, /^Repository map:/);
+  assert.match(map, /lib\.rs:1: pub mod net/);
+  assert.match(map, /lib\.rs:3: pub struct Config/);
+  assert.match(map, /lib\.rs:7: pub enum Status/);
+  assert.match(map, /lib\.rs:12: pub trait Runnable/);
+  assert.match(map, /lib\.rs:16: impl Config/);
+  assert.match(map, /lib\.rs:17: pub fn new/);
+  assert.match(map, /lib\.rs:22: fn helper/);
+  assert.doesNotMatch(map, /host: String::new/);
+});
+
+test("unsupported languages produce a partial map from the generic fallback", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-map-generic-"));
+  writeFileSync(
+    join(dir, "Widget.java"),
+    [
+      "package ui;",
+      "",
+      "public class Widget {",
+      "    private String label;",
+      "",
+      "    public void render() {",
+      "        System.out.println(label);",
+      "    }",
+      "}",
+    ].join("\n"),
+  );
+
+  const map = mapText(await manager(dir).build(dir, []));
+
+  assert.match(map, /^Repository map:/);
+  assert.match(map, /Widget\.java:3: public class Widget/);
+  assert.doesNotMatch(map, /System\.out/);
+});
