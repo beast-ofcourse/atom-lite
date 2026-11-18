@@ -13,6 +13,15 @@ import type {
 } from "./types.js";
 import { createDefaultExtensionUI } from "./ui.js";
 import { validateExtensionTool } from "./tool-validation.js";
+import type {
+  ToolMiddlewareHandler,
+  ToolMiddlewareRegistration,
+} from "./tool-middleware.js";
+import {
+  consumeService,
+  provideService,
+  type ServiceRegistry,
+} from "./services.js";
 import {
   EXTENSION_API_VERSION,
   ExtensionCompatibilityError,
@@ -25,6 +34,10 @@ export interface ExtensionAPI {
   ui: ExtensionUIContext;
   registerTool(tool: ExtensionTool): void;
   unregisterTool(name: string): void;
+  wrapTool(
+    name: string,
+    handler: (call: any, next: () => Promise<any>) => any,
+  ): void;
   setActiveTools(names: string[]): void;
   getActiveTools(): string[];
   getAllTools(): Array<Record<string, unknown>>;
@@ -93,6 +106,11 @@ export interface ExtensionAPI {
   ): Promise<ExecResult>;
   log(message: string): void;
 
+  /** Publish a versioned service for sibling extensions to consume. */
+  provide(name: string, api: unknown, version: string): void;
+  /** Resolve a sibling service by semver range; throws when unavailable. */
+  consume<T = unknown>(name: string, versionRange: string): T;
+
   /** Version of this ExtensionAPI surface; use with `supports` to branch. */
   apiVersion: string;
   /**
@@ -114,6 +132,8 @@ export interface ExtensionAPI {
 
 export interface ExtensionRegistries {
   tools: Map<string, ExtensionTool>;
+  /** Tool wrappers in registration order; scoped to this extension's lifetime. */
+  toolMiddleware: ToolMiddlewareRegistration[];
   commands: Map<string, ExtensionCommand>;
   handlers: Map<AtomEvent, Set<ExtensionEventHandler>>;
   widgets: Map<string, ExtensionWidget>;
@@ -148,6 +168,7 @@ export interface ExtensionRegistries {
 export function createExtensionRegistries(): ExtensionRegistries {
   return {
     tools: new Map(),
+    toolMiddleware: [],
     commands: new Map(),
     handlers: new Map(),
     widgets: new Map(),
@@ -192,6 +213,13 @@ export interface CreateExtensionAPIOptions {
     event: AtomEvent,
     handler: ExtensionEventHandler,
   ) => ExtensionEventHandler;
+  /** Wrap a tool middleware handler so it runs behind the host's boundary. */
+  wrapMiddleware?: (
+    toolName: string,
+    handler: ToolMiddlewareHandler,
+  ) => ToolMiddlewareHandler;
+  /** Services shared by the extensions in one load generation. */
+  services?: ServiceRegistry;
 }
 
 export function createExtensionAPI(
@@ -203,6 +231,7 @@ export function createExtensionAPI(
 ): ExtensionAPI {
   if (typeof ctx.hasUI !== "boolean") ctx.hasUI = false;
   if (!ctx.ui) ctx.ui = createDefaultExtensionUI(registries, ctx);
+  const services = options.services ?? new Map();
   // Map a registered handler to its wrapped form so `off`/unsubscribe removes
   // exactly what `on` added.
   const wrapped = new Map<
@@ -234,6 +263,19 @@ export function createExtensionAPI(
     },
     unregisterTool: (name) => {
       registries.tools.delete(name);
+    },
+    wrapTool: (name, handler) => {
+      if (typeof name !== "string" || name.trim() === "") {
+        throw new Error("wrapTool requires a non-empty tool name");
+      }
+      if (typeof handler !== "function") {
+        throw new Error("wrapTool requires a handler function");
+      }
+      registries.toolMiddleware.push({
+        toolName: name,
+        extensionId: id,
+        handler: options.wrapMiddleware?.(name, handler) ?? handler,
+      });
     },
     setActiveTools: (names) => {
       registries.activeTools = new Set(names);
@@ -424,6 +466,11 @@ export function createExtensionAPI(
       // eslint-disable-next-line no-console
       console.error(`[extension:${id}] ${message}`);
     },
+    provide: (name, api, version) => {
+      provideService(services, { name, api, version, extensionId: id });
+    },
+    consume: <T>(name: string, versionRange: string): T =>
+      consumeService(services, name, versionRange) as T,
     apiVersion: EXTENSION_API_VERSION,
     supports: (method) => methodSupported(method),
     getSessionTree: tier3Stub(

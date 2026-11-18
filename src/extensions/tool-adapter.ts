@@ -2,6 +2,12 @@ import { createHash } from "node:crypto";
 import type { Tool, ToolResult } from "../tools/types.js";
 import type { ToolCall, ToolContext } from "../tools/types.js";
 import type { ExtensionTool, ExtensionContext } from "./types.js";
+import {
+  applyToolMiddleware,
+  collectToolMiddleware,
+  type ToolMiddlewareHandler,
+  type ToolMiddlewareRegistration,
+} from "./tool-middleware.js";
 
 interface SchemaProperty {
   type?: string;
@@ -228,6 +234,7 @@ export interface ToolSourceLoader {
     registries: {
       tools: Map<string, ExtensionTool>;
       activeTools?: Set<string> | null;
+      toolMiddleware?: ToolMiddlewareRegistration[];
     };
     context?: ExtensionContext;
   }>;
@@ -245,6 +252,7 @@ export function collectExtensionTools(
 ): Tool[] {
   const out: Tool[] = [];
   const claimedNames = new Set<string>();
+  const middleware = collectToolMiddleware(loader);
   for (const name of reservedNames) claimedNames.add(name);
   for (const loaded of loader.list()) {
     // Only successfully activated extensions contribute tools to the model.
@@ -279,9 +287,14 @@ export function collectExtensionTools(
         );
       }
       claimedNames.add(name);
-      out.push(
+      // Wrap by the name the author registered, before any collision rename.
+      // Hidden tools were filtered above, so a wrapper can never make one
+      // model-visible.
+      const wrapped = applyToolMiddleware(
         extensionToolToAgentTool({ ...tool, name }, ctx, loaded.id ?? id),
+        middleware.get(tool.name),
       );
+      out.push(wrapped);
     }
   }
   return out;
@@ -307,12 +320,21 @@ export function resolveModelTools(options: ToolResolutionOptions): Tool[] {
     ...(options.builtInTools ?? []),
     ...(options.mcpTools ?? []),
   ].map((tool) => tool.definition.name);
+  const middleware = options.loader
+    ? collectToolMiddleware(options.loader)
+    : new Map<string, ToolMiddlewareHandler[]>();
+  const hostTools = [
+    ...(options.builtInTools ?? []),
+    ...(options.mcpTools ?? []),
+  ].map((tool) =>
+    applyToolMiddleware(tool, middleware.get(tool.definition.name)),
+  );
   const extensionTools = options.loader
     ? collectExtensionTools(options.loader, reservedNames)
     : [];
   return [
-    ...(options.builtInTools ?? []),
+    ...hostTools.slice(0, options.builtInTools?.length ?? 0),
     ...extensionTools,
-    ...(options.mcpTools ?? []),
+    ...hostTools.slice(options.builtInTools?.length ?? 0),
   ];
 }
