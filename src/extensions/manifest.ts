@@ -6,13 +6,19 @@ import { ExtensionCompatibilityError } from "./compatibility-error.js";
  * `legacy-unscoped` behavior so they continue to work unchanged.
  */
 export interface ScopeManifest {
-  files?: { read?: string[]; write?: string[] };
   network?: { hosts?: string[] };
   exec?: { commands?: string[] };
   providers?: boolean;
   ui?: boolean;
   session?: { read?: boolean; write?: boolean };
 }
+
+/**
+ * Scopes the runtime actually enforces. File access is not a scope: extensions
+ * run in-process and are not sandboxed at the filesystem boundary, so claiming
+ * `files.read`/`files.write` in a manifest would promise rights we cannot grant.
+ */
+export type ScopeName = "network" | "exec" | "providers" | "ui" | "session";
 
 export type ScopeMode = "legacy-unscoped" | "scoped";
 
@@ -61,16 +67,6 @@ export function parseScopeManifest(raw: unknown): {
   const errors: string[] = [];
   const manifest: ScopeManifest = {};
 
-  if (raw.files !== undefined) {
-    if (!isRecord(raw.files)) {
-      errors.push("permissions files must be an object");
-    } else {
-      manifest.files = {
-        read: stringList(raw.files.read, "files.read", errors),
-        write: stringList(raw.files.write, "files.write", errors),
-      };
-    }
-  }
   if (raw.network !== undefined) {
     if (!isRecord(raw.network)) {
       errors.push("permissions network must be an object");
@@ -185,12 +181,8 @@ export function describeScopes(manifest: ScopeManifest | undefined): string[] {
   const out: string[] = [];
   const list = (values: string[] | undefined) =>
     values ? `[${values.join(", ")}]` : undefined;
-  const filesRead = list(manifest.files?.read);
-  const filesWrite = list(manifest.files?.write);
   const hosts = list(manifest.network?.hosts);
   const commands = list(manifest.exec?.commands);
-  if (filesRead) out.push(`files: read ${filesRead}`);
-  if (filesWrite) out.push(`files: write ${filesWrite}`);
   if (hosts) out.push(`network: hosts ${hosts}`);
   if (commands) out.push(`exec: commands ${commands}`);
   if (manifest.providers) out.push("providers");
@@ -202,7 +194,7 @@ export function describeScopes(manifest: ScopeManifest | undefined): string[] {
 
 /** Denials are typed and always name the scope the extension did not declare. */
 export function scopeDeniedError(
-  scope: string,
+  scope: ScopeName,
   method: string,
   detail?: string,
 ): ExtensionCompatibilityError {

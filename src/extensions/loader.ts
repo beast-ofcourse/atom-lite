@@ -11,6 +11,7 @@ import {
   createExtensionAPI,
   createExtensionRegistries,
   type ExtensionAPI,
+  type ExtensionHostHooks,
 } from "./api.js";
 import { createDefaultExtensionUI } from "./ui.js";
 import { ExtensionBoundary, type BoundaryError } from "./boundary.js";
@@ -59,10 +60,8 @@ export interface ExtensionLoaderOptions {
   maxLifecycleEvents?: number;
   /** Called when an extension unregisters a provider so host selection updates. */
   onProviderUnregistered?: (name: string) => void;
-  /** Host turn signal, read per exec call so turn abort cancels children. */
-  signal?: () => AbortSignal | undefined;
-  /** Host seam for streaming `pi.exec` output into `tool_output` events. */
-  onToolOutput?: (stream: "stdout" | "stderr", text: string) => void;
+  /** Host turn, output and middleware hooks passed to every extension API. */
+  host?: ExtensionHostHooks;
 }
 
 export interface LoadedExtension {
@@ -515,10 +514,12 @@ export class ExtensionLoader {
               this.wrapHandler(entry.id, event, handler),
             store: staging.store,
             scopes: entry.manifest?.scopes,
-            signal: () => this.options.signal?.(),
-            onToolOutput: this.options.onToolOutput,
-            wrapMiddleware: (toolName, handler) =>
-              this.wrapMiddleware(entry.id, toolName, handler),
+            host: {
+              ...this.options.host,
+              signal: () => this.options.host?.signal?.(),
+              wrapMiddleware: (toolName, handler) =>
+                this.wrapMiddleware(entry.id, toolName, handler),
+            },
             services,
           },
         );
@@ -764,6 +765,14 @@ export class ExtensionLoader {
     return [...this.lifecycle];
   }
 
+  /** Contained failures for one extension, in the order they were recorded. */
+  private errorsFor(extensionId: string): ExtensionLifecycleEvent[] {
+    return this.lifecycle.filter(
+      (event) =>
+        event.type === "extension_error" && event.extensionId === extensionId,
+    );
+  }
+
   /**
    * Raw in-process records for one extension. Used by the test harness and by
    * assertions; diagnostics deliberately expose only the summary.
@@ -874,17 +883,8 @@ export class ExtensionLoader {
         lifecycleEvents: this.lifecycle.filter(
           (event) => event.extensionId === entry.id,
         ),
-        errorCount: this.lifecycle.filter(
-          (event) =>
-            event.type === "extension_error" && event.extensionId === entry.id,
-        ).length,
-        lastError: this.lifecycle
-          .filter(
-            (event) =>
-              event.type === "extension_error" &&
-              event.extensionId === entry.id,
-          )
-          .at(-1)?.error,
+        errorCount: this.errorsFor(entry.id).length,
+        lastError: this.errorsFor(entry.id).at(-1)?.error,
         observability: loaded?.registries.observability.snapshot() ?? {
           spanCount: 0,
           metricCount: 0,
@@ -912,10 +912,7 @@ export class ExtensionLoader {
         loaded?.error ?? (entry.errors.join("; ") || entry.skipReason);
       const snapshot = loaded?.registries.observability.snapshot();
       const storeInfo = this.storeInfo(loaded);
-      const errorCount = this.lifecycle.filter(
-        (event) =>
-          event.type === "extension_error" && event.extensionId === entry.id,
-      ).length;
+      const errorCount = this.errorsFor(entry.id).length;
       const counts = loaded
         ? `${loaded.registries.tools.size} tools, ${loaded.registries.commands.size} commands, ${loaded.registries.handlers.size} event types${storeInfo ? `, ${storeInfo.entryCount} store entries v${storeInfo.version}` : ""}, ${snapshot?.spanCount ?? 0} spans, ${snapshot?.metricCount ?? 0} metrics, ${errorCount} errors`
         : "not loaded";
@@ -950,6 +947,9 @@ export class ExtensionLoader {
   }
 
   async unloadAll(): Promise<void> {
+    // Removing the set archives each extension's durable state as <id>.json.bak.
+    // Reloads swap sets instead, so they keep the live store file.
+    for (const loaded of this.extensions) this.archiveStore(loaded.id);
     await Promise.all(
       this.extensions.map((loaded) =>
         this.recordLifecycle(

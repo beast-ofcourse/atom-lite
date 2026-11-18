@@ -64,17 +64,17 @@ The runtime validates tool arguments, enforces workspace boundaries, applies app
 
 Start at the [documentation index](./docs/README.md).
 
-| Topic                 | Page                                                                                        |
-| --------------------- | ------------------------------------------------------------------------------------------- |
-| Install and providers | [Install](./docs/install.md) · [Providers](./docs/providers.md)                             |
-| Daily use             | [Quick start](./docs/quickstart.md) · [CLI](./docs/cli.md) · [Commands](./docs/commands.md) |
-| Configuration         | [Config](./docs/config.md)                                                                  |
-| Tools and safety      | [Tools](./docs/tools.md) · [Safety](./docs/safety.md)                                       |
-| Sessions and goals    | [Sessions](./docs/sessions.md) · [Goals](./docs/goals.md)                                   |
-| Extensions            | [Agent personas](./docs/agents.md) · [Extensions](./docs/extensions.md)                     |
-| Surfaces              | [Web UI](./docs/web.md)                                                                     |
-| Harness quality       | [Evals](./docs/eval.md)                                                                     |
-| Help                  | [Troubleshooting](./docs/troubleshooting.md) · [Contributing](./CONTRIBUTING.md)            |
+| Topic                 | Page                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Install and providers | [Install](./docs/install.md) · [Providers](./docs/providers.md)                                                          |
+| Daily use             | [Quick start](./docs/quickstart.md) · [CLI](./docs/cli.md) · [Commands](./docs/commands.md)                              |
+| Configuration         | [Config](./docs/config.md)                                                                                               |
+| Tools and safety      | [Tools](./docs/tools.md) · [Safety](./docs/safety.md)                                                                    |
+| Sessions and goals    | [Sessions](./docs/sessions.md) · [Goals](./docs/goals.md)                                                                |
+| Extensions            | [Agent personas](./docs/agents.md) · [Extensions](./docs/extensions.md) · [Extension test](./docs/cli.md#extension-test) |
+| Surfaces              | [Web UI](./docs/web.md)                                                                                                  |
+| Harness quality       | [Evals](./docs/eval.md)                                                                                                  |
+| Help                  | [Troubleshooting](./docs/troubleshooting.md) · [Contributing](./CONTRIBUTING.md)                                         |
 
 Architecture decision records are private to maintainers and are not published in this repository.
 

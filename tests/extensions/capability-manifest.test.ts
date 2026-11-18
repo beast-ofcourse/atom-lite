@@ -61,9 +61,8 @@ function makeApi(options: CreateExtensionAPIOptions = {}) {
   return api;
 }
 
-test("scope manifest validates files, network, exec, providers, ui and session", () => {
+test("scope manifest validates the scopes the runtime enforces", () => {
   const parsed = parseScopeManifest({
-    files: { read: ["src/**"], write: ["dist/**"] },
     network: { hosts: ["api.example.com"] },
     exec: { commands: ["git"] },
     providers: true,
@@ -72,13 +71,18 @@ test("scope manifest validates files, network, exec, providers, ui and session",
   });
   assert.deepEqual(parsed.errors, []);
   assert.deepEqual(parsed.manifest, {
-    files: { read: ["src/**"], write: ["dist/**"] },
     network: { hosts: ["api.example.com"] },
     exec: { commands: ["git"] },
     providers: true,
     ui: false,
     session: { read: true, write: false },
   });
+
+  // `files` used to be advertised but never enforced. It is not a scope, so
+  // declaring it cannot claim a right the runtime does not implement.
+  const ignored = parseScopeManifest({ files: { read: ["src/**"] } });
+  assert.deepEqual(ignored.errors, []);
+  assert.deepEqual(ignored.manifest, {});
 
   const bad = parseScopeManifest({
     network: { hosts: "not-an-array" },
@@ -150,7 +154,6 @@ test("describeScopes renders the declared set for the trust prompt and doctor", 
     "legacy-unscoped (all scopes allowed)",
   ]);
   const lines = describeScopes({
-    files: { read: ["src/**"], write: ["dist/**"] },
     network: { hosts: ["api.example.com"] },
     exec: { commands: ["git"] },
     providers: true,
@@ -158,8 +161,6 @@ test("describeScopes renders the declared set for the trust prompt and doctor", 
     session: { read: true, write: false },
   });
   assert.deepEqual(lines, [
-    "files: read [src/**]",
-    "files: write [dist/**]",
     "network: hosts [api.example.com]",
     "exec: commands [git]",
     "providers",
@@ -237,7 +238,7 @@ test("fetch rejects a host that is not allowlisted and strips credentials", asyn
 test("exec streams output and a turn abort stops the child process", async () => {
   const controller = new AbortController();
   const chunks: string[] = [];
-  const api = makeApi({ signal: () => controller.signal });
+  const api = makeApi({ host: { signal: () => controller.signal } });
   let result: ExecResult | undefined;
   await api
     .exec(
@@ -288,6 +289,27 @@ test("exec honours env overrides, per-call signals, and bounded output", async (
   assert.ok(bounded.stdout.length <= 32);
   assert.equal(EXTENSION_EXEC_TIMEOUT_MS, 30_000);
   assert.equal(EXTENSION_EXEC_MAX_BUFFER, 10 * 1024 * 1024);
+});
+
+test("exec caps captured output in bytes, not UTF-16 code units", async () => {
+  // Regression: a JS string length let multi-byte UTF-8 exceed maxBuffer on
+  // disk and in the returned result. '€' is three bytes but one code unit.
+  const api = makeApi();
+  const bounded = await api.exec(
+    process.execPath,
+    ["-e", "process.stdout.write('€'.repeat(40))"],
+    { maxBuffer: 40 },
+  );
+  assert.ok(
+    Buffer.byteLength(bounded.stdout, "utf8") <= 40,
+    `captured ${Buffer.byteLength(bounded.stdout, "utf8")} bytes, expected <= 40`,
+  );
+  assert.match(bounded.stdout, /€/);
+  assert.equal(
+    bounded.signal,
+    "SIGTERM",
+    "the child is killed at the byte cap",
+  );
 });
 
 test("provider, UI and session scopes gate their API surfaces", async () => {

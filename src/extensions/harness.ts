@@ -6,7 +6,11 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { ExtensionLoader, type ExtensionDiagnostic } from "./loader.js";
+import {
+  ExtensionLoader,
+  type ExtensionDiagnostic,
+  type ExtensionLifecycleEvent,
+} from "./loader.js";
 import { createDefaultExtensionUI, DialogBoundary } from "./ui.js";
 import type { ExtensionUICallbacks } from "./ui.js";
 import type { ExtensionAPI } from "./api.js";
@@ -40,6 +44,21 @@ export interface HarnessTool extends ExtensionTool {
   execute: (...args: any[]) => Promise<unknown>;
 }
 
+export interface FakeProviderRequest {
+  prompt: string;
+  transcript: TranscriptEntry[];
+  events: string[];
+}
+
+/** The seam that answers a fixture turn; no real provider or network is used. */
+export interface FakeProvider {
+  complete(request: FakeProviderRequest): string | Promise<string>;
+}
+
+export interface RunExtensionTestOptions {
+  provider?: FakeProvider;
+}
+
 export interface ExtensionTestContext {
   id: string;
   assert: ExtensionAssert;
@@ -53,6 +72,8 @@ export interface ExtensionTestContext {
   session: FakeExtensionSession;
   errors: Array<Record<string, unknown>>;
   doctor(): ExtensionDiagnostic[];
+  /** Assert a contained `extension_error` exists, so it does not fail the run. */
+  diagnostic(pattern: string | RegExp): void;
   runTurn(prompt: string): Promise<{
     text: string;
     events: string[];
@@ -150,6 +171,7 @@ function createAssert(
  */
 export async function runExtensionTest(
   fixturePath: string | undefined,
+  options: RunExtensionTestOptions = {},
 ): Promise<ExtensionTestResult> {
   const result: ExtensionTestResult = {
     passed: false,
@@ -174,6 +196,10 @@ export async function runExtensionTest(
     const sessionEvents: Array<Record<string, unknown>> = [];
     const failures: string[] = [];
     const count = { value: 0 };
+    const fail = (message: string): never => {
+      failures.push(message);
+      throw new Error(message);
+    };
     const dialogs = new DialogBoundary();
     let holdDialogs = false;
     let autoCancel: string | undefined;
@@ -240,15 +266,17 @@ export async function runExtensionTest(
     // Include failed activations: fault-injection fixtures assert on their
     // own error state, so their `test` export must still run.
     const loaded = loader.list()[0];
-    const harnessErrors = () =>
+    const rawErrors = () =>
       loader
         .lifecycleEvents()
-        .filter((event) => event.type === "extension_error")
-        .map((event) => ({
-          extensionId: event.extensionId,
-          method: event.method,
-          error: event.error,
-        }));
+        .filter((event) => event.type === "extension_error");
+    const observedErrors = new Set<ExtensionLifecycleEvent>();
+    const harnessErrors = () =>
+      rawErrors().map((event) => ({
+        extensionId: event.extensionId,
+        method: event.method,
+        error: event.error,
+      }));
 
     const tools: HarnessTool[] = loaded
       ? [...loaded.registries.tools.values()].map((tool: ExtensionTool) => ({
@@ -273,12 +301,21 @@ export async function runExtensionTest(
       events.push(event);
       return loader.dispatchEvent(event, payload);
     };
+    const provider: FakeProvider =
+      options.provider ??
+      ({
+        complete: ({ prompt }) => fakeResponse ?? `echo:${prompt}`,
+      } satisfies FakeProvider);
     const runTurn = async (prompt: string) => {
       transcript.push({ role: "user", content: prompt });
       await dispatch("turn_start", { prompt });
       await dispatch("before_provider_request", { prompt });
       await dispatch("after_provider_response", { prompt });
-      const text = fakeResponse ?? `echo:${prompt}`;
+      const text = await provider.complete({
+        prompt,
+        transcript: [...transcript],
+        events: [...events],
+      });
       transcript.push({ role: "assistant", content: text });
       await dispatch("turn_end", { text });
       return { text, events: [...events], transcript: [...transcript] };
@@ -295,6 +332,20 @@ export async function runExtensionTest(
       session,
       errors: harnessErrors(),
       doctor: () => loader.diagnostics(),
+      diagnostic: (pattern) => {
+        const matcher =
+          typeof pattern === "string" ? new RegExp(pattern) : pattern;
+        const matches = rawErrors().filter((event) =>
+          matcher.test(event.error ?? ""),
+        );
+        count.value++;
+        if (matches.length === 0) {
+          fail(
+            `expected a contained extension error matching ${label(pattern)}`,
+          );
+        }
+        for (const event of matches) observedErrors.add(event);
+      },
       runTurn,
       dispatch,
       setResponse: (text) => {
@@ -339,15 +390,11 @@ export async function runExtensionTest(
 
     result.assertions = count.value;
     result.failures = [...failures];
-    const declared = moduleExports.expectErrors;
-    const expected = Array.isArray(declared)
-      ? declared.filter((entry): entry is string => typeof entry === "string")
-      : [];
-    for (const error of harnessErrors()) {
-      const text = error.error ?? "extension_error";
-      // A fault-injection fixture may declare the errors it is proving are
-      // contained; every other extension error still fails the run.
-      if (expected.some((fragment) => text.includes(fragment))) continue;
+    for (const event of rawErrors()) {
+      if (observedErrors.has(event)) continue;
+      const text = event.error ?? "extension_error";
+      // Only errors a fixture explicitly claims through ctx.diagnostic() are
+      // expected; every other extension error fails the run.
       if (!result.errors.includes(text)) result.errors.push(text);
     }
   } catch (error) {

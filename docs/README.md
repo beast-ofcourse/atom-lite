@@ -22,6 +22,7 @@ Atom-lite is a local-first coding agent. These pages cover installation, daily u
 - [Providers](./providers.md) — adapter types, credentials, model selection.
 - [Agent personas](./agents.md) — persona files, frontmatter, permissions.
 - [Extensions](./extensions.md) — discovery, trust, tool and UI tiers.
+- [Extension test](./cli.md#extension-test) — run one fixture without a provider or network.
 - [Web UI](./web.md) — localhost server, share mode, tabs, reconnects.
 
 ## Reference

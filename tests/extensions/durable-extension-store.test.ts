@@ -358,3 +358,33 @@ test("loader archives an extension's store on unregister", async () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("unloadAll archives durable state through the host unload path", async () => {
+  // Regression: archiveStore existed but no host path called it, so removing
+  // an extension left its state file behind instead of a .bak snapshot.
+  const root = mkdtempSync(join(tmpdir(), "atom-lite-store-unload-all-"));
+  try {
+    const extDir = join(root, "ext");
+    const agentDir = join(root, "agent");
+    fixture(
+      extDir,
+      "unloaded",
+      "export default (pi) => { pi.store.set('k', 'v'); };\n",
+    );
+    const loader = new ExtensionLoader({ userDir: extDir, agentDir });
+    await loader.loadAll();
+    const file = storeDir(agentDir, "unloaded");
+    assert.ok(existsSync(file));
+
+    await loader.unloadAll();
+
+    assert.deepEqual(loader.list(), []);
+    assert.equal(existsSync(file), false);
+    assert.ok(existsSync(`${file}.bak`));
+    assert.deepEqual(JSON.parse(readFileSync(`${file}.bak`, "utf8")).value, {
+      k: "v",
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

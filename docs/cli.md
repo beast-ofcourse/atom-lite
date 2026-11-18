@@ -38,9 +38,9 @@ network calls. The fixture's `test` export asserts on `runTurn`,
 `tools`, `transcript`, `events`, and the API's registered state.
 
 The command prints `PASS` with the assertion count on success. A failed
-assertion, a thrown fixture, or an extension error prints `FAIL`/`ERROR` and
-sets exit code 1. See [Extensions](./extensions.md#testing-an-extension) for the
-fixture shape.
+assertion, a thrown fixture, or an extension error the fixture does not claim
+with `ctx.diagnostic()` prints `FAIL`/`ERROR` and sets exit code 1. See
+[Extensions](./extensions.md#testing-an-extension) for the fixture shape.
 
 ## Terminal interface
 

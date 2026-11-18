@@ -50,7 +50,6 @@ The prompt lists the exact scopes an extension declares. Declare them under
   "atom": {
     "extensions": ["./index.js"],
     "permissions": {
-      "files": { "read": ["src/**"], "write": [] },
       "network": { "hosts": ["api.example.com"] },
       "exec": { "commands": ["git"] },
       "providers": false,
@@ -65,6 +64,10 @@ Every scope is opt-in: omitting a scope denies it. An extension with no
 `permissions` object runs in `legacy-unscoped` mode with every scope allowed,
 so existing extensions keep working. `/extensions doctor` labels each extension
 `scoped` or `legacy-unscoped` and lists its declared scopes.
+
+> **Note:** File access is not a scope. Extensions run in-process with the
+> host's filesystem access, so no manifest can grant or deny it. Do not declare
+> `files.read` or `files.write`; the host ignores those keys.
 
 Denied calls throw `ExtensionCompatibilityError` naming the scope: `exec`
 checks its command allowlist, `fetch` checks its host allowlist,
@@ -82,7 +85,7 @@ implementation.
 
 | Status        | Methods | Meaning                                  |
 | ------------- | ------- | ---------------------------------------- |
-| `supported`   | 21      | Effect is consumed by the host.          |
+| `supported`   | 23      | Effect is consumed by the host.          |
 | `reduced`     | 9       | Works with limits; see Reduced behavior. |
 | `no-op`       | 20      | Call is accepted; nothing consumes it.   |
 | `unsupported` | 7       | Failing stub; see Tier 3.                |
@@ -91,7 +94,7 @@ implementation.
 `getActiveTools`, `getAllTools`, `registerCommand`, `unregisterCommand`, `on`,
 `off`, `getToolsExpanded`, `setToolsExpanded`, `select`, `confirm`, `input`,
 `getWorkspace`, `getSession`, `isProjectTrusted`, `unregisterProvider`,
-`wrapTool`, `provide`, `consume`.
+`wrapTool`, `provide`, `consume`, `span`, `metric`.
 
 **`reduced`:** `appendEntry`, `getSessionEntries`, `getSessionManager`, `notify`,
 `registerProvider`, `exec`, `fetch`, `log`, `supports`.
@@ -250,9 +253,10 @@ extension is reported as failed in doctor. An older version with no `migrate`
 hook fails the same way.
 
 Uninstalling or unregistering an extension archives its file as
-`<id>.json.bak`. A later archive replaces the previous backup. Call
-`pi.store.archive()` from the extension, or the loader's `archiveStore` method
-when the host removes an extension.
+`<id>.json.bak`. A later archive replaces the previous backup. The host archives
+every loaded store when it unloads the extension set; an extension can also call
+`pi.store.archive()` itself. Reloads swap extension sets and keep the live store
+file.
 
 `/extensions doctor` prints only the entry count and schema version for each
 store. Values never appear in doctor output.
@@ -423,14 +427,26 @@ export async function test(ctx) {
 
 `ctx` provides `assert` (`ok`, `equal`, `match`, `deepEqual`, `rejects`),
 `runTurn`, `tools`, `transcript`, `events`, `uiEvents`, `sessionEvents`,
-`doctor`, `dispatch`, `setResponse`, and `pi` (the API instance
-the factory received). Commands exit zero when every assertion passes and no
-extension error occurs; any failure or unexpected error prints the cause and
-exits non-zero.
+`doctor`, `diagnostic`, `dispatch`, `setResponse`, and `pi` (the API instance
+the factory received). `runTurn` asks a fake provider for the assistant text;
+the CLI's default echoes `echo:<prompt>`. Programmatic callers pass their own:
+
+```ts
+runExtensionTest("./my-extension.js", {
+  provider: {
+    complete: ({ prompt }) => `mock:${prompt}`,
+  },
+});
+```
+
+Commands exit zero when every assertion passes and no unclaimed extension error
+occurs; any failure or unexpected error prints the cause and exits non-zero.
 
 The fault-injection files under `tests/fixtures/extensions/` are the seed of the
-conformance suite. A fixture that proves a specific error is contained exports
-`expectErrors = ["message fragment"]` so that error does not fail the run.
+conformance suite. A fixture proving that a specific error is contained claims
+it with `ctx.diagnostic(/message fragment/)`. That call is an assertion: it
+fails when no matching `extension_error` exists, and marks the matched error as
+expected. Every other extension error fails the run.
 
 ## Migration notes
 

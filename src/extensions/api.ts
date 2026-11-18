@@ -43,6 +43,7 @@ import {
   isUIAllowed,
   scopeDeniedError,
   type ScopeManifest,
+  type ScopeName,
 } from "./manifest.js";
 
 export interface ExtensionAPI {
@@ -234,6 +235,19 @@ const APPLIED_PROVIDER_CONFIG_KEYS = new Set([
 
 const PROVIDER_IDENTITY_KEYS = new Set(["name", "id", "config"]);
 
+/** Host-owned hooks that travel together into every created extension API. */
+export interface ExtensionHostHooks {
+  /** Host turn signal, read per call so reloads/turns can cancel children. */
+  signal?: () => AbortSignal | undefined;
+  /** Host seam for streaming exec output into `tool_output` events. */
+  onToolOutput?: (stream: "stdout" | "stderr", text: string) => void;
+  /** Wrap a tool middleware handler so it runs behind the host's boundary. */
+  wrapMiddleware?: (
+    toolName: string,
+    handler: ToolMiddlewareHandler,
+  ) => ToolMiddlewareHandler;
+}
+
 export interface CreateExtensionAPIOptions {
   /** Wrap an event handler so it runs behind the host's boundary. */
   wrapHandler?: (
@@ -246,15 +260,8 @@ export interface CreateExtensionAPIOptions {
   agentDir?: string;
   /** Declared capability scopes; undefined keeps legacy-unscoped behavior. */
   scopes?: ScopeManifest;
-  /** Host turn signal, read per call so reloads/turns can cancel children. */
-  signal?: () => AbortSignal | undefined;
-  /** Host seam for streaming exec output into `tool_output` events. */
-  onToolOutput?: (stream: "stdout" | "stderr", text: string) => void;
-  /** Wrap a tool middleware handler so it runs behind the host's boundary. */
-  wrapMiddleware?: (
-    toolName: string,
-    handler: ToolMiddlewareHandler,
-  ) => ToolMiddlewareHandler;
+  /** Host turn, output and middleware hooks. */
+  host?: ExtensionHostHooks;
   /** Services shared by the extensions in one load generation. */
   services?: ServiceRegistry;
 }
@@ -270,6 +277,15 @@ interface ExecRunOptions extends ExecOptions {
  * aborts propagate, output streams through the host seam, and both a timeout
  * and maxBuffer kill the child instead of growing an unbounded string.
  */
+/** Decode captured bytes without letting a split code point exceed the cap. */
+function decodeBounded(chunks: Buffer[], limit: number): string {
+  let text = Buffer.concat(chunks).toString("utf8");
+  while (Buffer.byteLength(text, "utf8") > limit) {
+    text = text.slice(0, -1);
+  }
+  return text;
+}
+
 function runCancellableExec(
   command: string,
   args: string[],
@@ -283,8 +299,10 @@ function runCancellableExec(
       env: { ...process.env, ...run.env },
       stdio: ["ignore", "pipe", "pipe"],
     });
-    let stdout = "";
-    let stderr = "";
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
     let settled = false;
     let killedSignal: string | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -298,7 +316,12 @@ function runCancellableExec(
       for (const candidate of [run.signal, run.turnSignal]) {
         candidate?.removeEventListener("abort", onAbort);
       }
-      resolve({ stdout, stderr, exitCode, signal });
+      resolve({
+        stdout: decodeBounded(stdoutChunks, maxBuffer),
+        stderr: decodeBounded(stderrChunks, maxBuffer),
+        exitCode,
+        signal,
+      });
     };
     const terminate = (signal: NodeJS.Signals = "SIGTERM"): void => {
       if (settled || child.killed) return;
@@ -316,14 +339,25 @@ function runCancellableExec(
       stream: "stdout" | "stderr",
       chunk: Buffer | string,
     ): void => {
-      const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
-      const current = stream === "stdout" ? stdout : stderr;
-      const room = Math.max(0, maxBuffer - current.length);
-      if (stream === "stdout") stdout += text.slice(0, room);
-      else stderr += text.slice(0, room);
+      // Buffer the raw bytes: slicing a decoded JS string by length lets
+      // multi-byte UTF-8 exceed maxBuffer on disk and in the result.
+      const buffer = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+      const used = stream === "stdout" ? stdoutBytes : stderrBytes;
+      const room = Math.max(0, maxBuffer - used);
+      const kept = buffer.subarray(0, room);
+      if (kept.length > 0) {
+        if (stream === "stdout") {
+          stdoutChunks.push(kept);
+          stdoutBytes += kept.length;
+        } else {
+          stderrChunks.push(kept);
+          stderrBytes += kept.length;
+        }
+      }
+      const text = buffer.toString("utf8");
       run.onOutput?.(stream, text);
       run.hostOutput?.(stream, text);
-      if (text.length > room) terminate("SIGTERM");
+      if (buffer.length > room) terminate("SIGTERM");
     };
     child.stdout?.on("data", (chunk: Buffer | string) =>
       collect("stdout", chunk),
@@ -372,9 +406,25 @@ export function createExtensionAPI(
     new ExtensionStore({ id, agentDir: options.agentDir ?? defaultAgentDir() });
   const services = options.services ?? new Map();
   const scopes = options.scopes;
-  const requireUI = (method: string): void => {
-    if (!isUIAllowed(scopes)) throw scopeDeniedError("ui", method);
+  const requireScope = (
+    scope: ScopeName,
+    method: string,
+    allowed: boolean,
+    detail?: string,
+  ): void => {
+    if (!allowed) throw scopeDeniedError(scope, method, detail);
   };
+  const requireUI = (method: string): void =>
+    requireScope("ui", method, isUIAllowed(scopes));
+  const requireSession = (method: string, right: "read" | "write"): void =>
+    requireScope(
+      "session",
+      method,
+      right === "read"
+        ? isSessionReadAllowed(scopes)
+        : isSessionWriteAllowed(scopes),
+      `${right} is not declared`,
+    );
   // `pi.ui` is a second entry to the same UI surface. Without this wrapper an
   // extension could bypass the gate by calling `pi.ui.select` directly.
   if (scopes && !isUIAllowed(scopes)) {
@@ -433,7 +483,7 @@ export function createExtensionAPI(
       registries.toolMiddleware.push({
         toolName: name,
         extensionId: id,
-        handler: options.wrapMiddleware?.(name, handler) ?? handler,
+        handler: options.host?.wrapMiddleware?.(name, handler) ?? handler,
       });
     },
     setActiveTools: (names) => {
@@ -484,26 +534,14 @@ export function createExtensionAPI(
       registries.handlers.get(event)?.delete(registered);
     },
     appendEntry: (type, data) => {
-      if (!isSessionWriteAllowed(scopes)) {
-        throw scopeDeniedError(
-          "session",
-          "appendEntry",
-          "write is not declared",
-        );
-      }
+      requireSession("appendEntry", "write");
       if (ctx.sessionManager?.appendEntry) {
         return ctx.sessionManager.appendEntry(type, data);
       }
       registries.entries.push({ type, data });
     },
     getSessionEntries: (filter) => {
-      if (!isSessionReadAllowed(scopes)) {
-        throw scopeDeniedError(
-          "session",
-          "getSessionEntries",
-          "read is not declared",
-        );
-      }
+      requireSession("getSessionEntries", "read");
       if (ctx.sessionManager?.getEntries) {
         return ctx.sessionManager
           .getEntries()
@@ -518,13 +556,7 @@ export function createExtensionAPI(
       );
     },
     getSessionManager: () => {
-      if (!isSessionReadAllowed(scopes)) {
-        throw scopeDeniedError(
-          "session",
-          "getSessionManager",
-          "read is not declared",
-        );
-      }
+      requireSession("getSessionManager", "read");
       return ctx.sessionManager;
     },
     setStatus: (part, value) => {
@@ -622,9 +654,7 @@ export function createExtensionAPI(
     getSession: () => ({ id: sessionId }),
     isProjectTrusted: () => ctx.trusted,
     registerProvider: (providerOrName: any, config?: any) => {
-      if (!isProviderAllowed(scopes)) {
-        throw scopeDeniedError("providers", "registerProvider");
-      }
+      requireScope("providers", "registerProvider", isProviderAllowed(scopes));
       const name =
         typeof providerOrName === "string"
           ? providerOrName
@@ -666,18 +696,17 @@ export function createExtensionAPI(
       registries.models.push(model);
     },
     exec: async (command, args = [], execOptions = {}) => {
-      if (!isCommandAllowed(scopes, command)) {
-        throw scopeDeniedError(
-          "exec",
-          "exec",
-          `command '${command}' is not allowlisted`,
-        );
-      }
+      requireScope(
+        "exec",
+        "exec",
+        isCommandAllowed(scopes, command),
+        `command '${command}' is not allowlisted`,
+      );
       return runCancellableExec(command, args, {
         ...execOptions,
         workspace: ctx.workspace,
-        turnSignal: options.signal?.(),
-        hostOutput: options.onToolOutput,
+        turnSignal: options.host?.signal?.(),
+        hostOutput: options.host?.onToolOutput,
       });
     },
     fetch: async (url, init) => {
@@ -692,13 +721,12 @@ export function createExtensionAPI(
       for (let hop = 0; ; hop++) {
         target.username = "";
         target.password = "";
-        if (!isHostAllowed(scopes, target.hostname)) {
-          throw scopeDeniedError(
-            "network",
-            "fetch",
-            `host '${target.hostname}' is not allowlisted`,
-          );
-        }
+        requireScope(
+          "network",
+          "fetch",
+          isHostAllowed(scopes, target.hostname),
+          `host '${target.hostname}' is not allowlisted`,
+        );
         const response = await fetch(
           target.toString(),
           credentialFreeInit(init),

@@ -435,19 +435,21 @@ export async function run(args: string[]): Promise<void> {
         `atom-lite: extension ${event.extensionId}${where}: ${event.error ?? "error"}\n`,
       );
     },
-    signal: () => activeExtensionSignal,
-    onToolOutput: (stream, text) => {
-      try {
-        (session as any)?.appendEvent?.({
-          type: "tool_output",
-          toolCallId: "pi.exec",
-          name: "pi.exec",
-          stream,
-          text,
-        });
-      } catch {
-        // Observability must not break a running extension.
-      }
+    host: {
+      signal: () => activeExtensionSignal,
+      onToolOutput: (stream, text) => {
+        try {
+          (session as any)?.appendEvent?.({
+            type: "tool_output",
+            toolCallId: "pi.exec",
+            name: "pi.exec",
+            stream,
+            text,
+          });
+        } catch {
+          // Observability must not break a running extension.
+        }
+      },
     },
     onProviderUnregistered: (name) => {
       // The bridged provider lives only in memory. Drop it from every host

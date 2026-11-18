@@ -82,7 +82,6 @@ Declare scopes under `permissions` in the `atom` (or `pi`) manifest field:
   "atom": {
     "extensions": ["./index.js"],
     "permissions": {
-      "files": { "read": ["src/**"], "write": [] },
       "network": { "hosts": ["api.example.com"] },
       "exec": { "commands": ["git"] },
       "providers": false,
@@ -96,7 +95,9 @@ Declare scopes under `permissions` in the `atom` (or `pi`) manifest field:
 The trust prompt shows these exact scopes. Omitted scopes are denied. With no
 `permissions` object the extension runs `legacy-unscoped` with every scope
 allowed, and doctor labels it as such. Denied calls throw
-`ExtensionCompatibilityError` naming the scope.
+`ExtensionCompatibilityError` naming the scope. File access is not a scope:
+extensions run in-process with the host's filesystem access, so `files.read`
+and `files.write` keys are ignored.
 
 ## Module shape
 
@@ -272,9 +273,10 @@ export default function (pi) {
 ```
 
 `pi.store.delete(key)` removes one entry. Uninstall/unregister archives the
-file as `<id>.json.bak` (a later archive replaces the old one): call
-`pi.store.archive()` or the loader's `archiveStore` method. Doctor reports entry
-count and version only, never values.
+file as `<id>.json.bak` (a later archive replaces the old one). The host archives
+every loaded store when it unloads the extension set; `pi.store.archive()` does
+the same from inside an extension. Doctor reports entry count and version only,
+never values.
 
 ## Providers & models
 
@@ -375,13 +377,17 @@ atom-lite extension test ./my-extension.js
 
 The fixture loads through the normal loader with a fake provider, fake TUI, and
 fake session. Export a `test` function taking `ctx` to assert on `runTurn`, `tools`,
-`transcript`, `events`, `uiEvents`, `sessionEvents`, and `doctor`. `ctx.assert`
-offers `ok`, `equal`, `match`, `deepEqual`, and `rejects`. Exit is zero only when
-all assertions pass and no unexpected extension error occurs.
+`transcript`, `events`, `uiEvents`, `sessionEvents`, `doctor`, and `diagnostic`.
+`ctx.assert` offers `ok`, `equal`, `match`, `deepEqual`, and `rejects`. `runTurn`
+gets assistant text from an injectable provider; the default echoes
+`echo:<prompt>`. Exit is zero only when all assertions pass and no unclaimed
+extension error occurs.
 
 The fault-injection files under `tests/fixtures/extensions/` seed the conformance
-suite. A fixture that proves a contained error exports
-`expectErrors = ["message fragment"]` so that error does not fail the run.
+suite. A fixture proving a contained error claims it with
+`ctx.diagnostic(/message fragment/)`. That assertion fails when no matching
+error exists and marks the matched error as expected; every other extension
+error fails the run.
 
 ## Tips
 
