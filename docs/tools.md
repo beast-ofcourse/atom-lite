@@ -36,9 +36,17 @@ A missing path is corrected when one sibling has the same stem with another exte
 
 ## Web fetch
 
-`webfetch` takes a `url` and optional `format` (`text`, `markdown`, or `html`), `timeout` in seconds, and `freshness`. Markdown is the default. The tool sends format-specific `Accept` headers and reads the response in bounded chunks, cancelling the stream once the useful-text threshold or `web.fetch.maxBytes` is reached. A body over the byte cap returns `OUTPUT_TRUNCATED: response too large`.
+`webfetch` takes a `url` and optional `format` (`text`, `markdown`, or `html`), `timeout` in seconds, `freshness`, and `extract` (`auto`, `main`, or `full`). Markdown is the default. The tool sends format-specific `Accept` headers and reads the response in bounded chunks, cancelling the stream once the useful-text threshold or `web.fetch.maxBytes` is reached. A body over the byte cap returns `OUTPUT_TRUNCATED: response too large`.
+
+The `extract` mode selects the main or article element when it is substantial, always prefers it with `main`, or converts the whole body with `full`. Page title and description come back in structured content, not in the model-visible text. When the converted result exceeds the output cap, the full text is written to a bounded output-artifact directory and the model sees a preview plus `OUTPUT_TRUNCATED: full output at <path>`; that path can be read with `read`. The artifact is not a cache entry.
 
 The result is capped by the smaller of `web.fetch.maxOutputChars` and `runtime.maxToolOutputBytes`. With `freshness` set to `fast` (the default), a cached result is returned immediately and refreshed in the background while it is stale; `fresh` revalidates with ETag or Last-Modified and reuses the body on `304`; `strict` bypasses and never populates the cache. Responses marked `Cache-Control: no-store` are not cached. Cache lifetime and limits are set in [`web`](./config.md).
+
+## Web search
+
+`websearch` takes a required `query` and optional `num_results`. It parses results, removes tracking parameters, collapses duplicate destinations, and ranks by query-term matches with domain diversity. The text result keeps a numbered title, URL, and snippet layout; structured content carries title, URL, content, and published fields. An empty result set returns `No results found.`
+
+`web.search.maxResults` supplies the count when `num_results` is absent and caps an explicit value at 20. Search uses the DuckDuckGo path today; provider selection and caching are configured under [`web`](./config.md).
 
 ## Scheduling
 

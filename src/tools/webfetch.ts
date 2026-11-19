@@ -1,11 +1,17 @@
-import { Parser } from "htmlparser2";
+import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { DomUtils, parseDocument, Parser } from "htmlparser2";
 import TurndownService from "turndown";
+import { userConfigDir } from "../config/paths.js";
+import { resolveToolPermission } from "../agents/permissions.js";
 import type { Tool, ToolContext, ToolResult } from "./types.js";
 import type { ToolCall } from "../types.js";
 import { z } from "zod";
 
 type Format = "text" | "markdown" | "html";
 type Freshness = "fast" | "fresh" | "strict";
+type ExtractMode = "auto" | "main" | "full";
 
 const ArgsSchema = z
   .object({
@@ -13,6 +19,7 @@ const ArgsSchema = z
     format: z.enum(["text", "markdown", "html"]).optional(),
     timeout: z.number().int().positive().optional(),
     freshness: z.enum(["fast", "fresh", "strict"]).optional(),
+    extract: z.enum(["auto", "main", "full"]).optional(),
   })
   .strict();
 
@@ -20,6 +27,9 @@ const MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_TIMEOUT = 30;
 const MAX_TIMEOUT = 120;
 const CACHE_MAX_ENTRIES = 64;
+const ARTIFACT_MAX_ENTRIES = 32;
+const ARTIFACT_TTL_MS = 24 * 60 * 60 * 1000;
+const MAIN_TEXT_MIN = 200;
 
 const SKIP_TAGS = new Set([
   "script",
@@ -101,6 +111,27 @@ function requestHeaders(
   };
 }
 
+/** Validate a fetch URL and strip its fragment, which is never sent. */
+function validateFetchUrl(raw: string): string | undefined {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return undefined;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return undefined;
+  if (parsed.username || parsed.password) return undefined;
+  parsed.hash = "";
+  return parsed.href;
+}
+
+/** Re-check persona policy for a hop, since a redirect can change the resource. */
+function permissionErrorFor(ctx: ToolContext, url: string): string | undefined {
+  const match = resolveToolPermission(ctx.agentPermissions, "webfetch", url);
+  if (!match || match.decision === "allow") return undefined;
+  return `PERSONA_PERMISSION_DENIED: webfetch matched "${match.pattern}"`;
+}
+
 function effectiveOutputCap(ctx: ToolContext): number {
   return Math.min(
     ctx.web?.fetch.maxOutputChars ?? 30_000,
@@ -108,17 +139,12 @@ function effectiveOutputCap(ctx: ToolContext): number {
   );
 }
 
-interface BoundedBody {
-  text: string;
-  tooLarge: boolean;
-}
-
 /** Read only as much of the response as needed, cancelling on either limit. */
 async function readBounded(
   res: Response,
   maxBytes: number,
   usefulTextLimit: number,
-): Promise<BoundedBody> {
+): Promise<{ text: string; tooLarge: boolean }> {
   const reader = res.body?.getReader();
   if (!reader) {
     const buf = await res.arrayBuffer();
@@ -169,16 +195,6 @@ async function readBounded(
   return { text: pieces.join("") + decoder.decode(), tooLarge: false };
 }
 
-interface FetchOutcome {
-  ok: boolean;
-  content?: string;
-  notModified?: boolean;
-  noStore?: boolean;
-  etag?: string;
-  lastModified?: string;
-  error?: string;
-}
-
 function isHtmlResponse(contentType: string, text?: string): boolean {
   return (
     contentType.includes("text/html") ||
@@ -186,17 +202,121 @@ function isHtmlResponse(contentType: string, text?: string): boolean {
   );
 }
 
-function convertBody(text: string, format: Format, contentType: string): string {
+function extractMainHtml(html: string, mode: ExtractMode): string | undefined {
+  if (mode === "full") return undefined;
+  const doc = parseDocument(html);
+  const nodes = DomUtils.getElementsByTagName(
+    (name) => name === "main" || name === "article",
+    doc.children,
+    true,
+  );
+  const node = nodes[0];
+  if (!node) return undefined;
+  if (
+    mode === "auto" &&
+    DomUtils.textContent(node).trim().length < MAIN_TEXT_MIN
+  )
+    return undefined;
+  return DomUtils.getInnerHTML(node);
+}
+
+function extractMetadata(html: string): {
+  title?: string;
+  description?: string;
+} {
+  const doc = parseDocument(html);
+  const titleNode = DomUtils.getElementsByTagName("title", doc.children, true)[0];
+  const title = titleNode ? DomUtils.textContent(titleNode).trim() : "";
+  const metas = DomUtils.getElementsByTagName("meta", doc.children, true);
+  const descriptionNode = metas.find(
+    (node) =>
+      DomUtils.getAttributeValue(node, "name")?.toLowerCase() === "description",
+  );
+  const description = descriptionNode
+    ? DomUtils.getAttributeValue(descriptionNode, "content")?.trim()
+    : undefined;
+  return {
+    title: title || undefined,
+    description: description || undefined,
+  };
+}
+
+function convertBody(
+  text: string,
+  format: Format,
+  contentType: string,
+  extract: ExtractMode,
+): string {
   const isHtml = isHtmlResponse(contentType, text);
-  if (format === "markdown" && isHtml) {
+  if (format === "html" || !isHtml) return text;
+  const selected = extractMainHtml(text, extract) ?? text;
+  if (format === "markdown") {
     try {
-      return turndown.turndown(text);
+      return turndown.turndown(selected);
     } catch {
-      return stripHtml(text);
+      return stripHtml(selected);
     }
   }
-  if (format === "text" && isHtml) return stripHtml(text);
-  return text;
+  return stripHtml(selected);
+}
+
+/** Write oversized output as a bounded artifact, never reused as a cache. */
+function writeArtifact(content: string, id: string, url: string, format: Format): string {
+  const dir = join(userConfigDir(), "web-output");
+  mkdirSync(dir, { recursive: true });
+  const now = Date.now();
+  const existing = readdirSync(dir)
+    .map((name) => {
+      try {
+        return { name, path: join(dir, name), mtime: statSync(join(dir, name)).mtimeMs };
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((entry): entry is { name: string; path: string; mtime: number } => !!entry)
+    .sort((a, b) => a.mtime - b.mtime);
+  for (const entry of existing) {
+    if (now - entry.mtime > ARTIFACT_TTL_MS) {
+      try {
+        unlinkSync(entry.path);
+      } catch {
+        // Best effort cleanup.
+      }
+    }
+  }
+  const survivors = existing.filter((entry) => now - entry.mtime <= ARTIFACT_TTL_MS);
+  while (survivors.length >= ARTIFACT_MAX_ENTRIES) {
+    const oldest = survivors.shift();
+    if (!oldest) break;
+    try {
+      unlinkSync(oldest.path);
+    } catch {
+      break;
+    }
+  }
+  const hash = createHash("sha256")
+    .update(`${url}\n${format}`)
+    .digest("hex")
+    .slice(0, 16);
+  const safeId = id.replace(/[^A-Za-z0-9_-]/g, "_");
+  const path = join(dir, `${safeId}-${hash}.txt`);
+  writeFileSync(path, content, "utf8");
+  return path;
+}
+
+interface FetchOutcome {
+  ok: boolean;
+  content?: string;
+  preview?: string;
+  artifactPath?: string;
+  contentType?: string;
+  title?: string;
+  description?: string;
+  notModified?: boolean;
+  noStore?: boolean;
+  etag?: string;
+  lastModified?: string;
+  error?: string;
 }
 
 export const webfetchTool: Tool = {
@@ -211,6 +331,7 @@ export const webfetchTool: Tool = {
         format: { type: "string", enum: ["text", "markdown", "html"] },
         timeout: { type: "integer", minimum: 1 },
         freshness: { type: "string", enum: ["fast", "fresh", "strict"] },
+        extract: { type: "string", enum: ["auto", "main", "full"] },
       },
       required: ["url"],
       additionalProperties: false,
@@ -229,6 +350,7 @@ export const webfetchTool: Tool = {
     const { url } = parsed.data;
     const format = parsed.data.format ?? "markdown";
     const freshness = parsed.data.freshness ?? "fast";
+    const extract = parsed.data.extract ?? ctx.web?.fetch.extract ?? "auto";
     if (!url.startsWith("http://") && !url.startsWith("https://")) {
       return {
         toolCallId: call.id,
@@ -238,8 +360,26 @@ export const webfetchTool: Tool = {
         isError: true,
       };
     }
+    const target = validateFetchUrl(url);
+    if (!target) {
+      return {
+        toolCallId: call.id,
+        name: "webfetch",
+        content: "TOOL_ARGUMENT_INVALID: URL must not include credentials",
+        isError: true,
+      };
+    }
+    const initialPermission = permissionErrorFor(ctx, target);
+    if (initialPermission) {
+      return {
+        toolCallId: call.id,
+        name: "webfetch",
+        content: initialPermission,
+        isError: true,
+      };
+    }
 
-    const key = cacheKey(url, format);
+    const key = cacheKey(target, format);
     const ttlMs = (ctx.web?.fetch.cacheTtlSeconds ?? 300) * 1000;
     const cached = freshness === "strict" ? undefined : fetchCache.get(key);
 
@@ -260,24 +400,71 @@ export const webfetchTool: Tool = {
         headers["If-Modified-Since"] = conditional.lastModified;
       try {
         let res: Response;
-        try {
-          res = await fetch(url, { headers, signal: controller.signal });
-          if (res.status === 403) {
-            await res.body?.cancel();
-            try {
-              res = await fetch(url, {
-                headers: requestHeaders(format, "atom-lite/0.1 (compatible)"),
-                signal: controller.signal,
-              });
-            } catch {
-              // keep the original 403 response
+        let current = target;
+        let hops = 0;
+        for (;;) {
+          let response: Response;
+          try {
+            response = await fetch(current, {
+              headers: { ...headers },
+              signal: controller.signal,
+              redirect: "manual",
+            });
+            if (response.status === 403) {
+              await response.body?.cancel();
+              try {
+                response = await fetch(current, {
+                  headers: requestHeaders(format, "atom-lite/0.1 (compatible)"),
+                  signal: controller.signal,
+                  redirect: "manual",
+                });
+              } catch {
+                // keep the original 403 response
+              }
             }
+          } catch (err) {
+            return {
+              ok: false,
+              error: `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
+            };
           }
-        } catch (err) {
-          return {
-            ok: false,
-            error: `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
-          };
+          const location = response.headers.get("location");
+          if (
+            location &&
+            [301, 302, 303, 307, 308].includes(response.status)
+          ) {
+            await response.body?.cancel();
+            if (hops >= 5) {
+              return {
+                ok: false,
+                error: "PROVIDER_INVALID_RESPONSE: too many redirects",
+              };
+            }
+            let nextHref: string;
+            try {
+              nextHref = new URL(location, current).href;
+            } catch {
+              return {
+                ok: false,
+                error: "TOOL_ARGUMENT_INVALID: invalid redirect target",
+              };
+            }
+            const next = validateFetchUrl(nextHref);
+            if (!next) {
+              return {
+                ok: false,
+                error:
+                  "TOOL_ARGUMENT_INVALID: redirect target must be http(s) without credentials",
+              };
+            }
+            const denied = permissionErrorFor(ctx, next);
+            if (denied) return { ok: false, error: denied };
+            current = next;
+            hops++;
+            continue;
+          }
+          res = response;
+          break;
         }
         if (res.status === 304) {
           return {
@@ -288,10 +475,7 @@ export const webfetchTool: Tool = {
           };
         }
         if (!res.ok) {
-          return {
-            ok: false,
-            error: `PROVIDER_INVALID_RESPONSE: ${res.status}`,
-          };
+          return { ok: false, error: `PROVIDER_INVALID_RESPONSE: ${res.status}` };
         }
         const cap = effectiveOutputCap(ctx);
         const maxBytes = ctx.web?.fetch.maxBytes ?? MAX_BYTES;
@@ -300,36 +484,46 @@ export const webfetchTool: Tool = {
         const contentLength = rawLength === null ? Number.NaN : Number(rawLength);
         if (Number.isFinite(contentLength) && contentLength > maxBytes) {
           await res.body?.cancel();
-          return {
-            ok: false,
-            error: "OUTPUT_TRUNCATED: response too large",
-          };
+          return { ok: false, error: "OUTPUT_TRUNCATED: response too large" };
         }
-        // Unknown-length non-HTML bodies must be read to the byte cap so an
-        // oversized plain-text response is still rejected. HTML and responses
-        // whose declared length is within the cap can exit on useful text.
         const canEarlyExit =
           isHtmlResponse(contentType) ||
           (Number.isFinite(contentLength) && contentLength <= maxBytes);
-        const earlyExitLimit = canEarlyExit
-          ? 2 * cap
-          : Number.POSITIVE_INFINITY;
+        const earlyExitLimit = canEarlyExit ? 2 * cap : Number.POSITIVE_INFINITY;
         const body = await readBounded(res, maxBytes, earlyExitLimit);
         if (body.tooLarge) {
           return { ok: false, error: "OUTPUT_TRUNCATED: response too large" };
         }
-        let output = convertBody(body.text, format, contentType);
-        if (output.length > cap) {
-          output = output.slice(0, cap) + "\nOUTPUT_TRUNCATED";
-        }
+        const metadata = isHtmlResponse(contentType, body.text)
+          ? extractMetadata(body.text)
+          : {};
+        const output = convertBody(body.text, format, contentType, extract);
         const cacheControl = res.headers.get("cache-control") ?? "";
-        return {
-          ok: true,
-          content: output,
+        const base = {
+          ok: true as const,
+          contentType,
+          title: metadata.title,
+          description: metadata.description,
           noStore: /(?:^|,)\s*no-store\s*(?:,|$)/i.test(cacheControl),
           etag: res.headers.get("etag") ?? undefined,
           lastModified: res.headers.get("last-modified") ?? undefined,
         };
+        if (output.length > cap) {
+          try {
+            const path = writeArtifact(output, call.id, url, format);
+            return {
+              ...base,
+              preview: output.slice(0, cap),
+              artifactPath: path,
+            };
+          } catch {
+            return {
+              ...base,
+              content: output.slice(0, cap) + "\nOUTPUT_TRUNCATED",
+            };
+          }
+        }
+        return { ...base, content: output };
       } finally {
         clearTimeout(timer);
         ctx.signal.removeEventListener("abort", onAbort);
@@ -372,7 +566,6 @@ export const webfetchTool: Tool = {
         }
         return { toolCallId: call.id, name: "webfetch", content: cached.content };
       }
-      // Beyond the stale window, fetch before returning.
     }
 
     const outcome = await fetchAndRender(cached);
@@ -388,6 +581,21 @@ export const webfetchTool: Tool = {
       refreshMetadata(outcome);
       return { toolCallId: call.id, name: "webfetch", content: cached.content };
     }
+    const structuredContent = {
+      contentType: outcome.contentType,
+      title: outcome.title,
+      description: outcome.description,
+      truncated: !!outcome.artifactPath,
+      ...(outcome.artifactPath ? { outputPath: outcome.artifactPath } : {}),
+    };
+    if (outcome.artifactPath) {
+      return {
+        toolCallId: call.id,
+        name: "webfetch",
+        content: `${outcome.preview ?? ""}\nOUTPUT_TRUNCATED: full output at ${outcome.artifactPath}`,
+        structuredContent,
+      };
+    }
     const content = outcome.content ?? "";
     if (freshness !== "strict" && !outcome.noStore) {
       cachePut(key, {
@@ -397,7 +605,7 @@ export const webfetchTool: Tool = {
         createdAt: Date.now(),
       });
     }
-    return { toolCallId: call.id, name: "webfetch", content };
+    return { toolCallId: call.id, name: "webfetch", content, structuredContent };
   },
 };
 

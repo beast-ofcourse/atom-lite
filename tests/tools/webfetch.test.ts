@@ -3,6 +3,14 @@
 // server: no external network.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createServer, type Server } from "node:http";
 import { webfetchTool } from "../../dist/tools/index.js";
 import type { ToolContext } from "../../dist/tools/types.js";
@@ -12,7 +20,7 @@ let hits = 0;
 let base = "";
 const routes = new Map<
   string,
-  { body: string; type: string; status?: number }
+  { body: string; type: string; status?: number; location?: string }
 >();
 
 server = createServer((req, res) => {
@@ -23,7 +31,9 @@ server = createServer((req, res) => {
     res.end("not found");
     return;
   }
-  res.writeHead(route.status ?? 200, { "content-type": route.type });
+  const headers: Record<string, string> = { "content-type": route.type };
+  if (route.location) headers.location = route.location;
+  res.writeHead(route.status ?? 200, headers);
   res.end(route.body);
 });
 await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
@@ -405,4 +415,167 @@ test("fast mode serves stale content and refreshes in the background", async () 
   } finally {
     await new Promise<void>((r) => srv.close(() => r()));
   }
+});
+
+// Reason: ticket 04 — extraction modes select main content or the full body.
+test("extract modes and page metadata are observable at the tool seam", async () => {
+  const mainText = "main-content ".repeat(30);
+  const page = `<html><head><title>Page Title</title><meta name="description" content="Page description"></head><body><nav>NAVIGATION</nav><main><h1>Main heading</h1><p>${mainText}</p></main><footer>FOOTER</footer></body></html>`;
+  routes.set("/extract", { body: page, type: "text/html" });
+  const auto = await webfetchTool.execute(
+    call({ url: `${base}/extract`, extract: "auto" }),
+    webCtx(),
+  );
+  const full = await webfetchTool.execute(
+    call({ url: `${base}/extract`, extract: "full", freshness: "strict" }),
+    webCtx(),
+  );
+  assert.match(auto.content, /Main heading/);
+  assert.doesNotMatch(auto.content, /NAVIGATION|FOOTER/);
+  assert.match(full.content, /NAVIGATION/);
+  assert.match(full.content, /FOOTER/);
+  const meta = (auto as any).structuredContent;
+  assert.equal(meta.title, "Page Title");
+  assert.equal(meta.description, "Page description");
+});
+
+// Reason: ticket 04 — oversized output keeps full text at a readable path.
+test("output-cap spill keeps the full text and reports a successful result", async () => {
+  const previous = process.env.XDG_CONFIG_HOME;
+  const cacheRoot = mkdtempSync(join(tmpdir(), "atom-web-output-"));
+  process.env.XDG_CONFIG_HOME = cacheRoot;
+  const body = "z".repeat(150);
+  routes.set("/spill", { body, type: "text/plain" });
+  try {
+    const r = await webfetchTool.execute(
+      call({ url: `${base}/spill`, format: "text" }),
+      webCtx({ maxOutputChars: 10 }),
+    );
+    assert.ok(!r.isError);
+    assert.match(r.content, /OUTPUT_TRUNCATED: full output at /);
+    const details = (r as any).structuredContent;
+    assert.equal(details.truncated, true);
+    assert.equal(details.contentType, "text/plain");
+    assert.equal(readFileSync(details.outputPath, "utf8"), body);
+  } finally {
+    if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previous;
+    rmSync(cacheRoot, { recursive: true, force: true });
+  }
+});
+
+// Reason: ticket 04 — the output-artifact directory is bounded.
+test("output artifacts are bounded to 32 files", async () => {
+  const previous = process.env.XDG_CONFIG_HOME;
+  const cacheRoot = mkdtempSync(join(tmpdir(), "atom-web-output-"));
+  process.env.XDG_CONFIG_HOME = cacheRoot;
+  try {
+    for (let i = 0; i < 33; i++) {
+      routes.set(`/bound-${i}`, { body: "y".repeat(15), type: "text/plain" });
+      await webfetchTool.execute(
+        call({ url: `${base}/bound-${i}`, format: "text" }),
+        webCtx({ maxOutputChars: 10 }),
+      );
+    }
+    const dir = join(cacheRoot, "atom-lite", "web-output");
+    assert.ok(readdirSync(dir).length <= 32);
+  } finally {
+    if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previous;
+    rmSync(cacheRoot, { recursive: true, force: true });
+  }
+});
+
+// Reason: ticket 05 — a bounded redirect chain reaches the final resource.
+test("follows a short redirect chain", async () => {
+  routes.set("/hop1", {
+    body: "",
+    type: "text/plain",
+    status: 302,
+    location: `${base}/hop2`,
+  });
+  routes.set("/hop2", {
+    body: "",
+    type: "text/plain",
+    status: 301,
+    location: `${base}/hop3`,
+  });
+  routes.set("/hop3", { body: "final-body", type: "text/plain" });
+  const r = await webfetchTool.execute(
+    call({ url: `${base}/hop1`, format: "text" }),
+    webCtx(),
+  );
+  assert.equal(r.content, "final-body");
+  assert.ok(!r.isError);
+});
+
+// Reason: ticket 05 — redirect loops stop at the hop bound.
+test("stops a redirect loop at five hops", async () => {
+  routes.set("/loop", {
+    body: "",
+    type: "text/plain",
+    status: 302,
+    location: `${base}/loop`,
+  });
+  const r = await webfetchTool.execute(
+    call({ url: `${base}/loop`, format: "text", freshness: "strict" }),
+    webCtx(),
+  );
+  assert.equal(r.isError, true);
+  assert.doesNotMatch(r.content, /body/);
+});
+
+// Reason: ticket 05 — credentials are rejected before a request.
+test("rejects a URL with credentials before any request", async () => {
+  const before = hits;
+  const r = await webfetchTool.execute(
+    call({ url: base.replace("http://", "http://user:pass@"), format: "text" }),
+    webCtx(),
+  );
+  assert.match(r.content, /TOOL_ARGUMENT_INVALID/);
+  assert.equal(r.isError, true);
+  assert.equal(hits, before);
+});
+
+// Reason: ticket 05 — fragments are stripped before the request.
+test("strips a URL fragment before fetching", async () => {
+  routes.set("/fragment", { body: "fragment-body", type: "text/plain" });
+  const r = await webfetchTool.execute(
+    call({ url: `${base}/fragment#ignored`, format: "text" }),
+    webCtx(),
+  );
+  assert.equal(r.content, "fragment-body");
+});
+
+// Reason: ticket 05 — persona permissions are rechecked on redirect hops.
+test("a blocked redirect hop aborts with the persona error", async () => {
+  const blocked = `${base}/blocked`;
+  routes.set("/start-blocked", {
+    body: "",
+    type: "text/plain",
+    status: 302,
+    location: blocked,
+  });
+  routes.set("/blocked", { body: "BLOCKED-BODY", type: "text/plain" });
+  const before = hits;
+  for (const decision of ["deny", "ask"] as const) {
+    const withPolicy: ToolContext = {
+      ...webCtx(),
+      agentPermissions: { webfetch: { [blocked]: decision } },
+    };
+    const r = await webfetchTool.execute(
+      call({
+        url: `${base}/start-blocked`,
+        format: "text",
+        freshness: "strict",
+      }),
+      withPolicy,
+    );
+    assert.equal(r.isError, true);
+    assert.equal(
+      r.content,
+      `PERSONA_PERMISSION_DENIED: webfetch matched "${blocked}"`,
+    );
+  }
+  assert.equal(hits, before + 2, "only the start routes were requested");
 });
