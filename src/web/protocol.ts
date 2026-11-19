@@ -78,6 +78,13 @@ export type ClientMessage =
   | { type: "switch_workspace"; path: string }
   | { type: "set_effort"; effort: string }
   | { type: "set_mode"; mode: "plan" | "yolo" }
+  | { type: "set_goal"; statement: string }
+  | { type: "set_goal_criteria"; criteria: string[] }
+  | { type: "set_goal_constraints"; constraints: string }
+  | {
+      type: "goal_action";
+      action: "pause" | "resume" | "clear" | "complete";
+    }
   | { type: "refresh_models" }
   | {
       type: "attach_file";
@@ -99,6 +106,7 @@ export type SessionListing = Pick<
 export interface SessionState {
   sessionId: string;
   history: SessionEvent[];
+  goal: import("../runtime/goal.js").GoalState | null;
 }
 
 export type ServerMessage =
@@ -117,6 +125,8 @@ export type ServerMessage =
       history: SessionEvent[];
       /** Last known context occupancy for the active session. */
       context: { used?: number; window?: number };
+      /** Last known goal state for the active session. */
+      goal: import("../runtime/goal.js").GoalState | null;
     }
   | { type: "event"; event: AgentEvent }
   | {
@@ -345,6 +355,49 @@ export function parseClientMessage(raw: string): ClientParseResult {
         return { error: "set_mode must be plan or yolo" };
       }
       return { message: { type: "set_mode", mode: value.mode } };
+    case "set_goal":
+      if (typeof value.statement !== "string" || !value.statement.trim()) {
+        return { error: "set_goal needs a statement" };
+      }
+      return {
+        message: { type: "set_goal", statement: value.statement.trim() },
+      };
+    case "set_goal_criteria": {
+      if (!Array.isArray(value.criteria) || value.criteria.length === 0) {
+        return { error: "set_goal_criteria needs a non-empty criteria array" };
+      }
+      if (value.criteria.length > 20) {
+        return { error: "set_goal_criteria allows at most 20 items" };
+      }
+      const criteria: string[] = [];
+      for (const item of value.criteria) {
+        if (typeof item !== "string" || !item.trim()) {
+          return { error: "set_goal_criteria needs non-empty string criteria" };
+        }
+        criteria.push(item.trim());
+      }
+      return { message: { type: "set_goal_criteria", criteria } };
+    }
+    case "set_goal_constraints":
+      if (typeof value.constraints !== "string" || !value.constraints.trim()) {
+        return { error: "set_goal_constraints needs constraints" };
+      }
+      return {
+        message: {
+          type: "set_goal_constraints",
+          constraints: value.constraints.trim(),
+        },
+      };
+    case "goal_action":
+      if (
+        value.action !== "pause" &&
+        value.action !== "resume" &&
+        value.action !== "clear" &&
+        value.action !== "complete"
+      ) {
+        return { error: "goal_action needs a valid action" };
+      }
+      return { message: { type: "goal_action", action: value.action } };
     case "refresh_models":
       return { message: { type: "refresh_models" } };
     case "attach_file":

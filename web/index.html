@@ -235,6 +235,13 @@
               <span class="context-fill" id="context-fill"></span>
             </div>
             <div class="context-note" id="context-note">no usage yet</div>
+            <p
+              class="compaction-notice"
+              id="compaction-notice"
+              role="status"
+              aria-live="polite"
+              hidden
+            ></p>
           </section>
 
           <div class="sidebar-foot">
@@ -483,6 +490,22 @@
               </svg>
             </button>
           </header>
+          <section
+            class="goal-section"
+            id="goal-section"
+            aria-label="Current goal"
+            hidden
+          >
+            <h3 class="goal-title">Goal</h3>
+            <p class="goal-statement" id="goal-statement"></p>
+            <p class="goal-status" id="goal-status"></p>
+            <ul
+              class="goal-criteria"
+              id="goal-criteria"
+              aria-label="Success criteria"
+            ></ul>
+            <p class="goal-constraints" id="goal-constraints" hidden></p>
+          </section>
           <div class="todo-list" id="todo-list"></div>
         </div>
       </aside>
@@ -928,7 +951,11 @@
         </p>
         <div class="question-fields" id="question-fields"></div>
         <div class="modal-actions question-actions">
-          <span class="question-progress" id="question-progress" aria-live="polite"></span>
+          <span
+            class="question-progress"
+            id="question-progress"
+            aria-live="polite"
+          ></span>
           <div class="question-actions-buttons">
             <button class="btn" id="question-cancel" type="button">
               Dismiss and stop

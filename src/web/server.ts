@@ -29,6 +29,7 @@ import type {
   ApprovalRequest,
 } from "../runtime/approvals.js";
 import type { QuestionContext, QuestionOutcome } from "../runtime/questions.js";
+import type { GoalState } from "../runtime/goal.js";
 import { pickNativeDirectory } from "./native-picker.js";
 import {
   parseClientMessage,
@@ -342,6 +343,17 @@ export async function startWebServer(
 
   const historyOf = (target: Session): SessionEvent[] => target.events;
 
+  /** The last durable goal snapshot, read without copying the event log. */
+  const goalOf = (target: Session): GoalState | null => {
+    const events = target.events;
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i]?.type === "goal_updated") {
+        return (events[i].goal as GoalState | undefined) ?? null;
+      }
+    }
+    return null;
+  };
+
   /** History a joining client can render without duplicating the active turn. */
   const visibleHistory = (): SessionEvent[] =>
     turnRunning ? session.events.slice(0, turnSessionStart) : session.events;
@@ -462,6 +474,7 @@ export async function startWebServer(
         type: "session_changed",
         sessionId: session.id,
         history: historyOf(session),
+        goal: goalOf(session),
       });
       await retireSession(previous);
       options.store.deleteSession(id);
@@ -501,6 +514,7 @@ export async function startWebServer(
       workspace,
       sessionId: session.id,
       history: historyOf(session),
+      goal: goalOf(session),
     });
     broadcast({ type: "sessions", sessions: listSessions() });
     await retireSession(previous);
@@ -801,6 +815,7 @@ export async function startWebServer(
       type: "session_changed",
       sessionId: session.id,
       history: historyOf(session),
+      goal: goalOf(session),
     });
     broadcast({ type: "sessions", sessions: listSessions() });
     retireSessionQuietly(previous);
@@ -1250,6 +1265,41 @@ export async function startWebServer(
           fail(client, err);
         }
         return;
+      case "set_goal":
+        if (!requireController(client)) return;
+        if (rejectWhileTurnRunning(client)) return;
+        options.runtime.setGoal(message.statement, session);
+        return;
+      case "set_goal_criteria":
+        if (!requireController(client)) return;
+        if (rejectWhileTurnRunning(client)) return;
+        options.runtime.setGoalCriteria(message.criteria, session);
+        return;
+      case "set_goal_constraints":
+        if (!requireController(client)) return;
+        if (rejectWhileTurnRunning(client)) return;
+        options.runtime.setGoalConstraints(message.constraints, session);
+        return;
+      case "goal_action":
+        if (!requireController(client)) return;
+        if (rejectWhileTurnRunning(client)) return;
+        if (message.action === "complete") {
+          const result = options.runtime.completeGoal(undefined, session);
+          if (!result.ok) {
+            sendTo(client, {
+              type: "error",
+              message:
+                "goal not complete: unmet criteria: " + result.unmet.join("; "),
+            });
+          }
+        } else if (message.action === "pause") {
+          options.runtime.pauseGoal(session);
+        } else if (message.action === "resume") {
+          options.runtime.resumeGoal(session);
+        } else {
+          options.runtime.clearGoal(session);
+        }
+        return;
       case "refresh_models":
         if (!requireController(client)) return;
         void refreshModels().catch((err) => fail(client, err));
@@ -1347,6 +1397,7 @@ export async function startWebServer(
       readOnly: controller !== ws,
       history: visibleHistory(),
       context: options.runtime.getContextUsage(),
+      goal: goalOf(session),
     });
     if (turnRunning) {
       // Rebuild the in-flight turn, which is not in the session history until
