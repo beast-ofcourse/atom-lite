@@ -7,6 +7,7 @@ import type { ApprovalContext } from "../runtime/approvals.js";
 import type { QuestionContext } from "../runtime/questions.js";
 import type { ContextManager } from "../context/manager.js";
 import type { RepoMapOptions } from "../context/repoMap.js";
+import type { WebConfig } from "../config/schema.js";
 import type { UsageLedger } from "../usage/ledger.js";
 import type { AtomEvent } from "../extensions/types.js";
 
@@ -90,6 +91,8 @@ export interface AgentRuntimeOptions {
   cacheMode?: "off" | "automatic" | "explicit";
   /** Repo-map settings for a default context manager. */
   repoMap?: RepoMapOptions;
+  /** Web tool settings from config, passed to every tool call. */
+  web?: WebConfig;
   /** Optional session token budget (hard stop when exceeded). */
   maxTokensPerSession?: number | null;
   /** Optional per-turn token soft warning threshold. */

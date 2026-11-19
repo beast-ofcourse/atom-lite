@@ -46,6 +46,35 @@ export const RepoMapConfigSchema = z
   })
   .strict();
 
+export const WebFetchConfigSchema = z
+  .object({
+    cacheTtlSeconds: z.number().int().positive().default(300),
+    maxBytes: z.number().int().positive().default(5_242_880),
+    maxOutputChars: z.number().int().positive().default(30_000),
+    extract: z.enum(["auto", "main", "full"]).default("auto"),
+  })
+  .strict();
+
+export const WebSearchConfigSchema = z
+  .object({
+    provider: z
+      .enum(["auto", "ddg", "tavily", "brave", "exa", "serper"])
+      .default("auto"),
+    maxResults: z.number().int().positive().max(20).default(8),
+    cacheTtlSeconds: z.number().int().positive().default(120),
+    fallback: z.boolean().default(true),
+  })
+  .strict();
+
+export const WebConfigSchema = z
+  .object({
+    fetch: WebFetchConfigSchema.prefault({}),
+    search: WebSearchConfigSchema.prefault({}),
+  })
+  .strict();
+
+export type WebConfig = z.infer<typeof WebConfigSchema>;
+
 export const ContextConfigSchema = z
   .object({
     maxInputTokens: z.number().int().positive().nullable().default(null),
@@ -164,6 +193,7 @@ export const ConfigSchema = z
     providers: z.record(z.string(), ProviderConfigSchema).default({}),
     runtime: RuntimeConfigSchema.prefault({}),
     context: ContextConfigSchema.prefault({}),
+    web: WebConfigSchema.prefault({}),
     sessions: SessionsConfigSchema.prefault({}),
     usage: UsageConfigSchema.prefault({}),
     lsp: LspConfigSchema.prefault({}),

@@ -74,6 +74,7 @@
   "dependencies": {
     "@earendil-works/pi-tui": "^1.5.0",
     "grok-mermaid": "^0.2.3",
+    "htmlparser2": "^10.1.0",
     "jiti": "2.7.0",
     "qrcode": "^1.5.4",
     "turndown": "^7.2.4",

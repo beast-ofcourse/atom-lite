@@ -221,3 +221,77 @@ test("a partial project repoMap override keeps the user's other keys", () => {
     maxFiles: 7,
   });
 });
+
+// Reason: ticket 01 — web keys supply defaults when absent from both config files.
+test("web config gets its defaults when the keys are absent", () => {
+  const dir = mkdtempSync(join(tmpdir(), "atom-"));
+  const cfg = loadConfig({
+    projectRoot: dir,
+    userConfigPath: join(dir, "nope.json"),
+  });
+  assert.deepEqual((cfg as any).web, {
+    fetch: {
+      cacheTtlSeconds: 300,
+      maxBytes: 5242880,
+      maxOutputChars: 30000,
+      extract: "auto",
+    },
+    search: {
+      provider: "auto",
+      maxResults: 8,
+      cacheTtlSeconds: 120,
+      fallback: true,
+    },
+  });
+});
+
+// Reason: ticket 01 — a partial project override keeps user values for sibling leaves.
+test("a partial project web override keeps sibling leaves", () => {
+  const dir = mkdtempSync(join(tmpdir(), "atom-"));
+  mkdirSync(join(dir, ".atom-lite"));
+  const userPath = join(dir, "user.json");
+  writeFileSync(
+    userPath,
+    JSON.stringify({
+      web: {
+        fetch: { maxBytes: 1024, maxOutputChars: 5000 },
+        search: { provider: "exa", maxResults: 5 },
+      },
+    }),
+  );
+  writeFileSync(
+    join(dir, ".atom-lite", "config.json"),
+    JSON.stringify({
+      web: { fetch: { maxBytes: 2048 }, search: { maxResults: 9 } },
+    }),
+  );
+
+  const cfg = loadConfig({ projectRoot: dir, userConfigPath: userPath });
+  assert.deepEqual((cfg as any).web, {
+    fetch: {
+      cacheTtlSeconds: 300,
+      maxBytes: 2048,
+      maxOutputChars: 5000,
+      extract: "auto",
+    },
+    search: {
+      provider: "exa",
+      maxResults: 9,
+      cacheTtlSeconds: 120,
+      fallback: true,
+    },
+  });
+});
+
+// Reason: ticket 01 — the strict schema rejects unknown web keys.
+test("web config rejects unknown keys", () => {
+  const dir = mkdtempSync(join(tmpdir(), "atom-"));
+  mkdirSync(join(dir, ".atom-lite"));
+  writeFileSync(
+    join(dir, ".atom-lite", "config.json"),
+    JSON.stringify({ web: { fetch: { bogus: 1 } } }),
+  );
+  assert.throws(() =>
+    loadConfig({ projectRoot: dir, userConfigPath: join(dir, "nope.json") }),
+  );
+});

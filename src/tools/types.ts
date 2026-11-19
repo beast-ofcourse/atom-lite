@@ -1,4 +1,5 @@
 import type { ToolDefinition, ToolCall, ImagePart } from "../types.js";
+import type { WebConfig } from "../config/schema.js";
 export type { ImagePart };
 export type { ToolDefinition, ToolCall };
 
@@ -29,6 +30,8 @@ export interface ToolContext {
   signal: AbortSignal;
   maxBashTimeMs?: number;
   maxToolOutputBytes?: number;
+  /** Web tool settings from user and project config. */
+  web?: WebConfig;
   approvals?: import("../runtime/approvals.js").ApprovalContext;
   /** Current agent mode; plan blocks write/edit/bash. */
   mode?: "plan" | "yolo";

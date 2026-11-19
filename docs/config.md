@@ -47,6 +47,7 @@ agent persona, or change your colours and editor behaviour.
 | `providers`       | object | `kilo` profile | Named provider profiles.                        |
 | `runtime`         | object | see below      | Loop, scheduler, and execution limits.          |
 | `context`         | object | see below      | Context budget and compaction.                  |
+| `web`             | object | see below      | Web search and fetch settings.                  |
 | `sessions`        | object | see below      | Session persistence.                            |
 | `usage`           | object | see below      | Per-call usage ledger and prices.               |
 | `lsp`             | object | see below      | Optional language server integration.           |
@@ -136,6 +137,23 @@ Atom-lite drops the tail and adds an omission note. When no definition fits, it
 falls back to a ranked list of workspace-relative file paths with the same
 note. The budget is measured against the final system message object with a
 small headroom, so the reported size matches token accounting.
+
+## `web`
+
+Settings for the `webfetch` and `websearch` built-in tools. Set them in either user or project config; project values win per leaf. The section uses two sub-objects, `fetch` and `search`, with keys `cacheTtlSeconds`, `maxBytes`, `maxOutputChars`, `extract`, `provider`, `maxResults`, and `fallback`.
+
+| Key                     | Type                                                        | Default   | Description                                             |
+| ----------------------- | ----------------------------------------------------------- | --------- | ------------------------------------------------------- |
+| `web.fetch.cacheTtlSeconds`  | positive integer                                       | `300`     | Reuse a fetched response within this many seconds.      |
+| `web.fetch.maxBytes`         | positive integer                                       | `5242880` | Reject a response body larger than this many bytes.     |
+| `web.fetch.maxOutputChars`   | positive integer                                       | `30000`   | Bound the model-visible fetch result.                   |
+| `web.fetch.extract`          | `"auto"` \| `"main"` \| `"full"`                        | `"auto"`  | Main-content extraction mode for HTML pages.            |
+| `web.search.provider`        | `"auto"` \| `"ddg"` \| `"tavily"` \| `"brave"` \| `"exa"` \| `"serper"` | `"auto"` | Search provider selection.                 |
+| `web.search.maxResults`      | positive integer                                       | `8`       | Default result count; capped at 20.                     |
+| `web.search.cacheTtlSeconds` | positive integer                                       | `120`     | Reuse search results within this many seconds.          |
+| `web.search.fallback`        | boolean                                                 | `true`    | Allow failover and DuckDuckGo as the final fallback.    |
+
+A response larger than `web.fetch.maxBytes` returns `OUTPUT_TRUNCATED: response too large` as an error. The effective output cap is the smaller of `web.fetch.maxOutputChars` and the runtime `maxToolOutputBytes` cap.
 
 ## `usage`
 

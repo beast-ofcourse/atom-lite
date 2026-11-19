@@ -630,6 +630,7 @@ export async function run(args: string[]): Promise<void> {
     questions,
     persona: configuredAgent.persona,
     mode: config.runtime.mode,
+    web: config.web,
     maxTokensPerSession: config.runtime.maxTokensPerSession,
     maxTokensPerTurn: config.runtime.maxTokensPerTurn,
     usageLedger,

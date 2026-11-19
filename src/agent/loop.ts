@@ -42,6 +42,7 @@ export class AgentRuntime {
   private workspace: string;
   private approvals: AgentRuntimeOptions["approvals"];
   private questions: AgentRuntimeOptions["questions"];
+  private web: AgentRuntimeOptions["web"];
   private mode: "plan" | "yolo";
   private maxTokensPerSession: number | null;
   private maxTokensPerTurn: number | null;
@@ -77,6 +78,7 @@ export class AgentRuntime {
     this.workspace = options.workspace ?? process.cwd();
     this.approvals = options.approvals;
     this.questions = options.questions;
+    this.web = options.web;
     this.mode = options.mode ?? "yolo";
     this.maxTokensPerSession = options.maxTokensPerSession ?? null;
     this.maxTokensPerTurn = options.maxTokensPerTurn ?? null;
@@ -855,6 +857,7 @@ export class AgentRuntime {
         const ctx = {
           workspace: this.workspace,
           mode: this.mode,
+          web: this.web,
           supportsVision: this.supportsVision,
           backgroundTasks: this.backgroundTasks,
           todos: this.todoStore,

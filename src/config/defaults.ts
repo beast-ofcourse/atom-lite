@@ -27,6 +27,20 @@ export const DEFAULT_CONFIG = {
     cacheMode: "off",
     repoMap: { enabled: false, maxTokens: 1200, maxFiles: 400 },
   },
+  web: {
+    fetch: {
+      cacheTtlSeconds: 300,
+      maxBytes: 5_242_880,
+      maxOutputChars: 30_000,
+      extract: "auto",
+    },
+    search: {
+      provider: "auto",
+      maxResults: 8,
+      cacheTtlSeconds: 120,
+      fallback: true,
+    },
+  },
   sessions: { enabled: true, retentionDays: null as number | null },
   usage: {
     ledgerEnabled: false,

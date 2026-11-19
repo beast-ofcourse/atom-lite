@@ -104,6 +104,13 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     projectRaw.context as Record<string, unknown> | undefined
   )?.repoMap ?? {}) as Record<string, unknown>;
 
+  const userWeb = (userRaw.web ?? {}) as Record<string, unknown>;
+  const projectWeb = (projectRaw.web ?? {}) as Record<string, unknown>;
+  const userWebFetch = (userWeb.fetch ?? {}) as Record<string, unknown>;
+  const userWebSearch = (userWeb.search ?? {}) as Record<string, unknown>;
+  const projectWebFetch = (projectWeb.fetch ?? {}) as Record<string, unknown>;
+  const projectWebSearch = (projectWeb.search ?? {}) as Record<string, unknown>;
+
   const warn = options.onWarning ?? defaultWarning;
   if (
     projectRaw.mcpServers &&
@@ -146,6 +153,18 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
         ...DEFAULT_CONFIG.context.repoMap,
         ...userRepoMap,
         ...projectRepoMap,
+      },
+    },
+    web: {
+      fetch: {
+        ...DEFAULT_CONFIG.web.fetch,
+        ...userWebFetch,
+        ...projectWebFetch,
+      },
+      search: {
+        ...DEFAULT_CONFIG.web.search,
+        ...userWebSearch,
+        ...projectWebSearch,
       },
     },
     sessions: {
