@@ -1,0 +1,36 @@
+{
+  "generatedAt": "2026-11-19T08:01:27.104Z",
+  "cases": [
+    {
+      "name": "fetch large HTML",
+      "iterations": 12,
+      "bytesServed": 2712864,
+      "p50Ms": 14.83,
+      "p95Ms": 29.17,
+      "baselineP50Ms": 13.84,
+      "baselineP95Ms": 18.22,
+      "p50DeltaPercent": 7.2
+    },
+    {
+      "name": "fetch plain text",
+      "iterations": 12,
+      "bytesServed": 1536000,
+      "p50Ms": 5.46,
+      "p95Ms": 5.84,
+      "baselineP50Ms": 4.13,
+      "baselineP95Ms": 8.64,
+      "p50DeltaPercent": 32.2
+    },
+    {
+      "name": "search results",
+      "iterations": 12,
+      "bytesServed": 37152,
+      "p50Ms": 4.75,
+      "p95Ms": 5.6,
+      "baselineP50Ms": 3.01,
+      "baselineP95Ms": 4.57,
+      "p50DeltaPercent": 57.8
+    }
+  ],
+  "baseline": "scripts/bench-web.baseline.json"
+}

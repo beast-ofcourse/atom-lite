@@ -3,12 +3,31 @@ import type { Tool, ToolContext, ToolResult } from "./types.js";
 import type { ToolCall } from "../types.js";
 import { z } from "zod";
 
+type ProviderId = "tavily" | "brave" | "exa" | "serper" | "ddg";
+type Freshness = "fast" | "fresh" | "strict";
+
 const ArgsSchema = z
   .object({
     query: z.string(),
     num_results: z.number().int().positive().optional(),
+    freshness: z.enum(["fast", "fresh", "strict"]).optional(),
   })
   .strict();
+
+const CACHE_MAX_ENTRIES = 64;
+const DEFAULT_COOLDOWN_MS = 60_000;
+const PROVIDER_ORDER: Exclude<ProviderId, "ddg">[] = [
+  "tavily",
+  "brave",
+  "exa",
+  "serper",
+];
+const PROVIDER_KEYS: Record<Exclude<ProviderId, "ddg">, string> = {
+  tavily: "TAVILY_API_KEY",
+  brave: "BRAVE_API_KEY",
+  exa: "EXA_API_KEY",
+  serper: "SERPER_API_KEY",
+};
 
 interface SearchResult {
   title: string;
@@ -19,6 +38,39 @@ interface SearchResult {
 
 interface RankedResult extends SearchResult {
   score: number;
+}
+
+interface SearchCacheEntry {
+  content: string;
+  structured: Record<string, string>[];
+  createdAt: number;
+}
+
+interface ProviderOutcome {
+  ok: boolean;
+  results?: SearchResult[];
+  rateLimited?: boolean;
+  retryAfter?: string | null;
+}
+
+const searchCache = new Map<string, SearchCacheEntry>();
+const refreshing = new Set<string>();
+const cooldowns = new Map<Exclude<ProviderId, "ddg">, number>();
+
+function cacheKey(
+  query: string,
+  provider: string,
+  maxResults: number,
+): string {
+  return `search\n${provider}\n${maxResults}\n${query.trim().toLowerCase()}`;
+}
+
+function cachePut(key: string, entry: SearchCacheEntry): void {
+  if (searchCache.size >= CACHE_MAX_ENTRIES) {
+    const first = searchCache.keys().next().value;
+    if (first !== undefined) searchCache.delete(first);
+  }
+  searchCache.set(key, entry);
 }
 
 function canonicalUrl(raw: string, base = "https://duckduckgo.com"): string | undefined {
@@ -80,6 +132,15 @@ function parseResults(html: string): SearchResult[] {
   return [...unique.values()];
 }
 
+function dedupeResults(results: SearchResult[]): SearchResult[] {
+  const unique = new Map<string, SearchResult>();
+  for (const result of results) {
+    const key = canonicalUrl(result.url) ?? result.url;
+    if (!unique.has(key)) unique.set(key, result);
+  }
+  return [...unique.values()];
+}
+
 function compareScore(
   a: { score: number; url: string },
   b: { score: number; url: string },
@@ -127,7 +188,7 @@ function toStructuredContent(result: SearchResult): Record<string, string> {
   };
 }
 
-/** Read a search response with a hard byte bound, even when chunked. */
+/** Read a response with a hard byte bound, even when chunked. */
 async function readBoundedText(
   res: Response,
   maxBytes: number,
@@ -158,16 +219,260 @@ async function readBoundedText(
   return { text: pieces.join("") + decoder.decode(), tooLarge: false };
 }
 
+function parseRetryAfter(value: string | null): number {
+  if (value?.trim()) {
+    const seconds = Number(value);
+    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+    const date = Date.parse(value);
+    if (Number.isFinite(date)) return Math.max(0, date - Date.now());
+  }
+  return DEFAULT_COOLDOWN_MS;
+}
+
+function asResults(
+  rows: unknown,
+  fields: { title: string; url: string; content: string; published?: string },
+): SearchResult[] {
+  if (!Array.isArray(rows)) return [];
+  const out: SearchResult[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as Record<string, unknown>;
+    const title = item[fields.title];
+    const url = item[fields.url];
+    const content = item[fields.content];
+    const published = fields.published ? item[fields.published] : undefined;
+    if (typeof title !== "string" || typeof url !== "string") continue;
+    out.push({
+      title,
+      url,
+      content: typeof content === "string" ? content : "",
+      ...(typeof published === "string" ? { published } : {}),
+    });
+  }
+  return out;
+}
+
+async function executeProvider(
+  id: Exclude<ProviderId, "ddg">,
+  query: string,
+  limit: number,
+  apiKey: string | undefined,
+  signal: AbortSignal,
+  maxBytes: number,
+): Promise<ProviderOutcome> {
+  if (!apiKey) return { ok: false, rateLimited: false };
+  let url: string;
+  let init: RequestInit;
+  try {
+    switch (id) {
+      case "tavily":
+        url = "https://api.tavily.com/search";
+        init = {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            query,
+            search_depth: "basic",
+            chunks_per_source: 3,
+            max_results: limit,
+          }),
+        };
+        break;
+      case "brave": {
+        const params = new URLSearchParams({ q: query, count: String(limit) });
+        url = `https://api.search.brave.com/res/v1/web/search?${params}`;
+        init = { headers: { "X-Subscription-Token": apiKey } };
+        break;
+      }
+      case "exa":
+        url = "https://api.exa.ai/search";
+        init = {
+          method: "POST",
+          headers: { "x-api-key": apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ query, numResults: limit }),
+        };
+        break;
+      case "serper":
+        url = "https://google.serper.dev/search";
+        init = {
+          method: "POST",
+          headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ q: query, num: limit }),
+        };
+        break;
+    }
+  } catch {
+    return { ok: false, rateLimited: false };
+  }
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, signal });
+  } catch {
+    return { ok: false, rateLimited: false };
+  }
+  const retryAfter = res.headers.get("retry-after");
+  if (res.status === 429) {
+    await res.body?.cancel();
+    return { ok: false, rateLimited: true, retryAfter };
+  }
+  if (!res.ok) {
+    await res.body?.cancel();
+    return { ok: false, rateLimited: false };
+  }
+  const body = await readBoundedText(res, maxBytes);
+  if (body.tooLarge) return { ok: false, rateLimited: false };
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(body.text) as Record<string, unknown>;
+  } catch {
+    return { ok: false, rateLimited: false };
+  }
+  switch (id) {
+    case "tavily":
+      return {
+        ok: true,
+        results: dedupeResults(
+          asResults(payload.results, {
+            title: "title",
+            url: "url",
+            content: "content",
+          }),
+        ),
+      };
+    case "brave":
+      return {
+        ok: true,
+        results: dedupeResults(
+          asResults(
+            (payload.web as Record<string, unknown> | undefined)?.results,
+            { title: "title", url: "url", content: "description" },
+          ),
+        ),
+      };
+    case "exa":
+      return {
+        ok: true,
+        results: dedupeResults(
+          asResults(payload.results, {
+            title: "title",
+            url: "url",
+            content: "text",
+          }),
+        ),
+      };
+    case "serper":
+      return {
+        ok: true,
+        results: dedupeResults(
+          asResults(payload.organic, {
+            title: "title",
+            url: "link",
+            content: "snippet",
+            published: "date",
+          }),
+        ),
+      };
+  }
+}
+
+async function executeDdg(
+  query: string,
+  maxBytes: number,
+  signal: AbortSignal,
+): Promise<ProviderOutcome> {
+  const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: { "User-Agent": "atom-lite/0.1" },
+      signal,
+    });
+  } catch {
+    return { ok: false, rateLimited: false };
+  }
+  if (!res.ok) {
+    await res.body?.cancel();
+    return { ok: false, rateLimited: false };
+  }
+  const body = await readBoundedText(res, maxBytes);
+  return body.tooLarge
+    ? { ok: false, rateLimited: false }
+    : { ok: true, results: parseResults(body.text) };
+}
+
+async function searchWithProviders(
+  query: string,
+  limit: number,
+  ctx: ToolContext,
+  signal: AbortSignal,
+): Promise<{ results: SearchResult[]; error?: string }> {
+  const configured = ctx.web?.search.provider ?? "auto";
+  const fallback = ctx.web?.search.fallback ?? true;
+  const keyFor = (id: Exclude<ProviderId, "ddg">) =>
+    process.env[PROVIDER_KEYS[id]];
+  const candidates: ProviderId[] = [];
+  if (configured === "auto") {
+    candidates.push(...PROVIDER_ORDER.filter((id) => keyFor(id)), "ddg");
+  } else if (configured === "ddg") {
+    candidates.push("ddg");
+  } else {
+    candidates.push(configured as ProviderId);
+  }
+  if (fallback) {
+    for (const id of PROVIDER_ORDER) {
+      if (id !== configured && keyFor(id) && !candidates.includes(id))
+        candidates.push(id);
+    }
+    if (!candidates.includes("ddg")) candidates.push("ddg");
+  }
+
+  const maxBytes = ctx.web?.fetch.maxBytes ?? 5_242_880;
+  let sawRateLimit = false;
+  for (const id of candidates) {
+    if (id !== "ddg") {
+      const until = cooldowns.get(id);
+      if (until !== undefined && until > Date.now()) continue;
+    }
+    const outcome =
+      id === "ddg"
+        ? await executeDdg(query, maxBytes, signal)
+        : await executeProvider(
+            id,
+            query,
+            limit,
+            keyFor(id),
+            signal,
+            maxBytes,
+          );
+    if (outcome.ok && outcome.results) return { results: outcome.results };
+    if (outcome.rateLimited && id !== "ddg") {
+      sawRateLimit = true;
+      cooldowns.set(id, Date.now() + parseRetryAfter(outcome.retryAfter ?? null));
+    }
+  }
+  return {
+    results: [],
+    error: sawRateLimit
+      ? "WEBSEARCH_PROVIDER_RATE_LIMITED"
+      : "WEBSEARCH_PROVIDER_UNAVAILABLE",
+  };
+}
+
 export const websearchTool: Tool = {
   definition: {
     name: "websearch",
     description:
-      "Search the web and return titles, URLs, and snippets. Use this for current information beyond knowledge cutoff.",
+      "Search the web using the configured provider. Use this for current information beyond knowledge cutoff.",
     parameters: {
       type: "object",
       properties: {
         query: { type: "string" },
         num_results: { type: "integer", minimum: 1 },
+        freshness: { type: "string", enum: ["fast", "fresh", "strict"] },
       },
       required: ["query"],
       additionalProperties: false,
@@ -184,80 +489,110 @@ export const websearchTool: Tool = {
       };
     }
     const { query } = parsed.data;
+    const freshness: Freshness = parsed.data.freshness ?? "fast";
     const configured = Math.min(ctx.web?.search.maxResults ?? 8, 20);
     const limit = Math.min(parsed.data.num_results ?? configured, configured, 20);
-    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30_000);
-    try {
-      let res: Response;
+    const key = cacheKey(
+      query,
+      ctx.web?.search.provider ?? "auto",
+      configured,
+    );
+    const ttlMs = (ctx.web?.search.cacheTtlSeconds ?? 120) * 1000;
+    const cached = freshness === "strict" ? undefined : searchCache.get(key);
+
+    const performSearch = async (): Promise<ToolResult> => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 30_000);
       try {
-        res = await fetch(url, {
-          headers: {
-            "User-Agent": "atom-lite/0.1",
-          },
-          signal: controller.signal,
-        });
-      } catch (err) {
+        const search = await searchWithProviders(
+          query,
+          limit,
+          ctx,
+          controller.signal,
+        );
+        if (search.error) {
+          return {
+            toolCallId: call.id,
+            name: "websearch",
+            content: search.error,
+            isError: true,
+          };
+        }
+        const ranked = rankResults(
+          dedupeResults(search.results),
+          query,
+        ).slice(0, limit);
+        if (ranked.length === 0) {
+          return {
+            toolCallId: call.id,
+            name: "websearch",
+            content: "No results found.",
+            structuredContent: [],
+          };
+        }
+        const lines = ranked.map(
+          (r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.content}`,
+        );
+        const cap = Math.min(30_000, ctx.maxToolOutputBytes ?? 30_000);
+        let output = `Search: ${query}\n\n${lines.join("\n\n")}`;
+        if (output.length > cap)
+          output = output.slice(0, cap) + "\nOUTPUT_TRUNCATED";
         return {
           toolCallId: call.id,
           name: "websearch",
-          content: `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
-          isError: true,
+          content: output,
+          structuredContent: ranked.map(toStructuredContent),
         };
+      } finally {
+        clearTimeout(timer);
       }
-      if (!res.ok) {
-        return {
-          toolCallId: call.id,
-          name: "websearch",
-          content: `PROVIDER_INVALID_RESPONSE: ${res.status}`,
-          isError: true,
-        };
+    };
+
+    const cachedResult = (entry: SearchCacheEntry): ToolResult => ({
+      toolCallId: call.id,
+      name: "websearch",
+      content: entry.content,
+      structuredContent: entry.structured,
+    });
+
+    if (freshness === "fast" && cached) {
+      const age = Date.now() - cached.createdAt;
+      if (age <= ttlMs) return cachedResult(cached);
+      if (age <= 10 * ttlMs) {
+        if (!refreshing.has(key)) {
+          refreshing.add(key);
+          void (async () => {
+            try {
+              const result = await performSearch();
+              if (!result.isError) {
+                cachePut(key, {
+                  content: result.content,
+                  structured: (result.structuredContent ?? []) as Record<
+                    string,
+                    string
+                  >[],
+                  createdAt: Date.now(),
+                });
+              }
+            } catch {
+              // Background refresh failures never disturb stale results.
+            } finally {
+              refreshing.delete(key);
+            }
+          })();
+        }
+        return cachedResult(cached);
       }
-      const rawLength = res.headers.get("content-length");
-      const contentLength = rawLength === null ? Number.NaN : Number(rawLength);
-      const maxBytes = ctx.web?.fetch.maxBytes ?? 5_242_880;
-      if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-        return {
-          toolCallId: call.id,
-          name: "websearch",
-          content: "PROVIDER_INVALID_RESPONSE: search response too large",
-          isError: true,
-        };
-      }
-      const bounded = await readBoundedText(res, maxBytes);
-      if (bounded.tooLarge) {
-        return {
-          toolCallId: call.id,
-          name: "websearch",
-          content: "PROVIDER_INVALID_RESPONSE: search response too large",
-          isError: true,
-        };
-      }
-      const html = bounded.text;
-      const ranked = rankResults(parseResults(html), query).slice(0, limit);
-      if (ranked.length === 0) {
-        return {
-          toolCallId: call.id,
-          name: "websearch",
-          content: "No results found.",
-          structuredContent: [],
-        };
-      }
-      const lines = ranked.map(
-        (r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.content}`,
-      );
-      const cap = Math.min(30_000, ctx.maxToolOutputBytes ?? 30_000);
-      let output = `Search: ${query}\n\n${lines.join("\n\n")}`;
-      if (output.length > cap) output = output.slice(0, cap) + "\nOUTPUT_TRUNCATED";
-      return {
-        toolCallId: call.id,
-        name: "websearch",
-        content: output,
-        structuredContent: ranked.map(toStructuredContent),
-      };
-    } finally {
-      clearTimeout(timer);
     }
+
+    const result = await performSearch();
+    if (freshness !== "strict" && !result.isError) {
+      cachePut(key, {
+        content: result.content,
+        structured: (result.structuredContent ?? []) as Record<string, string>[],
+        createdAt: Date.now(),
+      });
+    }
+    return result;
   },
 };

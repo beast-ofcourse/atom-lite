@@ -153,6 +153,8 @@ Settings for the `webfetch` and `websearch` built-in tools. Set them in either u
 | `web.search.cacheTtlSeconds` | positive integer                                       | `120`     | Reuse search results within this many seconds.          |
 | `web.search.fallback`        | boolean                                                 | `true`    | Allow failover and DuckDuckGo as the final fallback.    |
 
+Search providers read credentials from `TAVILY_API_KEY`, `BRAVE_API_KEY`, `EXA_API_KEY`, and `SERPER_API_KEY`. An explicit `web.search.provider` wins; `auto` tries configured keys in that order and then DuckDuckGo. A rate-limited provider enters a 60-second cooldown, shortened or extended by its `Retry-After` header. When `web.search.fallback` is `false`, only the selected provider is tried and a failure returns a provider error instead of falling back.
+
 A response larger than `web.fetch.maxBytes` returns `OUTPUT_TRUNCATED: response too large` as an error. The effective output cap is the smaller of `web.fetch.maxOutputChars` and the runtime `maxToolOutputBytes` cap.
 
 ## `usage`
