@@ -529,6 +529,17 @@ body.sidebar-collapsed .sidebar {
   opacity: 0.45;
 }
 
+.compaction-notice {
+  margin: 8px 0 0;
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+.compaction-notice.is-warning {
+  color: var(--warn);
+}
+
 .sidebar-foot {
   display: flex;
   align-items: center;
@@ -660,6 +671,82 @@ body.sidebar-collapsed .sidebar {
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.goal-section {
+  flex: 0 0 auto;
+  padding: 12px 14px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.goal-title {
+  margin: 0 0 8px;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.goal-statement {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-ui);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.goal-status {
+  margin: 6px 0 0;
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+}
+
+.goal-status[data-status="paused"] {
+  color: var(--warn);
+}
+
+.goal-status[data-status="complete"] {
+  color: var(--ok);
+}
+
+.goal-criteria {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.goal-criterion {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.goal-criterion .todo-mark {
+  flex-basis: 16px;
+  width: 16px;
+  height: 16px;
+}
+
+.goal-criterion[data-status="completed"] .todo-mark {
+  border-color: var(--ok);
+  background: var(--ok);
+}
+
+.goal-criterion-text {
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.goal-constraints {
+  margin: 10px 0 0;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .todo-list {

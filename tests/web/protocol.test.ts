@@ -2387,6 +2387,231 @@ test("todo ledger reaches the browser and survives reconnect history", async () 
   }
 });
 
+// Reason: spec — browser goal state must match TUI and survive resume. The
+// mutators write durable goal_updated events and broadcast goal_state events.
+test("goal mutators are live and durable over the browser protocol", async () => {
+  const storeRoot = mkdtempSync(join(tmpdir(), "web-store-"));
+  const workspace = mkdtempSync(join(tmpdir(), "web-workspace-"));
+  const store = new JsonlSessionStore(storeRoot);
+  const session = store.create(workspace, "fake", "goal-1");
+  // A message makes the log durable, so later goal events are written too.
+  session.appendMessage({
+    role: "user",
+    content: [{ type: "text", text: "seed the session" }],
+  });
+  await session.flush();
+  const built = buildRuntime([], { workspace, session });
+  const server = await start(built, { store });
+  const client = new Client(server.wsUrl);
+  let second: Client | undefined;
+  try {
+    await client.open();
+    await client.waitFor("hello");
+
+    const expectGoal = (predicate: (goal: any) => boolean) =>
+      client.waitForMatching(
+        (m) =>
+          m.type === "event" &&
+          m.event.type === "goal_state" &&
+          predicate(m.event.goal),
+        3000,
+      );
+
+    let pending = expectGoal((g) => g?.statement === "Ship parity");
+    client.send({ type: "set_goal", statement: "Ship parity" });
+    const stated = await pending;
+    assert.equal(stated.event.goal.status, "active");
+
+    pending = expectGoal((g) => g?.criteria?.length === 2);
+    client.send({
+      type: "set_goal_criteria",
+      criteria: ["tests pass", "docs updated"],
+    });
+    const withCriteria = await pending;
+    assert.deepEqual(withCriteria.event.goal.criteria, [
+      "tests pass",
+      "docs updated",
+    ]);
+    assert.equal(withCriteria.event.goal.statement, "Ship parity");
+
+    pending = expectGoal((g) => g?.constraints === "no new deps");
+    client.send({ type: "set_goal_constraints", constraints: "no new deps" });
+    const withConstraints = await pending;
+    assert.equal(withConstraints.event.goal.statement, "Ship parity");
+
+    pending = expectGoal((g) => g?.status === "paused");
+    client.send({ type: "goal_action", action: "pause" });
+    const paused = await pending;
+    assert.equal(paused.event.goal.statement, "Ship parity");
+
+    pending = expectGoal((g) => g?.status === "active");
+    client.send({ type: "goal_action", action: "resume" });
+    const afterResume = await pending;
+    assert.equal(afterResume.event.goal.constraints, "no new deps");
+
+    await session.flush();
+    const durable = session.events.filter(
+      (event: any) => event.type === "goal_updated",
+    );
+    assert.equal(durable.length, 5);
+    const last = durable.at(-1) as any;
+    assert.equal(last.goal.statement, "Ship parity");
+    assert.deepEqual(last.goal.criteria, ["tests pass", "docs updated"]);
+    assert.equal(last.goal.constraints, "no new deps");
+    assert.equal(last.goal.status, "active");
+
+    second = new Client(server.wsUrl);
+    await second.open();
+    const hello = await second.waitFor("hello");
+    assert.ok(hello.goal, "hello carries the goal snapshot");
+    assert.equal(hello.goal.statement, "Ship parity");
+    assert.deepEqual(hello.goal.criteria, ["tests pass", "docs updated"]);
+    assert.equal(hello.goal.constraints, "no new deps");
+    assert.equal(hello.goal.status, "active");
+    second.close();
+    second = undefined;
+
+    client.send({ type: "new_session" });
+    const fresh = await client.waitForNext("session_changed");
+    assert.equal(fresh.goal, null);
+
+    client.send({ type: "resume_session", id: session.id });
+    const restored = await client.waitForNext("session_changed");
+    assert.equal(restored.sessionId, session.id);
+    assert.ok(restored.goal, "session_changed carries the goal snapshot");
+    assert.equal(restored.goal.statement, "Ship parity");
+    assert.deepEqual(restored.goal.criteria, ["tests pass", "docs updated"]);
+    assert.equal(restored.goal.constraints, "no new deps");
+    assert.equal(restored.goal.status, "active");
+  } finally {
+    second?.close();
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: spec — goal mutators widen the controller-only authorization surface.
+test("goal mutators are refused for viewers and while a turn runs", async () => {
+  const log: string[] = [];
+  const built = buildRuntime(
+    [
+      { toolCalls: [{ id: "g1", name: "mutate", arguments: {} }] },
+      { text: "done" },
+    ],
+    { tools: [mutatingTool(log)] },
+  );
+  const server = await start(built);
+  const controller = new Client(server.wsUrl);
+  let viewer: Client | undefined;
+  try {
+    await controller.open();
+    await controller.waitFor("hello");
+
+    viewer = new Client(server.wsUrl);
+    await viewer.open();
+    await viewer.waitFor("hello");
+    const viewerRefusal = viewer.waitFor("error");
+    viewer.send({ type: "set_goal", statement: "viewer must not set" });
+    const refused = await viewerRefusal;
+    assert.match(refused.message, /read-only viewer/);
+    assert.equal(built.runtime.getGoal(), null);
+
+    controller.send({ type: "input", text: "mutate please" });
+    const request = await controller.waitFor("approval_request");
+    assert.ok(request.turnId > 0);
+    const turnRefusal = controller.waitForNext("error");
+    controller.send({ type: "set_goal", statement: "mid-turn must not set" });
+    const duringTurn = await turnRefusal;
+    assert.match(duringTurn.message, /while a turn is running/);
+    assert.equal(built.runtime.getGoal(), null);
+
+    controller.send({
+      type: "approval",
+      id: request.id,
+      turnId: request.turnId,
+      decision: "approve",
+    });
+    await controller.waitFor("turn_end");
+  } finally {
+    controller.close();
+    viewer?.close();
+    await server.close();
+  }
+});
+
+// Reason: regression — compaction was invisible on the web surface. The server
+// broadcasts every AgentEvent; this proves the compaction fields pass through
+// unchanged and no summary or native payload is added.
+test("compaction events pass through to the browser without summary text", async () => {
+  const built = buildRuntime([]);
+  let sink: ((event: any) => void) | undefined;
+  const originalSetSink = built.runtime.setEventSink.bind(built.runtime);
+  built.runtime.setEventSink = (handler) => {
+    sink = handler as ((event: any) => void) | undefined;
+    originalSetSink(handler);
+  };
+  const server = await start(built);
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    await client.waitFor("hello");
+    assert.ok(sink, "the server installed an event sink");
+    const emit = sink as (event: any) => void;
+
+    const started = {
+      type: "context_compaction_started",
+      model: "m",
+      strategy: "summary",
+    };
+    const startedWait = client.waitForMatching(
+      (m) =>
+        m.type === "event" && m.event.type === "context_compaction_started",
+    );
+    emit(started);
+    const startedMessage = await startedWait;
+    assert.deepEqual(startedMessage.event, started);
+
+    const failed = {
+      type: "context_compaction_failed",
+      model: "m",
+      strategy: "summary",
+      reason: "boom",
+    };
+    const failedWait = client.waitForMatching(
+      (m) => m.type === "event" && m.event.type === "context_compaction_failed",
+    );
+    emit(failed);
+    const failedMessage = await failedWait;
+    assert.deepEqual(failedMessage.event, failed);
+
+    // The continuation is the success signal the browser clears the notice on.
+    const continuation = { type: "compaction_continuation", text: "continue" };
+    const continuationWait = client.waitForMatching(
+      (m) => m.type === "event" && m.event.type === "compaction_continuation",
+    );
+    emit(continuation);
+    const continuationMessage = await continuationWait;
+    assert.deepEqual(continuationMessage.event, continuation);
+
+    for (const message of client.messages) {
+      if (message.type !== "event") continue;
+      if (
+        message.event.type !== "context_compaction_started" &&
+        message.event.type !== "context_compaction_failed"
+      ) {
+        continue;
+      }
+      assert.ok(
+        !("text" in message.event) && !("summary" in message.event),
+        "compaction status events carry no summary or native payload",
+      );
+    }
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
 // Reason: spec (turn stats) — the browser shows real elapsed time and token
 // throughput; the numbers come from the runtime's measured provider calls.
 test("turn_end reports measured duration, output tokens, and model time", async () => {

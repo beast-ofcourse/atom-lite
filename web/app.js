@@ -12,8 +12,9 @@
 //             | list_sessions | new_session | resume_session
 //             | rename_session | delete_session | switch_model | list_agents
 //             | switch_agent | pick_workspace | browse_directory
-//             | switch_workspace | set_effort | set_mode | refresh_models
-//             | attach_file | remove_attachment
+//             | switch_workspace | set_effort | set_mode
+//             | set_goal | set_goal_criteria | set_goal_constraints
+//             | goal_action | refresh_models | attach_file | remove_attachment
 //             | list_skills | list_mcp | set_mcp_enabled
 
 import { buildDiffModel } from "./diff.js";
@@ -43,6 +44,7 @@ const contextValueEl = document.getElementById("context-value");
 const contextFillEl = document.getElementById("context-fill");
 const contextNoteEl = document.getElementById("context-note");
 const contextPanelEl = document.getElementById("context-panel");
+const compactionNoticeEl = document.getElementById("compaction-notice");
 const sidebarToggle = document.getElementById("sidebar-toggle");
 const sidebarClose = document.getElementById("sidebar-close");
 const sidebarScrim = document.getElementById("sidebar-scrim");
@@ -116,6 +118,11 @@ const todoScrim = document.getElementById("todo-scrim");
 const todoList = document.getElementById("todo-list");
 const todoSummary = document.getElementById("todo-summary");
 const todoCount = document.getElementById("todo-count");
+const goalSection = document.getElementById("goal-section");
+const goalStatement = document.getElementById("goal-statement");
+const goalStatus = document.getElementById("goal-status");
+const goalCriteria = document.getElementById("goal-criteria");
+const goalConstraints = document.getElementById("goal-constraints");
 const todoResizer = document.getElementById("todo-resizer");
 
 // Tool cards cap the visible tail, like the terminal caps live output. The
@@ -1516,6 +1523,8 @@ function applySession(message) {
   clearAttachments();
   renderHistory(message.history ?? []);
   setTodos(todosFromHistory(message.history ?? []), { autoOpen: true });
+  currentGoal = message.goal ?? null;
+  renderGoal();
   renderSessions(sessionsCache);
 }
 
@@ -1623,6 +1632,8 @@ bindPanelResizer({
 /* ---------------- task ledger ---------------- */
 
 let todos = [];
+let currentGoal = null;
+let compactionNotice = null;
 let todoPreference = storageGet(TODO_KEY);
 let todoWidth = TODO_DEFAULT_WIDTH;
 
@@ -1813,6 +1824,74 @@ function setTodos(value, { autoOpen = false } = {}) {
   ) {
     openTodoPanel({ persist: false });
   }
+}
+
+function normalizedCriterion(value) {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/** Mirror the CLI goal panel's criterion marks from the durable ledger. */
+function criterionMet(criterion) {
+  const needle = normalizedCriterion(criterion);
+  if (!needle) return false;
+  return todos.some(
+    (item) =>
+      item.status === "completed" &&
+      (normalizedCriterion(item.content) === needle ||
+        normalizedCriterion(item.verification).includes(needle)),
+  );
+}
+
+function renderGoal() {
+  if (!goalSection) return;
+  goalSection.hidden = !currentGoal;
+  if (!currentGoal) return;
+  goalStatement.textContent = currentGoal.statement ?? "";
+  goalStatus.textContent = `Status: ${currentGoal.status ?? "active"}`;
+  goalStatus.dataset.status = currentGoal.status ?? "active";
+  const criteria = Array.isArray(currentGoal.criteria)
+    ? currentGoal.criteria
+    : [];
+  goalCriteria.replaceChildren();
+  for (const criterion of criteria) {
+    const met = currentGoal.status === "complete" || criterionMet(criterion);
+    const row = document.createElement("li");
+    row.className = "goal-criterion";
+    row.dataset.status = met ? "completed" : "pending";
+    row.setAttribute("aria-label", `${met ? "Met" : "Not met"}: ${criterion}`);
+    const mark = document.createElement("span");
+    mark.className = "todo-mark";
+    mark.setAttribute("aria-hidden", "true");
+    if (met) mark.append(icon("check", "icon"));
+    const text = document.createElement("span");
+    text.className = "goal-criterion-text";
+    text.textContent = String(criterion);
+    row.append(mark, text);
+    goalCriteria.append(row);
+  }
+  goalConstraints.textContent = currentGoal.constraints
+    ? `Constraints: ${currentGoal.constraints}`
+    : "";
+  goalConstraints.hidden = !currentGoal.constraints;
+}
+
+function renderCompactionNotice() {
+  if (!compactionNoticeEl) return;
+  const text = typeof compactionNotice === "string" ? compactionNotice : "";
+  compactionNoticeEl.textContent = text;
+  compactionNoticeEl.hidden = !text;
+  compactionNoticeEl.classList.toggle(
+    "is-warning",
+    text.startsWith("compaction failed"),
+  );
+}
+
+function clearCompactionNotice() {
+  compactionNotice = null;
+  renderCompactionNotice();
 }
 
 function openTodoPanel({ persist = true } = {}) {
@@ -2724,6 +2803,55 @@ const COMMANDS = [
     },
   },
   {
+    name: "goal",
+    description:
+      "Goal: set, criteria, constraints, pause, resume, clear, complete, status",
+    run(args) {
+      const rest = String(args ?? "").trim();
+      const match = /^(\S+)(?:\s+([\s\S]*))?$/.exec(rest);
+      const action = (match?.[1] ?? "status").toLowerCase();
+      const value = (match?.[2] ?? "").trim();
+      if (action === "set") {
+        if (!value) {
+          showToast("Usage: /goal set <statement>", "warn");
+          return;
+        }
+        send({ type: "set_goal", statement: value });
+      } else if (action === "criteria") {
+        const criteria = value
+          .split(/[;,]/)
+          .map((item) => item.trim())
+          .filter(Boolean);
+        if (!criteria.length) {
+          showToast("Usage: /goal criteria <a;b>", "warn");
+          return;
+        }
+        send({ type: "set_goal_criteria", criteria });
+      } else if (action === "constraints") {
+        if (!value) {
+          showToast("Usage: /goal constraints <text>", "warn");
+          return;
+        }
+        send({ type: "set_goal_constraints", constraints: value });
+      } else if (
+        action === "pause" ||
+        action === "resume" ||
+        action === "clear" ||
+        action === "complete"
+      ) {
+        send({ type: "goal_action", action });
+      } else if (action === "status") {
+        showToast(
+          currentGoal
+            ? `Goal: ${currentGoal.statement} (${currentGoal.status})`
+            : "No goal set.",
+        );
+      } else {
+        showToast(`Unknown /goal form: ${action}`, "warn");
+      }
+    },
+  },
+  {
     name: "skills",
     description: "Show available skills",
     run() {
@@ -2951,6 +3079,22 @@ function handleEvent(event) {
     case "ledger_state":
     case "task_ledger_open":
       setTodos(event.todos, { autoOpen: true });
+      renderGoal();
+      break;
+    case "goal_state":
+      currentGoal = event.goal ?? null;
+      renderGoal();
+      break;
+    case "context_compaction_started":
+      compactionNotice = `compacting with ${event.model} (${event.strategy})`;
+      renderCompactionNotice();
+      break;
+    case "context_compaction_failed":
+      compactionNotice = `compaction failed: ${event.reason}`;
+      renderCompactionNotice();
+      break;
+    case "compaction_continuation":
+      clearCompactionNotice();
       break;
     case "context_usage":
       contextUsed = event.used;
@@ -3024,6 +3168,9 @@ function handleMessage(message) {
       hideToast();
       setTurnActive(false);
       applySession(message);
+      currentGoal = message.goal ?? null;
+      renderGoal();
+      clearCompactionNotice();
       contextUsed = message.context?.used;
       contextWindow = message.context?.window;
       renderContextUsage();
@@ -3046,6 +3193,7 @@ function handleMessage(message) {
       endThinkingBlock();
       lastAssistantActions = null;
       setTurnActive(true);
+      clearCompactionNotice();
       break;
     case "turn_stopping":
       pendingApproval = null;
@@ -3060,6 +3208,7 @@ function handleMessage(message) {
       clearQueued();
       renderMermaidBlocks();
       setTurnActive(false);
+      clearCompactionNotice();
       send({ type: "list_sessions" });
       break;
     case "input_queued":

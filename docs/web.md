@@ -28,11 +28,13 @@ When the agent calls the `question` tool, the controlling tab shows a **Question
 
 `/mcp` opens the MCP servers overlay. Each server shows its state, tool count, exposed tools, and last error. **Refresh** re-reads the manager; **Connect** or **Disconnect** enables or closes that server for the running process without changing the config file. Connection changes are refused while a turn is running, and read-only viewer tabs cannot toggle servers.
 
-Click the workspace path in the sidebar footer to open the host OS's native folder picker: Zenity or KDialog on Linux, Finder's chooser on macOS, FolderBrowserDialog on Windows, and the Android SAF folder picker in Termux. `ctrl/cmd+o` opens the in-app directory explorer instead; `ctrl/cmd+k` opens the command palette. Typing `/` offers `/new`, `/help`, `/stop`, `/model`, `/theme`, `/cwd`, `/rename`, `/delete`, `/search`, `/export`, `/effort`, `/mode`, `/skills`, and `/mcp`.
+Click the workspace path in the sidebar footer to open the host OS's native folder picker: Zenity or KDialog on Linux, Finder's chooser on macOS, FolderBrowserDialog on Windows, and the Android SAF folder picker in Termux. `ctrl/cmd+o` opens the in-app directory explorer instead; `ctrl/cmd+k` opens the command palette. Typing `/` offers `/new`, `/help`, `/stop`, `/model`, `/theme`, `/cwd`, `/rename`, `/delete`, `/search`, `/export`, `/effort`, `/mode`, `/goal`, `/skills`, and `/mcp`.
 
 Drag the left sidebar's right edge to resize it between 220 and 420 pixels, or focus the separator and use the arrow keys; double-click resets the width. The sidebar width is stored in browser storage.
 
 The session task ledger opens in a right-hand panel. Toggle it with the checklist button or `ctrl/cmd+j`. Drag the panel's left edge to resize it between 240 and 480 pixels, or focus the separator and use the arrow keys; double-click resets the width. The panel lists pending, in-progress, completed, and cancelled tasks with their verification notes, updates live as the agent works, and restores the durable ledger when you resume a session. Open state and width are stored in browser storage.
+
+The same panel shows the goal statement, status, criteria, and constraints, and a context notice reports compaction starting or failing. Goal state is restored on resume. `/goal` works in the browser with the same forms as the terminal; like other mutators, it is refused for read-only viewers and while a turn runs.
 
 Assistant text renders as markdown with syntax-highlighted code, local images, and Mermaid diagrams. Tool edits show a unified inline diff. Long sessions load earlier messages on demand.
 
@@ -62,8 +64,10 @@ Use `--no-qr` when the terminal cannot draw the code. Ctrl-C stops the server. D
 
 Share mode uses plain HTTP on the local network and relies on the token for access. Do not use it on an untrusted network.
 
-## Not in the browser yet
+## Parity boundary
 
-ANSI rendering, shell mode, and extension widgets. The terminal remains the primary surface. See [CLI](./cli.md).
+The browser is an observe + steer surface for session state, not a pixel-parity TUI. State that already has an event and a controller guard is ported as it appears: goal, task ledger, compaction status, approvals, questions, and the context meter.
+
+ANSI rendering, shell mode, extension widgets, tool-specific TUI chrome, and the visualizer are terminal-only or deferred. The terminal remains the primary surface. See [CLI](./cli.md).
 
 The visual system lives in [`web/DESIGN.md`](../web/DESIGN.md).
