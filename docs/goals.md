@@ -52,6 +52,6 @@ Every criterion must be backed by a completed todo whose text names it, a comple
 
 ## Interface
 
-The goal panel opens beside the transcript whenever a goal or todos exist. It shows the statement, status, criteria, constraints, and todo statuses. `ctrl+j` toggles it. With the panel hidden, the status line still shows `todos:<count>`.
+The goal panel opens beside the transcript whenever a goal or todos exist. It shows the statement, status, criteria, constraints, and todo statuses. `ctrl+j` toggles it. With the panel hidden, the status line still shows `todos:<count>`. The browser shows the same goal state in its right-hand panel and accepts the same `/goal` forms; mutators there are refused for read-only viewers and while a turn runs.
 
 After each compaction, one continuation instruction is injected into model context and mirrored into the transcript. It names the goal, criteria, current todo, and next action, and tells the agent to continue without redoing completed work.

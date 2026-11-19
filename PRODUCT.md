@@ -103,7 +103,7 @@ than a lock-in.
   (new built-in tools need strong justification against ADR 0001); local-first
   with no telemetry or hosted database (ADR 0004); the web server binds
   localhost only and is token-guarded against localhost CSRF.
-- **Undecided:** whether the browser surface grows toward full TUI parity.
+- **Decided:** the browser is an observe + steer surface for session state — goal, ledger, compaction, approvals, questions, and context meter — not a pixel-parity TUI; terminal-only chrome stays in the TUI (ADR 0024).
 
 ## Brand Commitments
 
