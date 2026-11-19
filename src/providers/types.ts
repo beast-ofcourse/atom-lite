@@ -1,4 +1,5 @@
 import type {
+  Message,
   ModelInfo,
   ModelRequest,
   ModelResponse,
@@ -13,6 +14,13 @@ export interface ProviderAdapter {
   /** Concrete model currently selected by this adapter, when known. */
   readonly model?: string;
   generate(request: ModelRequest): Promise<ModelResponse>;
+  /** Optional provider-managed compaction that returns an opaque checkpoint. */
+  compact?(request: {
+    model: string;
+    messages: Message[];
+    recentUserMessages?: Message[];
+    keepTokens: number;
+  }): Promise<{ payload: string }>;
   stream?(request: ModelRequest): AsyncIterable<ModelStreamEvent>;
   getModelInfo?(): Promise<ModelInfo | undefined>;
   listModels?(): Promise<string[]>;

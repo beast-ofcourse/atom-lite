@@ -26,6 +26,7 @@ test("empty config yields documented defaults", () => {
   assert.equal(cfg.runtime.mode, "yolo");
   assert.equal(cfg.context.reserveOutputTokens, 4096);
   assert.equal(cfg.context.compactAtPercent, 85);
+  assert.equal(cfg.context.compactionStrategy, "auto");
   assert.equal(cfg.context.keepTokens, 15000);
   assert.equal(cfg.context.buffer, null);
   assert.equal(cfg.context.background, false);
@@ -70,6 +71,23 @@ test("memory checkpoint settings accept documented values and reject invalid one
     interval: 60_000,
     duration: 120_000,
   });
+  const policy = ConfigSchema.parse({
+    context: { compactionStrategy: "native" },
+    providers: {
+      kilo: {
+        type: "openai-compatible",
+        model: "m",
+        compactionStrategy: "summary",
+        models: { "m-fast": { compactionStrategy: "native" } },
+      },
+    },
+  });
+  assert.equal(policy.context.compactionStrategy, "native");
+  assert.equal(policy.providers.kilo.compactionStrategy, "summary");
+  assert.equal(policy.providers.kilo.models?.["m-fast"]?.compactionStrategy, "native");
+  assert.throws(() =>
+    ConfigSchema.parse({ context: { compactionStrategy: "magic" } }),
+  );
 });
 
 test("old configs carrying runtime.checkpointing still parse (ignored)", () => {

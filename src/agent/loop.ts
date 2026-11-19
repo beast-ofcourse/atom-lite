@@ -110,6 +110,7 @@ export class AgentRuntime {
         keepTokens: options.keepTokens,
         buffer: options.buffer,
         background: options.background,
+        compactionStrategy: options.compactionStrategy,
         cacheMode: options.cacheMode,
         repoMap: options.repoMap,
       });

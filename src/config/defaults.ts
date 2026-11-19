@@ -24,6 +24,7 @@ export const DEFAULT_CONFIG = {
     maxProjectInstructionBytes: 30000,
     compactEveryNTurns: 0,
     compactionModel: null as string | null,
+    compactionStrategy: "auto",
     keepTokens: 15000,
     background: false,
     warming: false as boolean | { interval: "auto"; duration: number },

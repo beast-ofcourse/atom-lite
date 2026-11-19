@@ -40,6 +40,8 @@ With `context.background: true`, Atom-lite writes a summary before the trigger a
 
 `context.warming` enables opt-in prompt-cache keep-alive. It reuses the last model context on a timer, stops on a reported cache miss, and never treats a provider that reports no cache counters as a miss.
 
+A provider that advertises native compaction can store an encrypted checkpoint on its side. `context.compactionStrategy` selects `native`, `summary`, or `auto`; a provider profile and its per-model `models` map can override the global setting. The active model is used for native compaction, recent user messages stay inside the keep budget, and the provider's opaque payload is stored in the `context_compacted` event with its provider and model id. A provider rejection is an error, not a downgrade to summary. If the model changes, replay continues from the original conversation instead of the foreign payload.
+
 The session log records `context_compaction_started`, `context_compacted`, and `context_compaction_failed` events. A `context_compacted` event carries the schema version, summary, covered count and tokens, kept count, model, strategy, and usage. Old events without the extra fields still restore.
 
 After a compaction, one continuation message names the goal, criteria, current todo, and next action. It is mirrored into the transcript and survives session resume. See [Goals](./goals.md).

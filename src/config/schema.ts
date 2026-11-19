@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const CompactionStrategySchema = z.enum(["auto", "summary", "native"]);
+
 export const ProviderConfigSchema = z
   .object({
     type: z.string(),
@@ -15,6 +17,17 @@ export const ProviderConfigSchema = z
     contextWindow: z.number().int().positive().optional(),
     /** Whether the model supports image/vision input. Overrides provider metadata. */
     supportsVision: z.boolean().optional(),
+    /** Provider-level compaction policy. Model settings override it. */
+    compactionStrategy: CompactionStrategySchema.optional(),
+    /** Per-model compaction policy overrides. */
+    models: z
+      .record(
+        z.string(),
+        z
+          .object({ compactionStrategy: CompactionStrategySchema.optional() })
+          .strict(),
+      )
+      .optional(),
   })
   .strict();
 
@@ -87,6 +100,8 @@ export const ContextConfigSchema = z
      * active model, so installing this field cannot change default behavior.
      */
     compactionModel: z.string().min(1).nullable().default(null),
+    /** Global compaction policy. Provider and model settings override it. */
+    compactionStrategy: CompactionStrategySchema.default("auto"),
     /** Token budget for the recent tail kept beside a memory checkpoint. */
     keepTokens: z.number().int().nonnegative().default(15000),
     /** Prepare summaries ahead of the compaction trigger. */

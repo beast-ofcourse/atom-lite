@@ -104,6 +104,8 @@ export interface AgentRuntimeOptions {
   background?: boolean;
   /** Opt-in cache keep-alive settings. */
   warming?: import("../config/schema.js").Config["context"]["warming"];
+  /** Resolved compaction policy for a default context manager. */
+  compactionStrategy?: "auto" | "summary" | "native";
   /** Compaction reserve for a default context manager. */
   buffer?: string | number | null;
   /** Prompt-cache layout mode for a default context manager. */

@@ -70,6 +70,8 @@ A profile is a named endpoint plus model and credentials.
 | `headers`        | object of strings | none              | Extra HTTP headers.                                                                                                      |
 | `contextWindow`  | positive integer  | provider metadata | Explicit context window for models without metadata. Highest-priority source for the status meter and compaction budget. |
 | `supportsVision` | boolean           | provider metadata | Whether the selected model accepts image input. Overrides provider detection.                                            |
+| `compactionStrategy` | `"auto"` \| `"summary"` \| `"native"` | context setting | Provider-level compaction policy. A model entry overrides it. |
+| `models`         | object            | none              | Map of model id to `{ "compactionStrategy": ... }` for per-model policy. |
 | `keepAlive`      | string            | adapter default   | Ollama only: how long the model stays loaded.                                                                            |
 | `think`          | boolean \| string | adapter default   | Ollama only: forwarded as the `think` option for reasoning models.                                                       |
 | `options`        | object            | none              | Ollama only: request options merged into every call (for example sampling settings).                                     |
@@ -101,6 +103,7 @@ stored credential, then inline `apiKey`.
 | `maxProjectInstructionBytes` | positive integer                         | `30000` | Cap on injected `AGENTS.md`/`CLAUDE.md`-style instructions.   |
 | `compactEveryNTurns`         | integer >= 0                             | `0`     | Compact every N turns. `0` disables periodic compaction.      |
 | `compactionModel`            | non-empty string \| null                 | `null`  | Model for compaction summaries. `null` uses the active model. |
+| `compactionStrategy`         | `"auto"` \| `"summary"` \| `"native"`     | `"auto"` | Compaction policy. `auto` uses provider-managed compaction only when the provider advertises it; otherwise it summarizes. |
 | `keepTokens`                 | integer >= 0                             | `15000` | Token budget for the recent tail kept beside the summary.     |
 | `buffer`                     | percent string \| integer \| null         | `null`  | Compaction reserve. A percent is a share of the model window; an integer is an exact token reserve. `null` derives it from `compactAtPercent`. Independent of `reserveOutputTokens`. |
 | `background`                 | boolean                                  | `false` | Write a summary ahead of the trigger and swap it in when compaction is due. Unused summaries still cost tokens. |

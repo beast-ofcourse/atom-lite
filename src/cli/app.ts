@@ -1,4 +1,5 @@
 import { loadConfig } from "../config/load.js";
+import { resolveCompactionPolicy } from "../context/compaction-policy.js";
 import { DEFAULT_SYSTEM_PROMPT } from "../agent/system-prompt.js";
 import {
   defaultAgentDir,
@@ -583,8 +584,22 @@ export async function run(args: string[]): Promise<void> {
       )
     : undefined;
 
+  const providerProfile =
+    (config.providers as Record<string, any>)[initialProfile] ?? {};
+  const selectedModel = modelOverride ?? provider.model ?? "default";
+  const compactionStrategy = resolveCompactionPolicy(
+    {
+      global: config.context.compactionStrategy,
+      provider: providerProfile.compactionStrategy,
+      models: providerProfile.models,
+    },
+    selectedModel,
+    typeof (provider as any).compact === "function",
+  );
+
   const contextManager = new ContextManager({
     systemPrompt: DEFAULT_SYSTEM_PROMPT,
+    compactionStrategy,
     maxInputTokens: config.context.maxInputTokens ?? null,
     reserveOutputTokens: config.context.reserveOutputTokens,
     compactAtPercent: config.context.compactAtPercent,

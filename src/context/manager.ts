@@ -20,6 +20,7 @@ import {
   rememberMessageLayout,
   type AttributionCategory,
 } from "./attribution.js";
+import { resolveCompactionPolicy } from "./compaction-policy.js";
 import {
   renderedInstructionTexts,
   type InstructionBaselineState,
@@ -65,6 +66,8 @@ export interface ContextManagerOptions {
   buffer?: string | number | null;
   /** Write a summary ahead of the trigger and swap it in when due. */
   background?: boolean;
+  /** Resolved compaction policy. Auto uses native only when advertised. */
+  compactionStrategy?: "auto" | "summary" | "native";
   /** Optional lifecycle callback for compaction start and failure. */
   onCompactionLifecycle?: (
     phase: "started" | "failed",
@@ -159,6 +162,21 @@ export class ContextManager {
     this.opts.provider = provider;
     if (model) this.opts.model = model;
     this.precomputed = null;
+    if (!this.isCheckpointPortable()) {
+      this.sessionMemory = null;
+      this.sessionMemoryCount = 0;
+      this.checkpoint = null;
+    }
+  }
+
+  private isCheckpointPortable(checkpoint = this.checkpoint): boolean {
+    if (!checkpoint || checkpoint.strategy !== "native" || !checkpoint.native) {
+      return true;
+    }
+    return (
+      checkpoint.native.model === this.opts.model &&
+      checkpoint.native.provider === this.opts.provider.id
+    );
   }
 
   /** Wait for an in-flight background summary, for callers that need the swap now. */
@@ -362,6 +380,13 @@ export class ContextManager {
     coveredCount?: number,
     checkpoint?: MemoryCheckpoint | null,
   ): void {
+    const nextCheckpoint = checkpoint ?? null;
+    if (nextCheckpoint && !this.isCheckpointPortable(nextCheckpoint)) {
+      this.sessionMemory = null;
+      this.sessionMemoryCount = 0;
+      this.checkpoint = null;
+      return;
+    }
     this.sessionMemory = summary;
     if (summary === null) {
       this.sessionMemoryCount = 0;
@@ -412,31 +437,45 @@ export class ContextManager {
       ),
     );
     if (split.older.length === 0) return null;
-    const result = await this.summarize(split.older, focus);
-    if (!result) return null;
-    const coveredCount = this.sessionMemoryCount + split.older.length;
-    const coveredTokens = split.older.reduce(
-      (sum, message) => sum + estimateMessageTokens(message),
-      0,
+    const strategy = resolveCompactionPolicy(
+      { global: this.opts.compactionStrategy ?? "auto" },
+      this.opts.model,
+      typeof (this.opts.provider as any).compact === "function",
     );
-    const checkpoint: MemoryCheckpoint = {
-      schemaVersion: CHECKPOINT_SCHEMA_VERSION,
-      summary: result.summary,
-      coveredCount,
-      coveredTokens,
-      keptCount: split.keptCount,
-      model: this.opts.compactionModel || this.opts.model,
-      strategy: "summary",
-      ...(result.usage ? { usage: result.usage } : {}),
-    };
-    this.sessionMemory = result.summary;
+    let checkpoint: MemoryCheckpoint;
+    if (strategy === "native") {
+      const native = await this.compactNative(
+        history,
+        this.opts.keepTokens ?? 15000,
+      );
+      if (!native) return null;
+      checkpoint = native;
+    } else {
+      const result = await this.summarize(split.older, focus);
+      if (!result) return null;
+      checkpoint = {
+        schemaVersion: CHECKPOINT_SCHEMA_VERSION,
+        summary: result.summary,
+        coveredCount: this.sessionMemoryCount + split.older.length,
+        coveredTokens: split.older.reduce(
+          (sum, message) => sum + estimateMessageTokens(message),
+          0,
+        ),
+        keptCount: split.keptCount,
+        model: this.opts.compactionModel || this.opts.model,
+        strategy: "summary",
+        ...(result.usage ? { usage: result.usage } : {}),
+      };
+    }
+    const coveredCount = checkpoint.coveredCount;
+    this.sessionMemory = checkpoint.summary;
     this.sessionMemoryCount = coveredCount;
     this.checkpoint = checkpoint;
-    this.lastCompactionSummary = result.summary;
+    this.lastCompactionSummary = checkpoint.summary;
     this.lastCompactionCoveredCount = coveredCount;
     this.lastCompactionCheckpoint = checkpoint;
     this.pendingContinuation = this.getContinuation();
-    return result.summary;
+    return checkpoint.summary;
   }
 
   private budget(): number {
@@ -634,14 +673,86 @@ export class ContextManager {
     return { summary: summaryText, usage };
   }
 
-  private failCompaction(reason: string, silent = false): null {
+  private failCompaction(
+    reason: string,
+    silent = false,
+    strategy: "summary" | "native" = "summary",
+  ): null {
     if (!silent) {
       this.lastCompactionFailure = reason;
       this.opts.onCompactionLifecycle?.("failed", {
-        model: this.opts.compactionModel || this.opts.model,
-        strategy: "summary",
+        model: strategy === "native" ? this.opts.model : this.opts.compactionModel || this.opts.model,
+        strategy,
         reason,
       });
+    }
+    return null;
+  }
+
+  /** Ask the provider for an opaque checkpoint window. Never downgrades. */
+  private async compactNative(
+    history: Message[],
+    keepTokens: number,
+  ): Promise<MemoryCheckpoint | null> {
+    const compact = (this.opts.provider as any).compact;
+    if (typeof compact !== "function") {
+      return this.failCompaction("native compaction unavailable", false, "native");
+    }
+    this.opts.onCompactionLifecycle?.("started", {
+      model: this.opts.model,
+      strategy: "native",
+    });
+    const split = splitRecentTail(
+      history,
+      keepTokens,
+      Math.floor(this.budget() * 0.4),
+    );
+    const messages = split.older.length > 0 ? split.older : history;
+    const recent = split.older.length > 0 ? split.recent : [];
+    for (const step of [1, ...SHRINK_STEPS]) {
+      try {
+        const response = await compact({
+          model: this.opts.model,
+          messages,
+          recentUserMessages: recent.filter((message) => message.role === "user"),
+          keepTokens: Math.max(1, Math.floor(keepTokens * step)),
+        });
+        const payload =
+          typeof response?.payload === "string" ? response.payload : "";
+        if (!payload) {
+          return this.failCompaction(
+            "native compaction returned no payload",
+            false,
+            "native",
+          );
+        }
+        return {
+          schemaVersion: CHECKPOINT_SCHEMA_VERSION,
+          summary: "[provider checkpoint]",
+          coveredCount: this.sessionMemoryCount + messages.length,
+          coveredTokens: messages.reduce(
+            (sum, message) => sum + estimateMessageTokens(message),
+            0,
+          ),
+          keptCount: recent.length,
+          model: this.opts.model,
+          strategy: "native",
+          native: {
+            provider: this.opts.provider.id,
+            model: this.opts.model,
+            payload,
+          },
+        };
+      } catch (error) {
+        if (!isOverflowError(error) || step === SHRINK_STEPS.at(-1)) {
+          const message = error instanceof Error ? error.message : String(error);
+          return this.failCompaction(
+            `native compaction rejected: ${message}`,
+            false,
+            "native",
+          );
+        }
+      }
     }
     return null;
   }
@@ -652,6 +763,11 @@ export class ContextManager {
     this.lastCompactionCheckpoint = null;
     this.lastCompactionFailure = null;
     this.pendingContinuation = null;
+    const activeStrategy = resolveCompactionPolicy(
+      { global: this.opts.compactionStrategy ?? "auto" },
+      this.opts.model,
+      typeof (this.opts.provider as any).compact === "function",
+    );
     const instructions = this.instructionState
       ? renderedInstructionTexts(this.instructionState)
       : this.getInstructionTexts(workspace);
@@ -777,6 +893,7 @@ export class ContextManager {
     const currentBudget = this.budget();
     if (
       this.opts.background &&
+      activeStrategy === "summary" &&
       !this.precomputed &&
       !this.backgroundTask &&
       !this.forceCompact &&
@@ -853,7 +970,7 @@ export class ContextManager {
         Math.floor(budget * 0.4),
       ),
     );
-    const recent = split.recent;
+    let recent = split.recent;
     const older = split.older;
     if (older.length === 0) {
       this.forceCompact = false;
@@ -862,52 +979,74 @@ export class ContextManager {
       return messages;
     }
 
-    const held = this.precomputed;
-    this.precomputed = null;
-    const model = this.opts.compactionModel || this.opts.model;
-    const heldTail = held ? workingHistory.slice(held.anchorIndex) : [];
-    const heldTailTokens = heldTail.reduce(
-      (sum, message) => sum + estimateMessageTokens(message),
-      0,
-    );
-    const canUseHeld =
-      held !== null &&
-      held.model === model &&
-      workingHistory[held.anchorIndex - 1] === held.anchorLast &&
-      heldTailTokens <= held.tailLimit;
-    let result: { summary: string; usage?: { input?: number; output?: number } } | null;
-    let coveredCount: number;
-    let coveredTokens: number;
-    if (canUseHeld && held) {
-      result = { summary: held.summary };
-      coveredCount = held.anchorCount;
-      coveredTokens = held.coveredTokens;
-    } else {
-      result = await this.summarize(older);
-      if (!result) {
-        // Validation failure leaves prior session memory intact.
+    const strategy = activeStrategy;
+    let checkpoint: MemoryCheckpoint | null = null;
+    let summary = "";
+    let coveredCount = 0;
+    if (strategy === "native") {
+      checkpoint = await this.compactNative(
+        workingHistory,
+        this.opts.keepTokens ?? 15000,
+      );
+      if (!checkpoint) {
         this.forceCompact = false;
         this.lastBuildTokens = total;
         this.rememberLayout(messages, categories, prefixEnd, false);
         return messages;
       }
-      coveredCount = this.sessionMemoryCount + older.length;
-      coveredTokens = older.reduce(
+      summary = checkpoint.summary;
+      coveredCount = checkpoint.coveredCount;
+      recent = workingHistory.slice(-Math.max(1, checkpoint.keptCount));
+    } else {
+      const held = this.precomputed;
+      this.precomputed = null;
+      const model = this.opts.compactionModel || this.opts.model;
+      const heldTail = held ? workingHistory.slice(held.anchorIndex) : [];
+      const heldTailTokens = heldTail.reduce(
         (sum, message) => sum + estimateMessageTokens(message),
         0,
       );
+      const canUseHeld =
+        held !== null &&
+        held.model === model &&
+        workingHistory[held.anchorIndex - 1] === held.anchorLast &&
+        heldTailTokens <= held.tailLimit;
+      let result: {
+        summary: string;
+        usage?: { input?: number; output?: number };
+      } | null;
+      let coveredTokens: number;
+      if (canUseHeld && held) {
+        result = { summary: held.summary };
+        coveredCount = held.anchorCount;
+        coveredTokens = held.coveredTokens;
+      } else {
+        result = await this.summarize(older);
+        if (!result) {
+          // Validation failure leaves prior session memory intact.
+          this.forceCompact = false;
+          this.lastBuildTokens = total;
+          this.rememberLayout(messages, categories, prefixEnd, false);
+          return messages;
+        }
+        coveredCount = this.sessionMemoryCount + older.length;
+        coveredTokens = older.reduce(
+          (sum, message) => sum + estimateMessageTokens(message),
+          0,
+        );
+      }
+      summary = result.summary;
+      checkpoint = {
+        schemaVersion: CHECKPOINT_SCHEMA_VERSION,
+        summary,
+        coveredCount,
+        coveredTokens,
+        keptCount: split.keptCount,
+        model: this.opts.compactionModel || this.opts.model,
+        strategy: "summary",
+        ...(result.usage ? { usage: result.usage } : {}),
+      };
     }
-    const summary = result.summary;
-    const checkpoint: MemoryCheckpoint = {
-      schemaVersion: CHECKPOINT_SCHEMA_VERSION,
-      summary,
-      coveredCount,
-      coveredTokens,
-      keptCount: split.keptCount,
-      model: this.opts.compactionModel || this.opts.model,
-      strategy: "summary",
-      ...(result.usage ? { usage: result.usage } : {}),
-    };
     this.lastCompactionSummary = summary;
     this.lastCompactionCheckpoint = checkpoint;
     this.sessionMemory = summary;
@@ -920,10 +1059,14 @@ export class ContextManager {
 
     const continuation = this.getContinuation();
     this.pendingContinuation = continuation;
+    const checkpointText =
+      checkpoint.strategy === "native"
+        ? `Provider checkpoint: ${checkpoint.native?.payload ?? ""}`
+        : `Context summary: ${summary}`;
     const compactedMemory: Message[] = [
       {
         role: "assistant",
-        content: [{ type: "text", text: `Context summary: ${summary}` }],
+        content: [{ type: "text", text: checkpointText }],
       },
       ...(continuation
         ? [{ role: "system" as const, content: continuation }]
