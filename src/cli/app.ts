@@ -3190,6 +3190,9 @@ export async function run(args: string[]): Promise<void> {
         theme.tokens.warning,
       );
       tui.requestRender();
+    } else if (e.type === "error") {
+      appendLine(e.message, theme.tokens.error);
+      tui.requestRender();
     } else if (e.type === "model_switched") {
       if (typeof session.appendEvent === "function") {
         session.appendEvent({

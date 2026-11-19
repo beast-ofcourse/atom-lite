@@ -3107,6 +3107,9 @@ function handleEvent(event) {
         "warn",
       );
       break;
+    case "error":
+      showToast(event.message, "error");
+      break;
     default:
       break;
   }

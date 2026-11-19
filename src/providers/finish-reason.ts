@@ -1,6 +1,6 @@
 import type { FinishReason } from "../types.js";
 
-/** Providers name output-limit truncation differently; other reasons keep legacy behavior. */
+/** Map the finish reasons that change how a response must be presented. */
 export function resolveFinishReason(
   reported: unknown,
   hasToolCalls: boolean,
@@ -12,5 +12,6 @@ export function resolveFinishReason(
   ) {
     return "length";
   }
+  if (reported === "content_filter") return "error";
   return hasToolCalls ? "tool_calls" : "stop";
 }

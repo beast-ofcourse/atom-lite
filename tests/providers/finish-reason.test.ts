@@ -12,10 +12,11 @@ import { AgentRuntime } from "../../dist/agent/loop.js";
 import { FakeProvider } from "../../dist/providers/fake.js";
 import { InMemorySession } from "../../dist/sessions/store.js";
 
-test("finish reason mapping recognizes every provider truncation alias", () => {
+test("finish reason mapping recognizes provider stop reasons", () => {
   assert.equal(resolveFinishReason("length", false), "length");
   assert.equal(resolveFinishReason("MAX_TOKENS", true), "length");
   assert.equal(resolveFinishReason("max_tokens", false), "length");
+  assert.equal(resolveFinishReason("content_filter", false), "error");
   assert.equal(resolveFinishReason("stop", false), "stop");
   assert.equal(resolveFinishReason("tool_calls", true), "tool_calls");
   assert.equal(resolveFinishReason(undefined, true), "tool_calls");
@@ -49,6 +50,39 @@ test("OpenAI-compatible generate propagates finish_reason length", async () => {
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
     });
     assert.equal(response.finishReason, "length");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("OpenAI-compatible generate propagates content_filter as error", async () => {
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        choices: [
+          {
+            message: { role: "assistant", content: "" },
+            finish_reason: "content_filter",
+          },
+        ],
+      }),
+    );
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  try {
+    const adapter = new OpenAICompatibleAdapter({
+      id: "test",
+      baseUrl: `http://127.0.0.1:${port}`,
+      model: "test-model",
+    });
+    const response = await adapter.generate({
+      model: "test-model",
+      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+    });
+    assert.equal(response.finishReason, "error");
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
@@ -204,4 +238,31 @@ test("continuation hint is sent as a user turn after the truncated answer", asyn
   );
   assert.ok(index > 0);
   assert.equal(seen[1][index - 1].role, "assistant");
+});
+
+test("blocked responses surface an agent error event", async () => {
+  const errors: string[] = [];
+  const provider: ProviderAdapter = {
+    id: "blocked",
+    async generate(): Promise<ModelResponse> {
+      return {
+        message: { role: "assistant", content: [] },
+        toolCalls: [],
+        finishReason: "error",
+      };
+    },
+  };
+  const runtime = new AgentRuntime({
+    provider,
+    tools: [],
+    onEvent: (event) => {
+      if (event.type === "error") errors.push(event.message);
+    },
+  });
+  await runtime.runAgentTurn(
+    "answer",
+    new InMemorySession("s5", "/tmp/ws"),
+    new AbortController().signal,
+  );
+  assert.deepEqual(errors, ["response blocked by the model provider"]);
 });

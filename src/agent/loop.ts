@@ -872,6 +872,12 @@ export class AgentRuntime {
         if (response.finishReason === "length") {
           this.onEvent?.({ type: "response_truncated", model: this.model });
         }
+        if (response.finishReason === "error") {
+          this.onEvent?.({
+            type: "error",
+            message: "response blocked by the model provider",
+          });
+        }
 
         if (response.usage) {
           const used =
