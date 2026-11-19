@@ -8,6 +8,33 @@ becomes `0.18.1`.
 
 ## [Unreleased]
 
+## v0.18.5 — 2026-11-19
+
+### Added
+
+- `agent`: normalize provider finish reasons (`length`, `MAX_TOKENS`, `max_tokens`, `content_filter`) through a shared resolver across Gemini, Ollama, OpenAI-compatible, and fake providers.
+- `agent`: emit a `response_truncated` event when a model hits its output token limit.
+- `runtime`: add `LockManager.cacheStats` and a bounded lock cache with idle-only eviction for long-session diagnostics.
+- `agent`: allow a shared `lockManager` override on `AgentRuntimeOptions` for cross-batch tool exclusion.
+
+### Changed
+
+- `agent`: type the agent-loop session and tool-call boundary with `AgentSession` and `SessionEventLike`, cutting ad-hoc `as any` casts from 12 to 1.
+- `cli`: display provider errors and output-limit truncations in the transcript.
+- `web`: display provider errors and output-limit truncations as toasts.
+
+### Fixed
+
+- `agent`: resume a truncated answer once and return the full accumulated text to one-shot and JSON callers instead of only the final continuation.
+- `agent`: place the truncation continuation in conversation flow so Gemini keeps the system hint global and other providers keep the resume hint next to the truncated answer.
+- `agent`: surface provider content-filter blocks as errors instead of presenting them as complete answers.
+- `runtime`: wire the shared lock manager into `AgentRuntime` so cross-batch tool exclusion actually runs.
+- `runtime`: fix RWLock writer starvation under reader bursts, detach abort listeners, and bound the live lock map without evicting held locks.
+
+### Performance
+
+- No performance tuning in this release. The non-gating bench reports startup at 244.5 ms against a 300 ms budget; read and write tool overhead remains over its internal 5 ms budget (8.93 ms full, 6.57 ms partial, 5.55 ms write).
+
 ## v0.18.4 — 2026-11-19
 
 ### Added
