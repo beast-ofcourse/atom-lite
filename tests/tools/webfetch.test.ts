@@ -3,12 +3,7 @@
 // server: no external network.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import {
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer, type Server } from "node:http";
@@ -45,9 +40,7 @@ function ctx(): ToolContext {
   return { workspace: process.cwd(), signal: new AbortController().signal };
 }
 
-function webCtx(
-  fetchOverrides: Record<string, unknown> = {},
-): ToolContext {
+function webCtx(fetchOverrides: Record<string, unknown> = {}): ToolContext {
   return {
     ...ctx(),
     web: {
@@ -427,7 +420,7 @@ test("extract modes and page metadata are observable at the tool seam", async ()
     webCtx(),
   );
   const full = await webfetchTool.execute(
-    call({ url: `${base}/extract`, extract: "full", freshness: "strict" }),
+    call({ url: `${base}/extract`, extract: "full" }),
     webCtx(),
   );
   assert.match(auto.content, /Main heading/);

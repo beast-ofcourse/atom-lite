@@ -160,8 +160,14 @@ test("deduplicates the same destination with tracking parameters", async () => {
 // Reason: ticket 06 — ranking is deterministic and term-aware.
 test("ranks term matches ahead of unrelated results deterministically", async () => {
   fixture = `<html><body>${result("Unrelated", "https://example.com/z", "nothing here")}${result("Wanted term", "https://example.com/w", "the wanted term appears")}</body></html>`;
-  const first = await websearchTool.execute(call({ query: "wanted term" }), ctx());
-  const second = await websearchTool.execute(call({ query: "wanted term" }), ctx());
+  const first = await websearchTool.execute(
+    call({ query: "wanted term" }),
+    ctx(),
+  );
+  const second = await websearchTool.execute(
+    call({ query: "wanted term" }),
+    ctx(),
+  );
   assert.equal(first.content, second.content);
   const structured = (first as any).structuredContent as any[];
   assert.equal(structured[0].title, "Wanted term");
@@ -285,37 +291,44 @@ test("automatic provider selection prefers Tavily when keys exist", async () => 
 
 // Reason: ticket 08 — an explicit provider wins over other configured keys.
 test("an explicit provider wins provider selection", async () => {
-  await withEnv({ TAVILY_API_KEY: "tavily-key", BRAVE_API_KEY: "brave-key" }, async () => {
-    setProviderResponse(
-      "/tavily",
-      200,
-      JSON.stringify({
-        results: [
-          { title: "Tavily result", url: "https://tavily.example/a", content: "x" },
-        ],
-      }),
-    );
-    setProviderResponse(
-      "/brave",
-      200,
-      JSON.stringify({
-        web: {
+  await withEnv(
+    { TAVILY_API_KEY: "tavily-key", BRAVE_API_KEY: "brave-key" },
+    async () => {
+      setProviderResponse(
+        "/tavily",
+        200,
+        JSON.stringify({
           results: [
             {
-              title: "Brave result",
-              url: "https://brave.example/b",
-              description: "brave snippet",
+              title: "Tavily result",
+              url: "https://tavily.example/a",
+              content: "x",
             },
           ],
-        },
-      }),
-    );
-    const r = await websearchTool.execute(
-      call({ query: "explicit-provider-unique", freshness: "strict" }),
-      ctx(8, 120, { provider: "brave" }),
-    );
-    assert.match(r.content, /Brave result/);
-  });
+        }),
+      );
+      setProviderResponse(
+        "/brave",
+        200,
+        JSON.stringify({
+          web: {
+            results: [
+              {
+                title: "Brave result",
+                url: "https://brave.example/b",
+                description: "brave snippet",
+              },
+            ],
+          },
+        }),
+      );
+      const r = await websearchTool.execute(
+        call({ query: "explicit-provider-unique", freshness: "strict" }),
+        ctx(8, 120, { provider: "brave" }),
+      );
+      assert.match(r.content, /Brave result/);
+    },
+  );
 });
 
 // Reason: ticket 08 — fallback false fails with the selected provider only.

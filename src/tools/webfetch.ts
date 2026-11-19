@@ -82,13 +82,13 @@ interface CacheEntry {
 const fetchCache = createBoundedCache<CacheEntry>(CACHE_MAX_ENTRIES);
 const refreshing = new Set<string>();
 
-function cacheKey(url: string, format: Format): string {
+function cacheKey(url: string, format: Format, extract: ExtractMode): string {
   try {
     const parsed = new URL(url);
     parsed.hash = "";
-    return `${format}\n${parsed.href}`;
+    return `${format}\n${extract}\n${parsed.href}`;
   } catch {
-    return `${format}\n${url}`;
+    return `${format}\n${extract}\n${url}`;
   }
 }
 
@@ -122,7 +122,8 @@ function validateFetchUrl(raw: string): string | undefined {
   } catch {
     return undefined;
   }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return undefined;
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
+    return undefined;
   if (parsed.username || parsed.password) return undefined;
   parsed.hash = "";
   return parsed.href;
@@ -228,7 +229,11 @@ function extractMetadata(html: string): {
   description?: string;
 } {
   const doc = parseDocument(html);
-  const titleNode = DomUtils.getElementsByTagName("title", doc.children, true)[0];
+  const titleNode = DomUtils.getElementsByTagName(
+    "title",
+    doc.children,
+    true,
+  )[0];
   const title = titleNode ? DomUtils.textContent(titleNode).trim() : "";
   const metas = DomUtils.getElementsByTagName("meta", doc.children, true);
   const descriptionNode = metas.find(
@@ -271,7 +276,10 @@ function pruneArtifacts(dir: string): void {
     const entries = readdirSync(dir)
       .map((name) => {
         try {
-          return { path: join(dir, name), mtime: statSync(join(dir, name)).mtimeMs };
+          return {
+            path: join(dir, name),
+            mtime: statSync(join(dir, name)).mtimeMs,
+          };
         } catch {
           return undefined;
         }
@@ -395,7 +403,7 @@ export const webfetchTool: Tool = {
         isError: true,
       };
     }
-    const key = cacheKey(target, format);
+    const key = cacheKey(target, format, extract);
     const ttlMs = (ctx.web?.fetch.cacheTtlSeconds ?? 300) * 1000;
     const cached = freshness === "strict" ? undefined : fetchCache.get(key);
     const cachedResult = (): ToolResult => ({
@@ -456,10 +464,7 @@ export const webfetchTool: Tool = {
             };
           }
           const location = response.headers.get("location");
-          if (
-            location &&
-            [301, 302, 303, 307, 308].includes(response.status)
-          ) {
+          if (location && [301, 302, 303, 307, 308].includes(response.status)) {
             await response.body?.cancel();
             if (hops >= 5) {
               return {
@@ -502,13 +507,17 @@ export const webfetchTool: Tool = {
           };
         }
         if (!res.ok) {
-          return { ok: false, error: `PROVIDER_INVALID_RESPONSE: ${res.status}` };
+          return {
+            ok: false,
+            error: `PROVIDER_INVALID_RESPONSE: ${res.status}`,
+          };
         }
         const cap = effectiveOutputCap(ctx);
         const maxBytes = ctx.web?.fetch.maxBytes ?? MAX_BYTES;
         const contentType = res.headers.get("content-type") ?? "";
         const rawLength = res.headers.get("content-length");
-        const contentLength = rawLength === null ? Number.NaN : Number(rawLength);
+        const contentLength =
+          rawLength === null ? Number.NaN : Number(rawLength);
         if (Number.isFinite(contentLength) && contentLength > maxBytes) {
           await res.body?.cancel();
           return { ok: false, error: "OUTPUT_TRUNCATED: response too large" };
@@ -516,7 +525,9 @@ export const webfetchTool: Tool = {
         const canEarlyExit =
           isHtmlResponse(contentType) ||
           (Number.isFinite(contentLength) && contentLength <= maxBytes);
-        const earlyExitLimit = canEarlyExit ? 2 * cap : Number.POSITIVE_INFINITY;
+        const earlyExitLimit = canEarlyExit
+          ? 2 * cap
+          : Number.POSITIVE_INFINITY;
         const body = await readBounded(res, maxBytes, earlyExitLimit);
         if (body.tooLarge) {
           return { ok: false, error: "OUTPUT_TRUNCATED: response too large" };
@@ -638,7 +649,12 @@ export const webfetchTool: Tool = {
         createdAt: Date.now(),
       });
     }
-    return { toolCallId: call.id, name: "webfetch", content, structuredContent };
+    return {
+      toolCallId: call.id,
+      name: "webfetch",
+      content,
+      structuredContent,
+    };
   },
 };
 

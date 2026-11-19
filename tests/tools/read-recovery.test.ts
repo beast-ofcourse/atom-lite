@@ -49,11 +49,15 @@ test("read reports the nearest existing parent for a missing folder", async () =
 // Contract: suggestions are ranked, capped at three, and attached to the miss.
 test("read suggests at most three ranked sibling names", async () => {
   const dir = mkdtempSync(join(tmpdir(), "read-recover-suggest-"));
-  for (const name of ["target.ts", "target.txt", "taget.ts", "unrelated.ts"]) writeFileSync(join(dir, name), "");
+  for (const name of ["target.ts", "target.txt", "taget.ts", "unrelated.ts"])
+    writeFileSync(join(dir, name), "");
   const result = await read(dir, { path: "targat.ts" });
   assert.equal(result.isError, true);
   assert.match(result.content, /Did you mean one of these\?/);
-  const suggested = result.content.split("Did you mean one of these?\n")[1].trim().split("\n");
+  const suggested = result.content
+    .split("Did you mean one of these?\n")[1]
+    .trim()
+    .split("\n");
   assert.ok(suggested.length <= 3, suggested.join(", "));
   assert.equal(suggested[0], "target.ts");
   assert.ok(!suggested.includes("unrelated.ts"));

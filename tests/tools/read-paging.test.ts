@@ -55,7 +55,11 @@ test("read clamps very long lines and keeps multi-byte text intact across chunks
 
   const boundary = "a\n".repeat(131072) + "é\n";
   writeFileSync(join(dir, "boundary.txt"), boundary);
-  const split = await read(dir, { path: "boundary.txt", offset: 131073, limit: 1 });
+  const split = await read(dir, {
+    path: "boundary.txt",
+    offset: 131073,
+    limit: 1,
+  });
   assert.match(split.content, /131073: é/);
 });
 
@@ -64,14 +68,22 @@ test("read applies the runtime output cap before the internal budget and keeps t
   const dir = mkdtempSync(join(tmpdir(), "read-cap-"));
   writeFileSync(join(dir, "cap.txt"), "abcdefghij\n".repeat(10));
 
-  const first = await read(dir, { path: "cap.txt" }, { maxToolOutputBytes: 200 });
+  const first = await read(
+    dir,
+    { path: "cap.txt" },
+    { maxToolOutputBytes: 200 },
+  );
   const match = first.content.match(/Continue reading with offset: (\d+)/);
   assert.ok(match, first.content);
   const cursor = Number(match![1]);
   assert.ok(cursor > 1 && cursor <= 10, `unexpected cursor ${cursor}`);
   assert.ok(!first.content.includes(`${cursor}: `), first.content);
 
-  const second = await read(dir, { path: "cap.txt", offset: cursor }, { maxToolOutputBytes: 200 });
+  const second = await read(
+    dir,
+    { path: "cap.txt", offset: cursor },
+    { maxToolOutputBytes: 200 },
+  );
   assert.match(second.content, new RegExp(`${cursor}: abcdefghij`));
 });
 
@@ -111,7 +123,10 @@ test("read returns a bounded tail for a past-end offset and reports empty files"
   const lines = Array.from({ length: 200 }, (_, i) => `L${i + 1}`);
   writeFileSync(join(dir, "many.txt"), lines.join("\n") + "\n");
   const tail = await read(dir, { path: "many.txt", offset: 500, limit: 5 });
-  assert.match(tail.content, /offset 500 is past the end; the file has 200 lines/);
+  assert.match(
+    tail.content,
+    /offset 500 is past the end; the file has 200 lines/,
+  );
   assert.match(tail.content, /196: L196/);
   assert.match(tail.content, /200: L200/);
   assert.doesNotMatch(tail.content, /195: L195/);
@@ -128,7 +143,11 @@ test("read returns a bounded tail for a past-end offset and reports empty files"
 test("read reports a tiny output cap without claiming an empty file", async () => {
   const dir = mkdtempSync(join(tmpdir(), "read-tiny-cap-"));
   writeFileSync(join(dir, "tiny.txt"), "abcdefghij\n".repeat(10));
-  const result = await read(dir, { path: "tiny.txt" }, { maxToolOutputBytes: 100 });
+  const result = await read(
+    dir,
+    { path: "tiny.txt" },
+    { maxToolOutputBytes: 100 },
+  );
   assert.match(result.content, /no lines fit the output cap/);
   assert.match(result.content, /Continue reading with offset: 1/);
   assert.doesNotMatch(result.content, /\(empty\)/);
@@ -137,14 +156,25 @@ test("read reports a tiny output cap without claiming an empty file", async () =
 // Regression: a clipped past-end tail must point at a real line, not an offset still past EOF.
 test("read keeps a real line number in the cursor when a past-end tail is clipped", async () => {
   const dir = mkdtempSync(join(tmpdir(), "read-tail-cursor-"));
-  const lines = Array.from({ length: 150 }, (_, i) => `L${i + 1}` + "x".repeat(1000));
+  const lines = Array.from(
+    { length: 150 },
+    (_, i) => `L${i + 1}` + "x".repeat(1000),
+  );
   writeFileSync(join(dir, "tailcap.txt"), lines.join("\n") + "\n");
-  const first = await read(dir, { path: "tailcap.txt", offset: 999, limit: 100 });
+  const first = await read(dir, {
+    path: "tailcap.txt",
+    offset: 999,
+    limit: 100,
+  });
   const match = first.content.match(/Continue reading with offset: (\d+)/);
   assert.ok(match, first.content.slice(0, 200));
   const cursor = Number(match![1]);
   assert.ok(cursor >= 1 && cursor <= 150, `unexpected cursor ${cursor}`);
-  const second = await read(dir, { path: "tailcap.txt", offset: cursor, limit: 1 });
+  const second = await read(dir, {
+    path: "tailcap.txt",
+    offset: cursor,
+    limit: 1,
+  });
   assert.match(second.content, new RegExp(`${cursor}: L${cursor}`));
 });
 

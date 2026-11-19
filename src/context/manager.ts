@@ -2,7 +2,11 @@ import type { Message, AgentLimits } from "../types.js";
 import type { ProviderAdapter } from "../providers/types.js";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { INSTRUCTION_NAMES, loadProjectInstructions, statSignature } from "./instructions.js";
+import {
+  INSTRUCTION_NAMES,
+  loadProjectInstructions,
+  statSignature,
+} from "./instructions.js";
 import {
   DefaultSkillRegistry,
   skillCacheSignature,
@@ -40,10 +44,7 @@ import {
   type Reserve,
 } from "./checkpoint.js";
 
-export type {
-  CompactionStrategy,
-  MemoryCheckpoint,
-} from "./checkpoint.js";
+export type { CompactionStrategy, MemoryCheckpoint } from "./checkpoint.js";
 export { SUMMARY_HEADINGS } from "./checkpoint.js";
 
 export interface ContextManagerOptions {
@@ -501,7 +502,10 @@ export class ContextManager {
     older: Message[],
     focus?: string,
     silent = false,
-  ): Promise<{ summary: string; usage?: { input?: number; output?: number } } | null> {
+  ): Promise<{
+    summary: string;
+    usage?: { input?: number; output?: number };
+  } | null> {
     // Bound the summarizer input so a huge history cannot make the
     // summarization request itself exceed the model window.
     const capChars = Math.max(4000, Math.floor(this.budget() * 4 * 0.6));
@@ -626,7 +630,9 @@ export class ContextManager {
       );
       if (resp.usage) {
         usage = {
-          ...(resp.usage.input !== undefined ? { input: resp.usage.input } : {}),
+          ...(resp.usage.input !== undefined
+            ? { input: resp.usage.input }
+            : {}),
           ...(resp.usage.output !== undefined
             ? { output: resp.usage.output }
             : {}),
@@ -648,7 +654,8 @@ export class ContextManager {
         try {
           return await deliver(prompt, body);
         } catch (error) {
-          if (!isOverflowError(error) || step === SHRINK_STEPS.at(-1)) throw error;
+          if (!isOverflowError(error) || step === SHRINK_STEPS.at(-1))
+            throw error;
         }
       }
       return "";
@@ -662,7 +669,10 @@ export class ContextManager {
           `${summaryNudge()}\n${buildSummaryPrompt({ focus, previous })}`,
         );
         if (!hasAllSummaryHeadings(summaryText)) {
-          return this.failCompaction("summary missing required headings", silent);
+          return this.failCompaction(
+            "summary missing required headings",
+            silent,
+          );
         }
       }
     } catch {
@@ -682,7 +692,10 @@ export class ContextManager {
     if (!silent) {
       this.lastCompactionFailure = reason;
       this.opts.onCompactionLifecycle?.("failed", {
-        model: strategy === "native" ? this.opts.model : this.opts.compactionModel || this.opts.model,
+        model:
+          strategy === "native"
+            ? this.opts.model
+            : this.opts.compactionModel || this.opts.model,
         strategy,
         reason,
       });
@@ -697,7 +710,11 @@ export class ContextManager {
   ): Promise<MemoryCheckpoint | null> {
     const compact = (this.opts.provider as any).compact;
     if (typeof compact !== "function") {
-      return this.failCompaction("native compaction unavailable", false, "native");
+      return this.failCompaction(
+        "native compaction unavailable",
+        false,
+        "native",
+      );
     }
     this.opts.onCompactionLifecycle?.("started", {
       model: this.opts.model,
@@ -715,7 +732,9 @@ export class ContextManager {
         const response = await compact({
           model: this.opts.model,
           messages,
-          recentUserMessages: recent.filter((message) => message.role === "user"),
+          recentUserMessages: recent.filter(
+            (message) => message.role === "user",
+          ),
           keepTokens: Math.max(1, Math.floor(keepTokens * step)),
         });
         const payload =
@@ -746,7 +765,8 @@ export class ContextManager {
         };
       } catch (error) {
         if (!isOverflowError(error) || step === SHRINK_STEPS.at(-1)) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message =
+            error instanceof Error ? error.message : String(error);
           return this.failCompaction(
             `native compaction rejected: ${message}`,
             false,
@@ -833,7 +853,11 @@ export class ContextManager {
             content: [
               {
                 type: "text",
-                text: `Context summary from previous compaction:\n${this.sessionMemory}`,
+                text:
+                  this.checkpoint?.strategy === "native" &&
+                  this.checkpoint.native
+                    ? `Provider checkpoint: ${this.checkpoint.native.payload}`
+                    : `Context summary from previous compaction:\n${this.sessionMemory}`,
               },
             ],
           },

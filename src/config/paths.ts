@@ -17,7 +17,8 @@ export function userConfigDir(): string {
 /** Base directory for Atom-lite cache data and generated artifacts. */
 export function userCacheDir(): string {
   if (platform() === "win32") {
-    const base = process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
+    const base =
+      process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
     return join(base, "atom-lite");
   }
   if (platform() === "darwin") {

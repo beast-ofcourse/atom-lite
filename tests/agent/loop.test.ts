@@ -57,7 +57,11 @@ test("agent loop injects instructions discovered by a read", async () => {
   writeFileSync(join(dir, "sub", "AGENTS.md"), "nested loop guidance");
   writeFileSync(join(dir, "sub", "file.txt"), "body\n");
   const provider = new FakeProvider([
-    { toolCalls: [{ id: "c1", name: "read", arguments: { path: "sub/file.txt" } }] },
+    {
+      toolCalls: [
+        { id: "c1", name: "read", arguments: { path: "sub/file.txt" } },
+      ],
+    },
     { text: "done" },
   ]);
   const contextManager = new ContextManager({
@@ -77,9 +81,18 @@ test("agent loop injects instructions discovered by a read", async () => {
     contextManager,
   });
   const session = new InMemorySession("s1", dir);
-  assert.equal(await runtime.runAgentTurn("read a file", session, new AbortController().signal), "done");
+  assert.equal(
+    await runtime.runAgentTurn(
+      "read a file",
+      session,
+      new AbortController().signal,
+    ),
+    "done",
+  );
   const built = (await contextManager.build(dir, []))
-    .map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)))
+    .map((m) =>
+      typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+    )
     .join("\n");
   assert.match(built, /nested loop guidance/);
 });

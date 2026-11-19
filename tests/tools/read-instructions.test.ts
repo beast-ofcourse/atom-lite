@@ -12,7 +12,11 @@ test("read reports a successful file path for instruction discovery", async () =
   writeFileSync(join(dir, "sub", "AGENTS.md"), "nested guidance");
   writeFileSync(join(dir, "sub", "file.txt"), "body");
   const seen: string[] = [];
-  const result = await read(dir, { path: "sub/file.txt" }, { onReadPath: (path) => seen.push(path) });
+  const result = await read(
+    dir,
+    { path: "sub/file.txt" },
+    { onReadPath: (path) => seen.push(path) },
+  );
   assert.equal(result.isError, undefined);
   assert.deepEqual(seen, [join(dir, "sub", "file.txt")]);
 });
@@ -21,7 +25,11 @@ test("read reports a successful file path for instruction discovery", async () =
 test("read does not report a path when the read fails", async () => {
   const dir = mkdtempSync(join(tmpdir(), "read-instructions-miss-"));
   const seen: string[] = [];
-  const result = await read(dir, { path: "missing.txt" }, { onReadPath: (path) => seen.push(path) });
+  const result = await read(
+    dir,
+    { path: "missing.txt" },
+    { onReadPath: (path) => seen.push(path) },
+  );
   assert.equal(result.isError, true);
   assert.deepEqual(seen, []);
 });
@@ -31,7 +39,11 @@ test("read reports a directory path for instruction discovery", async () => {
   const dir = mkdtempSync(join(tmpdir(), "read-instructions-dir-"));
   mkdirSync(join(dir, "sub"));
   const seen: string[] = [];
-  const result = await read(dir, { path: "sub" }, { onReadPath: (path) => seen.push(path) });
+  const result = await read(
+    dir,
+    { path: "sub" },
+    { onReadPath: (path) => seen.push(path) },
+  );
   assert.equal(result.isError, undefined);
   assert.deepEqual(seen, [join(dir, "sub")]);
 });

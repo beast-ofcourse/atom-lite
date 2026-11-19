@@ -57,7 +57,9 @@ test("a held summary is prepared ahead of the trigger and swapped in", async () 
   assert.equal(cm.consumeCompaction(), true);
   const checkpoint = cm.getLastCompactionCheckpoint();
   assert.equal(checkpoint?.summary, VALID_SUMMARY);
-  assert.ok((compacted as any[]).some((m) =>
-    JSON.stringify(m).includes("Context summary:"),
-  ));
+  assert.ok(
+    (compacted as any[]).some((m) =>
+      JSON.stringify(m).includes("Context summary:"),
+    ),
+  );
 });

@@ -8,12 +8,14 @@ import { webfetchTool, websearchTool } from "../dist/tools/index.js";
 const args = process.argv.slice(2);
 const outIndex = args.indexOf("--out");
 const baselineIndex = args.indexOf("--baseline");
-const outPath = outIndex >= 0 ? args[outIndex + 1] : "scripts/bench-web.results.json";
+const outPath =
+  outIndex >= 0 ? args[outIndex + 1] : "scripts/bench-web.results.json";
 const baselinePath = baselineIndex >= 0 ? args[baselineIndex + 1] : undefined;
 const sourceCommit = execSync("git rev-parse --short HEAD").toString().trim();
 
 const boilerplate = "<nav>" + "navigation ".repeat(20_000) + "</nav>";
-const main = "<main><h1>Answer</h1><p>" + "useful content ".repeat(400) + "</p></main>";
+const main =
+  "<main><h1>Answer</h1><p>" + "useful content ".repeat(400) + "</p></main>";
 const fixtures = {
   "/large": {
     body: `<html><body>${boilerplate}${main}</body></html>`,
@@ -24,8 +26,10 @@ const fixtures = {
     type: "text/plain",
   },
   "/search": {
-    body: `<html><body>${Array.from({ length: 20 }, (_, i) =>
-      `<div class="result"><a class="result__a" href="https://example.com/${i}">Result ${i} bench query</a><a class="result__snippet">bench query snippet ${i}</a></div>`,
+    body: `<html><body>${Array.from(
+      { length: 20 },
+      (_, i) =>
+        `<div class="result"><a class="result__a" href="https://example.com/${i}">Result ${i} bench query</a><a class="result__snippet">bench query snippet ${i}</a></div>`,
     ).join("")}</body></html>`,
     type: "text/html",
   },
@@ -129,7 +133,11 @@ const cases = [
         {
           id: "bench-text",
           name: "webfetch",
-          arguments: { url: `${base}/text`, format: "text", freshness: "strict" },
+          arguments: {
+            url: `${base}/text`,
+            format: "text",
+            freshness: "strict",
+          },
         },
         ctx,
       ),

@@ -18,12 +18,17 @@ export function statSignature(paths: string[]): string {
 }
 
 /** Find instruction files beside a read target, walking up to the workspace root exclusive. */
-export function discoverInstructionPaths(workspace: string, target: string): string[] {
+export function discoverInstructionPaths(
+  workspace: string,
+  target: string,
+): string[] {
   try {
     if (!existsSync(target) || !isAbsolute(target)) return [];
     const root = realpathSync(workspace);
     const resolved = realpathSync(target);
-    let cursor = statSync(resolved).isDirectory() ? resolved : dirname(resolved);
+    let cursor = statSync(resolved).isDirectory()
+      ? resolved
+      : dirname(resolved);
     const found: string[] = [];
     const seen = new Set<string>();
     for (;;) {

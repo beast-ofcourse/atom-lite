@@ -25,7 +25,9 @@ function manager(dir: string): ContextManager {
 
 function text(messages: any[]): string {
   return messages
-    .map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)))
+    .map((m) =>
+      typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+    )
     .join("\n");
 }
 
@@ -98,7 +100,10 @@ test("discovery walks up from a read path to the workspace root exclusive", asyn
   writeFileSync(join(dir, "a", "b", "AGENTS.md"), "b rules");
   writeFileSync(join(dir, "a", "b", "file.txt"), "file");
   const found = discoverInstructionPaths(dir, join(dir, "a", "b", "file.txt"));
-  assert.deepEqual(found, [join(dir, "a", "b", "AGENTS.md"), join(dir, "a", "CLAUDE.md")]);
+  assert.deepEqual(found, [
+    join(dir, "a", "b", "AGENTS.md"),
+    join(dir, "a", "CLAUDE.md"),
+  ]);
 });
 
 // Contract: discovery outside the workspace is skipped.
@@ -106,5 +111,8 @@ test("discovery returns no paths for a target outside the workspace", () => {
   const dir = mkdtempSync(join(tmpdir(), "atom-nested-external-"));
   const outside = mkdtempSync(join(tmpdir(), "atom-nested-outside-"));
   writeFileSync(join(outside, "AGENTS.md"), "outside");
-  assert.deepEqual(discoverInstructionPaths(dir, join(outside, "file.txt")), []);
+  assert.deepEqual(
+    discoverInstructionPaths(dir, join(outside, "file.txt")),
+    [],
+  );
 });

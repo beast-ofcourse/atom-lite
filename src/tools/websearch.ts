@@ -67,14 +67,18 @@ function cacheKey(
   return `search\n${provider}\n${limit}\n${query.trim().toLowerCase()}`;
 }
 
-function canonicalUrl(raw: string, base = "https://duckduckgo.com"): string | undefined {
+function canonicalUrl(
+  raw: string,
+  base = "https://duckduckgo.com",
+): string | undefined {
   let parsed: URL;
   try {
     parsed = new URL(raw, base);
   } catch {
     return undefined;
   }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return undefined;
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
+    return undefined;
   parsed.hash = "";
   parsed.host = parsed.host.toLowerCase();
   for (const key of [...parsed.searchParams.keys()]) {
@@ -144,10 +148,7 @@ function compareScore(
 }
 
 function rankResults(results: SearchResult[], query: string): SearchResult[] {
-  const terms = query
-    .toLowerCase()
-    .split(/\W+/)
-    .filter(Boolean);
+  const terms = query.toLowerCase().split(/\W+/).filter(Boolean);
   const scored = results.map((result) => {
     const title = result.title.toLowerCase();
     const content = result.content.toLowerCase();
@@ -437,20 +438,16 @@ async function searchWithProviders(
     const outcome =
       id === "ddg"
         ? await executeDdg(query, maxBytes, signal)
-        : await executeProvider(
-            id,
-            query,
-            limit,
-            keyFor(id),
-            signal,
-            maxBytes,
-          );
+        : await executeProvider(id, query, limit, keyFor(id), signal, maxBytes);
     if (outcome.ok && outcome.results) return { results: outcome.results };
     if (!outcome.ok && id !== "ddg") {
       if (outcome.rateLimited) sawRateLimit = true;
       cooldowns.set(
         id,
-        Date.now() + parseRetryAfter(outcome.rateLimited ? (outcome.retryAfter ?? null) : null),
+        Date.now() +
+          parseRetryAfter(
+            outcome.rateLimited ? (outcome.retryAfter ?? null) : null,
+          ),
       );
     }
   }
@@ -491,7 +488,11 @@ export const websearchTool: Tool = {
     const { query } = parsed.data;
     const freshness: Freshness = parsed.data.freshness ?? "fast";
     const configured = Math.min(ctx.web?.search.maxResults ?? 8, 20);
-    const limit = Math.min(parsed.data.num_results ?? configured, configured, 20);
+    const limit = Math.min(
+      parsed.data.num_results ?? configured,
+      configured,
+      20,
+    );
     const key = cacheKey(
       query,
       (ctx.web?.search.provider ?? "auto") as ProviderSelection,
@@ -518,10 +519,10 @@ export const websearchTool: Tool = {
             isError: true,
           };
         }
-        const ranked = rankResults(
-          dedupeResults(search.results),
-          query,
-        ).slice(0, limit);
+        const ranked = rankResults(dedupeResults(search.results), query).slice(
+          0,
+          limit,
+        );
         if (ranked.length === 0) {
           return {
             toolCallId: call.id,
@@ -558,7 +559,10 @@ export const websearchTool: Tool = {
       if (result.isError) return;
       searchCache.put(target, {
         content: result.content,
-        structured: (result.structuredContent ?? []) as Record<string, string>[],
+        structured: (result.structuredContent ?? []) as Record<
+          string,
+          string
+        >[],
         createdAt: Date.now(),
       });
     };

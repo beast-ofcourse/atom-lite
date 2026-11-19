@@ -1,9 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type {
-  MessageAttribution,
-  PrefixInfo,
-} from "../context/attribution.js";
+import type { MessageAttribution, PrefixInfo } from "../context/attribution.js";
 import type { TokenUsage } from "../types.js";
 
 /** Explicit price for a model, in USD per one million tokens. */
@@ -24,7 +21,10 @@ export function computeUsageCost(
   pricing: ModelPricing | undefined,
   usage: TokenUsage,
 ): { costUsd: number; costIfNoCacheUsd: number } | undefined {
-  if (!pricing || (pricing.input === undefined && pricing.output === undefined)) {
+  if (
+    !pricing ||
+    (pricing.input === undefined && pricing.output === undefined)
+  ) {
     return undefined;
   }
   const inputRate = (pricing.input ?? 0) / 1_000_000;
@@ -109,12 +109,16 @@ export function recordModelUsage(
     ledger.record({
       timestamp: new Date().toISOString(),
       ...context,
-      ...(cost ? { costUsd: cost.costUsd, costIfNoCacheUsd: cost.costIfNoCacheUsd } : {}),
+      ...(cost
+        ? { costUsd: cost.costUsd, costIfNoCacheUsd: cost.costIfNoCacheUsd }
+        : {}),
       usage: {
         input: usage.input ?? null,
         output: usage.output ?? null,
         total: usage.total ?? null,
-        ...(usage.cacheRead !== undefined ? { cacheRead: usage.cacheRead } : {}),
+        ...(usage.cacheRead !== undefined
+          ? { cacheRead: usage.cacheRead }
+          : {}),
         ...(usage.cacheWrite !== undefined
           ? { cacheWrite: usage.cacheWrite }
           : {}),

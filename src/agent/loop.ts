@@ -150,7 +150,9 @@ export class AgentRuntime {
         model: this.model,
         getMessages: () => this.lastBuiltMessages,
         intervalMs:
-          config && typeof config.interval === "number" ? config.interval : 240_000,
+          config && typeof config.interval === "number"
+            ? config.interval
+            : 240_000,
         durationMs: config?.duration ?? 1_800_000,
       });
     }

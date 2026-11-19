@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { invokeRead as read } from "./read-test-helpers.ts";
 
-const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01]);
+const PNG = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01,
+]);
 const PDF = Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n");
 
 // Contract: media detection uses bytes, not the filename, so renamed images still attach.
@@ -79,7 +81,11 @@ test("read reports missing vision before the media size limit", async () => {
   const dir = mkdtempSync(join(tmpdir(), "read-media-vision-first-"));
   const huge = Buffer.concat([PDF, Buffer.alloc(21 * 1024 * 1024)]);
   writeFileSync(join(dir, "huge.pdf"), huge);
-  const result = await read(dir, { path: "huge.pdf" }, { supportsVision: false });
+  const result = await read(
+    dir,
+    { path: "huge.pdf" },
+    { supportsVision: false },
+  );
   assert.equal(result.isError, true);
   assert.match(result.content, /vision not supported/);
   assert.doesNotMatch(result.content, /MEDIA_TOO_LARGE/);

@@ -20,32 +20,20 @@ test("initial baseline renders its frozen text", () => {
 
 test("a changed instruction set appends one hash-identified update", () => {
   const initial = initialBaseline(["rule one"], 0);
-  const changed = recordInstructionChange(
-    initial,
-    ["rule one", "rule two"],
-    7,
-  );
+  const changed = recordInstructionChange(initial, ["rule one", "rule two"], 7);
   assert.equal(changed.updates.length, 1);
   assert.equal(changed.updates[0].seq, 7);
-  assert.equal(changed.updates[0].hash, hashInstructions(["rule one", "rule two"]));
-  assert.deepEqual(renderedInstructionTexts(changed), [
-    "rule one",
-    "rule two",
-  ]);
-  const same = recordInstructionChange(
-    changed,
-    ["rule one", "rule two"],
-    8,
+  assert.equal(
+    changed.updates[0].hash,
+    hashInstructions(["rule one", "rule two"]),
   );
+  assert.deepEqual(renderedInstructionTexts(changed), ["rule one", "rule two"]);
+  const same = recordInstructionChange(changed, ["rule one", "rule two"], 8);
   assert.equal(same, changed);
 });
 
 test("a fold freezes current text and drops earlier updates", () => {
-  const changed = recordInstructionChange(
-    initialBaseline(["old"]),
-    ["new"],
-    4,
-  );
+  const changed = recordInstructionChange(initialBaseline(["old"]), ["new"], 4);
   const folded = foldInstructionBaseline(changed, ["new"], 9);
   assert.deepEqual(folded.baseline, ["new"]);
   assert.equal(folded.baselineSeq, 9);
@@ -67,9 +55,5 @@ test("repeated text across updates is not rendered twice", () => {
   let state = initialBaseline(["base"]);
   state = recordInstructionChange(state, ["base", "new"], 2);
   state = recordInstructionChange(state, ["base", "new", "later"], 5);
-  assert.deepEqual(renderedInstructionTexts(state), [
-    "base",
-    "new",
-    "later",
-  ]);
+  assert.deepEqual(renderedInstructionTexts(state), ["base", "new", "later"]);
 });

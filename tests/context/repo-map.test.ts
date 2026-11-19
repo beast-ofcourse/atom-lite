@@ -42,7 +42,10 @@ function stubProvider(): any {
   };
 }
 
-function manager(dir: string, repoMap: RepoMapOptions = settings()): ContextManager {
+function manager(
+  dir: string,
+  repoMap: RepoMapOptions = settings(),
+): ContextManager {
   return new ContextManager({
     systemPrompt: "system",
     maxInputTokens: null,

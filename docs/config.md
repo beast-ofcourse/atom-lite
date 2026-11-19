@@ -60,21 +60,21 @@ agent persona, or change your colours and editor behaviour.
 
 A profile is a named endpoint plus model and credentials.
 
-| Key              | Type              | Default           | Description                                                                                                              |
-| ---------------- | ----------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `type`           | string            | required          | `openai-compatible`, `ollama`, or `gemini`.                                                                              |
-| `model`          | string            | required          | Model id. `--model` overrides it for one run.                                                                            |
-| `baseUrl`        | URL string        | adapter-specific  | `http://127.0.0.1:1234/v1` for OpenAI-compatible, `http://127.0.0.1:11434` for Ollama, provider default for Gemini.      |
-| `apiKeyEnv`      | string \| null    | none              | Environment variable that holds the key.                                                                                 |
-| `apiKey`         | string \| null    | none              | Inline key. Prefer `apiKeyEnv` or the credentials file.                                                                  |
-| `headers`        | object of strings | none              | Extra HTTP headers.                                                                                                      |
-| `contextWindow`  | positive integer  | provider metadata | Explicit context window for models without metadata. Highest-priority source for the status meter and compaction budget. |
-| `supportsVision` | boolean           | provider metadata | Whether the selected model accepts image input. Overrides provider detection.                                            |
-| `compactionStrategy` | `"auto"` \| `"summary"` \| `"native"` | context setting | Provider-level compaction policy. A model entry overrides it. |
-| `models`         | object            | none              | Map of model id to `{ "compactionStrategy": ... }` for per-model policy. |
-| `keepAlive`      | string            | adapter default   | Ollama only: how long the model stays loaded.                                                                            |
-| `think`          | boolean \| string | adapter default   | Ollama only: forwarded as the `think` option for reasoning models.                                                       |
-| `options`        | object            | none              | Ollama only: request options merged into every call (for example sampling settings).                                     |
+| Key                  | Type                                  | Default           | Description                                                                                                              |
+| -------------------- | ------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `type`               | string                                | required          | `openai-compatible`, `ollama`, or `gemini`.                                                                              |
+| `model`              | string                                | required          | Model id. `--model` overrides it for one run.                                                                            |
+| `baseUrl`            | URL string                            | adapter-specific  | `http://127.0.0.1:1234/v1` for OpenAI-compatible, `http://127.0.0.1:11434` for Ollama, provider default for Gemini.      |
+| `apiKeyEnv`          | string \| null                        | none              | Environment variable that holds the key.                                                                                 |
+| `apiKey`             | string \| null                        | none              | Inline key. Prefer `apiKeyEnv` or the credentials file.                                                                  |
+| `headers`            | object of strings                     | none              | Extra HTTP headers.                                                                                                      |
+| `contextWindow`      | positive integer                      | provider metadata | Explicit context window for models without metadata. Highest-priority source for the status meter and compaction budget. |
+| `supportsVision`     | boolean                               | provider metadata | Whether the selected model accepts image input. Overrides provider detection.                                            |
+| `compactionStrategy` | `"auto"` \| `"summary"` \| `"native"` | context setting   | Provider-level compaction policy. A model entry overrides it.                                                            |
+| `models`             | object                                | none              | Map of model id to `{ "compactionStrategy": ... }` for per-model policy.                                                 |
+| `keepAlive`          | string                                | adapter default   | Ollama only: how long the model stays loaded.                                                                            |
+| `think`              | boolean \| string                     | adapter default   | Ollama only: forwarded as the `think` option for reasoning models.                                                       |
+| `options`            | object                                | none              | Ollama only: request options merged into every call (for example sampling settings).                                     |
 
 Credential lookup order for a profile: `apiKeyEnv` environment variable, then the
 stored credential, then inline `apiKey`.
@@ -95,21 +95,21 @@ stored credential, then inline `apiKey`.
 
 ## `context`
 
-| Key                          | Type                                     | Default | Description                                                   |
-| ---------------------------- | ---------------------------------------- | ------- | ------------------------------------------------------------- |
-| `maxInputTokens`             | positive integer \| null                 | `null`  | Input budget. `null` derives it from the model window.        |
-| `reserveOutputTokens`        | positive integer                         | `4096`  | Headroom kept for the response.                               |
-| `compactAtPercent`           | integer 1–100                            | `85`    | Context usage that triggers compaction.                       |
-| `maxProjectInstructionBytes` | positive integer                         | `30000` | Cap on injected `AGENTS.md`/`CLAUDE.md`-style instructions.   |
-| `compactEveryNTurns`         | integer >= 0                             | `0`     | Compact every N turns. `0` disables periodic compaction.      |
-| `compactionModel`            | non-empty string \| null                 | `null`  | Model for compaction summaries. `null` uses the active model. |
-| `compactionStrategy`         | `"auto"` \| `"summary"` \| `"native"`     | `"auto"` | Compaction policy. `auto` uses provider-managed compaction only when the provider advertises it; otherwise it summarizes. |
-| `keepTokens`                 | integer >= 0                             | `15000` | Token budget for the recent tail kept beside the summary.     |
-| `buffer`                     | percent string \| integer \| null         | `null`  | Compaction reserve. A percent is a share of the model window; an integer is an exact token reserve. `null` derives it from `compactAtPercent`. Independent of `reserveOutputTokens`. |
-| `background`                 | boolean                                  | `false` | Write a summary ahead of the trigger and swap it in when compaction is due. Unused summaries still cost tokens. |
-| `warming`                    | boolean \| object                         | `false` | Opt-in prompt-cache keep-alive. Object form accepts `interval` (`"auto"` or positive integer milliseconds) and `duration` (positive integer milliseconds). |
-| `cacheMode`                  | `"off"` \| `"automatic"` \| `"explicit"` | `"off"` | Prompt-cache layout mode. `off` keeps today's message order.  |
-| `repoMap`                    | object                                  | see below | Opt-in bounded repo map injected as a trailing system message. |
+| Key                          | Type                                     | Default   | Description                                                                                                                                                                          |
+| ---------------------------- | ---------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `maxInputTokens`             | positive integer \| null                 | `null`    | Input budget. `null` derives it from the model window.                                                                                                                               |
+| `reserveOutputTokens`        | positive integer                         | `4096`    | Headroom kept for the response.                                                                                                                                                      |
+| `compactAtPercent`           | integer 1–100                            | `85`      | Context usage that triggers compaction.                                                                                                                                              |
+| `maxProjectInstructionBytes` | positive integer                         | `30000`   | Cap on injected `AGENTS.md`/`CLAUDE.md`-style instructions.                                                                                                                          |
+| `compactEveryNTurns`         | integer >= 0                             | `0`       | Compact every N turns. `0` disables periodic compaction.                                                                                                                             |
+| `compactionModel`            | non-empty string \| null                 | `null`    | Model for compaction summaries. `null` uses the active model.                                                                                                                        |
+| `compactionStrategy`         | `"auto"` \| `"summary"` \| `"native"`    | `"auto"`  | Compaction policy. `auto` uses provider-managed compaction only when the provider advertises it; otherwise it summarizes.                                                            |
+| `keepTokens`                 | integer >= 0                             | `15000`   | Token budget for the recent tail kept beside the summary.                                                                                                                            |
+| `buffer`                     | percent string \| integer \| null        | `null`    | Compaction reserve. A percent is a share of the model window; an integer is an exact token reserve. `null` derives it from `compactAtPercent`. Independent of `reserveOutputTokens`. |
+| `background`                 | boolean                                  | `false`   | Write a summary ahead of the trigger and swap it in when compaction is due. Unused summaries still cost tokens.                                                                      |
+| `warming`                    | boolean \| object                        | `false`   | Opt-in prompt-cache keep-alive. Object form accepts `interval` (`"auto"` or positive integer milliseconds) and `duration` (positive integer milliseconds).                           |
+| `cacheMode`                  | `"off"` \| `"automatic"` \| `"explicit"` | `"off"`   | Prompt-cache layout mode. `off` keeps today's message order.                                                                                                                         |
+| `repoMap`                    | object                                   | see below | Opt-in bounded repo map injected as a trailing system message.                                                                                                                       |
 
 The model window is resolved from, in order: `providers.<name>.contextWindow`,
 live provider metadata, then a built-in table of known model families.
@@ -128,11 +128,11 @@ The repo map is off by default. Set `context.repoMap.enabled` to `true` to injec
 a compact map of workspace definitions into every agent turn. You can set these
 keys in either user or project config; project values win.
 
-| Key         | Type         | Default | Description                                                                |
-| ----------- | ------------ | ------- | -------------------------------------------------------------------------- |
-| `enabled`   | boolean      | `false` | Turn the map on without changing the other keys.                           |
-| `maxTokens` | integer >= 0 | `1200`  | Budget for the final map message. `0` disables the map.                     |
-| `maxFiles`  | integer >= 0 | `400`   | Maximum number of workspace files considered when building the map.        |
+| Key         | Type         | Default | Description                                                         |
+| ----------- | ------------ | ------- | ------------------------------------------------------------------- |
+| `enabled`   | boolean      | `false` | Turn the map on without changing the other keys.                    |
+| `maxTokens` | integer >= 0 | `1200`  | Budget for the final map message. `0` disables the map.             |
+| `maxFiles`  | integer >= 0 | `400`   | Maximum number of workspace files considered when building the map. |
 
 > **Note:** The map scans the whole workspace recursively, including nested
 > project directories. Enable it at a workspace root you want mapped, not in a
@@ -149,18 +149,18 @@ small headroom, so the reported size matches token accounting.
 
 Settings for the `webfetch` and `websearch` built-in tools. Set them in either user or project config; project values win per leaf. The section uses two sub-objects, `fetch` and `search`, with keys `cacheTtlSeconds`, `maxBytes`, `maxOutputChars`, `extract`, `provider`, `maxResults`, and `fallback`.
 
-| Key                     | Type                                                        | Default   | Description                                             |
-| ----------------------- | ----------------------------------------------------------- | --------- | ------------------------------------------------------- |
-| `web.fetch.cacheTtlSeconds`  | positive integer                                       | `300`     | Reuse a fetched response within this many seconds.      |
-| `web.fetch.maxBytes`         | positive integer                                       | `5242880` | Reject a response body larger than this many bytes.     |
-| `web.fetch.maxOutputChars`   | positive integer                                       | `30000`   | Bound the model-visible fetch result.                   |
-| `web.fetch.extract`          | `"auto"` \| `"main"` \| `"full"`                        | `"auto"`  | Main-content extraction mode for HTML pages.            |
-| `web.search.provider`        | `"auto"` \| `"ddg"` \| `"tavily"` \| `"brave"` \| `"exa"` \| `"serper"` | `"auto"` | Search provider selection.                 |
-| `web.search.maxResults`      | positive integer                                       | `8`       | Default result count; capped at 20.                     |
-| `web.search.cacheTtlSeconds` | positive integer                                       | `120`     | Reuse search results within this many seconds.          |
-| `web.search.fallback`        | boolean                                                 | `true`    | Allow failover and DuckDuckGo as the final fallback.    |
+| Key                          | Type                                                                    | Default   | Description                                          |
+| ---------------------------- | ----------------------------------------------------------------------- | --------- | ---------------------------------------------------- |
+| `web.fetch.cacheTtlSeconds`  | positive integer                                                        | `300`     | Reuse a fetched response within this many seconds.   |
+| `web.fetch.maxBytes`         | positive integer                                                        | `5242880` | Reject a response body larger than this many bytes.  |
+| `web.fetch.maxOutputChars`   | positive integer                                                        | `30000`   | Bound the model-visible fetch result.                |
+| `web.fetch.extract`          | `"auto"` \| `"main"` \| `"full"`                                        | `"auto"`  | Main-content extraction mode for HTML pages.         |
+| `web.search.provider`        | `"auto"` \| `"ddg"` \| `"tavily"` \| `"brave"` \| `"exa"` \| `"serper"` | `"auto"`  | Search provider selection.                           |
+| `web.search.maxResults`      | positive integer                                                        | `8`       | Default result count; capped at 20.                  |
+| `web.search.cacheTtlSeconds` | positive integer                                                        | `120`     | Reuse search results within this many seconds.       |
+| `web.search.fallback`        | boolean                                                                 | `true`    | Allow failover and DuckDuckGo as the final fallback. |
 
-Set credentials in `TAVILY_API_KEY`, `BRAVE_API_KEY`, `EXA_API_KEY`, or `SERPER_API_KEY`. Set `web.search.provider` to select a provider; with `auto`, Atom-lite tries configured keys in that order and then DuckDuckGo. When a provider rate-limits a call, Atom-lite cools it down for 60 seconds, or for the duration in `Retry-After`. Set `web.search.fallback` to `false` to try only the selected provider and return a provider error instead of failing over.
+Set credentials in `TAVILY_API_KEY`, `BRAVE_API_KEY`, `EXA_API_KEY`, or `SERPER_API_KEY`. Set `web.search.provider` to select a provider; with `auto`, Atom-lite tries configured keys in that order and then DuckDuckGo. When a provider call fails, Atom-lite cools that provider down for 60 seconds, or for the duration in `Retry-After` when the response is a rate limit. Set `web.search.fallback` to `false` to try only the selected provider and return a provider error instead of failing over.
 
 A response larger than `web.fetch.maxBytes` returns `OUTPUT_TRUNCATED: response too large` as an error. The effective output cap is the smaller of `web.fetch.maxOutputChars` and the runtime `maxToolOutputBytes` cap.
 

@@ -30,8 +30,7 @@ export interface MemoryCheckpoint {
 }
 
 export type Reserve =
-  | { kind: "percent"; value: number }
-  | { kind: "tokens"; value: number };
+  { kind: "percent"; value: number } | { kind: "tokens"; value: number };
 
 /** Resolve the compaction reserve from the explicit setting or the legacy percent. */
 export function resolveReserve(
@@ -168,9 +167,6 @@ export function withOlder(split: TailSplit): TailSplit {
     recent: split.recent.slice(1),
     older: [first],
     keptCount: split.recent.length - 1,
-    keptTokens: Math.max(
-      0,
-      split.keptTokens - estimateMessageTokens(first),
-    ),
+    keptTokens: Math.max(0, split.keptTokens - estimateMessageTokens(first)),
   };
 }

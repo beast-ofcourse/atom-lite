@@ -26,7 +26,10 @@ function harness(compact: (request: any) => Promise<any>) {
       generateCalls.push(request);
       requests.push(request);
       return {
-        message: { role: "assistant", content: [{ type: "text", text: "answer" }] },
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "answer" }],
+        },
         toolCalls: [],
         finishReason: "stop",
       };
@@ -38,7 +41,7 @@ function harness(compact: (request: any) => Promise<any>) {
     reserveOutputTokens: 10,
     compactAtPercent: 85,
     maxProjectInstructionBytes: 30000,
-    strategy: "native",
+    compactionStrategy: "native",
     provider: provider as any,
     model: "model-a",
     userInstructionsPath: "/tmp/missing-native-AGENTS.md",
@@ -64,6 +67,24 @@ test("native compaction records the provider payload and keeps user messages", a
   assert.equal(checkpoint?.native?.model, "model-a");
   assert.equal(checkpoint?.native?.payload, "opaque-checkpoint");
   assert.match(JSON.stringify(built), /opaque-checkpoint/);
+});
+
+test("the provider payload replays on later builds and after resume", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "atom-native-replay-"));
+  const { cm } = harness(async () => ({ payload: "replay-payload" }));
+  cm.setForceCompact(true);
+  await cm.build(dir, messages(10));
+  const checkpoint = cm.getLastCompactionCheckpoint();
+  assert.equal(checkpoint?.native?.payload, "replay-payload");
+
+  cm.setForceCompact(false);
+  const later = await cm.build(dir, messages(12));
+  assert.match(JSON.stringify(later), /replay-payload/);
+
+  const resumed = harness(async () => ({ payload: "unused" })).cm;
+  resumed.setSessionMemory("[provider checkpoint]", 10, checkpoint);
+  const replayed = await resumed.build(dir, messages(12));
+  assert.match(JSON.stringify(replayed), /replay-payload/);
 });
 
 test("a native rejection is an error, not a downgrade to summary", async () => {

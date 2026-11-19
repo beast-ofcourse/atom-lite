@@ -125,7 +125,10 @@ export function attributeMessages(
 } {
   const layout = layouts.get(messages);
   if (!layout || layout.categories.length !== messages.length) {
-    const fallback = classifyByContent(messages, layout?.toolTokenOverhead ?? 0);
+    const fallback = classifyByContent(
+      messages,
+      layout?.toolTokenOverhead ?? 0,
+    );
     return {
       attribution: fallback.attribution,
       compacted: layout?.compacted ?? false,
@@ -146,6 +149,8 @@ export function attributeMessages(
   };
 }
 
-export function attributeSummaryMessages(messages: Message[]): MessageAttribution {
+export function attributeSummaryMessages(
+  messages: Message[],
+): MessageAttribution {
   return classifyByContent(messages, 0).attribution;
 }

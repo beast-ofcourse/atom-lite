@@ -5,10 +5,7 @@ import assert from "node:assert/strict";
 import { resolveCompactionPolicy } from "../../dist/context/compaction-policy.js";
 
 test("auto selects summary when the provider has no native capability", () => {
-  assert.equal(
-    resolveCompactionPolicy({}, "model-a", false),
-    "summary",
-  );
+  assert.equal(resolveCompactionPolicy({}, "model-a", false), "summary");
 });
 
 test("auto selects native when the provider advertises it", () => {

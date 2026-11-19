@@ -39,9 +39,7 @@ class Provider {
     return {
       message: {
         role: "assistant",
-        content: [
-          { type: "text", text: this.responses.shift() ?? "done" },
-        ],
+        content: [{ type: "text", text: this.responses.shift() ?? "done" }],
       },
       toolCalls: [],
       finishReason: "stop",
@@ -49,7 +47,11 @@ class Provider {
   }
 }
 
-function runtime(dir: string, provider: Provider, contextManager: ContextManager) {
+function runtime(
+  dir: string,
+  provider: Provider,
+  contextManager: ContextManager,
+) {
   return new AgentRuntime({
     provider: provider as any,
     workspace: dir,
@@ -85,7 +87,9 @@ test("first turn freezes instruction text into a versioned session event", async
     session as any,
     new AbortController().signal,
   );
-  const baselines = session.events.filter((e) => e.type === "instruction_baseline");
+  const baselines = session.events.filter(
+    (e) => e.type === "instruction_baseline",
+  );
   assert.equal(baselines.length, 1);
   assert.equal(baselines[0].schemaVersion, 1);
   assert.deepEqual(baselines[0].baseline, ["frozen rule"]);
@@ -112,7 +116,9 @@ test("compaction folds current instruction text into a new baseline", async () =
     session as any,
     new AbortController().signal,
   );
-  const baselines = session.events.filter((e) => e.type === "instruction_baseline");
+  const baselines = session.events.filter(
+    (e) => e.type === "instruction_baseline",
+  );
   assert.equal(baselines.length, 2);
   const folded = baselines[1];
   assert.deepEqual(folded.baseline, ["rule one"]);

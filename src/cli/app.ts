@@ -3170,10 +3170,7 @@ export async function run(args: string[]): Promise<void> {
       );
       tui.requestRender();
     } else if (e.type === "context_compaction_failed") {
-      appendLine(
-        `compaction failed: ${e.reason}`,
-        theme.tokens.warning,
-      );
+      appendLine(`compaction failed: ${e.reason}`, theme.tokens.warning);
       tui.requestRender();
     } else if (e.type === "task_ledger_open") {
       appendLine(

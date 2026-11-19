@@ -85,7 +85,10 @@ test("compaction summarizer calls produce their own ledger record", async () => 
     usageLedger,
   });
   const session = new InMemorySession("sess-compact", dir);
-  session.messages.push({ role: "user", content: [{ type: "text", text: "old" }] });
+  session.messages.push({
+    role: "user",
+    content: [{ type: "text", text: "old" }],
+  });
   session.messages.push({
     role: "assistant",
     content: [{ type: "text", text: "older answer" }],

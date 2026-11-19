@@ -22,9 +22,21 @@ const LINE_TRUNCATED = `... (line truncated to ${MAX_LINE_CHARS} chars)`;
 /** Detect media from bytes alone, so an extension cannot turn text into an attachment. */
 function detectMediaMime(buf: Uint8Array): string | null {
   const b = buf as Buffer;
-  if (buf.length >= 4 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
-  if (buf.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
-  if (buf.length >= 6 && (b.subarray(0, 6).toString() === "GIF87a" || b.subarray(0, 6).toString() === "GIF89a"))
+  if (
+    buf.length >= 4 &&
+    b[0] === 0x89 &&
+    b[1] === 0x50 &&
+    b[2] === 0x4e &&
+    b[3] === 0x47
+  )
+    return "image/png";
+  if (buf.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff)
+    return "image/jpeg";
+  if (
+    buf.length >= 6 &&
+    (b.subarray(0, 6).toString() === "GIF87a" ||
+      b.subarray(0, 6).toString() === "GIF89a")
+  )
     return "image/gif";
   if (
     buf.length >= 12 &&
@@ -32,7 +44,8 @@ function detectMediaMime(buf: Uint8Array): string | null {
     b.subarray(8, 12).toString() === "WEBP"
   )
     return "image/webp";
-  if (buf.length >= 5 && b.subarray(0, 5).toString() === "%PDF-") return "application/pdf";
+  if (buf.length >= 5 && b.subarray(0, 5).toString() === "%PDF-")
+    return "application/pdf";
   return null;
 }
 
@@ -60,7 +73,8 @@ interface PageInput {
   outputCap: number;
 }
 
-const continuationHint = (line: number): string => `[Output truncated. Continue reading with offset: ${line}]`;
+const continuationHint = (line: number): string =>
+  `[Output truncated. Continue reading with offset: ${line}]`;
 
 interface PageLabels {
   empty: string;
@@ -73,13 +87,17 @@ interface PageWindow {
   end: number;
 }
 
-function pageWindow(offset: number | undefined, limit: number | undefined): PageWindow {
+function pageWindow(
+  offset: number | undefined,
+  limit: number | undefined,
+): PageWindow {
   const requested = offset ?? 1;
   const maxLines = Math.min(limit ?? MAX_READ_LINES, MAX_READ_LINES);
   return { requested, maxLines, end: requested - 1 + maxLines };
 }
 
-const pageBudget = (outputCap: number): number => Math.min(MAX_READ_BYTES, outputCap);
+const pageBudget = (outputCap: number): number =>
+  Math.min(MAX_READ_BYTES, outputCap);
 
 /** Assemble a bounded page from a header and one string per item. */
 function renderPaged(
@@ -93,21 +111,30 @@ function renderPaged(
   const rendered = [...items];
   let cursor = next;
   const render = (): string =>
-    [headerFor(rendered.length), ...rendered, ...(cursor === undefined ? [] : [continuationHint(cursor)])].join("\n");
+    [
+      headerFor(rendered.length),
+      ...rendered,
+      ...(cursor === undefined ? [] : [continuationHint(cursor)]),
+    ].join("\n");
   while (rendered.length > 0 && Buffer.byteLength(render()) > budget) {
     rendered.pop();
     cursor = firstItem + rendered.length;
   }
   const header = headerFor(rendered.length);
-  if (rendered.length === 0 && cursor === undefined) return `${header}\n${labels.empty}`;
+  if (rendered.length === 0 && cursor === undefined)
+    return `${header}\n${labels.empty}`;
   const body = rendered.length > 0 ? rendered.join("\n") : labels.clipped;
-  return cursor === undefined ? `${header}\n${body}` : `${header}\n${body}\n${continuationHint(cursor)}`;
+  return cursor === undefined
+    ? `${header}\n${body}`
+    : `${header}\n${body}\n${continuationHint(cursor)}`;
 }
 
 /** Keep a readable prefix of a very long line, counting code points not UTF-16 units. */
 function clampLine(line: string): string {
   const chars = Array.from(line);
-  return chars.length <= MAX_LINE_CHARS ? line : chars.slice(0, MAX_LINE_CHARS).join("") + LINE_TRUNCATED;
+  return chars.length <= MAX_LINE_CHARS
+    ? line
+    : chars.slice(0, MAX_LINE_CHARS).join("") + LINE_TRUNCATED;
 }
 
 /**
@@ -139,10 +166,19 @@ async function pageText(input: PageInput): Promise<string> {
     let text = raw;
     if (lineNo === 1 && text.charCodeAt(0) === 0xfeff) text = text.slice(1);
     if (text.endsWith("\r")) text = text.slice(0, -1);
-    const entry: LineEntry = { lineNumber: lineNo, text, hasNul: text.includes("\0") };
+    const entry: LineEntry = {
+      lineNumber: lineNo,
+      text,
+      hasNul: text.includes("\0"),
+    };
     tail.push(entry);
     if (tail.length > TAIL_LINES) tail.shift();
-    if (firstUnseen !== undefined || nextToCollect !== lineNo || entries.length >= maxLines) return;
+    if (
+      firstUnseen !== undefined ||
+      nextToCollect !== lineNo ||
+      entries.length >= maxLines
+    )
+      return;
     const cost = Buffer.byteLength(`${lineNo}: ${entry.text}`) + 1;
     if (byteCount + cost > budget) {
       firstUnseen = lineNo;
@@ -178,12 +214,16 @@ async function pageText(input: PageInput): Promise<string> {
   let pastEnd = false;
   if (requested > totalLines && totalLines > 0) {
     pastEnd = true;
-    firstItem = Math.max(1, totalLines - Math.min(limit ?? TAIL_LINES, TAIL_LINES) + 1);
+    firstItem = Math.max(
+      1,
+      totalLines - Math.min(limit ?? TAIL_LINES, TAIL_LINES) + 1,
+    );
     selected = tail.filter((entry) => entry.lineNumber >= firstItem);
   } else {
     selected = entries;
     next = firstUnseen;
-    if (next === undefined && requested + selected.length <= totalLines) next = requested + selected.length;
+    if (next === undefined && requested + selected.length <= totalLines)
+      next = requested + selected.length;
   }
 
   const digest = hash.digest("hex");
@@ -201,7 +241,8 @@ async function pageText(input: PageInput): Promise<string> {
     return header;
   };
 
-  if (selected.some((entry) => entry.hasNul)) return `Binary file detected (${size} bytes).`;
+  if (selected.some((entry) => entry.hasNul))
+    return `Binary file detected (${size} bytes).`;
   return renderPaged(
     headerFor,
     selected.map((entry) => `${entry.lineNumber}: ${clampLine(entry.text)}`),
@@ -271,7 +312,10 @@ async function pageDirectory(input: DirectoryInput): Promise<PageResult> {
   const firstItem = pastEnd ? Math.max(1, total - tailSize + 1) : requested;
   const visible = pastEnd
     ? tail.map((entry) => `${entry.name}${entry.directory ? "/" : ""}`)
-    : [...directories.map((name) => `${name}/`), ...files].slice(requested - 1, end);
+    : [...directories.map((name) => `${name}/`), ...files].slice(
+        requested - 1,
+        end,
+      );
   const next = pastEnd || end >= total ? undefined : end + 1;
   const headerFor = (count: number): string => {
     const base =
@@ -436,8 +480,15 @@ export const readTool: Tool = {
       };
     }
     try {
-      const firstBuffer = Buffer.allocUnsafe(Math.min(CHUNK_BYTES, st.size || 1));
-      const { bytesRead } = await handle.read(firstBuffer, 0, firstBuffer.length, 0);
+      const firstBuffer = Buffer.allocUnsafe(
+        Math.min(CHUNK_BYTES, st.size || 1),
+      );
+      const { bytesRead } = await handle.read(
+        firstBuffer,
+        0,
+        firstBuffer.length,
+        0,
+      );
       const first = firstBuffer.subarray(0, bytesRead);
       const mime = detectMediaMime(first);
       if (mime) {

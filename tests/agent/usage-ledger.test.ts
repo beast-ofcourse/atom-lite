@@ -79,7 +79,9 @@ test("ledger presence does not alter output, budget events, or usage", async () 
       events.some((e) => e.type === "budget_warning" && e.scope === "turn"),
     );
     assert.ok(
-      events.some((e) => e.type === "usage" && e.input === 60 && e.output === 5),
+      events.some(
+        (e) => e.type === "usage" && e.input === 60 && e.output === 5,
+      ),
     );
   }
 });

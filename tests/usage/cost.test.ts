@@ -82,7 +82,10 @@ test("an enabled ledger with pricing records cost for real model calls", async (
   const dir = mkdtempSync(join(tmpdir(), "usage-cost-rt-"));
   const path = join(dir, "ledger.jsonl");
   const provider = new FakeProvider([
-    { text: "ok", usage: { input: 200, output: 10, total: 210, cacheRead: 150 } },
+    {
+      text: "ok",
+      usage: { input: 200, output: 10, total: 210, cacheRead: 150 },
+    },
   ]);
   const runtime = new AgentRuntime({
     provider,

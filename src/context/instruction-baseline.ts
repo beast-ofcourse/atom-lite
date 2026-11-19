@@ -82,7 +82,10 @@ export function renderedInstructionTexts(
 ): string[] {
   const result: string[] = [];
   const seen = new Set<string>();
-  for (const value of [...state.baseline, ...state.updates.flatMap((u) => u.values)]) {
+  for (const value of [
+    ...state.baseline,
+    ...state.updates.flatMap((u) => u.values),
+  ]) {
     if (seen.has(value)) continue;
     seen.add(value);
     result.push(value);

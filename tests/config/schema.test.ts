@@ -64,7 +64,10 @@ test("memory checkpoint settings accept documented values and reject invalid one
   assert.throws(() => ConfigSchema.parse({ context: { buffer: "100%" } }));
   assert.throws(() => ConfigSchema.parse({ context: { keepTokens: -1 } }));
   const warmed = ConfigSchema.parse({
-    context: { background: true, warming: { interval: 60_000, duration: 120_000 } },
+    context: {
+      background: true,
+      warming: { interval: 60_000, duration: 120_000 },
+    },
   });
   assert.equal(warmed.context.background, true);
   assert.deepEqual(warmed.context.warming, {
@@ -84,7 +87,10 @@ test("memory checkpoint settings accept documented values and reject invalid one
   });
   assert.equal(policy.context.compactionStrategy, "native");
   assert.equal(policy.providers.kilo.compactionStrategy, "summary");
-  assert.equal(policy.providers.kilo.models?.["m-fast"]?.compactionStrategy, "native");
+  assert.equal(
+    policy.providers.kilo.models?.["m-fast"]?.compactionStrategy,
+    "native",
+  );
   assert.throws(() =>
     ConfigSchema.parse({ context: { compactionStrategy: "magic" } }),
   );

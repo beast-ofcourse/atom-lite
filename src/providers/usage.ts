@@ -42,8 +42,7 @@ export function parseGeminiUsage(raw: any): TokenUsage | undefined {
     input: raw.promptTokenCount,
     // Thinking tokens count toward the next request's context, so they fold
     // into generated output (same rule as the Gemini adapter's own parsing).
-    output:
-      (raw.candidatesTokenCount ?? 0) + (raw.thoughtsTokenCount ?? 0),
+    output: (raw.candidatesTokenCount ?? 0) + (raw.thoughtsTokenCount ?? 0),
     total: raw.totalTokenCount,
   };
   if (typeof raw.cachedContentTokenCount === "number") {

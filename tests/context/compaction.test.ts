@@ -64,11 +64,17 @@ test("compaction prompt retains open tasks and verification", async () => {
 
 test("a malformed summary gets exactly one corrective prompt", async () => {
   const dir = mkdtempSync(join(tmpdir(), "atom-context-"));
-  const { cm, requests } = manager(dir, ["## Objective\nonly one", VALID_SUMMARY]);
+  const { cm, requests } = manager(dir, [
+    "## Objective\nonly one",
+    VALID_SUMMARY,
+  ]);
   cm.setForceCompact(true);
   await cm.build(dir, history());
   assert.equal(requests.length, 2);
-  assert.match(JSON.stringify(requests[1].messages), /nudge|required headings/i);
+  assert.match(
+    JSON.stringify(requests[1].messages),
+    /nudge|required headings/i,
+  );
   assert.equal(cm.consumeCompactionFailure(), null);
   assert.match(cm.getSessionMemory() ?? "", /## Objective/);
 });

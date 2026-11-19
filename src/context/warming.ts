@@ -26,7 +26,8 @@ export class CacheWarmer {
       ((fn, ms) => setInterval(fn, ms) as unknown as number);
     this.cancel =
       options.cancel ??
-      ((handle) => clearInterval(handle as unknown as ReturnType<typeof setInterval>));
+      ((handle) =>
+        clearInterval(handle as unknown as ReturnType<typeof setInterval>));
   }
 
   start(): void {

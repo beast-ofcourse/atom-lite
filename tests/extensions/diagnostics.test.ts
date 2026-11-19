@@ -36,8 +36,16 @@ test("every supported matrix entry has a resolvable consumer", () => {
       `${entry.method} is supported but has no consumer`,
     );
     for (const consumer of entry.consumers as any[]) {
-      assert.equal(typeof consumer.file, "string", `${entry.method}: consumer file`);
-      assert.equal(typeof consumer.line, "number", `${entry.method}: consumer line`);
+      assert.equal(
+        typeof consumer.file,
+        "string",
+        `${entry.method}: consumer file`,
+      );
+      assert.equal(
+        typeof consumer.line,
+        "number",
+        `${entry.method}: consumer line`,
+      );
       assert.notEqual(
         consumer.file,
         "src/extensions/api.ts",
@@ -83,10 +91,14 @@ test("matrix status comes from host consumers, not self references", () => {
 });
 
 test("generated matrix is current", () => {
-  execFileSync(process.execPath, ["scripts/generate-compatibility-matrix.mjs", "--check"], {
-    cwd: ROOT,
-    encoding: "utf8",
-  });
+  execFileSync(
+    process.execPath,
+    ["scripts/generate-compatibility-matrix.mjs", "--check"],
+    {
+      cwd: ROOT,
+      encoding: "utf8",
+    },
+  );
 });
 
 test("doctor --json reports a broken extension with stack and only real APIs", async () => {
@@ -165,7 +177,10 @@ test("published docs and skills name only methods the API exposes", () => {
   for (const file of DOC_FILES) {
     const text = readFileSync(join(ROOT, file), "utf8");
     for (const method of documentedMethods(text)) {
-      assert.ok(allowed.has(method), `${file}: undocumented method '${method}'`);
+      assert.ok(
+        allowed.has(method),
+        `${file}: undocumented method '${method}'`,
+      );
     }
   }
 });
