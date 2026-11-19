@@ -143,6 +143,7 @@ export class ContextManager {
     anchorLast: Message;
   } | null = null;
   private cycleStartTokens = 0;
+  private backgroundFailures = 0;
   private compactEveryNTurns = 0;
   private reserve: Reserve;
   private staticContext: ContextStaticState | null = null;
@@ -894,6 +895,7 @@ export class ContextManager {
     if (
       this.opts.background &&
       activeStrategy === "summary" &&
+      this.backgroundFailures < 2 &&
       !this.precomputed &&
       !this.backgroundTask &&
       !this.forceCompact &&
@@ -939,7 +941,9 @@ export class ContextManager {
                 };
               }
             })
-            .catch(() => undefined)
+            .catch(() => {
+              this.backgroundFailures += 1;
+            })
             .finally(() => {
               this.backgroundTask = null;
             });
@@ -1056,6 +1060,7 @@ export class ContextManager {
     this.compactedThisBuild = true;
     this.lastReportedUsage = undefined;
     this.cycleStartTokens = total;
+    this.backgroundFailures = 0;
 
     const continuation = this.getContinuation();
     this.pendingContinuation = continuation;

@@ -115,15 +115,9 @@ export class AgentRuntime {
         repoMap: options.repoMap,
       });
     this.contextManager.setCompactionLifecycleCallback((phase, detail) => {
-      this.onEvent?.(
-        phase === "started"
-          ? { type: "context_compaction_started", ...detail }
-          : {
-              type: "context_compaction_failed",
-              ...detail,
-              reason: detail.reason ?? "unknown",
-            },
-      );
+      if (phase === "started") {
+        this.onEvent?.({ type: "context_compaction_started", ...detail });
+      }
     });
     this.baseSystemPrompt =
       options.systemPrompt ?? this.contextManager.getSystemPrompt();
@@ -299,6 +293,15 @@ export class AgentRuntime {
       session.messages,
       focus,
     );
+    const compactFailure = this.contextManager.consumeCompactionFailure();
+    if (compactFailure) {
+      this.onEvent?.({
+        type: "context_compaction_failed",
+        model: this.model,
+        strategy: "summary",
+        reason: compactFailure,
+      });
+    }
     if (summary) {
       this.contextManager.resetUsage();
       this.contextManager.setSessionMemory(

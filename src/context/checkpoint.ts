@@ -59,7 +59,10 @@ export function thresholdFromReserve(budget: number, reserve: Reserve): number {
   if (reserve.kind === "tokens") {
     return Math.max(1, budget - reserve.value);
   }
-  return Math.max(1, Math.floor(budget * ((100 - reserve.value) / 100)));
+  const reserveTokens = (budget * reserve.value) / 100;
+  const floored =
+    budget >= 32_000 ? Math.max(reserveTokens, 16_000) : reserveTokens;
+  return Math.max(1, Math.floor(budget - floored));
 }
 
 /** Build the structured summary prompt, including update mode when a prior checkpoint exists. */
@@ -140,6 +143,12 @@ export function splitRecentTail(
     tokens = estimateMessageTokens(history[start]);
   }
   while (tokens > limit && history.length - start > 1) {
+    tokens -= estimateMessageTokens(history[start]);
+    start++;
+  }
+  // The cap pass may have crossed a user boundary; snap forward again so the
+  // tail never starts in the middle of a tool call and its result.
+  while (start < history.length - 1 && history[start].role !== "user") {
     tokens -= estimateMessageTokens(history[start]);
     start++;
   }

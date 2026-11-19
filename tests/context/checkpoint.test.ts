@@ -9,6 +9,7 @@ import {
   resolveReserve,
   splitRecentTail,
   SUMMARY_HEADINGS,
+  thresholdFromReserve,
 } from "../../dist/context/checkpoint.js";
 
 const VALID_SUMMARY = SUMMARY_HEADINGS.map((h) => `${h}\n- value`).join("\n\n");
@@ -57,6 +58,30 @@ test("recent tail also respects the small-window safety ceiling", () => {
   const split = splitRecentTail(history, 100_000, 200);
   assert.ok(split.keptTokens <= 200);
   assert.ok(split.older.length > 0);
+});
+
+test("percent reserve has a 16k floor on large windows", () => {
+  assert.equal(
+    thresholdFromReserve(32_000, { kind: "percent", value: 15 }),
+    16_000,
+  );
+  assert.equal(
+    thresholdFromReserve(128_000, { kind: "percent", value: 15 }),
+    108_800,
+  );
+});
+
+test("cap enforcement never leaves an assistant message first in the tail", () => {
+  const history = [
+    message("user", 100),
+    message("assistant", 400),
+    message("user", 1000),
+    message("assistant", 400),
+    message("user", 400),
+    message("assistant", 1000),
+  ];
+  const split = splitRecentTail(history, 400, 100_000);
+  assert.equal(split.recent[0]?.role, "user");
 });
 
 test("reserve derives from compactAtPercent unless explicitly overridden", () => {

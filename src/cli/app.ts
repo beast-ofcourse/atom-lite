@@ -3163,6 +3163,18 @@ export async function run(args: string[]): Promise<void> {
     } else if (e.type === "compaction_continuation") {
       appendLine(e.text, theme.tokens.dim);
       tui.requestRender();
+    } else if (e.type === "context_compaction_started") {
+      appendLine(
+        `compacting with ${e.model} (${e.strategy})`,
+        theme.tokens.dim,
+      );
+      tui.requestRender();
+    } else if (e.type === "context_compaction_failed") {
+      appendLine(
+        `compaction failed: ${e.reason}`,
+        theme.tokens.warning,
+      );
+      tui.requestRender();
     } else if (e.type === "task_ledger_open") {
       appendLine(
         `task ledger: ${e.pending} open item(s) remain`,
