@@ -179,8 +179,15 @@ interface FetchOutcome {
   error?: string;
 }
 
+function isHtmlResponse(contentType: string, text?: string): boolean {
+  return (
+    contentType.includes("text/html") ||
+    (text !== undefined && text.trim().startsWith("<"))
+  );
+}
+
 function convertBody(text: string, format: Format, contentType: string): string {
-  const isHtml = contentType.includes("text/html") || text.trim().startsWith("<");
+  const isHtml = isHtmlResponse(contentType, text);
   if (format === "markdown" && isHtml) {
     try {
       return turndown.turndown(text);
@@ -272,7 +279,14 @@ export const webfetchTool: Tool = {
             error: `PROVIDER_CONNECTION_FAILED: ${err instanceof Error ? err.message : String(err)}`,
           };
         }
-        if (res.status === 304) return { ok: true, notModified: true };
+        if (res.status === 304) {
+          return {
+            ok: true,
+            notModified: true,
+            etag: res.headers.get("etag") ?? undefined,
+            lastModified: res.headers.get("last-modified") ?? undefined,
+          };
+        }
         if (!res.ok) {
           return {
             ok: false,
@@ -282,7 +296,8 @@ export const webfetchTool: Tool = {
         const cap = effectiveOutputCap(ctx);
         const maxBytes = ctx.web?.fetch.maxBytes ?? MAX_BYTES;
         const contentType = res.headers.get("content-type") ?? "";
-        const contentLength = Number(res.headers.get("content-length") ?? "");
+        const rawLength = res.headers.get("content-length");
+        const contentLength = rawLength === null ? Number.NaN : Number(rawLength);
         if (Number.isFinite(contentLength) && contentLength > maxBytes) {
           await res.body?.cancel();
           return {
@@ -290,10 +305,15 @@ export const webfetchTool: Tool = {
             error: "OUTPUT_TRUNCATED: response too large",
           };
         }
-        const earlyExitLimit =
-          format === "html" || contentType.includes("text/html")
-            ? 2 * cap
-            : Number.POSITIVE_INFINITY;
+        // Unknown-length non-HTML bodies must be read to the byte cap so an
+        // oversized plain-text response is still rejected. HTML and responses
+        // whose declared length is within the cap can exit on useful text.
+        const canEarlyExit =
+          isHtmlResponse(contentType) ||
+          (Number.isFinite(contentLength) && contentLength <= maxBytes);
+        const earlyExitLimit = canEarlyExit
+          ? 2 * cap
+          : Number.POSITIVE_INFINITY;
         const body = await readBounded(res, maxBytes, earlyExitLimit);
         if (body.tooLarge) {
           return { ok: false, error: "OUTPUT_TRUNCATED: response too large" };
@@ -316,33 +336,43 @@ export const webfetchTool: Tool = {
       }
     };
 
+    const refreshMetadata = (outcome: FetchOutcome): void => {
+      if (!cached) return;
+      cached.createdAt = Date.now();
+      if (outcome.etag) cached.etag = outcome.etag;
+      if (outcome.lastModified) cached.lastModified = outcome.lastModified;
+    };
+
     if (freshness === "fast" && cached) {
       const age = Date.now() - cached.createdAt;
       if (age <= ttlMs) {
         return { toolCallId: call.id, name: "webfetch", content: cached.content };
       }
-      if (age <= 10 * ttlMs && !refreshing.has(key)) {
-        refreshing.add(key);
-        void (async () => {
-          try {
-            const outcome = await fetchAndRender(cached);
-            if (outcome.ok && outcome.notModified) cached.createdAt = Date.now();
-            else if (outcome.ok && outcome.content && !outcome.noStore) {
-              cachePut(key, {
-                content: outcome.content,
-                etag: outcome.etag,
-                lastModified: outcome.lastModified,
-                createdAt: Date.now(),
-              });
+      if (age <= 10 * ttlMs) {
+        if (!refreshing.has(key)) {
+          refreshing.add(key);
+          void (async () => {
+            try {
+              const outcome = await fetchAndRender(cached);
+              if (outcome.ok && outcome.notModified) refreshMetadata(outcome);
+              else if (outcome.ok && outcome.content && !outcome.noStore) {
+                cachePut(key, {
+                  content: outcome.content,
+                  etag: outcome.etag,
+                  lastModified: outcome.lastModified,
+                  createdAt: Date.now(),
+                });
+              }
+            } catch {
+              // Background refresh failures never disturb the stale body.
+            } finally {
+              refreshing.delete(key);
             }
-          } catch {
-            // Background refresh failures never disturb the stale body.
-          } finally {
-            refreshing.delete(key);
-          }
-        })();
+          })();
+        }
+        return { toolCallId: call.id, name: "webfetch", content: cached.content };
       }
-      return { toolCallId: call.id, name: "webfetch", content: cached.content };
+      // Beyond the stale window, fetch before returning.
     }
 
     const outcome = await fetchAndRender(cached);
@@ -355,7 +385,7 @@ export const webfetchTool: Tool = {
       };
     }
     if (outcome.notModified && cached) {
-      cached.createdAt = Date.now();
+      refreshMetadata(outcome);
       return { toolCallId: call.id, name: "webfetch", content: cached.content };
     }
     const content = outcome.content ?? "";

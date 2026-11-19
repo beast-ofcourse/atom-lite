@@ -204,23 +204,7 @@ test("stops reading a large page after the useful-text threshold", async () => {
   await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
   const addr = srv.address();
   const srvBase = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`;
-  const configured = {
-    ...ctx(),
-    web: {
-      fetch: {
-        cacheTtlSeconds: 300,
-        maxBytes: 5_242_880,
-        maxOutputChars: 100,
-        extract: "full",
-      },
-      search: {
-        provider: "auto",
-        maxResults: 8,
-        cacheTtlSeconds: 120,
-        fallback: true,
-      },
-    },
-  } as any;
+  const configured = webCtx({ maxOutputChars: 100, extract: "full" });
   try {
     const r = await webfetchTool.execute(
       call({ url: `${srvBase}/stream` }),
@@ -240,23 +224,7 @@ test("stops reading a large page after the useful-text threshold", async () => {
 // Reason: ticket 01 — web config reaches the tool seam and controls the byte cap.
 test("configured byte cap rejects a smaller response", async () => {
   routes.set("/small-cap", { body: "x".repeat(256), type: "text/plain" });
-  const configured = {
-    ...ctx(),
-    web: {
-      fetch: {
-        cacheTtlSeconds: 300,
-        maxBytes: 128,
-        maxOutputChars: 30000,
-        extract: "auto",
-      },
-      search: {
-        provider: "auto",
-        maxResults: 8,
-        cacheTtlSeconds: 120,
-        fallback: true,
-      },
-    },
-  } as any;
+  const configured = webCtx({ maxBytes: 128 });
   const r = await webfetchTool.execute(
     call({ url: `${base}/small-cap`, format: "text" }),
     configured,
@@ -296,6 +264,40 @@ test("fresh mode revalidates with etag and reuses the cached body", async () => 
     assert.equal(second.content, "body-v1");
     assert.equal(conditional, true);
     assert.equal(hits, 2);
+  } finally {
+    await new Promise<void>((r) => srv.close(() => r()));
+  }
+});
+
+// Reason: review — a 304 replaces cached validators, not just the timestamp.
+test("fresh refresh updates validators from a 304 response", async () => {
+  const seen: string[] = [];
+  const srv = createServer((req, res) => {
+    const validator = String(req.headers["if-none-match"] ?? "");
+    seen.push(validator);
+    if (validator === '"v1"') {
+      res.writeHead(304, { etag: '"v2"' });
+      res.end();
+      return;
+    }
+    res.writeHead(200, { "content-type": "text/plain", etag: '"v1"' });
+    res.end("body");
+  });
+  await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
+  const addr = srv.address();
+  const srvBase = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`;
+  try {
+    const url = `${srvBase}/validator`;
+    await webfetchTool.execute(call({ url, format: "text" }), webCtx());
+    await webfetchTool.execute(
+      call({ url, format: "text", freshness: "fresh" }),
+      webCtx(),
+    );
+    await webfetchTool.execute(
+      call({ url, format: "text", freshness: "fresh" }),
+      webCtx(),
+    );
+    assert.deepEqual(seen, ["", '"v1"', '"v2"']);
   } finally {
     await new Promise<void>((r) => srv.close(() => r()));
   }

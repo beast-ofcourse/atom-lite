@@ -34,6 +34,12 @@ A missing path is corrected when one sibling has the same stem with another exte
 
 `AGENTS.md` and `CLAUDE.md` files beside a path you read become project instructions for the session. The walk stops at the workspace root; root-level instruction files are always injected, and duplicates are loaded once.
 
+## Web fetch
+
+`webfetch` takes a `url` and optional `format` (`text`, `markdown`, or `html`), `timeout` in seconds, and `freshness`. Markdown is the default. The tool sends format-specific `Accept` headers and reads the response in bounded chunks, cancelling the stream once the useful-text threshold or `web.fetch.maxBytes` is reached. A body over the byte cap returns `OUTPUT_TRUNCATED: response too large`.
+
+The result is capped by the smaller of `web.fetch.maxOutputChars` and `runtime.maxToolOutputBytes`. With `freshness` set to `fast` (the default), a cached result is returned immediately and refreshed in the background while it is stale; `fresh` revalidates with ETag or Last-Modified and reuses the body on `304`; `strict` bypasses and never populates the cache. Responses marked `Cache-Control: no-store` are not cached. Cache lifetime and limits are set in [`web`](./config.md).
+
 ## Scheduling
 
 A tool-call batch runs with at most `runtime.maxParallelToolCalls` (default `10`) concurrent calls. Per-file read/write locks prevent conflicting edits. `bash` is a global exclusive barrier unless `runtime.bashConcurrency` is `parallel`.
