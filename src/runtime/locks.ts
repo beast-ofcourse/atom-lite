@@ -3,6 +3,9 @@ import { realpathSync, existsSync } from "node:fs";
 
 export type Release = () => void;
 
+/** Bound session-lifetime caches; evicting a held lock would allow two owners. */
+export const MAX_LOCK_CACHE_ENTRIES = 1024;
+
 function canonical(key: string): string {
   let cursor = key;
   while (!existsSync(cursor)) {
@@ -26,6 +29,7 @@ interface Waiter {
   resolve: (release: Release) => void;
   reject: (err: Error) => void;
   signal?: AbortSignal;
+  onAbort?: () => void;
 }
 
 class RWLock {
@@ -33,6 +37,16 @@ class RWLock {
   private writer = false;
   private barriers = 0;
   private queue: Waiter[] = [];
+
+  /** No holders and no waiters: safe to drop from the manager's cache. */
+  isIdle(): boolean {
+    return (
+      this.readers === 0 &&
+      !this.writer &&
+      this.barriers === 0 &&
+      this.queue.length === 0
+    );
+  }
 
   acquire(
     mode: "read" | "write" | "barrier",
@@ -80,14 +94,20 @@ class RWLock {
 
       this.queue.push(waiter);
       if (signal) {
-        const onAbort = () => {
+        waiter.onAbort = () => {
           const idx = this.queue.indexOf(waiter);
           if (idx >= 0) this.queue.splice(idx, 1);
           reject(new Error("USER_CANCELLED"));
         };
-        signal.addEventListener("abort", onAbort, { once: true });
+        signal.addEventListener("abort", waiter.onAbort, { once: true });
       }
     });
+  }
+
+  private detach(waiter: Waiter): void {
+    if (waiter.signal && waiter.onAbort) {
+      waiter.signal.removeEventListener("abort", waiter.onAbort);
+    }
   }
 
   private drain(): void {
@@ -99,7 +119,8 @@ class RWLock {
       const idx = this.queue.findIndex((w) => {
         if (w.signal?.aborted) return true;
         if (w.mode === "read") {
-          return !this.writer && this.barriers === 0;
+          // Without the head check, queued writers starve under reader bursts.
+          return !this.writer && this.barriers === 0 && w === this.queue[0];
         }
         if (w.mode === "write") {
           return this.readers === 0 && !this.writer && this.barriers === 0;
@@ -108,6 +129,7 @@ class RWLock {
       });
       if (idx < 0) break;
       const w = this.queue.splice(idx, 1)[0];
+      this.detach(w);
       if (w.signal?.aborted) {
         w.reject(new Error("USER_CANCELLED"));
         progressed = true;
@@ -144,10 +166,27 @@ export class LockManager {
   private global = new RWLock();
   private canonicalCache = new Map<string, string>();
 
+  /** Read-only observability for bounds tests and long-session diagnostics. */
+  get cacheStats(): { canonicalKeys: number; locks: number } {
+    return {
+      canonicalKeys: this.canonicalCache.size,
+      locks: this.locks.size,
+    };
+  }
+
   private canonicalKey(key: string): string {
     const cached = this.canonicalCache.get(key);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {
+      // Refresh recency so the cache behaves as an LRU, not a FIFO.
+      this.canonicalCache.delete(key);
+      this.canonicalCache.set(key, cached);
+      return cached;
+    }
     const k = canonical(key);
+    if (this.canonicalCache.size >= MAX_LOCK_CACHE_ENTRIES) {
+      const oldest = this.canonicalCache.keys().next().value;
+      if (oldest !== undefined) this.canonicalCache.delete(oldest);
+    }
     this.canonicalCache.set(key, k);
     return k;
   }
@@ -155,10 +194,23 @@ export class LockManager {
   private getLock(key: string): RWLock {
     const k = this.canonicalKey(key);
     let l = this.locks.get(k);
-    if (!l) {
-      l = new RWLock();
+    if (l) {
+      this.locks.delete(k);
       this.locks.set(k, l);
+      return l;
     }
+    if (this.locks.size >= MAX_LOCK_CACHE_ENTRIES) {
+      // Never evict a lock that is held or has waiters: a new lock object for
+      // the same resource would permit concurrent access.
+      for (const [existingKey, existing] of this.locks) {
+        if (existing.isIdle()) {
+          this.locks.delete(existingKey);
+          break;
+        }
+      }
+    }
+    l = new RWLock();
+    this.locks.set(k, l);
     return l;
   }
 

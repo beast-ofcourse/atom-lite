@@ -80,6 +80,7 @@ export type AgentEvent =
       reason: string;
     }
   | { type: "request_id"; requestId: string }
+  | { type: "response_truncated"; model: string }
   | { type: "error"; message: string };
 
 export interface AgentRuntimeOptions {
@@ -139,6 +140,22 @@ export interface AgentRuntimeOptions {
     event: AtomEvent,
     payload: any,
   ) => Promise<any[]> | any[];
+}
+
+/** A session event read back from the durable log. Event shapes are additive. */
+export interface SessionEventLike {
+  type?: string;
+  [key: string]: unknown;
+}
+
+/** The session surface an agent turn mutates. Replaces ad-hoc `as any` shapes. */
+export interface AgentSession {
+  id?: string;
+  messages: Message[];
+  events?: SessionEventLike[];
+  appendMessage(m: Message): void;
+  appendEvent?(partial: Record<string, unknown>): unknown;
+  flush?(): Promise<void> | void;
 }
 
 export interface ContextUsage {

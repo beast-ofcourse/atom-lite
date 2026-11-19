@@ -13,6 +13,7 @@ import {
   knownVisionModel,
 } from "./context-window.js";
 import { isRetryableStatus, retryDelayMs, delay } from "./retry.js";
+import { resolveFinishReason } from "./finish-reason.js";
 import {
   parseArgs,
   assembleToolCalls,
@@ -211,7 +212,10 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         toolCalls: toolCalls.length ? toolCalls : undefined,
       },
       toolCalls,
-      finishReason: toolCalls.length ? "tool_calls" : "stop",
+      finishReason: resolveFinishReason(
+        choice?.finish_reason,
+        toolCalls.length > 0,
+      ),
       usage,
       requestId,
     };
@@ -324,6 +328,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     const rawBatches: RawToolCallChunk[][] = [];
     let text = "";
     let usage: TokenUsage | undefined;
+    let reportedFinishReason: unknown;
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -339,6 +344,9 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
           const json = JSON.parse(data);
           if (json.usage) {
             usage = parseOpenAIUsage(json.usage);
+          }
+          if (json.choices?.[0]?.finish_reason) {
+            reportedFinishReason = json.choices[0].finish_reason;
           }
           const delta = json.choices?.[0]?.delta ?? {};
           const reasoning = delta.reasoning_content ?? delta.reasoning;
@@ -366,7 +374,10 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         toolCalls: finalCalls.length ? finalCalls : undefined,
       },
       toolCalls: finalCalls,
-      finishReason: finalCalls.length ? "tool_calls" : "stop",
+      finishReason: resolveFinishReason(
+        reportedFinishReason,
+        finalCalls.length > 0,
+      ),
       usage,
       requestId,
     };

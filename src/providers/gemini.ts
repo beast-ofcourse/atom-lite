@@ -10,6 +10,7 @@ import type { ProviderAdapter } from "./types.js";
 import { parseArgs } from "./tool-calls.js";
 import { knownVisionModel } from "./context-window.js";
 import { isRetryableStatus, retryDelayMs, delay } from "./retry.js";
+import { resolveFinishReason } from "./finish-reason.js";
 import {
   applyRequestId,
   mergeHeaders,
@@ -299,7 +300,10 @@ export class GeminiAdapter implements ProviderAdapter {
         providerState: candidate?.content,
       },
       toolCalls,
-      finishReason: toolCalls.length ? "tool_calls" : "stop",
+      finishReason: resolveFinishReason(
+        candidate?.finishReason,
+        toolCalls.length > 0,
+      ),
       usage,
       metadata: thinking ? { thinking } : undefined,
       requestId,
@@ -325,6 +329,7 @@ export class GeminiAdapter implements ProviderAdapter {
     let usage: TokenUsage | undefined;
     let providerState: any;
     let safety = false;
+    let reportedFinishReason: unknown;
 
     // One SSE chunk (or one element of a plain-JSON array) may carry several
     // parts. Emit text/thinking immediately; tool calls go in the done event.
@@ -336,6 +341,8 @@ export class GeminiAdapter implements ProviderAdapter {
         ? json.candidates
         : []) {
         if (candidate?.finishReason === "SAFETY") safety = true;
+        if (candidate?.finishReason)
+          reportedFinishReason = candidate.finishReason;
         const parts = candidate?.content?.parts ?? [];
         if (candidate?.content && parts.length) {
           providerState = candidate.content;
@@ -413,7 +420,10 @@ export class GeminiAdapter implements ProviderAdapter {
           providerState,
         },
         toolCalls,
-        finishReason: toolCalls.length ? "tool_calls" : "stop",
+        finishReason: resolveFinishReason(
+          reportedFinishReason,
+          toolCalls.length > 0,
+        ),
         usage,
         metadata: thinking ? { thinking } : undefined,
         requestId,

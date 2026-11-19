@@ -3184,6 +3184,12 @@ export async function run(args: string[]): Promise<void> {
         theme.tokens.warning,
       );
       tui.requestRender();
+    } else if (e.type === "response_truncated") {
+      appendLine(
+        `response truncated: ${e.model} hit its output token limit`,
+        theme.tokens.warning,
+      );
+      tui.requestRender();
     } else if (e.type === "model_switched") {
       if (typeof session.appendEvent === "function") {
         session.appendEvent({

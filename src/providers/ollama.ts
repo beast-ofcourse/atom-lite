@@ -10,6 +10,7 @@ import type { ProviderAdapter } from "./types.js";
 import { parseArgs } from "./tool-calls.js";
 import { knownVisionModel } from "./context-window.js";
 import { isRetryableStatus, retryDelayMs, delay } from "./retry.js";
+import { resolveFinishReason } from "./finish-reason.js";
 import {
   applyRequestId,
   mergeHeaders,
@@ -285,7 +286,10 @@ export class OllamaAdapter implements ProviderAdapter {
         toolCalls: toolCalls.length ? toolCalls : undefined,
       },
       toolCalls,
-      finishReason: toolCalls.length ? "tool_calls" : "stop",
+      finishReason: resolveFinishReason(
+        json?.done_reason,
+        toolCalls.length > 0,
+      ),
       usage,
       metadata: json,
       requestId,
@@ -433,7 +437,10 @@ export class OllamaAdapter implements ProviderAdapter {
         toolCalls: finalCalls.length ? finalCalls : undefined,
       },
       toolCalls: finalCalls,
-      finishReason: finalCalls.length ? "tool_calls" : "stop",
+      finishReason: resolveFinishReason(
+        finalJson?.done_reason,
+        finalCalls.length > 0,
+      ),
       usage,
       metadata: finalJson ?? undefined,
       requestId,

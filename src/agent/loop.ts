@@ -1,6 +1,11 @@
-import type { AgentRuntimeOptions, ContextUsage } from "./types.js";
+import type {
+  AgentRuntimeOptions,
+  AgentSession,
+  ContextUsage,
+  SessionEventLike,
+} from "./types.js";
 import { DEFAULT_LIMITS } from "../types.js";
-import type { Message, AgentLimits } from "../types.js";
+import type { Message, AgentLimits, ToolCall } from "../types.js";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { executeToolBatch } from "../runtime/scheduler.js";
@@ -31,14 +36,18 @@ import type { AgentPersona } from "../agents/registry.js";
 import { composePersonaSystemPrompt } from "../agents/persona.js";
 
 /** The minimal session surface the runtime needs to append state events. */
-type EventSession = { appendEvent?(partial: any): any };
+type EventSession = Pick<AgentSession, "appendEvent">;
 
 /** Find the newest event of a given type without copying the event log. */
-function latestEvent(session: unknown, type: string): any | undefined {
-  const events = (session as { events?: unknown[] })?.events;
+function latestEvent(
+  session: unknown,
+  type: string,
+): SessionEventLike | undefined {
+  const events = (session as { events?: unknown[] } | undefined)?.events;
   if (!Array.isArray(events)) return undefined;
   for (let i = events.length - 1; i >= 0; i--) {
-    if ((events[i] as any)?.type === type) return events[i];
+    const event = events[i] as SessionEventLike | undefined;
+    if (event?.type === type) return event;
   }
   return undefined;
 }
@@ -194,9 +203,9 @@ export class AgentRuntime {
     this.supportsVision = value;
   }
 
-  private injectCompletedBackgroundTasks(session: {
-    appendMessage(m: any): void;
-  }): void {
+  private injectCompletedBackgroundTasks(
+    session: Pick<AgentSession, "appendMessage">,
+  ): void {
     for (const t of this.backgroundTasks.drainCompleted()) {
       session.appendMessage({
         role: "system",
@@ -281,12 +290,7 @@ export class AgentRuntime {
   }
 
   async compactSession(
-    session: {
-      messages: Message[];
-      events?: unknown[];
-      appendMessage(m: Message): void;
-      appendEvent?(partial: any): any;
-    },
+    session: AgentSession,
     focus?: string,
   ): Promise<string | null> {
     this.syncStaticContext(false, this.activeFiles(session));
@@ -427,9 +431,7 @@ export class AgentRuntime {
     });
   }
 
-  private commitGoal(session?: {
-    appendEvent?(partial: any): any;
-  }): GoalState | null {
+  private commitGoal(session?: EventSession): GoalState | null {
     if (session) this.persistGoal(session);
     this.emitGoalState();
     return this.goalStore.get();
@@ -568,18 +570,17 @@ export class AgentRuntime {
   }
 
   /** Recent files from tool calls, retained alongside the goal on compaction. */
-  private activeFiles(session: unknown): string | null {
-    const messages = (session as { messages?: Message[] })?.messages;
+  private activeFiles(session: Pick<AgentSession, "messages">): string | null {
+    const messages = session.messages;
     if (!Array.isArray(messages)) return null;
     const files: string[] = [];
     for (let i = messages.length - 1; i >= 0 && files.length < 10; i--) {
-      const toolCalls = (messages[i] as any)?.toolCalls;
+      const message = messages[i];
+      const toolCalls = "toolCalls" in message ? message.toolCalls : undefined;
       if (!Array.isArray(toolCalls)) continue;
       for (const call of toolCalls) {
-        if (!["read", "write", "edit"].includes(String(call?.name ?? ""))) {
-          continue;
-        }
-        const filePath = (call as any)?.arguments?.path;
+        if (!["read", "write", "edit"].includes(call.name)) continue;
+        const filePath = call.arguments?.path;
         if (
           typeof filePath === "string" &&
           filePath &&
@@ -609,10 +610,7 @@ export class AgentRuntime {
   /** Mirror the one-shot continuation into the transcript and session log. */
   private mirrorContinuation(
     text: string | null,
-    session?: {
-      appendMessage(m: Message): void;
-      appendEvent?(partial: any): any;
-    },
+    session?: Pick<AgentSession, "appendMessage" | "appendEvent">,
   ): void {
     if (!text) return;
     if (session) {
@@ -630,10 +628,7 @@ export class AgentRuntime {
   /** Persist instruction baseline state; a failed write fails the turn. */
   private persistInstructionBaseline(
     state: InstructionBaselineState,
-    session: {
-      events?: unknown[];
-      appendEvent?(partial: any): any;
-    },
+    session: Pick<AgentSession, "events" | "appendEvent">,
   ): void {
     if (typeof session.appendEvent !== "function") return;
     try {
@@ -644,10 +639,9 @@ export class AgentRuntime {
   }
 
   /** Freeze the first instruction set, record later changes, and render state. */
-  private syncInstructionBaseline(session: {
-    events?: unknown[];
-    appendEvent?(partial: any): any;
-  }): InstructionBaselineState {
+  private syncInstructionBaseline(
+    session: Pick<AgentSession, "events" | "appendEvent">,
+  ): InstructionBaselineState {
     const texts = this.contextManager.getInstructionTexts(this.workspace);
     const seq = (session.events?.length ?? 0) + 1;
     const stored = latestEvent(session, "instruction_baseline");
@@ -673,13 +667,7 @@ export class AgentRuntime {
 
   async runAgentTurn(
     input: string,
-    session: {
-      id?: string;
-      messages: Message[];
-      events?: unknown[];
-      appendMessage(m: Message): void;
-      appendEvent?(partial: any): any;
-    },
+    session: AgentSession,
     signal: AbortSignal,
     options?: { requestId?: string },
   ): Promise<string> {
@@ -709,13 +697,11 @@ export class AgentRuntime {
     // The compaction summarizer issues its own model call; give it the same
     // correlation ids so it produces a ledger record too.
     this.contextManager.setUsageContext?.(session.id ?? "", requestId);
-    if (typeof (session as any).appendEvent === "function") {
-      (session as any).appendEvent({
-        type: "model_request_id",
-        requestId,
-        turn: this.turnIndex,
-      });
-    }
+    session.appendEvent?.({
+      type: "model_request_id",
+      requestId,
+      turn: this.turnIndex,
+    });
     this.onEvent?.({ type: "request_id", requestId });
     this.todoTouchedThisTurn = false;
     this.injectCompletedBackgroundTasks(session);
@@ -728,6 +714,7 @@ export class AgentRuntime {
     await this.extensionDispatch?.("turn_start", { type: "turn_start" });
     let completionNudges = 0;
     const maxCompletionNudges = 3;
+    let truncationContinuations = 0;
     try {
       while (true) {
         // Pause is a goal status enforced between iterations. In-flight tool
@@ -791,8 +778,8 @@ export class AgentRuntime {
           const coveredCount =
             this.contextManager.consumeCompactionCoveredCount();
           const checkpoint = this.contextManager.consumeCompactionCheckpoint();
-          if (summary && typeof (session as any).appendEvent === "function") {
-            (session as any).appendEvent({
+          if (summary && session.appendEvent) {
+            session.appendEvent({
               type: "context_compacted",
               ...(checkpoint ?? {
                 schemaVersion: 1,
@@ -881,6 +868,11 @@ export class AgentRuntime {
         });
         const text = await recorder.recordAssistant(response, streamedText);
 
+        // A cut-off answer otherwise looks complete to the user.
+        if (response.finishReason === "length") {
+          this.onEvent?.({ type: "response_truncated", model: this.model });
+        }
+
         if (response.usage) {
           const used =
             (response.usage.input ?? 0) + (response.usage.output ?? 0);
@@ -930,7 +922,20 @@ export class AgentRuntime {
           }
         }
 
-        const toolCalls = response.toolCalls ?? [];
+        const toolCalls: ToolCall[] = response.toolCalls ?? [];
+        if (
+          response.finishReason === "length" &&
+          toolCalls.length === 0 &&
+          truncationContinuations === 0
+        ) {
+          truncationContinuations++;
+          session.appendMessage({
+            role: "system",
+            content:
+              "Your previous response was cut off at the output token limit. Continue from where you stopped, concisely.",
+          });
+          continue;
+        }
         if (toolCalls.length === 0) {
           // turn_end / agent_before_settle continuation handling.
           let continued = false;
@@ -1105,9 +1110,9 @@ export class AgentRuntime {
           });
         }
 
-        const execCalls = toolCalls.filter((c: any) => !blocked.has(c.id));
+        const execCalls = toolCalls.filter((c) => !blocked.has(c.id));
         for (const call of execCalls) {
-          const pathArg = (call as any)?.arguments?.path;
+          const pathArg = call.arguments?.path;
           if (typeof pathArg === "string") {
             void touchLspFile(path.resolve(this.workspace, pathArg)).catch(
               () => {},
@@ -1140,15 +1145,16 @@ export class AgentRuntime {
         }
 
         for (const r of execResults) {
-          const call = toolCalls.find((c: any) => c.id === r.toolCallId);
+          const call = toolCalls.find((c) => c.id === r.toolCallId);
+          const callPath = call?.arguments?.path;
           if (
             call &&
             (call.name === "write" || call.name === "edit") &&
-            typeof (call as any).arguments?.path === "string"
+            typeof callPath === "string"
           ) {
             try {
               const diags = await getLspDiagnostics(
-                path.resolve(this.workspace, (call as any).arguments.path),
+                path.resolve(this.workspace, callPath),
               );
               const messages = [...diags.values()]
                 .flat()
@@ -1228,7 +1234,7 @@ export class AgentRuntime {
       return "TASK_BUDGET_REACHED";
     } finally {
       try {
-        await (session as any).flush?.();
+        await session.flush?.();
       } catch {
         // Best-effort durability; never fail the turn on flush errors.
       }

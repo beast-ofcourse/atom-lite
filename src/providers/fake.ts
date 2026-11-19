@@ -1,4 +1,5 @@
 import type {
+  FinishReason,
   ModelRequest,
   ModelResponse,
   TokenUsage,
@@ -10,6 +11,7 @@ export interface FakeResponse {
   text?: string;
   toolCalls?: ToolCall[];
   usage?: TokenUsage;
+  finishReason?: FinishReason;
 }
 
 export class FakeProvider implements ProviderAdapter {
@@ -31,7 +33,8 @@ export class FakeProvider implements ProviderAdapter {
         toolCalls: toolCalls.length ? toolCalls : undefined,
       },
       toolCalls,
-      finishReason: toolCalls.length ? "tool_calls" : "stop",
+      finishReason:
+        r.finishReason ?? (toolCalls.length ? "tool_calls" : "stop"),
       usage: r.usage,
     };
   }

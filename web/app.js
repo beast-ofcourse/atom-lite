@@ -3101,6 +3101,12 @@ function handleEvent(event) {
       contextWindow = event.window;
       renderContextUsage();
       break;
+    case "response_truncated":
+      showToast(
+        `Response truncated: ${event.model} hit its output token limit`,
+        "warn",
+      );
+      break;
     default:
       break;
   }
