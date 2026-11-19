@@ -87,6 +87,20 @@ export const ContextConfigSchema = z
      * active model, so installing this field cannot change default behavior.
      */
     compactionModel: z.string().min(1).nullable().default(null),
+    /** Token budget for the recent tail kept beside a memory checkpoint. */
+    keepTokens: z.number().int().nonnegative().default(15000),
+    /**
+     * Compaction trigger reserve. A percent string is a share of the model
+     * window; a number is an exact token reserve. Unset derives from
+     * compactAtPercent and is independent of reserveOutputTokens.
+     */
+    buffer: z
+      .union([
+        z.string().regex(/^(?:[1-9]|[1-9]\d)%$/),
+        z.number().int().nonnegative(),
+      ])
+      .nullable()
+      .default(null),
     /** Prompt-cache prefix layout: off keeps today's message order. */
     cacheMode: z.enum(["off", "automatic", "explicit"]).default("off"),
     /** Bounded, deterministic repo map injected as trailing context. */

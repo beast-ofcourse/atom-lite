@@ -10,6 +10,9 @@ import {
   ContextManager,
   renderContinuation,
 } from "../../dist/context/manager.js";
+import { SUMMARY_HEADINGS } from "../../dist/context/checkpoint.js";
+
+const VALID_SUMMARY = SUMMARY_HEADINGS.map((h) => `${h}\n- value`).join("\n\n");
 
 function harness(overrides: Record<string, unknown> = {}) {
   const requests: any[] = [];
@@ -26,7 +29,7 @@ function harness(overrides: Record<string, unknown> = {}) {
         return {
           message: {
             role: "assistant",
-            content: [{ type: "text", text: "summary" }],
+            content: [{ type: "text", text: VALID_SUMMARY }],
           },
           toolCalls: [],
           finishReason: "stop",

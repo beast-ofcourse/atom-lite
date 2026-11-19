@@ -101,6 +101,8 @@ stored credential, then inline `apiKey`.
 | `maxProjectInstructionBytes` | positive integer                         | `30000` | Cap on injected `AGENTS.md`/`CLAUDE.md`-style instructions.   |
 | `compactEveryNTurns`         | integer >= 0                             | `0`     | Compact every N turns. `0` disables periodic compaction.      |
 | `compactionModel`            | non-empty string \| null                 | `null`  | Model for compaction summaries. `null` uses the active model. |
+| `keepTokens`                 | integer >= 0                             | `15000` | Token budget for the recent tail kept beside the summary.     |
+| `buffer`                     | percent string \| integer \| null         | `null`  | Compaction reserve. A percent is a share of the model window; an integer is an exact token reserve. `null` derives it from `compactAtPercent`. Independent of `reserveOutputTokens`. |
 | `cacheMode`                  | `"off"` \| `"automatic"` \| `"explicit"` | `"off"` | Prompt-cache layout mode. `off` keeps today's message order.  |
 | `repoMap`                    | object                                  | see below | Opt-in bounded repo map injected as a trailing system message. |
 

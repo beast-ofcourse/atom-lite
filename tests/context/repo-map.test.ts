@@ -18,6 +18,9 @@ import {
   DEFAULT_REPO_MAP_OPTIONS,
   type RepoMapOptions,
 } from "../../dist/context/repoMap.js";
+import { SUMMARY_HEADINGS } from "../../dist/context/checkpoint.js";
+
+const VALID_SUMMARY = SUMMARY_HEADINGS.map((h) => `${h}\n- value`).join("\n\n");
 
 const HEADER = "Repository map:";
 
@@ -31,7 +34,7 @@ function stubProvider(): any {
     generate: async () => ({
       message: {
         role: "assistant",
-        content: [{ type: "text", text: "summary" }],
+        content: [{ type: "text", text: VALID_SUMMARY }],
       },
       toolCalls: [],
       finishReason: "stop",

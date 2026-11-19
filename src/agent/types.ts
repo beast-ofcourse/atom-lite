@@ -68,6 +68,17 @@ export type AgentEvent =
       open: number;
     }
   | { type: "compaction_continuation"; text: string }
+  | {
+      type: "context_compaction_started";
+      model: string;
+      strategy: string;
+    }
+  | {
+      type: "context_compaction_failed";
+      model: string;
+      strategy: string;
+      reason: string;
+    }
   | { type: "request_id"; requestId: string }
   | { type: "error"; message: string };
 
@@ -87,6 +98,10 @@ export interface AgentRuntimeOptions {
   mode?: "plan" | "yolo";
   /** Optional per-call usage ledger. Inert when absent. */
   usageLedger?: UsageLedger;
+  /** Recent-tail token budget for a default context manager. */
+  keepTokens?: number;
+  /** Compaction reserve for a default context manager. */
+  buffer?: string | number | null;
   /** Prompt-cache layout mode for a default context manager. */
   cacheMode?: "off" | "automatic" | "explicit";
   /** Repo-map settings for a default context manager. */

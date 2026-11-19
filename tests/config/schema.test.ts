@@ -26,6 +26,8 @@ test("empty config yields documented defaults", () => {
   assert.equal(cfg.runtime.mode, "yolo");
   assert.equal(cfg.context.reserveOutputTokens, 4096);
   assert.equal(cfg.context.compactAtPercent, 85);
+  assert.equal(cfg.context.keepTokens, 15000);
+  assert.equal(cfg.context.buffer, null);
   assert.equal(cfg.sessions.enabled, true);
   assert.equal(cfg.sessions.retentionDays, null);
   assert.equal(cfg.ui.theme, "auto");
@@ -46,6 +48,18 @@ test("usage ledger settings parse and older configs without the section still lo
   const legacy = ConfigSchema.parse({ runtime: { mode: "plan" } });
   assert.equal(legacy.usage.ledgerEnabled, false);
   assert.equal(legacy.usage.ledgerPath, null);
+});
+
+test("memory checkpoint settings accept documented values and reject invalid ones", () => {
+  const tuned = ConfigSchema.parse({
+    context: { keepTokens: 24000, buffer: "20%" },
+  });
+  assert.equal(tuned.context.keepTokens, 24000);
+  assert.equal(tuned.context.buffer, "20%");
+  const exact = ConfigSchema.parse({ context: { buffer: 10000 } });
+  assert.equal(exact.context.buffer, 10000);
+  assert.throws(() => ConfigSchema.parse({ context: { buffer: "100%" } }));
+  assert.throws(() => ConfigSchema.parse({ context: { keepTokens: -1 } }));
 });
 
 test("old configs carrying runtime.checkpointing still parse (ignored)", () => {

@@ -24,6 +24,8 @@ export const DEFAULT_CONFIG = {
     maxProjectInstructionBytes: 30000,
     compactEveryNTurns: 0,
     compactionModel: null as string | null,
+    keepTokens: 15000,
+    buffer: null as string | number | null,
     cacheMode: "off",
     repoMap: { enabled: false, maxTokens: 1200, maxFiles: 400 },
   },

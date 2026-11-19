@@ -20,6 +20,26 @@ import {
   rememberMessageLayout,
   type AttributionCategory,
 } from "./attribution.js";
+import {
+  buildSummaryPrompt,
+  CHECKPOINT_SCHEMA_VERSION,
+  hasAllSummaryHeadings,
+  isOverflowError,
+  resolveReserve,
+  SHRINK_STEPS,
+  splitRecentTail,
+  summaryNudge,
+  thresholdFromReserve,
+  withOlder,
+  type MemoryCheckpoint,
+  type Reserve,
+} from "./checkpoint.js";
+
+export type {
+  CompactionStrategy,
+  MemoryCheckpoint,
+} from "./checkpoint.js";
+export { SUMMARY_HEADINGS } from "./checkpoint.js";
 
 export interface ContextManagerOptions {
   systemPrompt: string;
@@ -35,6 +55,15 @@ export interface ContextManagerOptions {
   compactionModel?: string | null;
   /** Optional per-call usage ledger. Inert when absent. */
   usageLedger?: UsageLedger;
+  /** Token budget for the retained recent tail beside a checkpoint. */
+  keepTokens?: number;
+  /** Compaction reserve: percent string such as "15%", or token count. */
+  buffer?: string | number | null;
+  /** Optional lifecycle callback for compaction start and failure. */
+  onCompactionLifecycle?: (
+    phase: "started" | "failed",
+    detail: { model: string; strategy: string; reason?: string },
+  ) => void;
   /** Prompt-cache layout mode. Off preserves the original message order. */
   cacheMode?: "off" | "automatic" | "explicit";
   /** Resolved repo-map settings. Defaults apply when omitted. */
@@ -88,9 +117,13 @@ export class ContextManager {
   private buildCount = 0;
   private sessionMemory: string | null = null;
   private sessionMemoryCount = 0;
+  private checkpoint: MemoryCheckpoint | null = null;
   private lastCompactionSummary: string | null = null;
   private lastCompactionCoveredCount = 0;
+  private lastCompactionCheckpoint: MemoryCheckpoint | null = null;
+  private lastCompactionFailure: string | null = null;
   private compactEveryNTurns = 0;
+  private reserve: Reserve;
   private staticContext: ContextStaticState | null = null;
   private pendingContinuation: string | null = null;
   private usageContext: { sessionId: string; requestId: string } = {
@@ -101,6 +134,7 @@ export class ContextManager {
   constructor(opts: ContextManagerOptions) {
     this.opts = opts;
     this.compactEveryNTurns = opts.compactEveryNTurns ?? 0;
+    this.reserve = resolveReserve(opts.compactAtPercent, opts.buffer);
   }
 
   setProvider(provider: ProviderAdapter, model?: string): void {
@@ -110,6 +144,12 @@ export class ContextManager {
 
   setModelContextWindow(window: number | undefined): void {
     this.modelContextWindow = window;
+  }
+
+  setCompactionLifecycleCallback(
+    callback: NonNullable<ContextManagerOptions["onCompactionLifecycle"]>,
+  ): void {
+    this.opts.onCompactionLifecycle = callback;
   }
 
   getSystemPrompt(): string {
@@ -208,6 +248,24 @@ export class ContextManager {
     return this.lastCompactionCoveredCount;
   }
 
+  /** Versioned memory checkpoint produced by the latest compaction. */
+  getLastCompactionCheckpoint(): MemoryCheckpoint | null {
+    return this.lastCompactionCheckpoint;
+  }
+
+  consumeCompactionCheckpoint(): MemoryCheckpoint | null {
+    const checkpoint = this.lastCompactionCheckpoint;
+    this.lastCompactionCheckpoint = null;
+    return checkpoint;
+  }
+
+  /** Reason the latest summary failed validation, if any. */
+  consumeCompactionFailure(): string | null {
+    const failure = this.lastCompactionFailure;
+    this.lastCompactionFailure = null;
+    return failure;
+  }
+
   /** Replace the goal/ledger context injected into builds and summaries. */
   setStaticContext(context: ContextStaticState | null): void {
     this.staticContext = context;
@@ -243,17 +301,37 @@ export class ContextManager {
     return messages;
   }
 
-  setSessionMemory(summary: string | null, coveredCount?: number): void {
+  setSessionMemory(
+    summary: string | null,
+    coveredCount?: number,
+    checkpoint?: MemoryCheckpoint | null,
+  ): void {
     this.sessionMemory = summary;
     if (summary === null) {
       this.sessionMemoryCount = 0;
-    } else if (typeof coveredCount === "number" && coveredCount >= 0) {
+      this.checkpoint = null;
+      return;
+    }
+    if (typeof coveredCount === "number" && coveredCount >= 0) {
       this.sessionMemoryCount = coveredCount;
     }
+    this.checkpoint = checkpoint ?? {
+      schemaVersion: CHECKPOINT_SCHEMA_VERSION,
+      summary,
+      coveredCount: this.sessionMemoryCount,
+      coveredTokens: 0,
+      keptCount: 0,
+      model: this.opts.model,
+      strategy: "summary",
+    };
   }
 
   getSessionMemory(): string | null {
     return this.sessionMemory;
+  }
+
+  getSessionCheckpoint(): MemoryCheckpoint | null {
+    return this.checkpoint;
   }
 
   setForceCompact(force: boolean): void {
@@ -269,17 +347,40 @@ export class ContextManager {
     history: Message[],
     focus?: string,
   ): Promise<string | null> {
-    const keep = Math.min(6, Math.max(1, history.length - 1));
-    const older = history.slice(0, history.length - keep);
-    if (older.length === 0) return null;
-    const summary = await this.summarize(older, focus);
-    const coveredCount = history.length - keep;
-    this.sessionMemory = summary;
+    this.lastCompactionFailure = null;
+    const split = withOlder(
+      splitRecentTail(
+        history,
+        this.opts.keepTokens ?? 15000,
+        Math.floor(this.budget() * 0.4),
+      ),
+    );
+    if (split.older.length === 0) return null;
+    const result = await this.summarize(split.older, focus);
+    if (!result) return null;
+    const coveredCount = this.sessionMemoryCount + split.older.length;
+    const coveredTokens = split.older.reduce(
+      (sum, message) => sum + estimateMessageTokens(message),
+      0,
+    );
+    const checkpoint: MemoryCheckpoint = {
+      schemaVersion: CHECKPOINT_SCHEMA_VERSION,
+      summary: result.summary,
+      coveredCount,
+      coveredTokens,
+      keptCount: split.keptCount,
+      model: this.opts.compactionModel || this.opts.model,
+      strategy: "summary",
+      ...(result.usage ? { usage: result.usage } : {}),
+    };
+    this.sessionMemory = result.summary;
     this.sessionMemoryCount = coveredCount;
-    this.lastCompactionSummary = summary;
+    this.checkpoint = checkpoint;
+    this.lastCompactionSummary = result.summary;
     this.lastCompactionCoveredCount = coveredCount;
+    this.lastCompactionCheckpoint = checkpoint;
     this.pendingContinuation = this.getContinuation();
-    return summary;
+    return result.summary;
   }
 
   private budget(): number {
@@ -297,10 +398,13 @@ export class ContextManager {
   }
 
   private threshold(): number {
-    return Math.floor(this.budget() * (this.opts.compactAtPercent / 100));
+    return thresholdFromReserve(this.budget(), this.reserve);
   }
 
-  private async summarize(older: Message[], focus?: string): Promise<string> {
+  private async summarize(
+    older: Message[],
+    focus?: string,
+  ): Promise<{ summary: string; usage?: { input?: number; output?: number } } | null> {
     // Bound the summarizer input so a huge history cannot make the
     // summarization request itself exceed the model window.
     const capChars = Math.max(4000, Math.floor(this.budget() * 4 * 0.6));
@@ -376,11 +480,15 @@ export class ContextManager {
     ]
       .filter(Boolean)
       .join("\n\n");
-    let summaryText = "";
-    try {
-      const focusLine = focus ? `\nFocus the summary on: ${focus}` : "";
+    const model = this.opts.compactionModel || this.opts.model;
+    this.opts.onCompactionLifecycle?.("started", {
+      model,
+      strategy: "summary",
+    });
+    let usage: { input?: number; output?: number } | undefined;
+    const deliver = async (prompt: string, body: string): Promise<string> => {
       const summaryReq = {
-        model: this.opts.compactionModel || this.opts.model,
+        model,
         messages: [
           ...(retention
             ? [
@@ -390,15 +498,10 @@ export class ContextManager {
                 },
               ]
             : []),
-          {
-            role: "system" as const,
-            content:
-              "Summarize the following conversation history compactly. Retain: (1) every user-assigned task and its acceptance criteria, marking completed vs pending; (2) the current task and the next action; (3) files touched and their last known state (paths with a brief change summary); (4) decisions, constraints, and rejected approaches; (5) verification commands and their results. Never drop an open task or a user constraint. Drop: full tool outputs and intermediate reasoning. Output only the summary." +
-              focusLine,
-          },
+          { role: "system" as const, content: prompt },
           {
             role: "user" as const,
-            content: [{ type: "text" as const, text: serialized }],
+            content: [{ type: "text" as const, text: body }],
           },
         ],
         tools: [],
@@ -410,28 +513,77 @@ export class ContextManager {
           sessionId: this.usageContext.sessionId,
           requestId: this.usageContext.requestId,
           provider: this.opts.provider.id,
-          model: this.opts.compactionModel || this.opts.model,
+          model,
           attribution: attributeSummaryMessages(summaryReq.messages as any),
           compacted: true,
         },
         resp.usage,
       );
-      summaryText =
+      if (resp.usage) {
+        usage = {
+          ...(resp.usage.input !== undefined ? { input: resp.usage.input } : {}),
+          ...(resp.usage.output !== undefined
+            ? { output: resp.usage.output }
+            : {}),
+        };
+      }
+      return (
         resp.message.content
           ?.map((p: any) => (p.type === "text" ? p.text : ""))
-          .join("") ?? "";
+          .join("") ?? ""
+      );
+    };
+    const call = async (prompt: string): Promise<string> => {
+      for (const step of [1, ...SHRINK_STEPS]) {
+        const body =
+          step === 1
+            ? serialized
+            : serialized.slice(0, Math.floor(serialized.length * step)) +
+              "...[truncated]";
+        try {
+          return await deliver(prompt, body);
+        } catch (error) {
+          if (!isOverflowError(error) || step === SHRINK_STEPS.at(-1)) throw error;
+        }
+      }
+      return "";
+    };
+    const previous = this.checkpoint?.summary ?? null;
+    let summaryText: string;
+    try {
+      summaryText = await call(buildSummaryPrompt({ focus, previous }));
+      if (!hasAllSummaryHeadings(summaryText)) {
+        summaryText = await call(
+          `${summaryNudge()}\n${buildSummaryPrompt({ focus, previous })}`,
+        );
+        if (!hasAllSummaryHeadings(summaryText)) {
+          return this.failCompaction("summary missing required headings");
+        }
+      }
     } catch {
-      summaryText = "";
+      return this.failCompaction("summary request failed");
     }
     if (!summaryText) {
-      summaryText = "[Earlier conversation truncated to fit context budget.]";
+      return this.failCompaction("empty summary");
     }
-    return summaryText;
+    return { summary: summaryText, usage };
+  }
+
+  private failCompaction(reason: string): null {
+    this.lastCompactionFailure = reason;
+    this.opts.onCompactionLifecycle?.("failed", {
+      model: this.opts.compactionModel || this.opts.model,
+      strategy: "summary",
+      reason,
+    });
+    return null;
   }
 
   async build(workspace: string, history: Message[]): Promise<Message[]> {
     this.compactedThisBuild = false;
     this.lastCompactionSummary = null;
+    this.lastCompactionCheckpoint = null;
+    this.lastCompactionFailure = null;
     this.pendingContinuation = null;
     const userPath =
       this.opts.userInstructionsPath ?? join(userConfigDir(), "AGENTS.md");
@@ -590,23 +742,18 @@ export class ContextManager {
     }
     this.forceCompact = false;
 
-    // Keep as many recent messages as fit in ~40% of the budget so a single
-    // huge tool result cannot force an uncompactable tail.
+    // Keep the newest messages that fit the keep budget, bounded by 40% of the
+    // usable window, and start the tail on a user message.
     const budget = this.budget();
-    const recentCap = Math.floor(budget * 0.4);
-    const maxKeep = Math.max(1, Math.min(6, workingHistory.length - 1));
-    let keep = 0;
-    let acc = 0;
-    for (let i = workingHistory.length - 1; i >= 0; i--) {
-      const cost = estimateMessageTokens(workingHistory[i]);
-      if (keep > 0 && acc + cost > recentCap) break;
-      acc += cost;
-      keep++;
-      if (keep >= maxKeep) break;
-    }
-    if (keep < 1) keep = 1;
-    const recent = workingHistory.slice(-keep);
-    const older = workingHistory.slice(0, workingHistory.length - keep);
+    const split = withOlder(
+      splitRecentTail(
+        workingHistory,
+        this.opts.keepTokens ?? 15000,
+        Math.floor(budget * 0.4),
+      ),
+    );
+    const recent = split.recent;
+    const older = split.older;
     if (older.length === 0) {
       this.forceCompact = false;
       this.lastBuildTokens = total;
@@ -614,11 +761,35 @@ export class ContextManager {
       return messages;
     }
 
-    const summary = await this.summarize(older);
+    const result = await this.summarize(older);
+    if (!result) {
+      // Validation failure leaves prior session memory intact.
+      this.forceCompact = false;
+      this.lastBuildTokens = total;
+      this.rememberLayout(messages, categories, prefixEnd, false);
+      return messages;
+    }
+    const summary = result.summary;
     const coveredCount = this.sessionMemoryCount + older.length;
+    const coveredTokens = older.reduce(
+      (sum, message) => sum + estimateMessageTokens(message),
+      0,
+    );
+    const checkpoint: MemoryCheckpoint = {
+      schemaVersion: CHECKPOINT_SCHEMA_VERSION,
+      summary,
+      coveredCount,
+      coveredTokens,
+      keptCount: split.keptCount,
+      model: this.opts.compactionModel || this.opts.model,
+      strategy: "summary",
+      ...(result.usage ? { usage: result.usage } : {}),
+    };
     this.lastCompactionSummary = summary;
+    this.lastCompactionCheckpoint = checkpoint;
     this.sessionMemory = summary;
     this.sessionMemoryCount = coveredCount;
+    this.checkpoint = checkpoint;
     this.lastCompactionCoveredCount = coveredCount;
     this.compactedThisBuild = true;
     this.lastReportedUsage = undefined;

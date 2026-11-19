@@ -98,9 +98,22 @@ export class AgentRuntime {
         provider: options.provider,
         model: options.model ?? options.provider.model ?? "default",
         usageLedger: options.usageLedger,
+        keepTokens: options.keepTokens,
+        buffer: options.buffer,
         cacheMode: options.cacheMode,
         repoMap: options.repoMap,
       });
+    this.contextManager.setCompactionLifecycleCallback((phase, detail) => {
+      this.onEvent?.(
+        phase === "started"
+          ? { type: "context_compaction_started", ...detail }
+          : {
+              type: "context_compaction_failed",
+              ...detail,
+              reason: detail.reason ?? "unknown",
+            },
+      );
+    });
     this.baseSystemPrompt =
       options.systemPrompt ?? this.contextManager.getSystemPrompt();
     this.persona = options.persona;
@@ -268,8 +281,15 @@ export class AgentRuntime {
       if (typeof session.appendEvent === "function") {
         session.appendEvent({
           type: "context_compacted",
-          summary,
-          coveredCount: this.contextManager.getLastCompactionCoveredCount(),
+          ...(this.contextManager.getLastCompactionCheckpoint() ?? {
+            schemaVersion: 1,
+            summary,
+            coveredCount: this.contextManager.getLastCompactionCoveredCount(),
+            coveredTokens: 0,
+            keptCount: 0,
+            model: this.model,
+            strategy: "summary",
+          }),
         });
       }
       this.mirrorContinuation(this.contextManager.getContinuation(), session);
@@ -571,11 +591,17 @@ export class AgentRuntime {
   ): Promise<string> {
     // Restore any persisted session memory for resumed sessions.
     const latest = latestEvent(session, "context_compacted");
+    const summary = typeof latest?.summary === "string" ? latest.summary : null;
+    const restoredCheckpoint =
+      summary && latest?.schemaVersion === 1
+        ? (latest as unknown as import("../context/manager.js").MemoryCheckpoint)
+        : null;
     this.contextManager.setSessionMemory(
-      typeof latest?.summary === "string" ? latest.summary : null,
+      summary,
       typeof latest?.coveredCount === "number"
         ? latest.coveredCount
         : undefined,
+      restoredCheckpoint,
     );
     this.restoreTodos(session);
     this.restoreGoal(session);
@@ -645,6 +671,15 @@ export class AgentRuntime {
           type: "context_build",
           messages,
         });
+        const failure = this.contextManager.consumeCompactionFailure();
+        if (failure) {
+          this.onEvent?.({
+            type: "context_compaction_failed",
+            model: this.model,
+            strategy: "summary",
+            reason: failure,
+          });
+        }
         if (this.contextManager.consumeCompaction()) {
           // Prefer an estimate over "unknown" so the TUI keeps showing a
           // number; the next assistant response replaces it with real usage.
@@ -657,11 +692,19 @@ export class AgentRuntime {
           const summary = this.contextManager.consumeCompactionSummary();
           const coveredCount =
             this.contextManager.consumeCompactionCoveredCount();
+          const checkpoint = this.contextManager.consumeCompactionCheckpoint();
           if (summary && typeof (session as any).appendEvent === "function") {
             (session as any).appendEvent({
               type: "context_compacted",
-              summary,
-              coveredCount,
+              ...(checkpoint ?? {
+                schemaVersion: 1,
+                summary,
+                coveredCount,
+                coveredTokens: 0,
+                keptCount: 0,
+                model: this.model,
+                strategy: "summary",
+              }),
             });
           }
           this.mirrorContinuation(

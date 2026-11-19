@@ -14,6 +14,9 @@ import { GoalStore } from "../../dist/runtime/goal.js";
 import { DEFAULT_SYSTEM_PROMPT } from "../../dist/agent/system-prompt.js";
 import type { ProviderAdapter } from "../../dist/providers/types.js";
 import type { ModelRequest, Message } from "../../dist/types.js";
+import { SUMMARY_HEADINGS } from "../../dist/context/checkpoint.js";
+
+const VALID_SUMMARY = SUMMARY_HEADINGS.map((h) => `${h}\n- value`).join("\n\n");
 
 class EventedSession {
   messages: Message[] = [];
@@ -425,7 +428,7 @@ test("manual compaction keeps the goal and mirrors one continuation", async () =
     content: [{ type: "text", text: `old message ${i}` }],
   })) as Message[];
   const events: any[] = [];
-  const provider = new RecordingProvider([{ text: "manual summary" }]);
+  const provider = new RecordingProvider([{ text: VALID_SUMMARY }]);
   const runtime = new AgentRuntime({
     provider,
     workspace: dir,
@@ -435,7 +438,7 @@ test("manual compaction keeps the goal and mirrors one continuation", async () =
   runtime.setGoal("Ship it", session as any);
   runtime.setGoalCriteria(["tests pass"], session as any);
   const summary = await runtime.compactSession(session as any);
-  assert.equal(summary, "manual summary");
+  assert.equal(summary, VALID_SUMMARY);
   const continuations = events.filter(
     (e) => e.type === "compaction_continuation",
   );
@@ -456,7 +459,7 @@ test("compaction keeps the goal in context and mirrors one continuation", async 
   })) as Message[];
   const events: any[] = [];
   const provider = new RecordingProvider([
-    { text: "summary" },
+    { text: VALID_SUMMARY },
     { text: "done" },
   ]);
   const contextManager = new ContextManager({

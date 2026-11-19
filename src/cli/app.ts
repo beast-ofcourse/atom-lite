@@ -591,6 +591,8 @@ export async function run(args: string[]): Promise<void> {
     maxProjectInstructionBytes: config.context.maxProjectInstructionBytes,
     compactEveryNTurns: config.context.compactEveryNTurns ?? 0,
     compactionModel: config.context.compactionModel ?? null,
+    keepTokens: config.context.keepTokens,
+    buffer: config.context.buffer,
     cacheMode: config.context.cacheMode,
     repoMap: config.context.repoMap,
     provider,

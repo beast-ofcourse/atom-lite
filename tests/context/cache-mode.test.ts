@@ -9,6 +9,12 @@ import { ConfigSchema } from "../../dist/config/schema.js";
 import { AgentRuntime } from "../../dist/agent/loop.js";
 import { InMemorySession } from "../../dist/sessions/store.js";
 import type { Message } from "../../dist/types.js";
+import { SUMMARY_HEADINGS } from "../../dist/context/checkpoint.js";
+
+const summaryText = (label: string) =>
+  SUMMARY_HEADINGS.map(
+    (heading, index) => `${heading}\n- ${index === 0 ? label : "value"}`,
+  ).join("\n\n");
 
 function manager(mode: "off" | "automatic" | "explicit", workspace: string) {
   return new ContextManager({
@@ -96,8 +102,8 @@ test("automatic mode keeps the prefix stable after compaction", async () => {
     compactAtPercent: 85,
     maxProjectInstructionBytes: 30000,
     provider: new FakeProvider([
-      { text: "SUMMARY ONE" },
-      { text: "SUMMARY TWO" },
+      { text: summaryText("SUMMARY ONE") },
+      { text: summaryText("SUMMARY TWO") },
     ]),
     model: "m",
     cacheMode: "automatic",
@@ -122,7 +128,8 @@ test("automatic mode keeps the prefix stable after compaction", async () => {
   const volatileCount = 2; // goal + project instruction
   const prefix = (messages: Message[]) =>
     serialize(messages.slice(0, messages.length - volatileCount));
-  assert.ok(serialize(compacted).includes("Context summary: SUMMARY ONE"));
+  assert.match(serialize(compacted), /Context summary:/);
+  assert.ok(serialize(compacted).includes("SUMMARY ONE"));
   assert.equal(prefix(settled), prefix(changed));
   assert.ok(serialize(settled).includes("GOAL A"));
   assert.ok(serialize(changed).includes("GOAL B"));

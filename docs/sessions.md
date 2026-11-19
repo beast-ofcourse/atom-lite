@@ -30,9 +30,15 @@ While a session is open, a sibling `<sessionId>.jsonl.lock` file records the own
 
 The context manager estimates tokens and summarizes older history before the context budget is exceeded. The full transcript stays on disk. Goal, ledger, success criteria, active file paths, and a bounded recent tail are injected alongside the summary.
 
+The summary is a memory checkpoint with fixed sections: Objective, Requirements, Decisions, Work State, Next Move, Relevant Files, and Important Context. A later compaction updates the existing checkpoint instead of rewriting it from scratch. A response missing the required sections gets one corrective prompt; if it still fails, the previous checkpoint stays in place and a `context_compaction_failed` event is emitted.
+
+The recent tail is sized in tokens, capped at 40% of the usable window, and starts on a user message so a tool call and its result stay together. `context.keepTokens` sets its budget. `context.buffer` sets the compaction reserve as a share of the model window or an exact token count; unset, it derives from `compactAtPercent`.
+
+The session log records `context_compaction_started`, `context_compacted`, and `context_compaction_failed` events. A `context_compacted` event carries the schema version, summary, covered count and tokens, kept count, model, strategy, and usage. Old events without the extra fields still restore.
+
 After a compaction, one continuation message names the goal, criteria, current todo, and next action. It is mirrored into the transcript and survives session resume. See [Goals](./goals.md).
 
-Compaction settings live under `context` in [Config](./config.md#context): `compactAtPercent`, `compactEveryNTurns`, `reserveOutputTokens`, and `compactionModel`.
+Compaction settings live under `context` in [Config](./config.md#context): `compactAtPercent`, `keepTokens`, `buffer`, `compactEveryNTurns`, `reserveOutputTokens`, and `compactionModel`.
 
 ## Retention
 

@@ -15,6 +15,9 @@ import type {
   ModelResponse,
   ModelStreamEvent,
 } from "../../dist/types.js";
+import { SUMMARY_HEADINGS } from "../../dist/context/checkpoint.js";
+
+const VALID_SUMMARY = SUMMARY_HEADINGS.map((h) => `${h}\n- value`).join("\n\n");
 
 test("a config-enabled ledger writes records to the configured path after a call", async () => {
   const dir = mkdtempSync(join(tmpdir(), "usage-cfg-"));
@@ -56,7 +59,7 @@ test("a config-enabled ledger writes records to the configured path after a call
 test("compaction summarizer calls produce their own ledger record", async () => {
   const dir = mkdtempSync(join(tmpdir(), "usage-compact-"));
   const provider = new FakeProvider([
-    { text: "compressed summary", usage: { input: 40, output: 9, total: 49 } },
+    { text: VALID_SUMMARY, usage: { input: 40, output: 9, total: 49 } },
     { text: "answer", usage: { input: 12, output: 3, total: 15 } },
   ]);
   const records: any[] = [];
