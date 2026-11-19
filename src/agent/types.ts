@@ -100,6 +100,10 @@ export interface AgentRuntimeOptions {
   usageLedger?: UsageLedger;
   /** Recent-tail token budget for a default context manager. */
   keepTokens?: number;
+  /** Prepare summaries ahead of the trigger in a default context manager. */
+  background?: boolean;
+  /** Opt-in cache keep-alive settings. */
+  warming?: import("../config/schema.js").Config["context"]["warming"];
   /** Compaction reserve for a default context manager. */
   buffer?: string | number | null;
   /** Prompt-cache layout mode for a default context manager. */

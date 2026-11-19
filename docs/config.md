@@ -103,6 +103,8 @@ stored credential, then inline `apiKey`.
 | `compactionModel`            | non-empty string \| null                 | `null`  | Model for compaction summaries. `null` uses the active model. |
 | `keepTokens`                 | integer >= 0                             | `15000` | Token budget for the recent tail kept beside the summary.     |
 | `buffer`                     | percent string \| integer \| null         | `null`  | Compaction reserve. A percent is a share of the model window; an integer is an exact token reserve. `null` derives it from `compactAtPercent`. Independent of `reserveOutputTokens`. |
+| `background`                 | boolean                                  | `false` | Write a summary ahead of the trigger and swap it in when compaction is due. Unused summaries still cost tokens. |
+| `warming`                    | boolean \| object                         | `false` | Opt-in prompt-cache keep-alive. Object form accepts `interval` (`"auto"` or positive integer milliseconds) and `duration` (positive integer milliseconds). |
 | `cacheMode`                  | `"off"` \| `"automatic"` \| `"explicit"` | `"off"` | Prompt-cache layout mode. `off` keeps today's message order.  |
 | `repoMap`                    | object                                  | see below | Opt-in bounded repo map injected as a trailing system message. |
 

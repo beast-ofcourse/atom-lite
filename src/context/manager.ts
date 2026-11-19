@@ -63,6 +63,8 @@ export interface ContextManagerOptions {
   keepTokens?: number;
   /** Compaction reserve: percent string such as "15%", or token count. */
   buffer?: string | number | null;
+  /** Write a summary ahead of the trigger and swap it in when due. */
+  background?: boolean;
   /** Optional lifecycle callback for compaction start and failure. */
   onCompactionLifecycle?: (
     phase: "started" | "failed",
@@ -127,6 +129,17 @@ export class ContextManager {
   private lastCompactionCoveredCount = 0;
   private lastCompactionCheckpoint: MemoryCheckpoint | null = null;
   private lastCompactionFailure: string | null = null;
+  private backgroundTask: Promise<void> | null = null;
+  private precomputed: {
+    anchorIndex: number;
+    anchorCount: number;
+    tailLimit: number;
+    model: string;
+    summary: string;
+    coveredTokens: number;
+    anchorLast: Message;
+  } | null = null;
+  private cycleStartTokens = 0;
   private compactEveryNTurns = 0;
   private reserve: Reserve;
   private staticContext: ContextStaticState | null = null;
@@ -145,6 +158,12 @@ export class ContextManager {
   setProvider(provider: ProviderAdapter, model?: string): void {
     this.opts.provider = provider;
     if (model) this.opts.model = model;
+    this.precomputed = null;
+  }
+
+  /** Wait for an in-flight background summary, for callers that need the swap now. */
+  async awaitBackground(): Promise<void> {
+    await this.backgroundTask;
   }
 
   setModelContextWindow(window: number | undefined): void {
@@ -441,6 +460,7 @@ export class ContextManager {
   private async summarize(
     older: Message[],
     focus?: string,
+    silent = false,
   ): Promise<{ summary: string; usage?: { input?: number; output?: number } } | null> {
     // Bound the summarizer input so a huge history cannot make the
     // summarization request itself exceed the model window.
@@ -524,10 +544,12 @@ export class ContextManager {
       .filter(Boolean)
       .join("\n\n");
     const model = this.opts.compactionModel || this.opts.model;
-    this.opts.onCompactionLifecycle?.("started", {
-      model,
-      strategy: "summary",
-    });
+    if (!silent) {
+      this.opts.onCompactionLifecycle?.("started", {
+        model,
+        strategy: "summary",
+      });
+    }
     let usage: { input?: number; output?: number } | undefined;
     const deliver = async (prompt: string, body: string): Promise<string> => {
       const summaryReq = {
@@ -600,25 +622,27 @@ export class ContextManager {
           `${summaryNudge()}\n${buildSummaryPrompt({ focus, previous })}`,
         );
         if (!hasAllSummaryHeadings(summaryText)) {
-          return this.failCompaction("summary missing required headings");
+          return this.failCompaction("summary missing required headings", silent);
         }
       }
     } catch {
-      return this.failCompaction("summary request failed");
+      return this.failCompaction("summary request failed", silent);
     }
     if (!summaryText) {
-      return this.failCompaction("empty summary");
+      return this.failCompaction("empty summary", silent);
     }
     return { summary: summaryText, usage };
   }
 
-  private failCompaction(reason: string): null {
-    this.lastCompactionFailure = reason;
-    this.opts.onCompactionLifecycle?.("failed", {
-      model: this.opts.compactionModel || this.opts.model,
-      strategy: "summary",
-      reason,
-    });
+  private failCompaction(reason: string, silent = false): null {
+    if (!silent) {
+      this.lastCompactionFailure = reason;
+      this.opts.onCompactionLifecycle?.("failed", {
+        model: this.opts.compactionModel || this.opts.model,
+        strategy: "summary",
+        reason,
+      });
+    }
     return null;
   }
 
@@ -750,6 +774,61 @@ export class ContextManager {
       messages.reduce((s, m) => s + estimateMessageTokens(m), 0) +
       this.toolTokenOverhead;
     const threshold = this.threshold();
+    const currentBudget = this.budget();
+    if (
+      this.opts.background &&
+      !this.precomputed &&
+      !this.backgroundTask &&
+      !this.forceCompact &&
+      !periodic
+    ) {
+      const lead = Math.min(
+        60_000,
+        Math.max(1, Math.floor((threshold - this.cycleStartTokens) / 2)),
+      );
+      if (total >= threshold - lead && workingHistory.length > 1) {
+        const anchorSplit = withOlder(
+          splitRecentTail(
+            workingHistory,
+            this.opts.keepTokens ?? 15000,
+            Math.floor(currentBudget * 0.4),
+          ),
+        );
+        if (anchorSplit.older.length > 0) {
+          const anchorIndex = anchorSplit.older.length;
+          const anchorLast = anchorSplit.older[anchorIndex - 1];
+          const anchorCount = this.sessionMemoryCount + anchorIndex;
+          const coveredTokens = anchorSplit.older.reduce(
+            (sum, message) => sum + estimateMessageTokens(message),
+            0,
+          );
+          const tailLimit = Math.floor(currentBudget * 0.4);
+          const model = this.opts.compactionModel || this.opts.model;
+          this.backgroundTask = this.summarize(
+            anchorSplit.older,
+            undefined,
+            true,
+          )
+            .then((result) => {
+              if (result) {
+                this.precomputed = {
+                  anchorIndex,
+                  anchorCount,
+                  tailLimit,
+                  model,
+                  summary: result.summary,
+                  coveredTokens,
+                  anchorLast,
+                };
+              }
+            })
+            .catch(() => undefined)
+            .finally(() => {
+              this.backgroundTask = null;
+            });
+        }
+      }
+    }
     const pressureFromEstimate = total > threshold;
     const pressureFromUsage =
       this.lastReportedUsage !== undefined &&
@@ -783,20 +862,42 @@ export class ContextManager {
       return messages;
     }
 
-    const result = await this.summarize(older);
-    if (!result) {
-      // Validation failure leaves prior session memory intact.
-      this.forceCompact = false;
-      this.lastBuildTokens = total;
-      this.rememberLayout(messages, categories, prefixEnd, false);
-      return messages;
-    }
-    const summary = result.summary;
-    const coveredCount = this.sessionMemoryCount + older.length;
-    const coveredTokens = older.reduce(
+    const held = this.precomputed;
+    this.precomputed = null;
+    const model = this.opts.compactionModel || this.opts.model;
+    const heldTail = held ? workingHistory.slice(held.anchorIndex) : [];
+    const heldTailTokens = heldTail.reduce(
       (sum, message) => sum + estimateMessageTokens(message),
       0,
     );
+    const canUseHeld =
+      held !== null &&
+      held.model === model &&
+      workingHistory[held.anchorIndex - 1] === held.anchorLast &&
+      heldTailTokens <= held.tailLimit;
+    let result: { summary: string; usage?: { input?: number; output?: number } } | null;
+    let coveredCount: number;
+    let coveredTokens: number;
+    if (canUseHeld && held) {
+      result = { summary: held.summary };
+      coveredCount = held.anchorCount;
+      coveredTokens = held.coveredTokens;
+    } else {
+      result = await this.summarize(older);
+      if (!result) {
+        // Validation failure leaves prior session memory intact.
+        this.forceCompact = false;
+        this.lastBuildTokens = total;
+        this.rememberLayout(messages, categories, prefixEnd, false);
+        return messages;
+      }
+      coveredCount = this.sessionMemoryCount + older.length;
+      coveredTokens = older.reduce(
+        (sum, message) => sum + estimateMessageTokens(message),
+        0,
+      );
+    }
+    const summary = result.summary;
     const checkpoint: MemoryCheckpoint = {
       schemaVersion: CHECKPOINT_SCHEMA_VERSION,
       summary,
@@ -815,6 +916,7 @@ export class ContextManager {
     this.lastCompactionCoveredCount = coveredCount;
     this.compactedThisBuild = true;
     this.lastReportedUsage = undefined;
+    this.cycleStartTokens = total;
 
     const continuation = this.getContinuation();
     this.pendingContinuation = continuation;

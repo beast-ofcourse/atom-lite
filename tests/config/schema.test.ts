@@ -28,6 +28,8 @@ test("empty config yields documented defaults", () => {
   assert.equal(cfg.context.compactAtPercent, 85);
   assert.equal(cfg.context.keepTokens, 15000);
   assert.equal(cfg.context.buffer, null);
+  assert.equal(cfg.context.background, false);
+  assert.equal(cfg.context.warming, false);
   assert.equal(cfg.sessions.enabled, true);
   assert.equal(cfg.sessions.retentionDays, null);
   assert.equal(cfg.ui.theme, "auto");
@@ -60,6 +62,14 @@ test("memory checkpoint settings accept documented values and reject invalid one
   assert.equal(exact.context.buffer, 10000);
   assert.throws(() => ConfigSchema.parse({ context: { buffer: "100%" } }));
   assert.throws(() => ConfigSchema.parse({ context: { keepTokens: -1 } }));
+  const warmed = ConfigSchema.parse({
+    context: { background: true, warming: { interval: 60_000, duration: 120_000 } },
+  });
+  assert.equal(warmed.context.background, true);
+  assert.deepEqual(warmed.context.warming, {
+    interval: 60_000,
+    duration: 120_000,
+  });
 });
 
 test("old configs carrying runtime.checkpointing still parse (ignored)", () => {

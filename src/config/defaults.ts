@@ -25,6 +25,8 @@ export const DEFAULT_CONFIG = {
     compactEveryNTurns: 0,
     compactionModel: null as string | null,
     keepTokens: 15000,
+    background: false,
+    warming: false as boolean | { interval: "auto"; duration: number },
     buffer: null as string | number | null,
     cacheMode: "off",
     repoMap: { enabled: false, maxTokens: 1200, maxFiles: 400 },

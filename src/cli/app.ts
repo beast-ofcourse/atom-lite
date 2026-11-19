@@ -593,6 +593,7 @@ export async function run(args: string[]): Promise<void> {
     compactionModel: config.context.compactionModel ?? null,
     keepTokens: config.context.keepTokens,
     buffer: config.context.buffer,
+    background: config.context.background,
     cacheMode: config.context.cacheMode,
     repoMap: config.context.repoMap,
     provider,
@@ -637,6 +638,8 @@ export async function run(args: string[]): Promise<void> {
     maxTokensPerTurn: config.runtime.maxTokensPerTurn,
     usageLedger,
     contextManager,
+    warming: config.context.warming,
+    background: config.context.background,
     extensionDispatch,
     bashConcurrency: config.runtime.bashConcurrency,
     limits: {

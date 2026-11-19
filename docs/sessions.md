@@ -36,6 +36,10 @@ Instruction text follows the same boundary. The first set is frozen as a baselin
 
 The recent tail is sized in tokens, capped at 40% of the usable window, and starts on a user message so a tool call and its result stay together. `context.keepTokens` sets its budget. `context.buffer` sets the compaction reserve as a share of the model window or an exact token count; unset, it derives from `compactAtPercent`.
 
+With `context.background: true`, Atom-lite writes a summary before the trigger and holds it in memory for the session. It swaps the held summary in when compaction is due and the recent tail is still bounded; otherwise it summarizes as usual. Held summaries are lost on restart, and a summary that is never used still costs tokens.
+
+`context.warming` enables opt-in prompt-cache keep-alive. It reuses the last model context on a timer, stops on a reported cache miss, and never treats a provider that reports no cache counters as a miss.
+
 The session log records `context_compaction_started`, `context_compacted`, and `context_compaction_failed` events. A `context_compacted` event carries the schema version, summary, covered count and tokens, kept count, model, strategy, and usage. Old events without the extra fields still restore.
 
 After a compaction, one continuation message names the goal, criteria, current todo, and next action. It is mirrored into the transcript and survives session resume. See [Goals](./goals.md).

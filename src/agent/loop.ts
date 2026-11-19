@@ -10,6 +10,7 @@ import {
 } from "../lsp/index.js";
 import { ContextManager } from "../context/manager.js";
 import { discoverInstructionPaths } from "../context/instructions.js";
+import { CacheWarmer } from "../context/warming.js";
 import {
   foldInstructionBaseline,
   initialBaseline,
@@ -77,6 +78,8 @@ export class AgentRuntime {
   private todoStoreInjected: boolean;
   private goalStoreInjected: boolean;
   private todoTouchedThisTurn = false;
+  private warmer: CacheWarmer | null = null;
+  private lastBuiltMessages: Message[] | null = null;
 
   constructor(options: AgentRuntimeOptions) {
     this.provider = options.provider;
@@ -106,6 +109,7 @@ export class AgentRuntime {
         usageLedger: options.usageLedger,
         keepTokens: options.keepTokens,
         buffer: options.buffer,
+        background: options.background,
         cacheMode: options.cacheMode,
         repoMap: options.repoMap,
       });
@@ -143,9 +147,22 @@ export class AgentRuntime {
     this.goalStore = options.goalStore ?? new GoalStore();
     this.goalStoreInjected = options.goalStore !== undefined;
     this.contextManager.setModelContextWindow(options.contextWindow);
+    if (options.warming) {
+      const config =
+        typeof options.warming === "object" ? options.warming : null;
+      this.warmer = new CacheWarmer({
+        provider: this.provider as any,
+        model: this.model,
+        getMessages: () => this.lastBuiltMessages,
+        intervalMs:
+          config && typeof config.interval === "number" ? config.interval : 240_000,
+        durationMs: config?.duration ?? 1_800_000,
+      });
+    }
   }
 
   switchModel(provider: AgentRuntimeOptions["provider"], model?: string): void {
+    this.warmer?.stop();
     this.provider = provider;
     if (model) this.model = model;
     this.contextManager.setProvider(provider, this.model);
@@ -203,6 +220,8 @@ export class AgentRuntime {
 
   /** Reset per-session context usage (e.g. when starting a new session). */
   resetContextUsage(): void {
+    this.warmer?.stop();
+    this.lastBuiltMessages = null;
     this.contextUsed = undefined;
     this.contextManager.setSessionMemory(null);
     this.contextManager.resetUsage();
@@ -738,6 +757,8 @@ export class AgentRuntime {
           this.workspace,
           session.messages,
         );
+        this.lastBuiltMessages = messages;
+        this.warmer?.start();
         await this.extensionDispatch?.("context_build", {
           type: "context_build",
           messages,

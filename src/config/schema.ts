@@ -89,6 +89,22 @@ export const ContextConfigSchema = z
     compactionModel: z.string().min(1).nullable().default(null),
     /** Token budget for the recent tail kept beside a memory checkpoint. */
     keepTokens: z.number().int().nonnegative().default(15000),
+    /** Prepare summaries ahead of the compaction trigger. */
+    background: z.boolean().default(false),
+    /** Opt-in prompt-cache keep-alive. */
+    warming: z
+      .union([
+        z.boolean(),
+        z
+          .object({
+            interval: z
+              .union([z.literal("auto"), z.number().int().positive()])
+              .default("auto"),
+            duration: z.number().int().positive().default(1_800_000),
+          })
+          .strict(),
+      ])
+      .default(false),
     /**
      * Compaction trigger reserve. A percent string is a share of the model
      * window; a number is an exact token reserve. Unset derives from
