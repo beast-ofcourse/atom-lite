@@ -27,6 +27,7 @@ import {
 import { defaultShell } from "../dist/security/process.js";
 import { Transcript } from "../dist/cli/transcript.js";
 import { StreamText } from "../dist/cli/stream-text.js";
+import { ThinkingBlock } from "../dist/cli/thinking-block.js";
 
 const RUNS = Math.max(3, Number(process.env.BENCH_RUNS ?? 15));
 const ROOT = join(import.meta.dirname, "..");
@@ -207,6 +208,17 @@ const streamLiveFrame = await bench(
   Math.max(5, Math.min(RUNS, 10)),
 );
 record("stream frame, live 200 lines (uncached)", streamLiveFrame, "ms", 16);
+
+const thinking = new ThinkingBlock();
+const thinkingLine =
+  "reasoning line with enough words to wrap across the pane\n";
+for (let i = 0; i < 4000; i++) thinking.append(thinkingLine);
+thinking.render(120);
+const thinkingFrame = await bench(() => {
+  thinking.append("more thinking text ");
+  return thinking.render(120);
+});
+record("thinking frame, 4k sealed lines", thinkingFrame, "ms", 16);
 
 // --- report ----------------------------------------------------------------
 const pad = (s, n) => String(s).padEnd(n);

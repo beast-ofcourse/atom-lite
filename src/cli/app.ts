@@ -50,6 +50,7 @@ import {
   knownVisionModel,
 } from "../providers/context-window.js";
 import { STREAM_INVALIDATE_MS, StreamText } from "./stream-text.js";
+import { ThinkingBlock } from "./thinking-block.js";
 import { initLsp, shutdownLsp } from "../lsp/index.js";
 import { Transcript } from "./transcript.js";
 import { AgentRuntime } from "../agent/loop.js";
@@ -140,7 +141,6 @@ import {
   isKeyRepeat,
   Key,
   matchesKey,
-  wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { installEditorKeybindings } from "./editor-keybindings.js";
 import { createMainRow } from "./main-layout.js";
@@ -1195,46 +1195,7 @@ export async function run(args: string[]): Promise<void> {
     }
   }
 
-  class ThinkingBlock {
-    buffer = "";
-    private cachedWidth = -1;
-    private cachedBuffer = "";
-    private cachedLines: string[] | null = null;
-    render(width: number): string[] {
-      if (
-        this.cachedLines &&
-        this.cachedWidth === width &&
-        this.cachedBuffer === this.buffer
-      ) {
-        return this.cachedLines;
-      }
-      const lines: string[] = [theme.tokens.dim("💭 thinking")];
-      const sep = theme.tokens.dim("│ ");
-      const contentWidth = Math.max(1, width - 2);
-      const logicalLines =
-        this.buffer.length > 0 ? this.buffer.split("\\n") : [""];
-      for (const logical of logicalLines) {
-        const wrapped = wrapTextWithAnsi(logical, contentWidth);
-        if (wrapped.length === 0) {
-          lines.push(sep);
-        } else {
-          for (const part of wrapped) lines.push(sep + theme.tokens.dim(part));
-        }
-      }
-      this.cachedLines = lines;
-      this.cachedWidth = width;
-      this.cachedBuffer = this.buffer;
-      return lines;
-    }
-    invalidate(): void {
-      this.cachedLines = null;
-      this.cachedWidth = -1;
-      this.cachedBuffer = "";
-    }
-  }
-
   let thinkingText: ThinkingBlock | null = null;
-  let thinkingBuffer = "";
   let lastThinkingInvalidateAt = 0;
   let showThinking = config.ui.showThinking;
   let expandTools = false;
@@ -1274,10 +1235,7 @@ export async function run(args: string[]): Promise<void> {
     text: string,
     style: (value: string) => string = theme.tokens.text,
   ): void {
-    if (thinkingText) {
-      thinkingText = null;
-      thinkingBuffer = "";
-    }
+    thinkingText = null;
     streamText.finalize();
     transcript.add(new Text(style(text)));
     tui.requestRender();
@@ -1571,6 +1529,7 @@ export async function run(args: string[]): Promise<void> {
     });
     banner.setTheme(theme);
     transcript.setTheme(theme);
+    thinkingText?.setTheme(theme);
     statusBar.setTheme(theme);
     goalPanel.setTheme(theme);
     activity.setTheme(theme);
@@ -2382,7 +2341,6 @@ export async function run(args: string[]): Promise<void> {
     toolBoxes.length = 0;
     toolBoxesById.clear();
     thinkingText = null;
-    thinkingBuffer = "";
     banner.setTheme(theme);
     transcript.add(banner);
     transcript.add(new Spacer(1));
@@ -2437,8 +2395,8 @@ export async function run(args: string[]): Promise<void> {
         const thinking = String((message as any).thinking ?? "").trim();
         if (thinking && showThinking) {
           transcript.add(new Spacer(1));
-          const thinkingBlock = new ThinkingBlock();
-          thinkingBlock.buffer = thinking;
+          const thinkingBlock = new ThinkingBlock(theme);
+          thinkingBlock.append(thinking);
           transcript.add(thinkingBlock);
         }
         const text = textOf(message.content).trim();
@@ -3116,13 +3074,11 @@ export async function run(args: string[]): Promise<void> {
       activity.setPhase("thinking");
       if (!showThinking) return;
       if (!thinkingText) {
-        thinkingText = new ThinkingBlock();
+        thinkingText = new ThinkingBlock(theme);
         transcript.add(new Spacer(1));
         transcript.add(thinkingText);
-        thinkingBuffer = "";
       }
-      thinkingBuffer += e.text;
-      thinkingText.buffer = thinkingBuffer;
+      thinkingText.append(e.text);
       heightStamp++; // in-place ThinkingBlock buffer mutation
       const now = Date.now();
       if (now - lastThinkingInvalidateAt >= STREAM_INVALIDATE_MS) {
@@ -3135,7 +3091,6 @@ export async function run(args: string[]): Promise<void> {
       if (thinkingText) {
         transcript.invalidate();
         thinkingText = null;
-        thinkingBuffer = "";
       }
       appendDelta(e.text);
     } else if (e.type === "assistant_text") {
@@ -3143,7 +3098,6 @@ export async function run(args: string[]): Promise<void> {
       if (thinkingText) {
         transcript.invalidate();
         thinkingText = null;
-        thinkingBuffer = "";
       }
       appendDelta(e.text);
       finalizeText();
@@ -3206,7 +3160,6 @@ export async function run(args: string[]): Promise<void> {
       if (thinkingText) {
         transcript.invalidate();
         thinkingText = null;
-        thinkingBuffer = "";
       }
       finalizeText();
       activity.setPhase("working", e.name);
@@ -3245,7 +3198,6 @@ export async function run(args: string[]): Promise<void> {
       if (thinkingText) {
         transcript.invalidate();
         thinkingText = null;
-        thinkingBuffer = "";
       }
       finalizeText();
       activity.stop();
