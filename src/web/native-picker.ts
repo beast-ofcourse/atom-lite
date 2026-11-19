@@ -26,6 +26,13 @@ const WINDOWS_SCRIPT = [
   "}",
 ].join("; ");
 
+export function isAndroid(
+  platform: string = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return platform === "android" || Boolean(env.TERMUX_VERSION);
+}
+
 /** Native folder-picker commands for one platform, in preference order. */
 export function folderPickerCommands(
   platform: string = process.platform,
@@ -51,7 +58,7 @@ export function folderPickerCommands(
       },
     ];
   }
-  if (platform === "android" || env.TERMUX_VERSION) {
+  if (isAndroid(platform, env)) {
     return [{ command: "termux-saf-managedir", args: [] }];
   }
   return [

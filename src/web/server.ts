@@ -30,7 +30,7 @@ import type {
 } from "../runtime/approvals.js";
 import type { QuestionContext, QuestionOutcome } from "../runtime/questions.js";
 import type { GoalState } from "../runtime/goal.js";
-import { pickNativeDirectory } from "./native-picker.js";
+import { isAndroid, pickNativeDirectory } from "./native-picker.js";
 import {
   parseClientMessage,
   type ClientMessage,
@@ -1395,6 +1395,7 @@ export async function startWebServer(
       agent: activeAgent,
       agents: agentList(),
       readOnly: controller !== ws,
+      nativePicker: !isAndroid(),
       history: visibleHistory(),
       context: options.runtime.getContextUsage(),
       goal: goalOf(session),

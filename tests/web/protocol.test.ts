@@ -722,6 +722,7 @@ test("a streamed reply arrives as ordered deltas before turn_end", async () => {
     assert.equal(hello.sessionId, built.session.id);
     assert.equal(hello.model, "fake-model");
     assert.equal(hello.readOnly, false);
+    assert.equal(typeof hello.nativePicker, "boolean");
 
     client.send({ type: "input", text: "ping" });
     await client.waitFor("turn_end");

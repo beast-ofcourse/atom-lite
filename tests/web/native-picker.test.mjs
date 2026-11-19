@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import {
   androidTreeUriToPath,
   folderPickerCommands,
+  isAndroid,
 } from "../../dist/web/native-picker.js";
 
 test("desktop pickers use the platform's native dialog", () => {
@@ -18,6 +19,13 @@ test("Termux selects the Android SAF directory picker", () => {
   const commands = folderPickerCommands("linux", { TERMUX_VERSION: "0.118" });
   assert.equal(commands.length, 1);
   assert.equal(commands[0].command, "termux-saf-managedir");
+});
+
+test("Android detection covers both process platform and Termux", () => {
+  assert.equal(isAndroid("android", {}), true);
+  assert.equal(isAndroid("linux", { TERMUX_VERSION: "0.118" }), true);
+  assert.equal(isAndroid("linux", {}), false);
+  assert.equal(isAndroid("darwin", {}), false);
 });
 
 test("Android SAF tree URIs map to shared-storage paths", () => {

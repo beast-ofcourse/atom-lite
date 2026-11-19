@@ -179,6 +179,7 @@ let modelsCache = [];
 let agentsCache = [];
 let activeAgent = null;
 let workspacePath = "";
+let nativePickerAvailable = true;
 let sessionMenuTarget = null;
 let renameTargetId = null;
 let deleteTargetId = null;
@@ -3159,6 +3160,7 @@ function handleMessage(message) {
   switch (message.type) {
     case "hello":
       setReadOnly(message.readOnly);
+      nativePickerAvailable = message.nativePicker !== false;
       currentProvider = message.provider;
       currentModel = message.model;
       modelsCache = Array.isArray(message.models) ? message.models : [];
@@ -3971,7 +3973,8 @@ themeToggle.addEventListener("click", (event) => {
 
 workspacePathEl.addEventListener("click", (event) => {
   event.stopPropagation();
-  pickWorkspaceNative();
+  if (nativePickerAvailable) pickWorkspaceNative();
+  else openWorkspaceModal();
 });
 
 effortButton.addEventListener("click", (event) => {

@@ -122,6 +122,8 @@ export type ServerMessage =
       agent: string | null;
       agents: WebAgent[];
       readOnly: boolean;
+      /** False on Android/Termux, where the native OS folder picker is unusable. */
+      nativePicker: boolean;
       history: SessionEvent[];
       /** Last known context occupancy for the active session. */
       context: { used?: number; window?: number };

@@ -28,7 +28,7 @@ When the agent calls the `question` tool, the controlling tab shows a **Question
 
 `/mcp` opens the MCP servers overlay. Each server shows its state, tool count, exposed tools, and last error. **Refresh** re-reads the manager; **Connect** or **Disconnect** enables or closes that server for the running process without changing the config file. Connection changes are refused while a turn is running, and read-only viewer tabs cannot toggle servers.
 
-Click the workspace path in the sidebar footer to open the host OS's native folder picker: Zenity or KDialog on Linux, Finder's chooser on macOS, FolderBrowserDialog on Windows, and the Android SAF folder picker in Termux. `ctrl/cmd+o` opens the in-app directory explorer instead; `ctrl/cmd+k` opens the command palette. Typing `/` offers `/new`, `/help`, `/stop`, `/model`, `/theme`, `/cwd`, `/rename`, `/delete`, `/search`, `/export`, `/effort`, `/mode`, `/goal`, `/skills`, and `/mcp`.
+Click the workspace path in the sidebar footer to open the host OS's native folder picker: Zenity or KDialog on Linux, Finder's chooser on macOS, and FolderBrowserDialog on Windows. On Android and Termux the same click opens the in-app directory explorer, because the native SAF folder picker is unreliable there. `ctrl/cmd+o` always opens the in-app directory explorer; `ctrl/cmd+k` opens the command palette. Typing `/` offers `/new`, `/help`, `/stop`, `/model`, `/theme`, `/cwd`, `/rename`, `/delete`, `/search`, `/export`, `/effort`, `/mode`, `/goal`, `/skills`, and `/mcp`.
 
 Drag the left sidebar's right edge to resize it between 220 and 420 pixels, or focus the separator and use the arrow keys; double-click resets the width. The sidebar width is stored in browser storage.
 
