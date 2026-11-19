@@ -14,6 +14,19 @@ export function userConfigDir(): string {
   return join(base, "atom-lite");
 }
 
+/** Base directory for Atom-lite cache data and generated artifacts. */
+export function userCacheDir(): string {
+  if (platform() === "win32") {
+    const base = process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
+    return join(base, "atom-lite");
+  }
+  if (platform() === "darwin") {
+    return join(homedir(), "Library", "Caches", "atom-lite");
+  }
+  const base = process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache");
+  return join(base, "atom-lite");
+}
+
 export function defaultUserConfigPath(): string {
   return join(userConfigDir(), "config.json");
 }

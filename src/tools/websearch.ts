@@ -80,6 +80,14 @@ function parseResults(html: string): SearchResult[] {
   return [...unique.values()];
 }
 
+function compareScore(
+  a: { score: number; url: string },
+  b: { score: number; url: string },
+): number {
+  if (a.score !== b.score) return b.score - a.score;
+  return a.url < b.url ? -1 : a.url > b.url ? 1 : 0;
+}
+
 function rankResults(results: SearchResult[], query: string): SearchResult[] {
   const terms = query
     .toLowerCase()
@@ -92,9 +100,7 @@ function rankResults(results: SearchResult[], query: string): SearchResult[] {
     const contentHits = terms.filter((term) => content.includes(term)).length;
     return { ...result, score: titleHits * 2 + contentHits };
   });
-  const byScore = [...scored].sort(
-    (a, b) => b.score - a.score || (a.url < b.url ? -1 : a.url > b.url ? 1 : 0),
-  );
+  const byScore = [...scored].sort(compareScore);
   const domains = new Map<string, number>();
   const diverse: RankedResult[] = byScore.map((result) => {
     let domain = "";
@@ -108,11 +114,11 @@ function rankResults(results: SearchResult[], query: string): SearchResult[] {
     return { ...result, score: result.score - 0.75 * seen };
   });
   return diverse
-    .sort((a, b) => b.score - a.score || (a.url < b.url ? -1 : a.url > b.url ? 1 : 0))
+    .sort(compareScore)
     .map(({ score: _score, ...result }) => result);
 }
 
-function structured(result: SearchResult): Record<string, string> {
+function toStructuredContent(result: SearchResult): Record<string, string> {
   return {
     title: result.title,
     url: result.url,
@@ -121,11 +127,42 @@ function structured(result: SearchResult): Record<string, string> {
   };
 }
 
+/** Read a search response with a hard byte bound, even when chunked. */
+async function readBoundedText(
+  res: Response,
+  maxBytes: number,
+): Promise<{ text: string; tooLarge: boolean }> {
+  const reader = res.body?.getReader();
+  if (!reader) {
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > maxBytes) return { text: "", tooLarge: true };
+    return { text: new TextDecoder().decode(buf), tooLarge: false };
+  }
+  const decoder = new TextDecoder();
+  const pieces: string[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
+        await reader.cancel();
+        return { text: "", tooLarge: true };
+      }
+      pieces.push(decoder.decode(value, { stream: true }));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return { text: pieces.join("") + decoder.decode(), tooLarge: false };
+}
+
 export const websearchTool: Tool = {
   definition: {
     name: "websearch",
     description:
-      "Search the web using the user's selected search integration. Use this for current information beyond knowledge cutoff.",
+      "Search the web and return titles, URLs, and snippets. Use this for current information beyond knowledge cutoff.",
     parameters: {
       type: "object",
       properties: {
@@ -158,8 +195,6 @@ export const websearchTool: Tool = {
         res = await fetch(url, {
           headers: {
             "User-Agent": "atom-lite/0.1",
-            Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
-            "Accept-Language": "en-US,en;q=0.9",
           },
           signal: controller.signal,
         });
@@ -190,7 +225,16 @@ export const websearchTool: Tool = {
           isError: true,
         };
       }
-      const html = await res.text();
+      const bounded = await readBoundedText(res, maxBytes);
+      if (bounded.tooLarge) {
+        return {
+          toolCallId: call.id,
+          name: "websearch",
+          content: "PROVIDER_INVALID_RESPONSE: search response too large",
+          isError: true,
+        };
+      }
+      const html = bounded.text;
       const ranked = rankResults(parseResults(html), query).slice(0, limit);
       if (ranked.length === 0) {
         return {
@@ -210,7 +254,7 @@ export const websearchTool: Tool = {
         toolCallId: call.id,
         name: "websearch",
         content: output,
-        structuredContent: ranked.map(structured),
+        structuredContent: ranked.map(toStructuredContent),
       };
     } finally {
       clearTimeout(timer);

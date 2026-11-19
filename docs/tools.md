@@ -46,7 +46,7 @@ The result is capped by the smaller of `web.fetch.maxOutputChars` and `runtime.m
 
 `websearch` takes a required `query` and optional `num_results`. It parses results, removes tracking parameters, collapses duplicate destinations, and ranks by query-term matches with domain diversity. The text result keeps a numbered title, URL, and snippet layout; structured content carries title, URL, content, and published fields. An empty result set returns `No results found.`
 
-`web.search.maxResults` supplies the count when `num_results` is absent and caps an explicit value at 20. Search uses the DuckDuckGo path today; provider selection and caching are configured under [`web`](./config.md).
+`web.search.maxResults` supplies the count when `num_results` is absent and caps an explicit value at 20. Search uses the DuckDuckGo path today. The other `web.search` keys reserve provider selection and cache settings for later work; see [`web`](./config.md).
 
 ## Scheduling
 

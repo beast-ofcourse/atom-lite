@@ -439,11 +439,25 @@ test("extract modes and page metadata are observable at the tool seam", async ()
   assert.equal(meta.description, "Page description");
 });
 
+// Reason: ticket 04 — main mode prefers even a short main element.
+test("extract main prefers a short main element", async () => {
+  routes.set("/short-main", {
+    body: "<html><body><nav>NAVIGATION</nav><main><h1>Short main</h1></main></body></html>",
+    type: "text/html",
+  });
+  const r = await webfetchTool.execute(
+    call({ url: `${base}/short-main`, extract: "main", freshness: "strict" }),
+    webCtx(),
+  );
+  assert.match(r.content, /Short main/);
+  assert.doesNotMatch(r.content, /NAVIGATION/);
+});
+
 // Reason: ticket 04 — oversized output keeps full text at a readable path.
 test("output-cap spill keeps the full text and reports a successful result", async () => {
-  const previous = process.env.XDG_CONFIG_HOME;
+  const previous = process.env.XDG_CACHE_HOME;
   const cacheRoot = mkdtempSync(join(tmpdir(), "atom-web-output-"));
-  process.env.XDG_CONFIG_HOME = cacheRoot;
+  process.env.XDG_CACHE_HOME = cacheRoot;
   const body = "z".repeat(150);
   routes.set("/spill", { body, type: "text/plain" });
   try {
@@ -458,17 +472,17 @@ test("output-cap spill keeps the full text and reports a successful result", asy
     assert.equal(details.contentType, "text/plain");
     assert.equal(readFileSync(details.outputPath, "utf8"), body);
   } finally {
-    if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
-    else process.env.XDG_CONFIG_HOME = previous;
+    if (previous === undefined) delete process.env.XDG_CACHE_HOME;
+    else process.env.XDG_CACHE_HOME = previous;
     rmSync(cacheRoot, { recursive: true, force: true });
   }
 });
 
 // Reason: ticket 04 — the output-artifact directory is bounded.
 test("output artifacts are bounded to 32 files", async () => {
-  const previous = process.env.XDG_CONFIG_HOME;
+  const previous = process.env.XDG_CACHE_HOME;
   const cacheRoot = mkdtempSync(join(tmpdir(), "atom-web-output-"));
-  process.env.XDG_CONFIG_HOME = cacheRoot;
+  process.env.XDG_CACHE_HOME = cacheRoot;
   try {
     for (let i = 0; i < 33; i++) {
       routes.set(`/bound-${i}`, { body: "y".repeat(15), type: "text/plain" });
@@ -480,8 +494,8 @@ test("output artifacts are bounded to 32 files", async () => {
     const dir = join(cacheRoot, "atom-lite", "web-output");
     assert.ok(readdirSync(dir).length <= 32);
   } finally {
-    if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
-    else process.env.XDG_CONFIG_HOME = previous;
+    if (previous === undefined) delete process.env.XDG_CACHE_HOME;
+    else process.env.XDG_CACHE_HOME = previous;
     rmSync(cacheRoot, { recursive: true, force: true });
   }
 });

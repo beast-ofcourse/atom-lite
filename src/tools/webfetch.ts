@@ -1,9 +1,16 @@
-import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { DomUtils, parseDocument, Parser } from "htmlparser2";
 import TurndownService from "turndown";
-import { userConfigDir } from "../config/paths.js";
+import { userCacheDir } from "../config/paths.js";
 import { resolveToolPermission } from "../agents/permissions.js";
 import type { Tool, ToolContext, ToolResult } from "./types.js";
 import type { ToolCall } from "../types.js";
@@ -63,6 +70,9 @@ turndown.remove(["script", "style", "meta", "link", "noscript"]);
 
 interface CacheEntry {
   content: string;
+  contentType?: string;
+  title?: string;
+  description?: string;
   etag?: string;
   lastModified?: string;
   createdAt: number;
@@ -260,40 +270,57 @@ function convertBody(
   return stripHtml(selected);
 }
 
+/** Remove expired artifacts and keep the directory bounded. */
+function pruneArtifacts(dir: string): void {
+  try {
+    if (!existsSync(dir)) return;
+    const now = Date.now();
+    const entries = readdirSync(dir)
+      .map((name) => {
+        try {
+          return { path: join(dir, name), mtime: statSync(join(dir, name)).mtimeMs };
+        } catch {
+          return undefined;
+        }
+      })
+      .filter((entry): entry is { path: string; mtime: number } => !!entry)
+      .sort((a, b) => a.mtime - b.mtime);
+    for (const entry of entries) {
+      if (now - entry.mtime > ARTIFACT_TTL_MS) {
+        try {
+          unlinkSync(entry.path);
+        } catch {
+          // Best effort cleanup.
+        }
+      }
+    }
+    const survivors = entries.filter(
+      (entry) => now - entry.mtime <= ARTIFACT_TTL_MS,
+    );
+    while (survivors.length >= ARTIFACT_MAX_ENTRIES) {
+      const oldest = survivors.shift();
+      if (!oldest) break;
+      try {
+        unlinkSync(oldest.path);
+      } catch {
+        break;
+      }
+    }
+  } catch {
+    // Cleanup must never block a fetch.
+  }
+}
+
 /** Write oversized output as a bounded artifact, never reused as a cache. */
-function writeArtifact(content: string, id: string, url: string, format: Format): string {
-  const dir = join(userConfigDir(), "web-output");
+function writeArtifact(
+  content: string,
+  id: string,
+  url: string,
+  format: Format,
+): string {
+  const dir = join(userCacheDir(), "web-output");
   mkdirSync(dir, { recursive: true });
-  const now = Date.now();
-  const existing = readdirSync(dir)
-    .map((name) => {
-      try {
-        return { name, path: join(dir, name), mtime: statSync(join(dir, name)).mtimeMs };
-      } catch {
-        return undefined;
-      }
-    })
-    .filter((entry): entry is { name: string; path: string; mtime: number } => !!entry)
-    .sort((a, b) => a.mtime - b.mtime);
-  for (const entry of existing) {
-    if (now - entry.mtime > ARTIFACT_TTL_MS) {
-      try {
-        unlinkSync(entry.path);
-      } catch {
-        // Best effort cleanup.
-      }
-    }
-  }
-  const survivors = existing.filter((entry) => now - entry.mtime <= ARTIFACT_TTL_MS);
-  while (survivors.length >= ARTIFACT_MAX_ENTRIES) {
-    const oldest = survivors.shift();
-    if (!oldest) break;
-    try {
-      unlinkSync(oldest.path);
-    } catch {
-      break;
-    }
-  }
+  pruneArtifacts(dir);
   const hash = createHash("sha256")
     .update(`${url}\n${format}`)
     .digest("hex")
@@ -302,6 +329,12 @@ function writeArtifact(content: string, id: string, url: string, format: Format)
   const path = join(dir, `${safeId}-${hash}.txt`);
   writeFileSync(path, content, "utf8");
   return path;
+}
+
+try {
+  pruneArtifacts(join(userCacheDir(), "web-output"));
+} catch {
+  // Startup cleanup is best effort.
 }
 
 interface FetchOutcome {
@@ -369,19 +402,20 @@ export const webfetchTool: Tool = {
         isError: true,
       };
     }
-    const initialPermission = permissionErrorFor(ctx, target);
-    if (initialPermission) {
-      return {
-        toolCallId: call.id,
-        name: "webfetch",
-        content: initialPermission,
-        isError: true,
-      };
-    }
-
     const key = cacheKey(target, format);
     const ttlMs = (ctx.web?.fetch.cacheTtlSeconds ?? 300) * 1000;
     const cached = freshness === "strict" ? undefined : fetchCache.get(key);
+    const cachedResult = (): ToolResult => ({
+      toolCallId: call.id,
+      name: "webfetch",
+      content: cached?.content ?? "",
+      structuredContent: {
+        contentType: cached?.contentType,
+        title: cached?.title,
+        description: cached?.description,
+        truncated: false,
+      },
+    });
 
     const fetchAndRender = async (
       conditional?: Pick<CacheEntry, "etag" | "lastModified">,
@@ -510,7 +544,7 @@ export const webfetchTool: Tool = {
         };
         if (output.length > cap) {
           try {
-            const path = writeArtifact(output, call.id, url, format);
+            const path = writeArtifact(output, call.id, target, format);
             return {
               ...base,
               preview: output.slice(0, cap),
@@ -540,7 +574,7 @@ export const webfetchTool: Tool = {
     if (freshness === "fast" && cached) {
       const age = Date.now() - cached.createdAt;
       if (age <= ttlMs) {
-        return { toolCallId: call.id, name: "webfetch", content: cached.content };
+        return cachedResult();
       }
       if (age <= 10 * ttlMs) {
         if (!refreshing.has(key)) {
@@ -552,6 +586,9 @@ export const webfetchTool: Tool = {
               else if (outcome.ok && outcome.content && !outcome.noStore) {
                 cachePut(key, {
                   content: outcome.content,
+                  contentType: outcome.contentType,
+                  title: outcome.title,
+                  description: outcome.description,
                   etag: outcome.etag,
                   lastModified: outcome.lastModified,
                   createdAt: Date.now(),
@@ -564,7 +601,7 @@ export const webfetchTool: Tool = {
             }
           })();
         }
-        return { toolCallId: call.id, name: "webfetch", content: cached.content };
+        return cachedResult();
       }
     }
 
@@ -579,7 +616,7 @@ export const webfetchTool: Tool = {
     }
     if (outcome.notModified && cached) {
       refreshMetadata(outcome);
-      return { toolCallId: call.id, name: "webfetch", content: cached.content };
+      return cachedResult();
     }
     const structuredContent = {
       contentType: outcome.contentType,
@@ -600,6 +637,9 @@ export const webfetchTool: Tool = {
     if (freshness !== "strict" && !outcome.noStore) {
       cachePut(key, {
         content,
+        contentType: outcome.contentType,
+        title: outcome.title,
+        description: outcome.description,
         etag: outcome.etag,
         lastModified: outcome.lastModified,
         createdAt: Date.now(),
