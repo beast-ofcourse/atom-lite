@@ -8,6 +8,43 @@ becomes `0.18.1`.
 
 ## [Unreleased]
 
+## v0.18.4 — 2026-11-19
+
+### Added
+
+- `context`: memory checkpoints use fixed sections, validate summaries with one corrective retry, keep a token-sized recent tail, and fold instruction files into a new baseline at each compaction.
+- `context`: compaction events record schema version, covered count and tokens, kept count, model, strategy, and usage; legacy events still restore.
+- `context`: `keepTokens`, `buffer`, `background`, and `warming` control the recent tail, compaction reserve, background summaries, and opt-in prompt-cache keep-alive.
+- `context`: native compaction uses provider-side checkpoints when advertised; `compactionStrategy` and per-provider or per-model overrides select `auto`, `summary`, or `native`.
+- `web`: `webfetch` streams bounded responses, negotiates content type, extracts main content, revalidates with ETag or Last-Modified, and spills oversized output to a readable artifact.
+- `web`: `websearch` parses and ranks results, collapses duplicates, adds publication dates, and supports Tavily, Brave, Exa, and Serper from environment keys with cooldown and failover.
+- `config`: a new `web` section sets fetch and search cache TTLs, byte and result limits, extraction mode, provider, and fallback.
+- `agents`: a deep researcher persona produces structured, cited reports from layered web and local research.
+- `skills`: ship the Anthropic skill-creator and improve skills, and update the extensions skill for the current API.
+- `web`: the browser shows goal and compaction status beside the task ledger, accepts `/goal` through guarded messages, and restores goal state on resume.
+- `tools`: add a non-gating web benchmark and `bench:web` with committed baseline and results.
+
+### Changed
+
+- `context`: compaction reserves accept a percent of the model window or an exact token count, independent of response headroom.
+- `web`: cached fetch and search responses are held in memory for the process lifetime, with `no-store` responses excluded.
+- `deps`: add `htmlparser2` for bounded HTML parsing without a full DOM library.
+- `style`: tracked sources are formatted with Prettier 3.9; the generated compatibility matrix is excluded from formatting.
+
+### Fixed
+
+- `context`: native provider payloads replay on later builds and after resume instead of showing a placeholder.
+- `web`: `webfetch` cache entries include the extraction mode, so changing `extract` no longer returns the previous mode's body.
+- `web`: goal mutators are refused for read-only viewers and while a turn is running.
+- `docs`: provider cooldown behavior now matches the search tool's failure handling.
+
+### Performance
+
+Measured on this machine with non-gating benchmarks.
+
+- `web`: large HTML fetch p50 is 12 ms versus 14.07 ms in the committed baseline; plain-text fetch and search p50 are 6.6 ms and 4.76 ms versus 4.04 ms and 3.25 ms.
+- `cli`: the final bench run reports startup at 222 ms; read-path overhead remains over its internal 5 ms budget (8.35 ms full, 6.37 ms partial).
+
 ## v0.18.3 — 2026-11-18
 
 ### Added
