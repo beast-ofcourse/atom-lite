@@ -32,6 +32,8 @@ The context manager estimates tokens and summarizes older history before the con
 
 The summary is a memory checkpoint with fixed sections: Objective, Requirements, Decisions, Work State, Next Move, Relevant Files, and Important Context. A later compaction updates the existing checkpoint instead of rewriting it from scratch. A response missing the required sections gets one corrective prompt; if it still fails, the previous checkpoint stays in place and a `context_compaction_failed` event is emitted.
 
+Instruction text follows the same boundary. The first set is frozen as a baseline in an `instruction_baseline` event, later changes are recorded as hash-identified updates, and each compaction folds the current text into a new baseline. Nested `AGENTS.md` files found beside reads are re-injected after compaction.
+
 The recent tail is sized in tokens, capped at 40% of the usable window, and starts on a user message so a tool call and its result stay together. `context.keepTokens` sets its budget. `context.buffer` sets the compaction reserve as a share of the model window or an exact token count; unset, it derives from `compactAtPercent`.
 
 The session log records `context_compaction_started`, `context_compacted`, and `context_compaction_failed` events. A `context_compacted` event carries the schema version, summary, covered count and tokens, kept count, model, strategy, and usage. Old events without the extra fields still restore.

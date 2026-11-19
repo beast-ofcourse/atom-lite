@@ -10,6 +10,12 @@ import {
 } from "../lsp/index.js";
 import { ContextManager } from "../context/manager.js";
 import { discoverInstructionPaths } from "../context/instructions.js";
+import {
+  foldInstructionBaseline,
+  initialBaseline,
+  recordInstructionChange,
+  type InstructionBaselineState,
+} from "../context/instruction-baseline.js";
 import { DEFAULT_SYSTEM_PROMPT } from "./system-prompt.js";
 import { BackgroundTaskManager } from "../runtime/background-tasks.js";
 import { TodoStore } from "../runtime/todos.js";
@@ -261,6 +267,7 @@ export class AgentRuntime {
   async compactSession(
     session: {
       messages: Message[];
+      events?: unknown[];
       appendMessage(m: Message): void;
       appendEvent?(partial: any): any;
     },
@@ -292,6 +299,23 @@ export class AgentRuntime {
           }),
         });
       }
+      const stored = latestEvent(session, "instruction_baseline");
+      const currentState =
+        stored?.schemaVersion === 1 &&
+        Array.isArray(stored.baseline) &&
+        Array.isArray(stored.updates)
+          ? (stored as unknown as InstructionBaselineState)
+          : initialBaseline(
+              this.contextManager.getInstructionTexts(this.workspace),
+              (session.events?.length ?? 0) + 1,
+            );
+      const folded = foldInstructionBaseline(
+        currentState,
+        this.contextManager.getInstructionTexts(this.workspace),
+        (session.events?.length ?? 0) + 1,
+      );
+      this.persistInstructionBaseline(folded, session);
+      this.contextManager.setInstructionState(folded);
       this.mirrorContinuation(this.contextManager.getContinuation(), session);
     }
     return summary;
@@ -578,11 +602,56 @@ export class AgentRuntime {
     this.onEvent?.({ type: "compaction_continuation", text });
   }
 
+  /** Persist instruction baseline state; a failed write fails the turn. */
+  private persistInstructionBaseline(
+    state: InstructionBaselineState,
+    session: {
+      events?: unknown[];
+      appendEvent?(partial: any): any;
+    },
+  ): void {
+    if (typeof session.appendEvent !== "function") return;
+    try {
+      session.appendEvent({ type: "instruction_baseline", ...state });
+    } catch (error) {
+      throw new Error("INSTRUCTION_BASELINE_WRITE_FAILED", { cause: error });
+    }
+  }
+
+  /** Freeze the first instruction set, record later changes, and render state. */
+  private syncInstructionBaseline(session: {
+    events?: unknown[];
+    appendEvent?(partial: any): any;
+  }): InstructionBaselineState {
+    const texts = this.contextManager.getInstructionTexts(this.workspace);
+    const seq = (session.events?.length ?? 0) + 1;
+    const stored = latestEvent(session, "instruction_baseline");
+    let state: InstructionBaselineState;
+    if (
+      stored?.schemaVersion === 1 &&
+      Array.isArray(stored.baseline) &&
+      Array.isArray(stored.updates)
+    ) {
+      state = stored as unknown as InstructionBaselineState;
+    } else {
+      state = initialBaseline(texts, seq);
+      this.persistInstructionBaseline(state, session);
+    }
+    const next = recordInstructionChange(state, texts, seq);
+    if (next !== state) {
+      state = next;
+      this.persistInstructionBaseline(state, session);
+    }
+    this.contextManager.setInstructionState(state);
+    return state;
+  }
+
   async runAgentTurn(
     input: string,
     session: {
       id?: string;
       messages: Message[];
+      events?: unknown[];
       appendMessage(m: Message): void;
       appendEvent?(partial: any): any;
     },
@@ -605,6 +674,7 @@ export class AgentRuntime {
     );
     this.restoreTodos(session);
     this.restoreGoal(session);
+    let instructionState = this.syncInstructionBaseline(session);
 
     this.turnIndex += 1;
     // Resolve a per-turn correlation id once and reuse it for every model
@@ -659,6 +729,7 @@ export class AgentRuntime {
           throw new Error("USER_CANCELLED");
         }
 
+        instructionState = this.syncInstructionBaseline(session);
         this.syncStaticContext(
           completionNudges > 0 && this.todoStore.openCount() > 0,
           this.activeFiles(session),
@@ -707,6 +778,14 @@ export class AgentRuntime {
               }),
             });
           }
+          const folded = foldInstructionBaseline(
+            instructionState,
+            this.contextManager.getInstructionTexts(this.workspace),
+            (session.events?.length ?? 0) + 1,
+          );
+          this.persistInstructionBaseline(folded, session);
+          this.contextManager.setInstructionState(folded);
+          instructionState = folded;
           this.mirrorContinuation(
             this.contextManager.consumeCompactionContinuation(),
             session,

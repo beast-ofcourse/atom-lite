@@ -21,6 +21,10 @@ import {
   type AttributionCategory,
 } from "./attribution.js";
 import {
+  renderedInstructionTexts,
+  type InstructionBaselineState,
+} from "./instruction-baseline.js";
+import {
   buildSummaryPrompt,
   CHECKPOINT_SCHEMA_VERSION,
   hasAllSummaryHeadings,
@@ -108,6 +112,7 @@ export class ContextManager {
   private instructionCache?: { signature: string; text: string[] };
   private discoveredInstructionPaths: string[] = [];
   private skillCache?: { workspace: string; signature: string; index: string };
+  private instructionState: InstructionBaselineState | null = null;
   private modelContextWindow: number | undefined;
   private compactedThisBuild = false;
   private toolTokenOverhead = 0;
@@ -169,6 +174,38 @@ export class ContextManager {
       added = true;
     }
     return added;
+  }
+
+  /** Current instruction text from disk, using the existing stat-signature cache. */
+  getInstructionTexts(workspace: string): string[] {
+    const userPath =
+      this.opts.userInstructionsPath ?? join(userConfigDir(), "AGENTS.md");
+    const signature =
+      `${workspace}|${this.opts.maxProjectInstructionBytes}|` +
+      statSignature([
+        userPath,
+        ...INSTRUCTION_NAMES.map((name) => join(workspace, name)),
+        ...this.discoveredInstructionPaths,
+      ]);
+    if (this.instructionCache?.signature === signature) {
+      return this.instructionCache.text;
+    }
+    const text = loadProjectInstructions(
+      workspace,
+      this.opts.maxProjectInstructionBytes,
+      userPath,
+      this.discoveredInstructionPaths,
+    );
+    this.instructionCache = { signature, text };
+    return text;
+  }
+
+  setInstructionState(state: InstructionBaselineState | null): void {
+    this.instructionState = state;
+  }
+
+  getInstructionState(): InstructionBaselineState | null {
+    return this.instructionState;
   }
 
   /** Drop cached instruction, skill, and repo-map indexes so the next build rescans disk. */
@@ -471,7 +508,13 @@ export class ContextManager {
     if (serialized.length > capChars) {
       serialized = serialized.slice(0, capChars) + "...[truncated]";
     }
+    const instructionRetention = this.instructionState
+      ? `Project instructions:\n${renderedInstructionTexts(
+          this.instructionState,
+        ).join("\n\n")}`
+      : null;
     const retention = [
+      instructionRetention,
       this.staticContext?.goal,
       this.staticContext?.ledger,
       this.staticContext?.files
@@ -585,30 +628,9 @@ export class ContextManager {
     this.lastCompactionCheckpoint = null;
     this.lastCompactionFailure = null;
     this.pendingContinuation = null;
-    const userPath =
-      this.opts.userInstructionsPath ?? join(userConfigDir(), "AGENTS.md");
-    const instructionSignature =
-      `${workspace}|${this.opts.maxProjectInstructionBytes}|` +
-      statSignature([
-        userPath,
-        ...INSTRUCTION_NAMES.map((name) => join(workspace, name)),
-        ...this.discoveredInstructionPaths,
-      ]);
-    let instructions: string[];
-    if (this.instructionCache?.signature === instructionSignature) {
-      instructions = this.instructionCache.text;
-    } else {
-      instructions = loadProjectInstructions(
-        workspace,
-        this.opts.maxProjectInstructionBytes,
-        userPath,
-        this.discoveredInstructionPaths,
-      );
-      this.instructionCache = {
-        signature: instructionSignature,
-        text: instructions,
-      };
-    }
+    const instructions = this.instructionState
+      ? renderedInstructionTexts(this.instructionState)
+      : this.getInstructionTexts(workspace);
 
     const skillSignature = skillCacheSignature(workspace);
     let skillIndex: string;
