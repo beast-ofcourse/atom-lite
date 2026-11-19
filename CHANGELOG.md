@@ -8,6 +8,22 @@ becomes `0.18.1`.
 
 ## [Unreleased]
 
+## v0.18.6 — 2026-11-19
+
+### Fixed
+
+- `web`: clicking the workspace path on Android or Termux now opens the in-app directory explorer instead of hanging on the unavailable native SAF picker.
+- `cli`: thinking lines re-render with the current theme and terminal width instead of keeping stale styled output.
+
+### Changed
+
+- `web`: `hello` carries a `nativePicker` flag so the browser chooses a folder picker the host can actually open.
+
+### Performance
+
+- `cli`: reasoning streams wrap incrementally instead of re-wrapping the whole buffer each frame. Measured frame cost on a 512 KiB buffer at 120 columns drops from 35.01 ms to 2.41 ms.
+- `bench`: add a thinking-frame metric with a 16 ms budget; 4k sealed lines measure 0.54 ms.
+
 ## v0.18.5 — 2026-11-19
 
 ### Added
