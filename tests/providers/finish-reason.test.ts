@@ -8,6 +8,8 @@ import type { Message, ModelRequest, ModelResponse } from "../../dist/types.js";
 import type { ProviderAdapter } from "../../dist/providers/types.js";
 import { resolveFinishReason } from "../../dist/providers/finish-reason.js";
 import { OpenAICompatibleAdapter } from "../../dist/providers/openai-compatible.js";
+import { GeminiAdapter } from "../../dist/providers/gemini.js";
+import { OllamaAdapter } from "../../dist/providers/ollama.js";
 import { AgentRuntime } from "../../dist/agent/loop.js";
 import { FakeProvider } from "../../dist/providers/fake.js";
 import { InMemorySession } from "../../dist/sessions/store.js";
@@ -83,6 +85,67 @@ test("OpenAI-compatible generate propagates content_filter as error", async () =
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
     });
     assert.equal(response.finishReason, "error");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("Gemini maps MAX_TOKENS to a truncated finish reason", async () => {
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        candidates: [
+          { content: { parts: [{ text: "cut" }] }, finishReason: "MAX_TOKENS" },
+        ],
+      }),
+    );
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  try {
+    const adapter = new GeminiAdapter({
+      id: "gemini",
+      model: "test-model",
+      apiKey: "test-key",
+      baseUrl: `http://127.0.0.1:${port}`,
+    });
+    const response = await adapter.generate({
+      model: "test-model",
+      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+    });
+    assert.equal(response.finishReason, "length");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("Ollama maps done_reason length to a truncated finish reason", async () => {
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        message: { content: "cut" },
+        done: true,
+        done_reason: "length",
+      }),
+    );
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  try {
+    const adapter = new OllamaAdapter({
+      id: "ollama",
+      model: "test-model",
+      baseUrl: `http://127.0.0.1:${port}`,
+    });
+    const response = await adapter.generate({
+      model: "test-model",
+      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+    });
+    assert.equal(response.finishReason, "length");
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
@@ -183,12 +246,19 @@ test("agent loop resumes once after a truncated answer and returns the full text
 });
 
 test("truncation recovery is bounded when every answer is cut off", async () => {
+  const events: string[] = [];
   const provider = new FakeProvider([
     { text: "one ", finishReason: "length" },
     { text: "two ", finishReason: "length" },
     { text: "three ", finishReason: "length" },
   ]);
-  const runtime = new AgentRuntime({ provider, tools: [] });
+  const runtime = new AgentRuntime({
+    provider,
+    tools: [],
+    onEvent: (event) => {
+      if (event.type === "response_truncated") events.push(event.model);
+    },
+  });
   const session = new InMemorySession("s3", "/tmp/ws");
   const result = await runtime.runAgentTurn(
     "answer me",
@@ -200,6 +270,7 @@ test("truncation recovery is bounded when every answer is cut off", async () => 
     session.messages.filter((m) => m.role === "assistant").length,
     2,
   );
+  assert.equal(events.length, 1);
 });
 
 test("continuation hint is sent as a user turn after the truncated answer", async () => {

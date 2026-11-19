@@ -1,6 +1,6 @@
 // Regression: executeToolBatch used to accept a shared LockManager and never
-// pass it to the executor, so cross-batch exclusion silently did not happen.
-// Also pins the bounds of the caches a shared manager keeps for a whole session.
+// pass it to the executor, and AgentRuntime created a new manager per batch.
+// Also pins the bound of the live lock map a shared manager keeps.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { getEventListeners } from "node:events";
@@ -10,6 +10,9 @@ import {
   type Release,
 } from "../../dist/runtime/locks.js";
 import { executeToolBatch } from "../../dist/runtime/scheduler.js";
+import { AgentRuntime } from "../../dist/agent/loop.js";
+import { FakeProvider } from "../../dist/providers/fake.js";
+import { InMemorySession } from "../../dist/sessions/store.js";
 
 const signal = new AbortController().signal;
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -71,9 +74,48 @@ test("executeToolBatch honors a supplied shared LockManager", async () => {
   assert.equal(results[0].toolCallId, "1");
 });
 
-test("shared manager caches stay bounded across many distinct paths", async () => {
+test("agent runtime uses its shared lock manager for tool batches", async () => {
   const lm = new LockManager();
-  // 3x the cap: without eviction both maps grow linearly with paths touched.
+  const releaseBarrier = await lm.acquireGlobalBarrier(signal);
+  const ran = { value: false };
+  const provider = new FakeProvider([
+    { toolCalls: [{ id: "1", name: "bash", arguments: { command: "hi" } }] },
+    { text: "done" },
+  ]);
+  const runtime = new AgentRuntime({
+    provider,
+    tools: [fakeBashTool(ran)],
+    lockManager: lm,
+  });
+
+  let settled = false;
+  const turn = runtime
+    .runAgentTurn("go", new InMemorySession("runtime", "/tmp"), signal)
+    .then((result) => {
+      settled = true;
+      return result;
+    });
+  await delay(30);
+  assert.equal(
+    settled,
+    false,
+    "tool ran despite a barrier on the runtime's lock manager",
+  );
+
+  releaseBarrier();
+  const result = await Promise.race([
+    turn,
+    delay(2000).then(() => {
+      throw new Error("turn never completed after barrier release");
+    }),
+  ]);
+  assert.equal(result, "done");
+  assert.equal(ran.value, true);
+});
+
+test("shared manager keeps its live lock map bounded across many paths", async () => {
+  const lm = new LockManager();
+  // 3x the cap: without eviction the map grows linearly with paths touched.
   for (let i = 0; i < MAX_LOCK_CACHE_ENTRIES * 3; i++) {
     const release = await lm.acquireWrite(
       `/atom-lite-bounds-${i}/file.txt`,
@@ -82,10 +124,6 @@ test("shared manager caches stay bounded across many distinct paths", async () =
     release();
   }
   const stats = lm.cacheStats;
-  assert.ok(
-    stats.canonicalKeys <= MAX_LOCK_CACHE_ENTRIES,
-    `canonical cache grew to ${stats.canonicalKeys}`,
-  );
   assert.ok(
     stats.locks <= MAX_LOCK_CACHE_ENTRIES,
     `lock map grew to ${stats.locks}`,

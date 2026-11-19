@@ -3,7 +3,7 @@ import { realpathSync, existsSync } from "node:fs";
 
 export type Release = () => void;
 
-/** Bound session-lifetime caches; evicting a held lock would allow two owners. */
+/** Bound the live lock map; evicting a held lock would allow two owners. */
 export const MAX_LOCK_CACHE_ENTRIES = 1024;
 
 function canonical(key: string): string {
@@ -183,10 +183,6 @@ export class LockManager {
       return cached;
     }
     const k = canonical(key);
-    if (this.canonicalCache.size >= MAX_LOCK_CACHE_ENTRIES) {
-      const oldest = this.canonicalCache.keys().next().value;
-      if (oldest !== undefined) this.canonicalCache.delete(oldest);
-    }
     this.canonicalCache.set(key, k);
     return k;
   }

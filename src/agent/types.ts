@@ -10,6 +10,7 @@ import type { RepoMapOptions } from "../context/repoMap.js";
 import type { WebConfig } from "../config/schema.js";
 import type { UsageLedger } from "../usage/ledger.js";
 import type { AtomEvent } from "../extensions/types.js";
+import type { LockManager } from "../runtime/locks.js";
 
 export type AgentEvent =
   | { type: "assistant_delta"; text: string }
@@ -129,6 +130,8 @@ export interface AgentRuntimeOptions {
   supportsVision?: boolean;
   /** Background task manager override (defaults to a new manager). */
   backgroundTasks?: import("../runtime/background-tasks.js").BackgroundTaskManager;
+  /** Shared lock manager for cross-batch tool exclusion (defaults to a new one). */
+  lockManager?: LockManager;
   /** Task ledger override (defaults to a new in-memory store). */
   todoStore?: import("../runtime/todos.js").TodoStore;
   /** Goal store override (defaults to a new in-memory store). */

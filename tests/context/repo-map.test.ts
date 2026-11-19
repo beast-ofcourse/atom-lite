@@ -4,7 +4,6 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
-  statSync,
   unlinkSync,
   utimesSync,
   writeFileSync,
@@ -139,15 +138,16 @@ test("the cache key uses modification time and size", async () => {
 test("invalidateCaches clears the module cache on an unchanged signature", async () => {
   const dir = mkdtempSync(join(tmpdir(), "repo-map-clear-"));
   const file = join(dir, "api.ts");
+  const fixedTime = new Date("2020-01-01T00:00:00.000Z");
   writeFileSync(file, "export function alpha() {}\n");
+  utimesSync(file, fixedTime, fixedTime);
   const cm = manager(dir);
   assert.match(mapText(await cm.build(dir, [])), /alpha/);
-  const mtimeSeconds = statSync(file).mtimeMs / 1000;
 
   // Same size and same mtime: the signature still matches, so the cached
   // (now stale) text is reused rather than rescanned.
   writeFileSync(file, "export function bravo() {}\n");
-  utimesSync(file, mtimeSeconds, mtimeSeconds);
+  utimesSync(file, fixedTime, fixedTime);
   assert.match(mapText(await cm.build(dir, [])), /alpha/);
 
   cm.invalidateCaches();

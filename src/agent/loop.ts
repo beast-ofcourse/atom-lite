@@ -9,6 +9,7 @@ import type { Message, AgentLimits, ToolCall } from "../types.js";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { executeToolBatch } from "../runtime/scheduler.js";
+import { LockManager } from "../runtime/locks.js";
 import {
   touchFile as touchLspFile,
   getDiagnostics as getLspDiagnostics,
@@ -75,6 +76,7 @@ export class AgentRuntime {
   private limits: AgentLimits;
   private extensionDispatch: AgentRuntimeOptions["extensionDispatch"];
   private usageLedger: AgentRuntimeOptions["usageLedger"];
+  private lockManager: LockManager;
   private steeringQueue: string[] | undefined;
 
   private contextWindow: number | undefined;
@@ -141,6 +143,7 @@ export class AgentRuntime {
     this.limits = { ...DEFAULT_LIMITS, ...(options.limits ?? {}) };
     this.extensionDispatch = options.extensionDispatch;
     this.usageLedger = options.usageLedger;
+    this.lockManager = options.lockManager ?? new LockManager();
     this.steeringQueue = options.steeringQueue;
     this.contextWindow = options.contextWindow;
     this.supportsVision = options.supportsVision;
@@ -870,7 +873,10 @@ export class AgentRuntime {
         const text = await recorder.recordAssistant(response, streamedText);
 
         // A cut-off answer otherwise looks complete to the user.
-        if (response.finishReason === "length") {
+        if (
+          response.finishReason === "length" &&
+          truncationContinuations === 0
+        ) {
           this.onEvent?.({ type: "response_truncated", model: this.model });
         }
         if (response.finishReason === "error") {
@@ -1138,7 +1144,7 @@ export class AgentRuntime {
           ctx,
           this.limits.maxParallelToolCalls,
           signal,
-          undefined,
+          this.lockManager,
           this.bashConcurrency,
         );
         await Promise.all(pendingUpdates);
