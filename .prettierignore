@@ -2,5 +2,6 @@ temp/
 dist/
 node_modules/
 web/vendor/
-# Vendored Anthropic skill; upstream files stay verbatim.
+# Vendored skills; upstream files stay verbatim.
 skills/skill-creator/
+skills/improve/
