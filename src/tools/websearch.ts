@@ -1,9 +1,11 @@
 import { DomUtils, parseDocument } from "htmlparser2";
+import { createBoundedCache } from "./web-cache.js";
 import type { Tool, ToolContext, ToolResult } from "./types.js";
 import type { ToolCall } from "../types.js";
 import { z } from "zod";
 
 type ProviderId = "tavily" | "brave" | "exa" | "serper" | "ddg";
+type ProviderSelection = ProviderId | "auto";
 type Freshness = "fast" | "fresh" | "strict";
 
 const ArgsSchema = z
@@ -53,24 +55,16 @@ interface ProviderOutcome {
   retryAfter?: string | null;
 }
 
-const searchCache = new Map<string, SearchCacheEntry>();
+const searchCache = createBoundedCache<SearchCacheEntry>(CACHE_MAX_ENTRIES);
 const refreshing = new Set<string>();
 const cooldowns = new Map<Exclude<ProviderId, "ddg">, number>();
 
 function cacheKey(
   query: string,
-  provider: string,
-  maxResults: number,
+  provider: ProviderSelection,
+  limit: number,
 ): string {
-  return `search\n${provider}\n${maxResults}\n${query.trim().toLowerCase()}`;
-}
-
-function cachePut(key: string, entry: SearchCacheEntry): void {
-  if (searchCache.size >= CACHE_MAX_ENTRIES) {
-    const first = searchCache.keys().next().value;
-    if (first !== undefined) searchCache.delete(first);
-  }
-  searchCache.set(key, entry);
+  return `search\n${provider}\n${limit}\n${query.trim().toLowerCase()}`;
 }
 
 function canonicalUrl(raw: string, base = "https://duckduckgo.com"): string | undefined {
@@ -410,13 +404,16 @@ async function searchWithProviders(
   ctx: ToolContext,
   signal: AbortSignal,
 ): Promise<{ results: SearchResult[]; error?: string }> {
-  const configured = ctx.web?.search.provider ?? "auto";
+  const configured = (ctx.web?.search.provider ?? "auto") as ProviderSelection;
   const fallback = ctx.web?.search.fallback ?? true;
   const keyFor = (id: Exclude<ProviderId, "ddg">) =>
     process.env[PROVIDER_KEYS[id]];
   const candidates: ProviderId[] = [];
   if (configured === "auto") {
-    candidates.push(...PROVIDER_ORDER.filter((id) => keyFor(id)), "ddg");
+    const eligible = PROVIDER_ORDER.filter((id) => keyFor(id));
+    if (fallback) candidates.push(...eligible, "ddg");
+    else if (eligible.length === 0) candidates.push("ddg");
+    else candidates.push(eligible[0]);
   } else if (configured === "ddg") {
     candidates.push("ddg");
   } else {
@@ -449,9 +446,12 @@ async function searchWithProviders(
             maxBytes,
           );
     if (outcome.ok && outcome.results) return { results: outcome.results };
-    if (outcome.rateLimited && id !== "ddg") {
-      sawRateLimit = true;
-      cooldowns.set(id, Date.now() + parseRetryAfter(outcome.retryAfter ?? null));
+    if (!outcome.ok && id !== "ddg") {
+      if (outcome.rateLimited) sawRateLimit = true;
+      cooldowns.set(
+        id,
+        Date.now() + parseRetryAfter(outcome.rateLimited ? (outcome.retryAfter ?? null) : null),
+      );
     }
   }
   return {
@@ -494,8 +494,8 @@ export const websearchTool: Tool = {
     const limit = Math.min(parsed.data.num_results ?? configured, configured, 20);
     const key = cacheKey(
       query,
-      ctx.web?.search.provider ?? "auto",
-      configured,
+      (ctx.web?.search.provider ?? "auto") as ProviderSelection,
+      limit,
     );
     const ttlMs = (ctx.web?.search.cacheTtlSeconds ?? 120) * 1000;
     const cached = freshness === "strict" ? undefined : searchCache.get(key);
@@ -554,6 +554,14 @@ export const websearchTool: Tool = {
       content: entry.content,
       structuredContent: entry.structured,
     });
+    const storeResult = (target: string, result: ToolResult): void => {
+      if (result.isError) return;
+      searchCache.put(target, {
+        content: result.content,
+        structured: (result.structuredContent ?? []) as Record<string, string>[],
+        createdAt: Date.now(),
+      });
+    };
 
     if (freshness === "fast" && cached) {
       const age = Date.now() - cached.createdAt;
@@ -564,16 +572,7 @@ export const websearchTool: Tool = {
           void (async () => {
             try {
               const result = await performSearch();
-              if (!result.isError) {
-                cachePut(key, {
-                  content: result.content,
-                  structured: (result.structuredContent ?? []) as Record<
-                    string,
-                    string
-                  >[],
-                  createdAt: Date.now(),
-                });
-              }
+              storeResult(key, result);
             } catch {
               // Background refresh failures never disturb stale results.
             } finally {
@@ -586,13 +585,7 @@ export const websearchTool: Tool = {
     }
 
     const result = await performSearch();
-    if (freshness !== "strict" && !result.isError) {
-      cachePut(key, {
-        content: result.content,
-        structured: (result.structuredContent ?? []) as Record<string, string>[],
-        createdAt: Date.now(),
-      });
-    }
+    if (freshness !== "strict") storeResult(key, result);
     return result;
   },
 };

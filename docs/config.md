@@ -153,7 +153,7 @@ Settings for the `webfetch` and `websearch` built-in tools. Set them in either u
 | `web.search.cacheTtlSeconds` | positive integer                                       | `120`     | Reuse search results within this many seconds.          |
 | `web.search.fallback`        | boolean                                                 | `true`    | Allow failover and DuckDuckGo as the final fallback.    |
 
-Search providers read credentials from `TAVILY_API_KEY`, `BRAVE_API_KEY`, `EXA_API_KEY`, and `SERPER_API_KEY`. An explicit `web.search.provider` wins; `auto` tries configured keys in that order and then DuckDuckGo. A rate-limited provider enters a 60-second cooldown, shortened or extended by its `Retry-After` header. When `web.search.fallback` is `false`, only the selected provider is tried and a failure returns a provider error instead of falling back.
+Set credentials in `TAVILY_API_KEY`, `BRAVE_API_KEY`, `EXA_API_KEY`, or `SERPER_API_KEY`. Set `web.search.provider` to select a provider; with `auto`, Atom-lite tries configured keys in that order and then DuckDuckGo. When a provider rate-limits a call, Atom-lite cools it down for 60 seconds, or for the duration in `Retry-After`. Set `web.search.fallback` to `false` to try only the selected provider and return a provider error instead of failing over.
 
 A response larger than `web.fetch.maxBytes` returns `OUTPUT_TRUNCATED: response too large` as an error. The effective output cap is the smaller of `web.fetch.maxOutputChars` and the runtime `maxToolOutputBytes` cap.
 

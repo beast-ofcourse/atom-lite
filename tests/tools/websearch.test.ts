@@ -321,11 +321,11 @@ test("an explicit provider wins provider selection", async () => {
 // Reason: ticket 08 — fallback false fails with the selected provider only.
 test("fallback false reports provider failure without DuckDuckGo", async () => {
   const before = searchHits;
-  await withEnv({ TAVILY_API_KEY: "tavily-key" }, async () => {
-    setProviderResponse("/tavily", 500, "failure");
+  await withEnv({ SERPER_API_KEY: "serper-key" }, async () => {
+    setProviderResponse("/serper", 500, "failure");
     const r = await websearchTool.execute(
       call({ query: "no-fallback-unique", freshness: "strict" }),
-      ctx(8, 120, { provider: "tavily", fallback: false }),
+      ctx(8, 120, { provider: "serper", fallback: false }),
     );
     assert.equal(r.content, "WEBSEARCH_PROVIDER_UNAVAILABLE");
     assert.equal(r.isError, true);
@@ -335,54 +335,76 @@ test("fallback false reports provider failure without DuckDuckGo", async () => {
 
 // Reason: ticket 08 — rate-limit errors never expose API credentials.
 test("rate-limit errors omit the credential", async () => {
-  await withEnv({ SERPER_API_KEY: "super-secret-key" }, async () => {
-    setProviderResponse("/serper", 429, "rate limited", {
+  await withEnv({ TAVILY_API_KEY: "super-secret-key" }, async () => {
+    setProviderResponse("/tavily", 429, "rate limited", {
       "retry-after": "60",
     });
     const r = await websearchTool.execute(
       call({ query: "rate-limit-unique", freshness: "strict" }),
-      ctx(8, 120, { provider: "serper", fallback: false }),
+      ctx(8, 120, { provider: "tavily", fallback: false }),
     );
     assert.equal(r.content, "WEBSEARCH_PROVIDER_RATE_LIMITED");
     assert.ok(!r.content.includes("super-secret-key"));
   });
 });
 
-// Reason: ticket 08 — a rate-limited provider is cooled down and skipped later.
-test("a rate-limited provider enters cooldown and is skipped", async () => {
+// Reason: ticket 08 — a failed provider enters cooldown and is skipped later.
+test("a failed provider enters cooldown and is skipped", async () => {
   await withEnv(
-    { BRAVE_API_KEY: "brave-key", TAVILY_API_KEY: "tavily-key" },
+    { EXA_API_KEY: "exa-key", BRAVE_API_KEY: "brave-key" },
     async () => {
-      setProviderResponse("/brave", 429, "rate limited", {
-        "retry-after": "60",
-      });
+      setProviderResponse("/exa", 500, "failure");
       setProviderResponse(
-        "/tavily",
+        "/brave",
         200,
         JSON.stringify({
-          results: [
-            {
-              title: "Tavily result",
-              url: "https://tavily.example/a",
-              content: "tavily snippet",
-            },
-          ],
+          web: {
+            results: [
+              {
+                title: "Brave result",
+                url: "https://brave.example/b",
+                description: "brave snippet",
+              },
+            ],
+          },
         }),
       );
-      const braveBefore = providerHits.get("/brave") ?? 0;
       const first = await websearchTool.execute(
-        call({ query: "cooldown-unique", freshness: "strict" }),
-        ctx(8, 120, { provider: "brave" }),
+        call({ query: "failed-cooldown-unique", freshness: "strict" }),
+        ctx(8, 120, { provider: "exa" }),
       );
-      assert.match(first.content, /Tavily result/);
-      const afterFirst = providerHits.get("/brave") ?? 0;
+      assert.match(first.content, /Brave result/);
+      const afterFirst = providerHits.get("/exa") ?? 0;
       const second = await websearchTool.execute(
-        call({ query: "cooldown-unique", freshness: "strict" }),
-        ctx(8, 120, { provider: "brave" }),
+        call({ query: "failed-cooldown-unique", freshness: "strict" }),
+        ctx(8, 120, { provider: "exa" }),
       );
-      assert.match(second.content, /Tavily result/);
-      assert.equal(providerHits.get("/brave") ?? 0, afterFirst);
-      assert.equal(afterFirst, braveBefore + 1);
+      assert.match(second.content, /Brave result/);
+      assert.equal(providerHits.get("/exa") ?? 0, afterFirst);
     },
   );
+});
+
+// Reason: ticket 08 — a rate-limited provider is cooled down and skipped later.
+test("a rate-limited provider enters cooldown and is skipped", async () => {
+  fixture = `<html><body>${result("DDG fallback", "https://ddg.example/f", "ddg")}</body></html>`;
+  await withEnv({ BRAVE_API_KEY: "brave-key" }, async () => {
+    setProviderResponse("/brave", 429, "rate limited", {
+      "retry-after": "60",
+    });
+    const braveBefore = providerHits.get("/brave") ?? 0;
+    const first = await websearchTool.execute(
+      call({ query: "cooldown-unique", freshness: "strict" }),
+      ctx(8, 120, { provider: "brave" }),
+    );
+    assert.match(first.content, /DDG fallback/);
+    const afterFirst = providerHits.get("/brave") ?? 0;
+    const second = await websearchTool.execute(
+      call({ query: "cooldown-unique", freshness: "strict" }),
+      ctx(8, 120, { provider: "brave" }),
+    );
+    assert.match(second.content, /DDG fallback/);
+    assert.equal(providerHits.get("/brave") ?? 0, afterFirst);
+    assert.equal(afterFirst, braveBefore + 1);
+  });
 });

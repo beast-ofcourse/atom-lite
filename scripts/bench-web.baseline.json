@@ -1,26 +1,27 @@
 {
-  "generatedAt": "2026-11-19T08:01:04.427Z",
+  "generatedAt": "2026-11-19T08:15:10.076Z",
+  "sourceCommit": "4e8768b",
   "cases": [
     {
       "name": "fetch large HTML",
       "iterations": 12,
       "bytesServed": 2712864,
-      "p50Ms": 13.84,
-      "p95Ms": 18.22
+      "p50Ms": 14.07,
+      "p95Ms": 17.25
     },
     {
       "name": "fetch plain text",
       "iterations": 12,
       "bytesServed": 1536000,
-      "p50Ms": 4.13,
-      "p95Ms": 8.64
+      "p50Ms": 4.04,
+      "p95Ms": 8.29
     },
     {
       "name": "search results",
       "iterations": 12,
       "bytesServed": 37152,
-      "p50Ms": 3.01,
-      "p95Ms": 4.57
+      "p50Ms": 3.25,
+      "p95Ms": 4.13
     }
   ]
 }

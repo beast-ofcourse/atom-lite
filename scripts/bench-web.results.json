@@ -1,35 +1,36 @@
 {
-  "generatedAt": "2026-11-19T08:01:27.104Z",
+  "generatedAt": "2026-11-19T08:15:33.476Z",
+  "sourceCommit": "71f8ebd",
   "cases": [
     {
       "name": "fetch large HTML",
       "iterations": 12,
-      "bytesServed": 2712864,
-      "p50Ms": 14.83,
-      "p95Ms": 29.17,
-      "baselineP50Ms": 13.84,
-      "baselineP95Ms": 18.22,
-      "p50DeltaPercent": 7.2
+      "bytesServed": 784476,
+      "p50Ms": 12,
+      "p95Ms": 18.39,
+      "baselineP50Ms": 14.07,
+      "baselineP95Ms": 17.25,
+      "p50DeltaPercent": -14.7
     },
     {
       "name": "fetch plain text",
       "iterations": 12,
       "bytesServed": 1536000,
-      "p50Ms": 5.46,
-      "p95Ms": 5.84,
-      "baselineP50Ms": 4.13,
-      "baselineP95Ms": 8.64,
-      "p50DeltaPercent": 32.2
+      "p50Ms": 6.6,
+      "p95Ms": 8.76,
+      "baselineP50Ms": 4.04,
+      "baselineP95Ms": 8.29,
+      "p50DeltaPercent": 63.4
     },
     {
       "name": "search results",
       "iterations": 12,
       "bytesServed": 37152,
-      "p50Ms": 4.75,
-      "p95Ms": 5.6,
-      "baselineP50Ms": 3.01,
-      "baselineP95Ms": 4.57,
-      "p50DeltaPercent": 57.8
+      "p50Ms": 4.76,
+      "p95Ms": 5.59,
+      "baselineP50Ms": 3.25,
+      "baselineP95Ms": 4.13,
+      "p50DeltaPercent": 46.5
     }
   ],
   "baseline": "scripts/bench-web.baseline.json"

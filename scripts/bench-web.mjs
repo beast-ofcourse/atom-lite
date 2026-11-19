@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { execSync } from "node:child_process";
 import { performance } from "node:perf_hooks";
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -9,6 +10,7 @@ const outIndex = args.indexOf("--out");
 const baselineIndex = args.indexOf("--baseline");
 const outPath = outIndex >= 0 ? args[outIndex + 1] : "scripts/bench-web.results.json";
 const baselinePath = baselineIndex >= 0 ? args[baselineIndex + 1] : undefined;
+const sourceCommit = execSync("git rev-parse --short HEAD").toString().trim();
 
 const boilerplate = "<nav>" + "navigation ".repeat(20_000) + "</nav>";
 const main = "<main><h1>Answer</h1><p>" + "useful content ".repeat(400) + "</p></main>";
@@ -30,7 +32,7 @@ const fixtures = {
 };
 
 let bytesServed = 0;
-const server = createServer((req, res) => {
+const server = createServer(async (req, res) => {
   const path = new URL(req.url ?? "/", "http://localhost").pathname;
   const fixture = fixtures[path];
   if (!fixture) {
@@ -38,7 +40,6 @@ const server = createServer((req, res) => {
     res.end();
     return;
   }
-  bytesServed += Buffer.byteLength(fixture.body);
   res.writeHead(200, { "content-type": fixture.type });
   res.end(fixture.body);
 });
@@ -47,21 +48,37 @@ const address = server.address();
 const base = `http://127.0.0.1:${address.port}`;
 
 const originalFetch = globalThis.fetch;
-globalThis.fetch = ((input, init) => {
+globalThis.fetch = async (input, init) => {
   const raw =
     typeof input === "string"
       ? input
       : input instanceof URL
         ? input.href
         : input.url;
+  let target = input;
   if (raw.startsWith("https://html.duckduckgo.com/html")) {
-    const rewritten = raw
+    target = raw
       .replace("https://html.duckduckgo.com/html", `${base}/search`)
       .replace("/search/", "/search");
-    return originalFetch(rewritten, init);
   }
-  return originalFetch(input, init);
-});
+  const res = await originalFetch(target, init);
+  if (!res.body) return res;
+  try {
+    const counter = new TransformStream({
+      transform(chunk, controller) {
+        bytesServed += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+    });
+    return new Response(res.body.pipeThrough(counter), {
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+    });
+  } catch {
+    return res;
+  }
+};
 
 const ctx = {
   workspace: process.cwd(),
@@ -71,7 +88,7 @@ const ctx = {
     fetch: {
       cacheTtlSeconds: 300,
       maxBytes: 5_242_880,
-      maxOutputChars: 2_000_000,
+      maxOutputChars: 20_000,
       extract: "auto",
     },
     search: {
@@ -154,7 +171,11 @@ try {
   server.close();
 }
 
-const report = { generatedAt: new Date().toISOString(), cases: results };
+const report = {
+  generatedAt: new Date().toISOString(),
+  sourceCommit,
+  cases: results,
+};
 if (baselinePath && existsSync(baselinePath)) {
   const baseline = JSON.parse(readFileSync(baselinePath, "utf8"));
   report.baseline = baselinePath;

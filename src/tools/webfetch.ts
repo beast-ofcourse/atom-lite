@@ -12,6 +12,7 @@ import { DomUtils, parseDocument, Parser } from "htmlparser2";
 import TurndownService from "turndown";
 import { userCacheDir } from "../config/paths.js";
 import { resolveToolPermission } from "../agents/permissions.js";
+import { createBoundedCache } from "./web-cache.js";
 import type { Tool, ToolContext, ToolResult } from "./types.js";
 import type { ToolCall } from "../types.js";
 import { z } from "zod";
@@ -78,7 +79,7 @@ interface CacheEntry {
   createdAt: number;
 }
 
-const fetchCache = new Map<string, CacheEntry>();
+const fetchCache = createBoundedCache<CacheEntry>(CACHE_MAX_ENTRIES);
 const refreshing = new Set<string>();
 
 function cacheKey(url: string, format: Format): string {
@@ -89,14 +90,6 @@ function cacheKey(url: string, format: Format): string {
   } catch {
     return `${format}\n${url}`;
   }
-}
-
-function cachePut(key: string, entry: CacheEntry): void {
-  if (fetchCache.size >= CACHE_MAX_ENTRIES) {
-    const first = fetchCache.keys().next().value;
-    if (first !== undefined) fetchCache.delete(first);
-  }
-  fetchCache.set(key, entry);
 }
 
 function acceptHeader(format: Format): string {
@@ -584,7 +577,7 @@ export const webfetchTool: Tool = {
               const outcome = await fetchAndRender(cached);
               if (outcome.ok && outcome.notModified) refreshMetadata(outcome);
               else if (outcome.ok && outcome.content && !outcome.noStore) {
-                cachePut(key, {
+                fetchCache.put(key, {
                   content: outcome.content,
                   contentType: outcome.contentType,
                   title: outcome.title,
@@ -635,7 +628,7 @@ export const webfetchTool: Tool = {
     }
     const content = outcome.content ?? "";
     if (freshness !== "strict" && !outcome.noStore) {
-      cachePut(key, {
+      fetchCache.put(key, {
         content,
         contentType: outcome.contentType,
         title: outcome.title,
