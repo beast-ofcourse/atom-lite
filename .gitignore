@@ -31,3 +31,7 @@ AGENTS.md
 web/.impeccable/
 .atom-lite/attachments/
 .agents/
+
+# MemPalace per-project files (issue #185)
+mempalace.yaml
+entities.json
