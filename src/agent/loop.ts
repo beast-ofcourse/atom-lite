@@ -715,6 +715,7 @@ export class AgentRuntime {
     let completionNudges = 0;
     const maxCompletionNudges = 3;
     let truncationContinuations = 0;
+    let answerPrefix = "";
     try {
       while (true) {
         // Pause is a goal status enforced between iterations. In-flight tool
@@ -935,6 +936,7 @@ export class AgentRuntime {
           truncationContinuations === 0
         ) {
           truncationContinuations++;
+          answerPrefix += text;
           session.appendMessage({
             role: "user",
             content: [
@@ -988,7 +990,7 @@ export class AgentRuntime {
           await this.extensionDispatch?.("agent_settled", {
             type: "agent_settled",
           });
-          return text;
+          return answerPrefix + text;
         }
 
         // Emit tool_call events; allow mutation and block decisions.
@@ -1221,7 +1223,7 @@ export class AgentRuntime {
           await this.extensionDispatch?.("agent_settled", {
             type: "agent_settled",
           });
-          return text;
+          return answerPrefix + text;
         }
 
         // Inject completed background task results as system messages.
@@ -1237,7 +1239,7 @@ export class AgentRuntime {
           await this.extensionDispatch?.("agent_settled", {
             type: "agent_settled",
           });
-          return text;
+          return answerPrefix + text;
         }
       }
       // The while(true) loop always returns or throws from inside; this line is unreachable but satisfies the return type.

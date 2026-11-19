@@ -124,7 +124,7 @@ test("agent loop surfaces a truncated response instead of treating it as complet
   const events: string[] = [];
   const provider = new FakeProvider([
     { text: "partial answer", finishReason: "length" },
-    { text: "continued" },
+    { text: " continued" },
   ]);
   const runtime = new AgentRuntime({
     provider,
@@ -139,15 +139,15 @@ test("agent loop surfaces a truncated response instead of treating it as complet
     new InMemorySession("s1", "/tmp/ws"),
     new AbortController().signal,
   );
-  assert.equal(result, "continued");
+  assert.equal(result, "partial answer continued");
   assert.deepEqual(events, ["test-model"]);
 });
 
-test("agent loop resumes once after a truncated answer", async () => {
+test("agent loop resumes once after a truncated answer and returns the full text", async () => {
   const events: string[] = [];
   const provider = new FakeProvider([
     { text: "first half", finishReason: "length" },
-    { text: "second half" },
+    { text: " second half" },
   ]);
   const runtime = new AgentRuntime({
     provider,
@@ -164,7 +164,7 @@ test("agent loop resumes once after a truncated answer", async () => {
     new AbortController().signal,
   );
 
-  assert.equal(result, "second half");
+  assert.equal(result, "first half second half");
   assert.equal(
     session.messages.filter((m) => m.role === "assistant").length,
     2,
@@ -184,9 +184,9 @@ test("agent loop resumes once after a truncated answer", async () => {
 
 test("truncation recovery is bounded when every answer is cut off", async () => {
   const provider = new FakeProvider([
-    { text: "one", finishReason: "length" },
-    { text: "two", finishReason: "length" },
-    { text: "three", finishReason: "length" },
+    { text: "one ", finishReason: "length" },
+    { text: "two ", finishReason: "length" },
+    { text: "three ", finishReason: "length" },
   ]);
   const runtime = new AgentRuntime({ provider, tools: [] });
   const session = new InMemorySession("s3", "/tmp/ws");
@@ -195,7 +195,7 @@ test("truncation recovery is bounded when every answer is cut off", async () => 
     session,
     new AbortController().signal,
   );
-  assert.equal(result, "two");
+  assert.equal(result, "one two ");
   assert.equal(
     session.messages.filter((m) => m.role === "assistant").length,
     2,
