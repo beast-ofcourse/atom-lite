@@ -2819,11 +2819,11 @@ const COMMANDS = [
         send({ type: "set_goal", statement: value });
       } else if (action === "criteria") {
         const criteria = value
-          .split(",")
+          .split(/[;,]/)
           .map((item) => item.trim())
           .filter(Boolean);
         if (!criteria.length) {
-          showToast("Usage: /goal criteria <a,b,c>", "warn");
+          showToast("Usage: /goal criteria <a;b>", "warn");
           return;
         }
         send({ type: "set_goal_criteria", criteria });
@@ -3093,10 +3093,12 @@ function handleEvent(event) {
       compactionNotice = `compaction failed: ${event.reason}`;
       renderCompactionNotice();
       break;
+    case "compaction_continuation":
+      clearCompactionNotice();
+      break;
     case "context_usage":
       contextUsed = event.used;
       contextWindow = event.window;
-      clearCompactionNotice();
       renderContextUsage();
       break;
     default:
@@ -3191,6 +3193,7 @@ function handleMessage(message) {
       endThinkingBlock();
       lastAssistantActions = null;
       setTurnActive(true);
+      clearCompactionNotice();
       break;
     case "turn_stopping":
       pendingApproval = null;

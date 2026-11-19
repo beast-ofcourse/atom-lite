@@ -2584,11 +2584,26 @@ test("compaction events pass through to the browser without summary text", async
     const failedMessage = await failedWait;
     assert.deepEqual(failedMessage.event, failed);
 
+    // The continuation is the success signal the browser clears the notice on.
+    const continuation = { type: "compaction_continuation", text: "continue" };
+    const continuationWait = client.waitForMatching(
+      (m) => m.type === "event" && m.event.type === "compaction_continuation",
+    );
+    emit(continuation);
+    const continuationMessage = await continuationWait;
+    assert.deepEqual(continuationMessage.event, continuation);
+
     for (const message of client.messages) {
       if (message.type !== "event") continue;
+      if (
+        message.event.type !== "context_compaction_started" &&
+        message.event.type !== "context_compaction_failed"
+      ) {
+        continue;
+      }
       assert.ok(
         !("text" in message.event) && !("summary" in message.event),
-        "compaction events carry no summary or native payload",
+        "compaction status events carry no summary or native payload",
       );
     }
   } finally {
