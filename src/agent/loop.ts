@@ -930,9 +930,13 @@ export class AgentRuntime {
         ) {
           truncationContinuations++;
           session.appendMessage({
-            role: "system",
-            content:
-              "Your previous response was cut off at the output token limit. Continue from where you stopped, concisely.",
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Your previous response was cut off at the output token limit. Continue from where you stopped, concisely.",
+              },
+            ],
           });
           continue;
         }

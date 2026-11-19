@@ -4,6 +4,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import type { Message, ModelRequest, ModelResponse } from "../../dist/types.js";
+import type { ProviderAdapter } from "../../dist/providers/types.js";
 import { resolveFinishReason } from "../../dist/providers/finish-reason.js";
 import { OpenAICompatibleAdapter } from "../../dist/providers/openai-compatible.js";
 import { AgentRuntime } from "../../dist/agent/loop.js";
@@ -135,7 +137,11 @@ test("agent loop resumes once after a truncated answer", async () => {
   );
   assert.equal(
     session.messages.filter(
-      (m) => m.role === "system" && String(m.content).includes("cut off"),
+      (m) =>
+        m.role === "user" &&
+        m.content.some(
+          (part) => part.type === "text" && part.text.includes("cut off"),
+        ),
     ).length,
     1,
   );
@@ -160,4 +166,42 @@ test("truncation recovery is bounded when every answer is cut off", async () => 
     session.messages.filter((m) => m.role === "assistant").length,
     2,
   );
+});
+
+test("continuation hint is sent as a user turn after the truncated answer", async () => {
+  const seen: Message[][] = [];
+  const provider: ProviderAdapter = {
+    id: "capture",
+    async generate(request: ModelRequest): Promise<ModelResponse> {
+      seen.push(request.messages);
+      const call = seen.length;
+      return {
+        message: {
+          role: "assistant",
+          content: [
+            { type: "text", text: call === 1 ? "first half" : "second half" },
+          ],
+        },
+        toolCalls: [],
+        finishReason: call === 1 ? "length" : "stop",
+      };
+    },
+  };
+  const runtime = new AgentRuntime({ provider, tools: [] });
+  await runtime.runAgentTurn(
+    "answer",
+    new InMemorySession("s4", "/tmp/ws"),
+    new AbortController().signal,
+  );
+
+  assert.equal(seen.length, 2);
+  const index = seen[1].findIndex(
+    (m) =>
+      m.role === "user" &&
+      m.content.some(
+        (part) => part.type === "text" && part.text.includes("cut off"),
+      ),
+  );
+  assert.ok(index > 0);
+  assert.equal(seen[1][index - 1].role, "assistant");
 });
