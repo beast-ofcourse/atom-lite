@@ -56,6 +56,7 @@
     "test": "npm run build && node --test",
     "bench": "npm run build && node scripts/bench.mjs",
     "bench:web": "npm run build && node scripts/bench-web.mjs",
+    "bench:tui:live": "node scripts/bench-tui-live.mjs",
     "start": "npm run build && node dist/cli/main.js",
     "dev": "tsx src/cli/main.ts",
     "format": "prettier --write .",
