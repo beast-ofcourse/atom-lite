@@ -26,6 +26,17 @@ test("stream text seals completed lines in batches", () => {
   assert.match(last.render(80).join("\n"), /tail/);
 });
 
+test("stream text renders back-to-back deltas without a full transcript invalidation", () => {
+  const transcript = new Transcript();
+  const stream = new StreamText(transcript, 200, 200);
+  stream.append("first");
+  stream.append("second");
+  assert.match(
+    transcript.container.render(80).join("\n"),
+    /firstsecond/,
+  );
+});
+
 test("stream text finalizes without dropping rendered output", () => {
   const transcript = new Transcript();
   const stream = new StreamText(transcript, 2, 2);
@@ -37,6 +48,33 @@ test("stream text finalizes without dropping rendered output", () => {
     .join("\n");
   assert.match(rendered, /first message/);
   assert.match(rendered, /second message/);
+});
+
+test("stream text seals completed blocks before continuing", () => {
+  const transcript = new Transcript();
+  const stream = new StreamText(transcript, 200, 200);
+  stream.append("first block\n\n");
+  stream.append("second block tail");
+  const rendered = transcript.container.children
+    .map((child) => child.render(80).join("\n"))
+    .join("\n");
+  assert.match(rendered, /first block/);
+  assert.match(rendered, /second block tail/);
+  assert.ok(transcript.container.children.length >= 2);
+});
+
+test("stream text never seals a fenced code block mid-block", () => {
+  const transcript = new Transcript();
+  const stream = new StreamText(transcript, 40, 40);
+  stream.append("```js\n");
+  for (let i = 0; i < 100; i++) stream.append(`code line ${i}\n`);
+  assert.equal(transcript.container.children.length, 1);
+  stream.append("```\n\nafter fence");
+  const rendered = transcript.container.children
+    .map((child) => child.render(80).join("\n"))
+    .join("\n");
+  assert.match(rendered, /code line 99/);
+  assert.match(rendered, /after fence/);
 });
 
 test("stream text renders markdown headings", () => {
@@ -59,23 +97,13 @@ test("stream text paints the first append immediately", () => {
   assert.match(rendered, /first paint text/);
 });
 
-test("stream text reflects a later append after one frame when appends arrive faster than the interval", async () => {
+test("stream text reflects a later append in the next render", () => {
   const transcript = new Transcript();
   const stream = new StreamText(transcript, 200, 200);
 
   stream.append("alpha");
   assert.match(transcript.container.render(80).join("\n"), /alpha/);
-
-  // Several appends inside a single frame; the live buffer updates but the
-  // container's cached lines do not until the next invalidate.
   stream.append("beta");
-  stream.append("gamma-fast");
-  transcript.container.render(80);
 
-  await wait(FRAME_WAIT_MS);
-  stream.append("delta");
-
-  const rendered = transcript.container.render(80).join("\n");
-  assert.match(rendered, /alpha/);
-  assert.match(rendered, /delta/);
+  assert.match(transcript.container.render(80).join("\n"), /beta/);
 });

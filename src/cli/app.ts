@@ -49,7 +49,11 @@ import {
   knownContextWindow,
   knownVisionModel,
 } from "../providers/context-window.js";
-import { STREAM_INVALIDATE_MS, StreamText } from "./stream-text.js";
+import {
+  STREAM_LIVE_LINES,
+  STREAM_SEAL_BATCH,
+  StreamText,
+} from "./stream-text.js";
 import { ThinkingBlock } from "./thinking-block.js";
 import { initLsp, shutdownLsp } from "../lsp/index.js";
 import { Transcript } from "./transcript.js";
@@ -992,6 +996,7 @@ export async function run(args: string[]): Promise<void> {
   const content = transcript.container;
   const output = new ScrollView(content, {
     follow: "end",
+    primary: true,
     // Transient scrollbar: appears on scroll activity when the transcript
     // overflows the viewport, hides after a short idle delay. "always" would
     // reserve a content column (see ScrollView.getContentWidth), shifting
@@ -1002,8 +1007,8 @@ export async function run(args: string[]): Promise<void> {
   });
   const streamText = new StreamText(
     transcript,
-    200,
-    200,
+    STREAM_LIVE_LINES,
+    STREAM_SEAL_BATCH,
     markdownThemeFor(theme),
   );
 
@@ -1196,7 +1201,6 @@ export async function run(args: string[]): Promise<void> {
   }
 
   let thinkingText: ThinkingBlock | null = null;
-  let lastThinkingInvalidateAt = 0;
   let showThinking = config.ui.showThinking;
   let expandTools = false;
   let uiModalOpen = false;
@@ -1204,18 +1208,6 @@ export async function run(args: string[]): Promise<void> {
   const dialogBoundary = new DialogBoundary();
   const toolBoxes: ToolBox[] = [];
   const toolBoxesById = new Map<string, ToolBox>();
-  let lastToolOutputInvalidateAt = 0;
-
-  /**
-   * Per-child rendered-height cache for tool-box click hit-testing. Entries
-   * are stamped with a counter incremented at every in-place transcript child
-   * mutation anywhere in this file; WeakMap identity handles pruned children.
-   */
-  let heightStamp = 0;
-  const childHeights = new WeakMap<
-    object,
-    { width: number; height: number; stamp: number }
-  >();
 
   /**
    * Close whichever modal overlay owns the keyboard. Callers that clear the
@@ -1243,7 +1235,6 @@ export async function run(args: string[]): Promise<void> {
 
   function appendDelta(delta: string): void {
     streamText.append(delta);
-    heightStamp++; // streamText mutates its live Markdown child in place
     tui.requestRender();
   }
 
@@ -1334,7 +1325,6 @@ export async function run(args: string[]): Promise<void> {
 
   function finalizeText(): void {
     streamText.finalize();
-    heightStamp++; // final Markdown set in place
   }
 
   let activeTurnController: AbortController | null = null;
@@ -2671,8 +2661,6 @@ export async function run(args: string[]): Promise<void> {
     for (const box of toolBoxes) {
       box.setExpanded(expandTools);
     }
-    heightStamp++; // every box's expanded state changed in place
-    transcript.invalidate();
     tui.requestRender();
   }
 
@@ -2943,21 +2931,16 @@ export async function run(args: string[]): Promise<void> {
     if (screenY < 0 || screenY >= outputHeight) return false;
 
     const children = content.children as any[];
-    // Hit-testing needs every child's height. Rendering each child from
-    // scratch costs ~300 ms on an expanded-box transcript, so cache heights
-    // per child. A counter bumped at every in-place mutation site (below)
-    // plus WeakMap identity keeps an interactively mutated child exact;
-    // structural changes (add/remove/clear/theme) each bump the same counter
-    // through transcript.invalidate()/TranscriptContainer.
-    const contentBlocks = children.map((child, index) => {
-      const cached = childHeights.get(child);
-      if (cached && cached.width === width && cached.stamp === heightStamp) {
-        return { id: `content:${index}`, height: cached.height };
-      }
-      const height = child.render(width).length;
-      childHeights.set(child, { width, height, stamp: heightStamp });
-      return { id: `content:${index}`, height };
-    });
+    const layout = (content as any).childLines ?? (content as any).mouseLayout;
+    const heights: number[] =
+      layout?.width === width && layout.children.length === children.length
+        ? layout.parts
+          ? layout.parts.map((part: string[]) => part.length)
+          : layout.children.map((entry: { height: number }) => entry.height)
+        : children.map((component) => component.render(width).length);
+    const contentBlocks: { id: string; height: number }[] = heights.map(
+      (height, index) => ({ id: `content:${index}`, height }),
+    );
     const total = contentBlocks.reduce((sum, block) => sum + block.height, 0);
     const viewportTop = Math.max(0, total - outputHeight);
     const inner = blockAtLine(contentBlocks, viewportTop + screenY);
@@ -2965,8 +2948,8 @@ export async function run(args: string[]): Promise<void> {
     const child = children[Number(inner.id.slice("content:".length))];
     if (!(child instanceof ToolBox)) return false;
     child.toggleExpanded();
-    transcript.invalidate();
-    heightStamp++; // the toggled child's height changed in place
+    (content as any).childLines = undefined;
+    (content as any).mouseLayout = undefined;
     return true;
   }
 
@@ -3002,7 +2985,6 @@ export async function run(args: string[]): Promise<void> {
     if (!uiModalOpen) {
       if (matchesBinding("jumpBottom")) {
         output.scrollToEnd();
-        tui.requestRender();
         return { consume: true };
       }
       if (matchesBinding("newSession")) {
@@ -3016,12 +2998,10 @@ export async function run(args: string[]): Promise<void> {
       }
       if (matchesBinding("scrollUp")) {
         output.scrollBy(-5);
-        tui.requestRender();
         return { consume: true };
       }
       if (matchesBinding("scrollDown")) {
         output.scrollBy(5);
-        tui.requestRender();
         return { consume: true };
       }
       if (matchesBinding("toggleThinking")) {
@@ -3079,26 +3059,14 @@ export async function run(args: string[]): Promise<void> {
         transcript.add(thinkingText);
       }
       thinkingText.append(e.text);
-      heightStamp++; // in-place ThinkingBlock buffer mutation
-      const now = Date.now();
-      if (now - lastThinkingInvalidateAt >= STREAM_INVALIDATE_MS) {
-        transcript.invalidate();
-        lastThinkingInvalidateAt = now;
-      }
       tui.requestRender();
     } else if (e.type === "assistant_delta") {
       activity.setPhase("working");
-      if (thinkingText) {
-        transcript.invalidate();
-        thinkingText = null;
-      }
+      thinkingText = null;
       appendDelta(e.text);
     } else if (e.type === "assistant_text") {
       activity.setPhase("working");
-      if (thinkingText) {
-        transcript.invalidate();
-        thinkingText = null;
-      }
+      thinkingText = null;
       appendDelta(e.text);
       finalizeText();
     } else if (e.type === "context_usage") {
@@ -3157,10 +3125,7 @@ export async function run(args: string[]): Promise<void> {
       }
       updateStatus();
     } else if (e.type === "tool_call") {
-      if (thinkingText) {
-        transcript.invalidate();
-        thinkingText = null;
-      }
+      thinkingText = null;
       finalizeText();
       activity.setPhase("working", e.name);
       const box = new ToolBox({ id: e.id, name: e.name, args: e.args });
@@ -3175,12 +3140,6 @@ export async function run(args: string[]): Promise<void> {
       if (box) {
         activity.setPhase("working", e.name);
         box.appendLive(e.text);
-        heightStamp++; // in-place ToolBox live output mutation
-        const now = Date.now();
-        if (now - lastToolOutputInvalidateAt >= STREAM_INVALIDATE_MS) {
-          transcript.invalidate();
-          lastToolOutputInvalidateAt = now;
-        }
         tui.requestRender();
       }
     } else if (e.type === "tool_result") {
@@ -3190,15 +3149,10 @@ export async function run(args: string[]): Promise<void> {
       if (last) {
         last.setResult(e.content, { isError: e.isError, diff: e.diff });
         activity.setPhase("working");
-        heightStamp++; // in-place ToolBox result mutation
-        transcript.invalidate();
         tui.requestRender();
       }
     } else if (e.type === "final") {
-      if (thinkingText) {
-        transcript.invalidate();
-        thinkingText = null;
-      }
+      thinkingText = null;
       finalizeText();
       activity.stop();
     }

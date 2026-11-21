@@ -81,6 +81,8 @@ test("default system prompt keeps general answers tool-free and images workspace
   assert.match(DEFAULT_SYSTEM_PROMPT, /\.atom-lite\/media\//);
   assert.match(DEFAULT_SYSTEM_PROMPT, /workspace-relative path/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /Never use `\/tmp`/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /returns the file's sha256/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /never recompute it with bash/);
 });
 
 test("custom prompts without policy sections append the persona body", () => {

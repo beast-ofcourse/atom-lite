@@ -100,9 +100,7 @@ test("wheel scrolls the transcript", () => {
   handleMouseEvent({ type: "wheel", direction: "down", x: 0, y: 0 }, handlers);
   assert.deepEqual(calls, [
     `scroll:${-MOUSE_SCROLL_LINES}`,
-    "render",
     `scroll:${MOUSE_SCROLL_LINES}`,
-    "render",
   ]);
 });
 

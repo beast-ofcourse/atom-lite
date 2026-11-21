@@ -99,7 +99,6 @@ export function handleMouseEvent(
     handlers.scrollBy(
       event.direction === "up" ? -MOUSE_SCROLL_LINES : MOUSE_SCROLL_LINES,
     );
-    handlers.requestRender();
     return true;
   }
   if (event.type === "press" && event.button === "left") {

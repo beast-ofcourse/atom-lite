@@ -1,0 +1,19 @@
+{
+  "sourceCommit": "1b26a93",
+  "seeded": 900,
+  "deltas": 120,
+  "width": 120,
+  "height": 36,
+  "liveWindow": 200,
+  "content": {
+    "p50Ms": 0.361,
+    "p95Ms": 1.541,
+    "maxMs": 19.548
+  },
+  "viewOnly": {
+    "p50Ms": 0.044,
+    "p95Ms": 0.143,
+    "maxMs": 0.686
+  },
+  "children": 902
+}

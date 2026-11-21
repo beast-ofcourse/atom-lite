@@ -9,7 +9,7 @@ import {
 
 test("transcript keeps a bounded number of live children", () => {
   const t = new Transcript();
-  for (let i = 0; i < TRANSCRIPT_MAX_CHILDREN + 200; i++) {
+  for (let i = 0; i < TRANSCRIPT_MAX_CHILDREN + TRANSCRIPT_PRUNE_COUNT; i++) {
     t.add(new Text(`line ${i}`));
   }
   assert.ok(t.container.children.length <= TRANSCRIPT_MAX_CHILDREN + 1);
@@ -25,7 +25,10 @@ test("transcript collapses the oldest children behind a marker", () => {
   const lines = first.render(80).join("\n");
   assert.match(lines, /earlier lines hidden \(session retains full history\)/);
   const last = t.container.children[t.container.children.length - 1];
-  assert.match(last.render(80).join("\n"), /line 1509/);
+  assert.match(
+    last.render(80).join("\n"),
+    new RegExp(`line ${TRANSCRIPT_MAX_CHILDREN + 9}`),
+  );
 });
 
 test("transcript reset clears history and pruning state", () => {

@@ -3,11 +3,9 @@ import type { Transcript } from "./transcript.js";
 import { renderMermaidBlocks } from "./mermaid.js";
 
 /** Lines kept live while streaming; older lines are sealed into cached Markdown. */
-export const STREAM_LIVE_LINES = 200;
+export const STREAM_LIVE_LINES = 40;
 /** Extra live lines tolerated before a batch is sealed. */
-export const STREAM_SEAL_BATCH = 200;
-/** Max age of cached transcript lines while streaming (one display frame). */
-export const STREAM_INVALIDATE_MS = 16;
+export const STREAM_SEAL_BATCH = 40;
 const DEFAULT_MARKDOWN_THEME: MarkdownTheme = {
   heading: (t) => t,
   link: (t) => t,
@@ -26,11 +24,31 @@ const DEFAULT_MARKDOWN_THEME: MarkdownTheme = {
   codeBlockIndent: "  ",
 };
 
+/** Cut only at a blank line outside a fence, including the budget fallback. */
+function sealPoint(text: string, maxLines: number, sealBatch: number): number {
+  const lines = text.split("\n");
+  const keep = Math.max(1, maxLines);
+  const budgetIndex =
+    lines.length > maxLines + sealBatch ? lines.length - keep - 1 : -1;
+  let fenced = false;
+  let offset = 0;
+  let boundary = 0;
+  let budgetCut = 0;
+  for (let i = 0; i < lines.length - 1; i++) {
+    const line = lines[i];
+    if (/^\s*```/.test(line)) fenced = !fenced;
+    offset += line.length + 1;
+    if (fenced) continue;
+    if (line.trim() === "") boundary = offset;
+    if (i === budgetIndex) budgetCut = offset;
+  }
+  return Math.max(boundary, budgetCut);
+}
+
 export class StreamText {
   private buffer = "";
   private live: Markdown | null = null;
   private readonly markdownTheme: MarkdownTheme;
-  private lastInvalidateAt = 0;
 
   constructor(
     private readonly transcript: Transcript,
@@ -43,46 +61,39 @@ export class StreamText {
 
   append(delta: string): void {
     this.buffer += delta;
-    const lines = this.buffer.split("\n");
-    if (lines.length > this.maxLines + this.sealBatch) {
-      const keepCount = this.maxLines;
-      const sealed = lines.slice(0, lines.length - keepCount).join("\n");
-      this.buffer = lines.slice(-keepCount).join("\n");
-      if (this.live) this.transcript.container.removeChild(this.live);
-      this.transcript.add(
-        new Markdown(renderMermaidBlocks(sealed), 0, 0, this.markdownTheme),
-      );
-      this.live = new Markdown(
-        renderMermaidBlocks(this.buffer),
-        0,
-        0,
-        this.markdownTheme,
-      );
-      this.transcript.add(this.live);
-    } else {
-      if (!this.live) {
-        this.live = new Markdown("", 0, 0, this.markdownTheme);
-        this.transcript.add(this.live);
-      }
-      this.live.setText(this.buffer);
-      const now = Date.now();
-      if (now - this.lastInvalidateAt >= STREAM_INVALIDATE_MS) {
-        this.transcript.invalidate();
-        this.lastInvalidateAt = now;
-      }
+    const cut = sealPoint(this.buffer, this.maxLines, this.sealBatch);
+    if (cut > 0) {
+      const sealed = this.buffer.slice(0, cut);
+      this.buffer = this.buffer.slice(cut);
+      this.seal(sealed);
     }
+    if (!this.live) {
+      this.live = new Markdown("", 0, 0, this.markdownTheme);
+      this.transcript.add(this.live);
+    }
+    this.live.setText(this.buffer);
   }
 
-  /** Stop this message; its rendered text stays in the transcript. */
+  private seal(text: string): void {
+    const markdown = new Markdown(
+      renderMermaidBlocks(text),
+      0,
+      0,
+      this.markdownTheme,
+    );
+    if (this.live) this.transcript.container.removeChild(this.live);
+    this.transcript.add(markdown);
+    this.transcript.markStructureChanged();
+    this.live = null;
+  }
+
   finalize(): void {
     if (this.live) {
       try {
         this.live.setText(renderMermaidBlocks(this.buffer));
       } catch {
-        // Best effort; keep raw text on failure.
+        // Keep the raw text if mermaid rendering fails.
       }
-      this.transcript.invalidate();
-      this.lastInvalidateAt = Date.now();
     }
     this.buffer = "";
     this.live = null;
