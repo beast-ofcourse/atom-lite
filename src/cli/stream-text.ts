@@ -83,7 +83,6 @@ export class StreamText {
     );
     if (this.live) this.transcript.container.removeChild(this.live);
     this.transcript.add(markdown);
-    this.transcript.markStructureChanged();
     this.live = null;
   }
 

@@ -1,19 +1,19 @@
 {
-  "sourceCommit": "ace18cc-dirty",
+  "sourceCommit": "7e1607e-dirty",
   "seeded": 900,
   "deltas": 120,
   "width": 120,
   "height": 36,
   "liveWindow": 40,
   "content": {
-    "p50Ms": 0.264,
-    "p95Ms": 1.336,
-    "maxMs": 16.167
+    "p50Ms": 0.289,
+    "p95Ms": 1.233,
+    "maxMs": 17.357
   },
   "viewOnly": {
-    "p50Ms": 0.115,
-    "p95Ms": 0.552,
-    "maxMs": 1.034
+    "p50Ms": 0.124,
+    "p95Ms": 0.717,
+    "maxMs": 2.207
   },
   "children": 393
 }
