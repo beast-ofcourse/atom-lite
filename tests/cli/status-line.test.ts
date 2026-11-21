@@ -47,6 +47,23 @@ test("status line shows the open todo count", () => {
   assert.ok(plain[0].trimEnd().endsWith("effort: medium"));
 });
 
+test("status line keeps activity and cwd inline and hides empty todos", () => {
+  const rows = render(
+    {
+      ...PLAIN,
+      cwd: "~/repo:main",
+      activity: "● ready",
+      openTodos: 0,
+    },
+    120,
+  );
+  const plain = rows.map(stripTerminalSequences);
+  assert.equal(rows.length, 2);
+  assert.match(plain[0], /kilo\/kilo-auto\/free ~\/repo:main/);
+  assert.match(plain[0], /● ready/);
+  assert.doesNotMatch(plain[0], /todos:0/);
+});
+
 test("status line colours parts through semantic theme tokens", () => {
   const rows = render(PLAIN, 60, darkTheme);
   assert.ok(rows[0].includes(darkTheme.tokens.status(PLAIN.left)));

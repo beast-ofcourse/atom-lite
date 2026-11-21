@@ -1048,15 +1048,13 @@ export async function run(args: string[]): Promise<void> {
     }
     return branch ? `${displayPath}:${branch}` : displayPath;
   }
-  // paddingY = 0 keeps the workspace path directly under the status line.
-  const header = new Text(theme.tokens.dim(headerLabel()), 1, 0);
-
   const statusBar = new StatusLine(theme);
   const footer = new Footer(theme);
   const activity = new Activity({ theme, onChange: () => updateStatus() });
   tuiReady = true;
   statusBar.setParts({
     left: `${provider.id}/${provider.model ?? "default"}`,
+    cwd: headerLabel(),
     effort: "effort: medium",
     mode: currentMode,
     agent: runtime.getPersona()?.name,
@@ -1192,8 +1190,6 @@ export async function run(args: string[]): Promise<void> {
   root.addChild(questionDock, { grow: 0, shrink: 0, minSize: 0 });
   root.addChild(input, { grow: 0, shrink: 0 });
   root.addChild(statusBar, { grow: 0, shrink: 0 });
-  // folder:branch info below the status line, dimmed
-  root.addChild(header, { grow: 0, shrink: 0 });
   root.addChild(footer, { grow: 0, shrink: 0 });
   const dropdownContainer = new Container();
   root.addChild(dropdownContainer, { grow: 0, shrink: 0 });
@@ -1505,6 +1501,7 @@ export async function run(args: string[]): Promise<void> {
     const cum = runtime.getCumulativeUsage();
     statusBar.setParts({
       left: `${provider.id}/${currentModelLabel()}`,
+      cwd: headerLabel(),
       effort: `effort: ${effortLevel}`,
       mode: currentMode,
       agent: runtime.getPersona()?.name,
@@ -1564,7 +1561,6 @@ export async function run(args: string[]): Promise<void> {
     statusBar.setTheme(theme);
     goalPanel.setTheme(theme);
     activity.setTheme(theme);
-    header.setText(theme.tokens.dim(headerLabel()));
     if (persist) {
       try {
         saveTheme(name);

@@ -10,9 +10,11 @@ export interface StatusLineParts {
   mode?: string;
   /** Active persona name, rendered as "agent:<value>" in the top row. */
   agent?: string;
-  /** Animated agent state, rendered as an optional third row. Already styled. */
+  /** Animated agent state, rendered inline on the status row. Already styled. */
   activity?: string;
-  /** Number of open todos, rendered as "todos:N" when present. */
+  /** Workspace path and branch, rendered dim beside the model. */
+  cwd?: string;
+  /** Number of open todos. Zero is hidden to keep the row short. */
   openTodos?: number;
 }
 
@@ -66,17 +68,22 @@ export class StatusLine implements Component {
       ? tokens.accent(`agent:${this.parts.agent}`)
       : "";
     const todoPart =
-      this.parts.openTodos === undefined
+      this.parts.openTodos === undefined || this.parts.openTodos === 0
         ? ""
         : tokens.accent(`todos:${this.parts.openTodos}`);
-    const right = [agentPart, modePart, todoPart, tokens.dim(this.parts.effort)]
+    const right = [
+      agentPart,
+      modePart,
+      todoPart,
+      this.parts.activity,
+      tokens.dim(this.parts.effort),
+    ]
       .filter(Boolean)
       .join("  ");
-    const top = formatStatusLine(
-      tokens.status(this.parts.left),
-      right,
-      contentWidth,
-    );
+    const left = this.parts.cwd
+      ? `${tokens.status(this.parts.left)} ${tokens.dim(this.parts.cwd)}`
+      : tokens.status(this.parts.left);
+    const top = formatStatusLine(left, right, contentWidth);
     const rows = [
       " " + top + " ".repeat(Math.max(0, width - visibleWidth(top) - 1)),
     ];
@@ -89,14 +96,6 @@ export class StatusLine implements Component {
         " " +
           bottom +
           " ".repeat(Math.max(0, width - visibleWidth(bottom) - 1)),
-      );
-    }
-    if (this.parts.activity !== undefined) {
-      const activity = truncateToWidth(this.parts.activity, contentWidth);
-      rows.push(
-        " " +
-          activity +
-          " ".repeat(Math.max(0, width - visibleWidth(activity) - 1)),
       );
     }
     return rows;
