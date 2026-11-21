@@ -198,10 +198,10 @@ test("plan mode blocks write/edit/bash with a tool-disabled result", async () =>
   );
   const byId = Object.fromEntries(res.map((r: any) => [r.toolCallId, r]));
   assert.equal(byId.w.isError, true);
-  assert.match(byId.w.content, /plan mode: tool disabled/);
+  assert.match(byId.w.content, /Plan mode is active.*"write".*Press Tab/s);
   assert.equal(byId.e.isError, true);
-  assert.match(byId.e.content, /plan mode: tool disabled/);
+  assert.match(byId.e.content, /Plan mode is active.*"edit".*Press Tab/s);
   assert.equal(byId.b.isError, true);
-  assert.match(byId.b.content, /plan mode: tool disabled/);
+  assert.match(byId.b.content, /Plan mode is active.*"bash".*Press Tab/s);
   assert.notEqual(byId.r.isError, true);
 });

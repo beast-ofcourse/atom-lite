@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ToolExecutor } from "../../dist/runtime/tool-executor.js";
+import { planModeBlockMessage } from "../../dist/runtime/modes.js";
 import type { Tool, ToolContext, ToolResult } from "../../dist/tools/types.js";
 import type { ToolCall } from "../../dist/types.js";
 
@@ -77,7 +78,7 @@ test("plan mode blocks the mutating built-ins", async () => {
     new AbortController().signal,
   );
   for (const r of results.slice(0, 3)) {
-    assert.equal(r.content, "plan mode: tool disabled");
+    assert.equal(r.content, planModeBlockMessage(r.name));
     assert.equal(r.isError, true);
   }
   assert.match(results[3].content, /read ok/);
@@ -100,8 +101,8 @@ test("plan mode blocks mutating MCP and extension tools", async () => {
     runCtx(toolMap, { mode: "plan" }),
     new AbortController().signal,
   );
-  assert.equal(results[0].content, "plan mode: tool disabled");
-  assert.equal(results[1].content, "plan mode: tool disabled");
+  assert.equal(results[0].content, planModeBlockMessage("mcp__deploy"));
+  assert.equal(results[1].content, planModeBlockMessage("ext_write"));
   assert.match(results[2].content, /mcp__docs_search ok/);
 });
 

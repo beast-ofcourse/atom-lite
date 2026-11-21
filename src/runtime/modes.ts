@@ -38,3 +38,8 @@ export function isPlanToolAllowed(
   if (readOnlyHint === true) return true;
   return PLAN_READONLY_TOOLS.has(toolName);
 }
+
+/** Tool result shown to the model when a mutating tool is blocked in plan mode. */
+export function planModeBlockMessage(toolName: string): string {
+  return `Plan mode is active. The "${toolName}" tool is disabled because it can change the workspace. Only read-only tools are available in plan mode. Press Tab to switch to yolo mode, then retry.`;
+}

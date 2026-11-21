@@ -3,7 +3,7 @@ import type { Tool, ToolContext } from "../tools/types.js";
 import type { ToolResult } from "../tools/types.js";
 import { resolve } from "node:path";
 import { LockManager, type Release } from "./locks.js";
-import { isPlanToolAllowed } from "./modes.js";
+import { isPlanToolAllowed, planModeBlockMessage } from "./modes.js";
 import { checkApproval } from "./approvals.js";
 import {
   permissionInvocation,
@@ -202,7 +202,7 @@ export class ToolExecutor {
           results[i] = {
             toolCallId: call.id,
             name: call.name,
-            content: "plan mode: tool disabled",
+            content: planModeBlockMessage(call.name),
             isError: true,
           };
           return;
