@@ -202,6 +202,7 @@ export const KeybindingsConfigSchema = z
     scrollUp: z.string().nullable().default("ctrl+up"),
     scrollDown: z.string().nullable().default("ctrl+down"),
     toggleThinking: z.string().nullable().default("ctrl+t"),
+    cycleThinking: z.string().nullable().default(null),
     toggleGoalPanel: z.string().nullable().default("ctrl+j"),
     inputHistoryUp: z.string().nullable().default("up"),
     inputHistoryDown: z.string().nullable().default("down"),

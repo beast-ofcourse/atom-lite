@@ -294,7 +294,7 @@ export async function run(args: string[]): Promise<void> {
   let provider = createProvider(config, providerOverride, modelOverride);
   const modelByProvider = new Map<string, string>();
   let effortLevel = "medium";
-  let currentModelReasoning = false;
+  let currentModelCapabilities: import("../types.js").ModelInfo | undefined;
   let currentMode: "plan" | "yolo" = config.runtime.mode;
   let tuiReady = false;
   const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -1069,8 +1069,9 @@ export async function run(args: string[]): Promise<void> {
     scrollInfo: (s: string) => theme.tokens.dim(s),
     noMatch: (s: string) => theme.tokens.dim(s),
   };
+  let currentBorderColor = (s: string) => theme.tokens.border(s);
   const editorTheme = {
-    borderColor: (s: string) => theme.tokens.border(s),
+    borderColor: (s: string) => currentBorderColor(s),
     selectList: selectListTheme,
   };
   const input = new Editor(tui, editorTheme, {});
@@ -1513,7 +1514,7 @@ export async function run(args: string[]): Promise<void> {
       window: usage.window,
       percent: usage.percent ?? null,
       model: `${provider.id}/${currentModelLabel()}`,
-      reasoning: currentModelReasoning,
+      reasoning: currentModelCapabilities?.reasoning === true,
       thinkingLevel: effortLevel,
       autoCompact: true,
       cumulativeInput: cum.input,
@@ -1578,7 +1579,7 @@ export async function run(args: string[]): Promise<void> {
       override: override as any,
     });
     runtime.setContextWindow(resolved.contextWindow);
-    currentModelReasoning = resolved.reasoning === true;
+    currentModelCapabilities = resolved;
     if (typeof pcfg?.supportsVision === "boolean") {
       runtime.setSupportsVision(pcfg.supportsVision);
     } else {
@@ -1617,6 +1618,12 @@ export async function run(args: string[]): Promise<void> {
     effortLevel = level;
     runtime.setEffort(level);
     runtime.setReasoning(level);
+    currentBorderColor =
+      level === "high" || level === "xhigh" || level === "max"
+        ? (s: string) => theme.tokens.warning(s)
+        : level === "off"
+          ? (s: string) => theme.tokens.border(s)
+          : (s: string) => theme.tokens.accent(s);
     updateStatus();
   }
 
@@ -2023,23 +2030,39 @@ export async function run(args: string[]): Promise<void> {
     closeActiveOverlay = picker.close;
   }
 
-  function openEffortPicker(): void {
+  const THINKING_DESCRIPTIONS: Record<string, string> = {
+    off: "No reasoning",
+    minimal: "~1k tokens",
+    low: "~2k tokens",
+    medium: "~8k tokens",
+    high: "~16k tokens",
+    xhigh: "~32k tokens",
+    max: "Maximum reasoning",
+  };
+
+  function supportedThinkingLevels(): string[] {
+    if (!currentModelCapabilities) return ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+    return getSupportedThinkingLevels(currentModelCapabilities);
+  }
+
+  function openThinkingPicker(): void {
     uiModalOpen = true;
-    const items = [
-      { value: "low", label: "low", description: "minimal reasoning" },
-      { value: "medium", label: "medium", description: "balanced" },
-      { value: "high", label: "high", description: "deep reasoning" },
-    ];
+    const levels = supportedThinkingLevels();
+    const items = levels.map((level) => ({
+      value: level,
+      label: level,
+      description: THINKING_DESCRIPTIONS[level] ?? "",
+    }));
     const picker = openSearchablePicker({
       tui,
       container: dropdownContainer,
-      title: "Select effort",
+      title: "Select thinking level",
       theme,
       items,
-      maxVisible: 3,
+      maxVisible: Math.max(3, levels.length),
       onSelect: (item) => {
         uiModalOpen = false;
-        setEffortTarget(item.value as "low" | "medium" | "high");
+        setThinkingTarget(item.value);
       },
       onCancel: () => {
         uiModalOpen = false;
@@ -2051,11 +2074,39 @@ export async function run(args: string[]): Promise<void> {
     picker.setStatus("applies to the next turn");
   }
 
-  function setEffortTarget(level: "low" | "medium" | "high"): void {
-    effortLevel = level;
-    runtime.setEffort(level);
+  function setThinkingTarget(level: string): void {
+    const supported = supportedThinkingLevels();
+    const resolved = currentModelCapabilities
+      ? clampThinkingLevel(currentModelCapabilities, level as any)
+      : level;
+    const effective = supported.includes(resolved) ? resolved : supported[0] ?? "off";
+    if (currentModelCapabilities && !currentModelCapabilities.reasoning) {
+      appendLine("Current model does not support thinking");
+      return;
+    }
+    effortLevel = effective;
+    runtime.setEffort(effective);
+    runtime.setReasoning(effective);
+    currentBorderColor =
+      effective === "high" || effective === "xhigh" || effective === "max"
+        ? (s: string) => theme.tokens.warning(s)
+        : effective === "off"
+          ? (s: string) => theme.tokens.border(s)
+          : (s: string) => theme.tokens.accent(s);
+    // persist the chosen level into the per-model default:
+
+    const mt = config.modelThinkingLevels as Record<string, string>;
+    mt[`${provider.id}/${currentModelLabel()}`] = effective;
     updateStatus();
-    appendLine(`effort set to ${effortLevel}`);
+    appendLine(`thinking set to ${effortLevel}`);
+  }
+
+  // Back-compat alias
+  function openEffortPicker(): void {
+    openThinkingPicker();
+  }
+  function setEffortTarget(level: "low" | "medium" | "high"): void {
+    setThinkingTarget(level);
   }
 
   function themePickerItems(): PickerItem[] {
@@ -2211,6 +2262,7 @@ export async function run(args: string[]): Promise<void> {
     openModelPicker,
     openProviderPicker,
     openEffortPicker,
+    openThinkingPicker,
     openThemePicker,
     openAgentPicker,
     openSessionsPicker,
@@ -2287,7 +2339,7 @@ export async function run(args: string[]): Promise<void> {
     },
     switchModel: switchModelTarget,
     startProviderSetup,
-    setEffort: setEffortTarget,
+    setEffort: setThinkingTarget,
     toggleThinking: () => {
       showThinking = !showThinking;
       return showThinking;
@@ -3037,6 +3089,18 @@ export async function run(args: string[]): Promise<void> {
       }
       if (matchesBinding("toggleGoalPanel")) {
         goalPanel.toggle();
+        tui.requestRender();
+        return { consume: true };
+      }
+      if (matchesBinding("cycleThinking")) {
+        const levels = supportedThinkingLevels();
+        if (levels.length === 0 || !currentModelCapabilities?.reasoning) {
+          appendLine("Current model does not support thinking");
+        } else {
+          const idx = levels.indexOf(effortLevel);
+          const next = levels[(idx + 1) % levels.length];
+          setThinkingTarget(next);
+        }
         tui.requestRender();
         return { consume: true };
       }

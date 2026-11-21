@@ -51,6 +51,7 @@ export interface CommandContext {
   openKeybindings(): void;
   shortcutsText(): string;
   openEffortPicker(): void;
+  openThinkingPicker(): void;
   openThemePicker(): void;
   openSessionsPicker(scope: "workspace" | "all"): void;
   searchSessions(query: string): void;
@@ -61,7 +62,7 @@ export interface CommandContext {
   reloadExtensions(): Promise<void>;
   switchModel(target: string): void;
   startProviderSetup(profile: string): void;
-  setEffort(level: "low" | "medium" | "high"): void;
+  setEffort(level: string): void;
   toggleThinking(): boolean;
   setTheme(name: string): void;
   listSkills(): LoadedSkill[];
@@ -219,7 +220,6 @@ export class CommandRegistry {
   }
 }
 
-const EFFORT_LEVELS = ["low", "medium", "high"] as const;
 
 /**
  * Build the command registry. `skills` become first-class commands so a skill
@@ -264,19 +264,29 @@ export function createCommandRegistry(
 
   registry.register({
     name: "effort",
-    description: "set effort level",
+    description: "set effort level (alias for /thinking)",
     category: "Model",
-    argumentHint: "[low|medium|high]",
+    argumentHint: "[level]",
     run(ctx, args) {
       if (!args) {
-        ctx.openEffortPicker();
+        ctx.openThinkingPicker();
         return;
       }
-      if ((EFFORT_LEVELS as readonly string[]).includes(args)) {
-        ctx.setEffort(args as (typeof EFFORT_LEVELS)[number]);
-      } else {
-        ctx.appendLine("usage: /effort low|medium|high");
+      ctx.setEffort(args as any);
+    },
+  });
+
+  registry.register({
+    name: "thinking",
+    description: "set thinking level",
+    category: "Model",
+    argumentHint: "[off|minimal|low|medium|high|xhigh|max]",
+    run(ctx, args) {
+      if (!args) {
+        ctx.openThinkingPicker();
+        return;
       }
+      ctx.setEffort(args as any);
     },
   });
 

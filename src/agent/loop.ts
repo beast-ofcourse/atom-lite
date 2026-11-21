@@ -910,6 +910,9 @@ export class AgentRuntime {
           }
         }
 
+        if (response) {
+          response.thinkingLevel = this.reasoning;
+        }
         await this.extensionDispatch?.("after_provider_response", {
           type: "after_provider_response",
           response,
