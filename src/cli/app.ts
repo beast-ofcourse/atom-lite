@@ -293,6 +293,7 @@ export async function run(args: string[]): Promise<void> {
   let provider = createProvider(config, providerOverride, modelOverride);
   const modelByProvider = new Map<string, string>();
   let effortLevel = "medium";
+  let currentModelReasoning = false;
   let currentMode: "plan" | "yolo" = config.runtime.mode;
   let tuiReady = false;
   const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -1047,7 +1048,7 @@ export async function run(args: string[]): Promise<void> {
   const activity = new Activity({ theme, onChange: () => updateStatus() });
   tuiReady = true;
   statusBar.setParts({
-    left: `${provider.id}/${(provider as any).model ?? "default"}`,
+    left: `${provider.id}/${provider.model ?? "default"}`,
     effort: "effort: medium",
     mode: currentMode,
     agent: runtime.getPersona()?.name,
@@ -1056,7 +1057,7 @@ export async function run(args: string[]): Promise<void> {
   });
   footer.setParts({
     pwd: process.cwd(),
-    model: `${provider.id}/${(provider as any).model ?? "default"}`,
+    model: `${provider.id}/${provider.model ?? "default"}`,
     autoCompact: true,
   });
 
@@ -1510,7 +1511,7 @@ export async function run(args: string[]): Promise<void> {
       window: usage.window,
       percent: usage.percent ?? null,
       model: `${provider.id}/${currentModelLabel()}`,
-      reasoning: false,
+      reasoning: currentModelReasoning,
       thinkingLevel: effortLevel,
       autoCompact: true,
     });
@@ -1524,7 +1525,7 @@ export async function run(args: string[]): Promise<void> {
   }
 
   function currentModelLabel(): string {
-    return modelOverride ?? (provider as any).model ?? "default";
+    return modelOverride ?? provider.model ?? "default";
   }
 
   function applyTheme(name: string, persist: boolean): void {
@@ -1558,24 +1559,36 @@ export async function run(args: string[]): Promise<void> {
    * Show the best-known window immediately, then refine it from live provider
    * metadata without blocking the TUI.
    */
-  function refreshContextWindow(): void {
+  async function refreshContextWindow(): Promise<void> {
     const profile = provider.id;
     const model = currentModelLabel();
     const pcfg = profileConfig(profile);
-    const override = (config as any)?.modelOverrides?.[`${profile}/${model}`];
+    const override = config.modelOverrides?.[`${profile}/${model}`];
     const resolved = resolveModelCapabilities(profile, model, {
       profileContextWindow:
         typeof pcfg?.contextWindow === "number" ? pcfg.contextWindow : undefined,
       override: override as any,
     });
     runtime.setContextWindow(resolved.contextWindow);
-    // Carry reasoning capability onto the runtime's selected model metadata
-    // through the provider profile for later slices; store on a side channel.
-    (provider as any)._resolvedModelInfo = resolved;
+    currentModelReasoning = resolved.reasoning === true;
     if (typeof pcfg?.supportsVision === "boolean") {
       runtime.setSupportsVision(pcfg.supportsVision);
     } else {
-      const guessed = knownVisionModel(model);
+      const getModelInfo = provider.getModelInfo;
+      let resolvedVision: boolean | undefined;
+      if (typeof getModelInfo === "function") {
+        try {
+          const info = await getModelInfo.call(provider);
+          if (typeof info?.supportsVision === "boolean")
+            resolvedVision = info.supportsVision;
+        } catch {
+          // keep fallback
+        }
+      }
+      const guessed =
+        typeof resolvedVision === "boolean"
+          ? resolvedVision
+          : knownVisionModel(model);
       if (typeof guessed === "boolean") runtime.setSupportsVision(guessed);
     }
     if (tuiReady) updateStatus();

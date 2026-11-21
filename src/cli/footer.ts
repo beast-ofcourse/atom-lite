@@ -50,10 +50,10 @@ export class Footer implements Component {
         ? `?/${formatTokens(contextWindow)}${autoIndicator}`
         : `${percentText}%/${formatTokens(contextWindow)}${autoIndicator}`;
 
-    const contextValue = percent ?? 0;
+    const colourBasis = percent ?? 0;
     let contextStr = contextDisplay;
-    if (contextValue > 90) contextStr = t.error(contextDisplay);
-    else if (contextValue > 70) contextStr = t.warning(contextDisplay);
+    if (colourBasis > 90) contextStr = t.error(contextDisplay);
+    else if (colourBasis > 70) contextStr = t.warning(contextDisplay);
 
     const statsParts = [...(this.parts.extraStats ?? []), contextStr];
 
@@ -67,10 +67,7 @@ export class Footer implements Component {
     }
 
     const statsLeft = statsParts.join(" ");
-    let statsLeftWidth = visibleWidth(statsLeft);
-    if (statsLeftWidth > width) {
-      // truncate
-    }
+    const statsLeftWidth = visibleWidth(statsLeft);
     const rightWidth = visibleWidth(rightSide);
     const minPadding = 2;
     const totalNeeded = statsLeftWidth + minPadding + rightWidth;

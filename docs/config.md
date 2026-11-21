@@ -112,7 +112,9 @@ stored credential, then inline `apiKey`.
 | `repoMap`                    | object                                   | see below | Opt-in bounded repo map injected as a trailing system message.                                                                                                                       |
 
 The model window is resolved from, in order: `providers.<name>.contextWindow`,
-live provider metadata, then a built-in table of known model families.
+`modelOverrides.<provider>/<model>.contextWindow`, the built-in model catalog,
+then a built-in table of known model families. Live provider metadata is no
+longer consulted for the window.
 
 With `automatic`, the system prompt, session memory, and replayed conversation
 form the stable prefix. The goal, task ledger, active files, and project

@@ -181,7 +181,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     }
     if (request.options) {
       const opts = { ...request.options };
-      const effort = (opts as any).reasoning ?? opts.effort;
+      const effort = opts.reasoning ?? opts.effort;
       delete opts.effort;
       if (effort) opts.reasoning_effort = effort;
       Object.assign(body, opts);
@@ -245,7 +245,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     }
     if (request.options) {
       const opts = { ...request.options };
-      const effort = (opts as any).reasoning ?? opts.effort;
+      const effort = opts.reasoning ?? opts.effort;
       delete opts.effort;
       if (effort) opts.reasoning_effort = effort;
       Object.assign(body, opts);

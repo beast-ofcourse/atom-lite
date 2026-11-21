@@ -167,11 +167,8 @@ export interface ContextUsage {
   used?: number;
   /** Selected model's context window, when known. */
   window?: number;
-  /** New shape: token count, may be null when unknown. */
   tokens?: number | null;
-  /** New shape: resolved model context window, may be null when unknown. */
   contextWindow?: number | null;
-  /** New shape: percentage of the window, may be null when unknown. */
   percent?: number | null;
 }
 

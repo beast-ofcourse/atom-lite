@@ -1,5 +1,4 @@
 import type { ModelInfo, ThinkingLevelMap } from "../types.js";
-import { knownContextWindow } from "./context-window.js";
 
 export interface CatalogEntry {
   id: string;
@@ -57,8 +56,8 @@ export function resolveModelCapabilities(
       : typeof override?.contextWindow === "number" && override.contextWindow > 0
         ? override.contextWindow
         : typeof catalog?.contextWindow === "number" && catalog.contextWindow > 0
-          ? catalog.contextWindow
-          : knownContextWindow(model);
+        ? catalog.contextWindow
+        : undefined;
   const maxTokens =
     typeof override?.maxTokens === "number" && override.maxTokens > 0
       ? override.maxTokens
