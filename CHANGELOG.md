@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every release increments the patch number, regardless of change size: `0.18.0`
 becomes `0.18.1`.
 
-## [Unreleased]
+## v0.18.7 — 2026-11-21
 
 ### Added
 
@@ -14,16 +14,37 @@ becomes `0.18.1`.
 - `cli`: `/thinking` selects the reasoning level from the levels the active model supports; `/effort` is an alias. `keybindings.cycleThinking` can cycle them.
 - `config`: `modelOverrides` and `modelThinkingLevels` carry per-model metadata and default thinking levels. The shipped model catalog can be refreshed by a curated remote overlay.
 - `cli`: `/usage` prints token and cost totals grouped by the models that answered in the session.
+- `cli`: `/q` is an alias for `/exit`.
+- `agent`: a neutral seven-level thinking scale is clamped to each model's supported levels before a provider request.
+- `cli`: a shipped model catalog plus a curated refresh overlay resolves context windows and reasoning capabilities.
+- `usage`: per-call ledger records expose a separate tool and summary bucket for cost breakdowns.
+- `bench`: TUI benchmarks cover streaming, keystroke latency, scrolling, and a side-by-side comparison against Pi's TUI.
 
 ### Fixed
 
 - `cli`: streamed assistant answers now render after the current user turn instead of at the top of the transcript.
+- `cli`: the status line shows `agent:default` when no other persona is selected.
+- `cli`: provider and path are no longer duplicated in the footer and status line.
+- `runtime`: plan mode returns an error naming the blocked tool and telling the agent to press Tab to switch to yolo mode.
+- `cli`: tool-box clicks map to the correct block when the transcript is scrolled up.
+- `agent`: Kilo gateway models resolve their context window from the catalog or provider metadata instead of showing zero.
+- `web`: DuckDuckGo search uses browser-style headers to avoid bot blocking.
 
 ### Changed
 
 - `agent`: the model context window is fixed for the session. Oversized requests are handled by compaction instead of growing the window.
 - `agent`: context occupancy is unknown after compaction until the next response supplies real usage.
 - `agent`: the window now resolves from profile config, user overrides, and the shipped catalog instead of live provider metadata or a model-name guess.
+- `cli`: the status line and footer use two compact rows with the path dimmed after a pipe separator.
+- `cli`: the footer reports the active thinking level for reasoning models.
+- `cli`: the bundled `pi-tui` dependency is upgraded to 1.6.
+
+### Performance
+
+- `cli`: the live streaming block is reused and pre-warmed, cutting the first-token render from about 33 ms to about 6 ms.
+- `cli`: the one-time cold render runs at startup, leaving no interaction frame over 16 ms in the live TUI benchmark.
+- `cli`: stream sealing invalidates layout once per seal instead of twice; transcript pruning uses smaller batches to avoid scroll jumps.
+- `bench`: 10k-line frame builds measure about 0.04 ms, streamed-line appends peak around 5 ms, and thinking frames measure about 0.7 ms against a 16 ms budget.
 
 ## v0.18.6 — 2026-11-19
 
