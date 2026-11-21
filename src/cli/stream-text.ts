@@ -47,7 +47,8 @@ function sealPoint(text: string, maxLines: number, sealBatch: number): number {
 
 export class StreamText {
   private buffer = "";
-  private live: Markdown | null = null;
+  /** Pre-created once; reusing it avoids a layout rebuild on the first token. */
+  private readonly live: Markdown;
   private readonly markdownTheme: MarkdownTheme;
 
   constructor(
@@ -57,6 +58,15 @@ export class StreamText {
     markdownTheme?: MarkdownTheme,
   ) {
     this.markdownTheme = markdownTheme ?? DEFAULT_MARKDOWN_THEME;
+    this.live = new Markdown("", 0, 0, this.markdownTheme);
+    // Warm the markdown lexer at common widths. The first real token otherwise
+    // pays a ~40 ms JIT/parse cost that shows up as visible jank.
+    this.live.setText("answer line 0 content token 123 padding\n");
+    for (const warmWidth of [60, 80, 100, 120, 160, 200]) {
+      this.live.render(warmWidth);
+    }
+    this.live.setText("");
+    this.transcript.add(this.live);
   }
 
   append(delta: string): void {
@@ -67,34 +77,35 @@ export class StreamText {
       this.buffer = this.buffer.slice(cut);
       this.seal(sealed);
     }
-    if (!this.live) {
-      this.live = new Markdown("", 0, 0, this.markdownTheme);
-      this.transcript.add(this.live);
-    }
     this.live.setText(this.buffer);
   }
 
+  /** Insert a sealed block immediately before the live block, keeping order. */
   private seal(text: string): void {
+    if (!text) return;
     const markdown = new Markdown(
       renderMermaidBlocks(text),
       0,
       0,
       this.markdownTheme,
     );
-    if (this.live) this.transcript.container.removeChild(this.live);
-    this.transcript.add(markdown);
-    this.live = null;
+    const children = this.transcript.container.children;
+    const index = children.indexOf(this.live);
+    if (index >= 0) children.splice(index, 0, markdown);
+    else children.push(markdown);
+    this.transcript.markStructureChanged();
   }
 
   finalize(): void {
-    if (this.live) {
+    if (this.buffer) {
       try {
-        this.live.setText(renderMermaidBlocks(this.buffer));
+        this.seal(renderMermaidBlocks(this.buffer));
       } catch {
         // Keep the raw text if mermaid rendering fails.
+        this.seal(this.buffer);
       }
     }
     this.buffer = "";
-    this.live = null;
+    this.live.setText("");
   }
 }
