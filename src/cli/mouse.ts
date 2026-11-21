@@ -72,9 +72,13 @@ export function blockAtScreenRow(
   blocks: MouseBlock[],
   screenY: number,
   terminalRows: number,
+  scrollTop?: number,
 ): { id: string; offset: number } | undefined {
   const total = blocks.reduce((sum, block) => sum + block.height, 0);
-  const viewportTop = Math.max(0, total - Math.max(0, terminalRows));
+  const viewportTop =
+    typeof scrollTop === "number"
+      ? Math.max(0, Math.min(total, scrollTop))
+      : Math.max(0, total - Math.max(0, terminalRows));
   return blockAtLine(blocks, viewportTop + Math.max(0, screenY));
 }
 

@@ -76,6 +76,22 @@ test("screen rows map to the tail of the rendered document", () => {
   });
 });
 
+test("screen rows respect an explicit scroll offset when scrolled up", () => {
+  const blocks = [
+    { id: "header", height: 2 },
+    { id: "tools", height: 3 },
+  ];
+  // Scrolled to the top: screen row 0 is document line 0, not the tail.
+  assert.deepEqual(blockAtScreenRow(blocks, 0, 3, 0), {
+    id: "header",
+    offset: 0,
+  });
+  assert.deepEqual(blockAtScreenRow(blocks, 1, 3, 2), {
+    id: "tools",
+    offset: 1,
+  });
+});
+
 function harness(
   overrides: Partial<Parameters<typeof handleMouseEvent>[1]> = {},
 ) {

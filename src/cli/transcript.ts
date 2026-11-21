@@ -4,7 +4,7 @@ import { darkTheme, type Theme } from "./theme.js";
 /** Soft cap on rendered transcript children before the oldest are collapsed. */
 export const TRANSCRIPT_MAX_CHILDREN = 400;
 /** How many children to collapse when the cap is exceeded. */
-export const TRANSCRIPT_PRUNE_COUNT = 150;
+export const TRANSCRIPT_PRUNE_COUNT = 25;
 
 export class Transcript {
   readonly container = new Container();
@@ -26,6 +26,11 @@ export class Transcript {
     this.container.clear();
     this.hidden = 0;
     this.marker = null;
+    this.markStructureChanged();
+  }
+
+  invalidate(): void {
+    for (const child of this.container.children) child.invalidate?.();
     this.markStructureChanged();
   }
 

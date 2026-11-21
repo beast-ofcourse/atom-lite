@@ -105,7 +105,7 @@ import {
   sessionSelectionFromEvents,
 } from "../sessions/history.js";
 import {
-  blockAtLine,
+  blockAtScreenRow,
   createMouseCapture,
   handleMouseEvent,
   parseSgrMouse,
@@ -3046,9 +3046,12 @@ export async function run(args: string[]): Promise<void> {
     const contentBlocks: { id: string; height: number }[] = heights.map(
       (height, index) => ({ id: `content:${index}`, height }),
     );
-    const total = contentBlocks.reduce((sum, block) => sum + block.height, 0);
-    const viewportTop = Math.max(0, total - outputHeight);
-    const inner = blockAtLine(contentBlocks, viewportTop + screenY);
+    const inner = blockAtScreenRow(
+      contentBlocks,
+      screenY,
+      outputHeight,
+      output.scrollTop,
+    );
     if (!inner) return false;
     const child = children[Number(inner.id.slice("content:".length))];
     if (!(child instanceof ToolBox)) return false;
