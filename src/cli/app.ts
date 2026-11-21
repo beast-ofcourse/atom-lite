@@ -1057,7 +1057,7 @@ export async function run(args: string[]): Promise<void> {
     cwd: headerLabel(),
     effort: "effort: medium",
     mode: currentMode,
-    agent: runtime.getPersona()?.name,
+    agent: runtime.getPersona()?.name ?? "default",
     activity: activity.text(),
     openTodos: runtime.openTodoCount(),
   });
@@ -1504,7 +1504,7 @@ export async function run(args: string[]): Promise<void> {
       cwd: headerLabel(),
       effort: `effort: ${effortLevel}`,
       mode: currentMode,
-      agent: runtime.getPersona()?.name,
+      agent: runtime.getPersona()?.name ?? "default",
       activity: activity.text(),
       openTodos: runtime.openTodoCount(),
     });
