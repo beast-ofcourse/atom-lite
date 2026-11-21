@@ -27,17 +27,19 @@ function rootFor(container) {
 /** Naive transcript: one component per line, no sealing, no pruning. */
 function naive() {
   const container = new Container();
+  for (let i = 0; i < 300; i++) {
+    container.addChild(new Text(`sealed context line ${i} `.repeat(4)));
+  }
   const root = rootFor(container);
-  renderLayoutFrame(root, width, height, () => {});
+  for (let i = 0; i < 8; i++) renderLayoutFrame(root, width, height, () => {});
   const samples = [];
   let buffer = "";
   for (let i = 0; i < deltas; i++) {
     buffer += `answer line ${i}${i % 8 === 7 ? "\n" : " "}`;
-    container.children[container.children.length - 1]?.invalidate?.();
     container.addChild(new Text(buffer.slice(-400)));
     const start = performance.now();
     renderLayoutFrame(root, width, height, () => {});
-    samples.push(performance.now() - start);
+    if (i >= 8) samples.push(performance.now() - start);
   }
   return {
     p50Ms: percentile(samples, 0.5),
@@ -52,13 +54,13 @@ function atom() {
   const transcript = new Transcript();
   const stream = new StreamText(transcript);
   const root = rootFor(transcript.container);
-  renderLayoutFrame(root, width, height, () => {});
+  for (let i = 0; i < 8; i++) renderLayoutFrame(root, width, height, () => {});
   const samples = [];
   for (let i = 0; i < deltas; i++) {
     stream.append(`answer line ${i}${i % 8 === 7 ? "\n" : " "}`);
     const start = performance.now();
     renderLayoutFrame(root, width, height, () => {});
-    samples.push(performance.now() - start);
+    if (i >= 8) samples.push(performance.now() - start);
   }
   return {
     p50Ms: percentile(samples, 0.5),
