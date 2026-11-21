@@ -45,6 +45,17 @@ test("footer renders unknown context as question mark", () => {
   assert.ok(plain[1].includes("?/1.0M (auto)"));
 });
 
+test("footer omits path and model when not supplied", () => {
+  const rows = render(
+    { used: 100, window: 200000, percent: 0.05, autoCompact: true },
+    80,
+  );
+  assert.equal(rows.length, 1);
+  const plain = stripTerminalSequences(rows[0]);
+  assert.ok(!plain.includes("/tmp"));
+  assert.ok(!plain.includes("no-model"));
+});
+
 test("footer keeps rows within width", () => {
   const rows = render(
     {

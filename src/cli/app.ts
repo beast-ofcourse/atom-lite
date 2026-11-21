@@ -1063,11 +1063,7 @@ export async function run(args: string[]): Promise<void> {
     activity: activity.text(),
     openTodos: runtime.openTodoCount(),
   });
-  footer.setParts({
-    pwd: process.cwd(),
-    model: `${provider.id}/${provider.model ?? "default"}`,
-    autoCompact: true,
-  });
+  footer.setParts({ autoCompact: true });
 
   const selectListTheme = {
     selectedPrefix: (s: string) => theme.tokens.accent(s),
@@ -1516,13 +1512,9 @@ export async function run(args: string[]): Promise<void> {
       openTodos: runtime.openTodoCount(),
     });
     footer.setParts({
-      pwd: process.cwd(),
       used: usage.used,
       window: usage.window,
       percent: usage.percent ?? null,
-      model: `${provider.id}/${currentModelLabel()}`,
-      reasoning: currentModelCapabilities?.reasoning === true,
-      thinkingLevel: effortLevel,
       autoCompact: true,
       cumulativeInput: cum.input,
       cumulativeOutput: cum.output,

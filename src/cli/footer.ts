@@ -4,11 +4,11 @@ import { formatTokens } from "../providers/context-window.js";
 import { darkTheme, type Theme } from "./theme.js";
 
 export interface FooterParts {
-  pwd: string;
+  pwd?: string;
   used?: number;
   window?: number;
   percent?: number | null;
-  model: string;
+  model?: string;
   reasoning?: boolean;
   thinkingLevel?: string;
   autoCompact?: boolean;
@@ -22,7 +22,7 @@ export interface FooterParts {
 }
 
 export class Footer implements Component {
-  private parts: FooterParts = { pwd: "", model: "" };
+  private parts: FooterParts = {};
   private theme: Theme;
 
   constructor(theme: Theme = darkTheme) {
@@ -42,11 +42,9 @@ export class Footer implements Component {
   render(width: number): string[] {
     const t = this.theme.tokens;
     const contentWidth = Math.max(1, width - 2);
-    const pwdLine = truncateToWidth(
-      t.dim(this.parts.pwd),
-      contentWidth,
-      t.dim("..."),
-    );
+    const pwdLine = this.parts.pwd
+      ? truncateToWidth(t.dim(this.parts.pwd), contentWidth, t.dim("..."))
+      : undefined;
 
     const contextWindow = this.parts.window ?? 0;
     const percent = this.parts.percent;
@@ -83,8 +81,8 @@ export class Footer implements Component {
     if (cu.cumulativeCost) statsParts.push(`$${cu.cumulativeCost.toFixed(3)}`);
     statsParts.push(contextStr);
 
-    let rightSide = this.parts.model || "no-model";
-    if (this.parts.reasoning) {
+    let rightSide = this.parts.model ?? "";
+    if (rightSide && this.parts.reasoning) {
       const level = this.parts.thinkingLevel || "off";
       rightSide =
         level === "off"
@@ -123,6 +121,7 @@ export class Footer implements Component {
     const remainder = statsLine.slice(statsLeft.length);
     const dimRemainder = t.dim(remainder);
 
-    return [pwdLine, dimStatsLeft + dimRemainder];
+    const rows = [dimStatsLeft + dimRemainder];
+    return pwdLine ? [pwdLine, ...rows] : rows;
   }
 }
