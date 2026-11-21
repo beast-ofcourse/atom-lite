@@ -60,10 +60,17 @@ Prefer `apiKeyEnv` or the credentials file over inline keys. Never put secrets i
 
 ## Context window
 
-The status meter and compaction budget resolve the model window in this order:
+The footer and compaction budget resolve the model window in this order:
 
 1. `providers.<name>.contextWindow`.
-2. Live provider metadata.
-3. A built-in table of known model families.
+2. `modelOverrides.<provider>/<model>.contextWindow`.
+3. The built-in model catalog (including a refreshed overlay).
+4. A built-in table of known model families.
 
-Set `contextWindow` explicitly for local or custom models without metadata.
+Live provider metadata is not used for the window. Set `contextWindow` explicitly for local or custom models that the catalog does not know. The window is fixed for the session; when a request exceeds it, compaction handles the overflow instead of raising the window.
+
+The footer shows context occupancy as a percentage of the window with an auto-compaction indicator. The percentage turns yellow above 70% and red above 90%. After compaction the occupancy is unknown (`?`) until the next model response supplies real usage. Cumulative input, output, cache, and cost totals appear on the same line.
+
+## Thinking levels
+
+Models advertise their reasoning capability in the catalog. The level you choose is clamped to the levels the selected model supports, so unsupported levels are never sent. Use `/thinking` to pick a level, or `/effort` as an alias. See [Commands](./commands.md#thinking).

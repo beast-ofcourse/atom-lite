@@ -42,17 +42,13 @@ export interface ToolDefinition {
 }
 
 export type ModelThinkingLevel =
-  | "off"
-  | "minimal"
-  | "low"
-  | "medium"
-  | "high"
-  | "xhigh"
-  | "max";
+  "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export type ThinkingLevel = Exclude<ModelThinkingLevel, "off">;
 
-export type ThinkingLevelMap = Partial<Record<ModelThinkingLevel, string | null>>;
+export type ThinkingLevelMap = Partial<
+  Record<ModelThinkingLevel, string | null>
+>;
 
 export interface ModelInfo {
   id: string;

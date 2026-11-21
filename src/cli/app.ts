@@ -52,7 +52,10 @@ import {
   knownVisionModel,
 } from "../providers/context-window.js";
 import { resolveModelCapabilities } from "../providers/model-catalog.js";
-import { clampThinkingLevel, getSupportedThinkingLevels } from "../providers/thinking-levels.js";
+import {
+  clampThinkingLevel,
+  getSupportedThinkingLevels,
+} from "../providers/thinking-levels.js";
 import { startRemoteCatalogRefresh } from "../providers/remote-catalog.js";
 import { getUsageBreakdown } from "../usage/ledger.js";
 import {
@@ -1540,7 +1543,9 @@ export async function run(args: string[]): Promise<void> {
     }
     appendLine("usage by model:");
     for (const e of breakdown) {
-      appendLine(`  ${e.key}: $${e.cost.toFixed(3)} (${formatTokens(e.tokens)} tokens)`);
+      appendLine(
+        `  ${e.key}: $${e.cost.toFixed(3)} (${formatTokens(e.tokens)} tokens)`,
+      );
     }
   }
 
@@ -1592,7 +1597,9 @@ export async function run(args: string[]): Promise<void> {
     const override = config.modelOverrides?.[`${profile}/${model}`];
     const resolved = resolveModelCapabilities(profile, model, {
       profileContextWindow:
-        typeof pcfg?.contextWindow === "number" ? pcfg.contextWindow : undefined,
+        typeof pcfg?.contextWindow === "number"
+          ? pcfg.contextWindow
+          : undefined,
       override: override as any,
     });
     runtime.setContextWindow(resolved.contextWindow);
@@ -1624,7 +1631,8 @@ export async function run(args: string[]): Promise<void> {
     const key = `${profile}/${model}`;
     const configured = config.modelThinkingLevels?.[key];
     const resolved = resolveModelCapabilities(profile, model, {
-      profileContextWindow: profileConfig(profile)?.contextWindow as number | undefined,
+      profileContextWindow: profileConfig(profile)?.contextWindow as
+        number | undefined,
       override: config.modelOverrides?.[key],
     });
     const supported = getSupportedThinkingLevels(resolved);
@@ -2058,7 +2066,8 @@ export async function run(args: string[]): Promise<void> {
   };
 
   function supportedThinkingLevels(): string[] {
-    if (!currentModelCapabilities) return ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+    if (!currentModelCapabilities)
+      return ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
     return getSupportedThinkingLevels(currentModelCapabilities);
   }
 
@@ -2096,7 +2105,9 @@ export async function run(args: string[]): Promise<void> {
     const resolved = currentModelCapabilities
       ? clampThinkingLevel(currentModelCapabilities, level as any)
       : level;
-    const effective = supported.includes(resolved) ? resolved : supported[0] ?? "off";
+    const effective = supported.includes(resolved)
+      ? resolved
+      : (supported[0] ?? "off");
     if (currentModelCapabilities && !currentModelCapabilities.reasoning) {
       appendLine("Current model does not support thinking");
       return;

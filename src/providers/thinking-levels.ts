@@ -10,7 +10,9 @@ const EXTENDED: ModelThinkingLevel[] = [
   "max",
 ];
 
-export function getSupportedThinkingLevels(model: ModelInfo | undefined): ModelThinkingLevel[] {
+export function getSupportedThinkingLevels(
+  model: ModelInfo | undefined,
+): ModelThinkingLevel[] {
   if (!model?.reasoning) return ["off"];
   const map = model.thinkingLevelMap;
   return EXTENDED.filter((level) => {

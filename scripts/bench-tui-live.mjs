@@ -102,11 +102,7 @@ tui.start();
 
 const thinking = new ThinkingBlock();
 transcript.add(thinking);
-const stream = new StreamText(
-  transcript,
-  STREAM_LIVE_LINES,
-  STREAM_SEAL_BATCH,
-);
+const stream = new StreamText(transcript, STREAM_LIVE_LINES, STREAM_SEAL_BATCH);
 activity.start("thinking");
 
 const start = performance.now();
@@ -120,9 +116,7 @@ for (let i = 0; i < deltas; i++) {
   } else if (phase < 0.55) {
     activity.setPhase("working", "bash");
   } else {
-    stream.append(
-      `answer line ${i}${i % 8 === 7 ? "\n" : " "}`,
-    );
+    stream.append(`answer line ${i}${i % 8 === 7 ? "\n" : " "}`);
     activity.setPhase("working");
   }
   status.setParts({
@@ -162,14 +156,14 @@ const report = {
   gapP95Ms: pick(0.95),
   gapMaxMs: Number(Math.max(...frameGaps).toFixed(2)),
   renderP50Ms: Number(
-    [...renderDurations].sort((a, b) => a - b)[
-      Math.floor((renderDurations.length - 1) * 0.5)
-    ].toFixed(2),
+    [...renderDurations]
+      .sort((a, b) => a - b)
+      [Math.floor((renderDurations.length - 1) * 0.5)].toFixed(2),
   ),
   renderP95Ms: Number(
-    [...renderDurations].sort((a, b) => a - b)[
-      Math.floor((renderDurations.length - 1) * 0.95)
-    ].toFixed(2),
+    [...renderDurations]
+      .sort((a, b) => a - b)
+      [Math.floor((renderDurations.length - 1) * 0.95)].toFixed(2),
   ),
   renderMaxMs: Number(Math.max(...renderDurations).toFixed(2)),
   rendersOver16Ms: renderDurations.filter((value) => value > 16).length,
@@ -189,7 +183,10 @@ const report = {
   statusUpdates,
   children: transcript.container.children.length,
 };
-writeFileSync("/tmp/opencode/tui-live.json", JSON.stringify(report, null, 2) + "\n");
+writeFileSync(
+  "/tmp/opencode/tui-live.json",
+  JSON.stringify(report, null, 2) + "\n",
+);
 console.log(JSON.stringify(report, null, 2));
 tui.stop();
 process.exit(0);

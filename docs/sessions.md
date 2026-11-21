@@ -30,6 +30,8 @@ While a session is open, a sibling `<sessionId>.jsonl.lock` file records the own
 
 The context manager estimates tokens and summarizes older history before the context budget is exceeded. The full transcript stays on disk. Goal, ledger, success criteria, active file paths, and a bounded recent tail are injected alongside the summary.
 
+The model window stays fixed for the session. When a request exceeds it, compaction reduces the context; Atom-lite does not grow the window to fit. After a compaction the footer shows context occupancy as unknown until the next response supplies real usage. Run `/usage` to see token and cost totals grouped by the models that answered in this session.
+
 The summary is a memory checkpoint with fixed sections: Objective, Requirements, Decisions, Work State, Next Move, Relevant Files, and Important Context. A later compaction updates the existing checkpoint instead of rewriting it from scratch. A response missing the required sections gets one corrective prompt; if it still fails, the previous checkpoint stays in place and a `context_compaction_failed` event is emitted.
 
 Instruction text follows the same boundary. The first set is frozen as a baseline in an `instruction_baseline` event, later changes are recorded as hash-identified updates, and each compaction folds the current text into a new baseline. Nested `AGENTS.md` files found beside reads are re-injected after compaction.

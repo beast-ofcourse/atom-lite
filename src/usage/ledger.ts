@@ -141,11 +141,15 @@ export interface UsageBreakdownEntry {
 }
 
 /** Group usage records by responding model, with a separate bucket for tool/summary overhead. */
-export function getUsageBreakdown(records: readonly UsageRecord[]): UsageBreakdownEntry[] {
+export function getUsageBreakdown(
+  records: readonly UsageRecord[],
+): UsageBreakdownEntry[] {
   const groups = new Map<string, { cost: number; tokens: number }>();
   for (const r of records) {
     const key =
-      r.kind && r.kind !== "model" ? "Tools/summaries" : `${r.provider}/${r.model}`;
+      r.kind && r.kind !== "model"
+        ? "Tools/summaries"
+        : `${r.provider}/${r.model}`;
     const tokens =
       (r.usage.input ?? 0) +
       (r.usage.output ?? 0) +

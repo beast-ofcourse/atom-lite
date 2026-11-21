@@ -42,15 +42,17 @@ export class Footer implements Component {
   render(width: number): string[] {
     const t = this.theme.tokens;
     const contentWidth = Math.max(1, width - 2);
-    const pwdLine = truncateToWidth(t.dim(this.parts.pwd), contentWidth, t.dim("..."));
+    const pwdLine = truncateToWidth(
+      t.dim(this.parts.pwd),
+      contentWidth,
+      t.dim("..."),
+    );
 
     const contextWindow = this.parts.window ?? 0;
     const percent = this.parts.percent;
     const autoIndicator = this.parts.autoCompact ? " (auto)" : "";
     const percentText =
-      percent === null || percent === undefined
-        ? "?"
-        : percent.toFixed(1);
+      percent === null || percent === undefined ? "?" : percent.toFixed(1);
     const contextDisplay =
       percent === null || percent === undefined
         ? `?/${formatTokens(contextWindow)}${autoIndicator}`
@@ -63,12 +65,17 @@ export class Footer implements Component {
 
     const statsParts: string[] = [...(this.parts.extraStats ?? [])];
     const cu = this.parts;
-    if (cu.cumulativeInput) statsParts.push(`↑${formatTokens(cu.cumulativeInput)}`);
-    if (cu.cumulativeOutput) statsParts.push(`↓${formatTokens(cu.cumulativeOutput)}`);
-    if (cu.cumulativeCacheRead) statsParts.push(`R${formatTokens(cu.cumulativeCacheRead)}`);
-    if (cu.cumulativeCacheWrite) statsParts.push(`W${formatTokens(cu.cumulativeCacheWrite)}`);
+    if (cu.cumulativeInput)
+      statsParts.push(`↑${formatTokens(cu.cumulativeInput)}`);
+    if (cu.cumulativeOutput)
+      statsParts.push(`↓${formatTokens(cu.cumulativeOutput)}`);
+    if (cu.cumulativeCacheRead)
+      statsParts.push(`R${formatTokens(cu.cumulativeCacheRead)}`);
+    if (cu.cumulativeCacheWrite)
+      statsParts.push(`W${formatTokens(cu.cumulativeCacheWrite)}`);
     if (
-      ((cu.cumulativeCacheRead ?? 0) > 0 || (cu.cumulativeCacheWrite ?? 0) > 0) &&
+      ((cu.cumulativeCacheRead ?? 0) > 0 ||
+        (cu.cumulativeCacheWrite ?? 0) > 0) &&
       cu.cacheHitRate !== undefined
     ) {
       statsParts.push(`CH${cu.cacheHitRate.toFixed(1)}%`);
@@ -97,9 +104,15 @@ export class Footer implements Component {
     } else {
       const availableForRight = width - statsLeftWidth - minPadding;
       if (availableForRight > 0) {
-        const truncatedRight = truncateToWidth(rightSide, availableForRight, "");
+        const truncatedRight = truncateToWidth(
+          rightSide,
+          availableForRight,
+          "",
+        );
         const truncatedWidth = visibleWidth(truncatedRight);
-        const padding = " ".repeat(Math.max(0, width - statsLeftWidth - truncatedWidth));
+        const padding = " ".repeat(
+          Math.max(0, width - statsLeftWidth - truncatedWidth),
+        );
         statsLine = statsLeft + padding + truncatedRight;
       } else {
         statsLine = statsLeft;

@@ -24,7 +24,9 @@ test("map upstream metadata to catalog entry", () => {
 
 test("remote overlay wins over seed", () => {
   clearRemoteOverlay();
-  setRemoteOverlay({ openai: [{ id: "gpt-4o", contextWindow: 999999, reasoning: false }] });
+  setRemoteOverlay({
+    openai: [{ id: "gpt-4o", contextWindow: 999999, reasoning: false }],
+  });
   const entry = catalogLookup("openai", "gpt-4o");
   assert.equal(entry?.contextWindow, 999999);
   clearRemoteOverlay();
@@ -33,7 +35,9 @@ test("remote overlay wins over seed", () => {
 
 test("user override wins over overlay and seed", () => {
   clearRemoteOverlay();
-  setRemoteOverlay({ openai: [{ id: "gpt-4o", contextWindow: 999999, reasoning: false }] });
+  setRemoteOverlay({
+    openai: [{ id: "gpt-4o", contextWindow: 999999, reasoning: false }],
+  });
   const resolved = resolveModelCapabilities("openai", "gpt-4o", {
     override: { contextWindow: 123 },
   });

@@ -8,6 +8,19 @@ becomes `0.18.1`.
 
 ## [Unreleased]
 
+### Added
+
+- `cli`: footer shows the model's context window, occupancy percentage, cumulative token and cache counts, cache-hit rate, and cost.
+- `cli`: `/thinking` selects the reasoning level from the levels the active model supports; `/effort` is an alias. `keybindings.cycleThinking` can cycle them.
+- `config`: `modelOverrides` and `modelThinkingLevels` carry per-model metadata and default thinking levels. The shipped model catalog can be refreshed by a curated remote overlay.
+- `cli`: `/usage` prints token and cost totals grouped by the models that answered in the session.
+
+### Changed
+
+- `agent`: the model context window is fixed for the session. Oversized requests are handled by compaction instead of growing the window.
+- `agent`: context occupancy is unknown after compaction until the next response supplies real usage.
+- `agent`: the window now resolves from profile config, user overrides, and the shipped catalog instead of live provider metadata or a model-name guess.
+
 ## v0.18.6 — 2026-11-19
 
 ### Fixed

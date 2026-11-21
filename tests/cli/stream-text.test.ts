@@ -31,10 +31,7 @@ test("stream text renders back-to-back deltas without a full transcript invalida
   const stream = new StreamText(transcript, 200, 200);
   stream.append("first");
   stream.append("second");
-  assert.match(
-    transcript.container.render(80).join("\n"),
-    /firstsecond/,
-  );
+  assert.match(transcript.container.render(80).join("\n"), /firstsecond/);
 });
 
 test("stream text finalizes without dropping rendered output", () => {

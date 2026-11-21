@@ -9,12 +9,17 @@ export interface CatalogEntry {
   thinkingLevelMap?: ThinkingLevelMap;
 }
 
-const SEED: Record<string, CatalogEntry[]> = seed as Record<string, CatalogEntry[]>;
+const SEED: Record<string, CatalogEntry[]> = seed as Record<
+  string,
+  CatalogEntry[]
+>;
 
 // Overlay entries fetched at runtime (remote catalog). Empty until loaded.
 let overlay: Record<string, CatalogEntry[]> = {};
 
-export function setRemoteOverlay(entries: Record<string, CatalogEntry[]>): void {
+export function setRemoteOverlay(
+  entries: Record<string, CatalogEntry[]>,
+): void {
   overlay = entries ?? {};
 }
 
@@ -34,12 +39,17 @@ function mergedSeed(provider: string): CatalogEntry[] | undefined {
   return [...byId.values()];
 }
 
-export function catalogLookup(provider: string, model: string): CatalogEntry | undefined {
+export function catalogLookup(
+  provider: string,
+  model: string,
+): CatalogEntry | undefined {
   const entries = mergedSeed(provider);
   if (!entries) return undefined;
   const exact = entries.find((e) => e.id === model);
   if (exact) return exact;
-  return entries.find((e) => model.toLowerCase().startsWith(e.id.toLowerCase()));
+  return entries.find((e) =>
+    model.toLowerCase().startsWith(e.id.toLowerCase()),
+  );
 }
 
 export interface ResolveOptions {
@@ -55,11 +65,14 @@ export function resolveModelCapabilities(
   const catalog = catalogLookup(provider, model);
   const override = options.override;
   const window =
-    typeof options.profileContextWindow === "number" && options.profileContextWindow > 0
+    typeof options.profileContextWindow === "number" &&
+    options.profileContextWindow > 0
       ? options.profileContextWindow
-      : typeof override?.contextWindow === "number" && override.contextWindow > 0
+      : typeof override?.contextWindow === "number" &&
+          override.contextWindow > 0
         ? override.contextWindow
-        : typeof catalog?.contextWindow === "number" && catalog.contextWindow > 0
+        : typeof catalog?.contextWindow === "number" &&
+            catalog.contextWindow > 0
           ? catalog.contextWindow
           : undefined;
   const maxTokens =
@@ -71,7 +84,7 @@ export function resolveModelCapabilities(
   const reasoning =
     typeof override?.reasoning === "boolean"
       ? override.reasoning
-      : catalog?.reasoning ?? false;
+      : (catalog?.reasoning ?? false);
   const thinkingLevelMap =
     override?.thinkingLevelMap ?? catalog?.thinkingLevelMap;
   return {
@@ -95,17 +108,22 @@ export interface UpstreamModel {
   capabilities?: { reasoning?: boolean };
 }
 
-export function mapUpstreamModel(provider: string, upstream: UpstreamModel): CatalogEntry {
+export function mapUpstreamModel(
+  provider: string,
+  upstream: UpstreamModel,
+): CatalogEntry {
   const contextWindow =
     typeof upstream.context_length === "number" && upstream.context_length > 0
       ? upstream.context_length
-      : typeof upstream.context_window === "number" && upstream.context_window > 0
+      : typeof upstream.context_window === "number" &&
+          upstream.context_window > 0
         ? upstream.context_window
         : undefined;
   const maxTokens =
     typeof upstream.max_tokens === "number" && upstream.max_tokens > 0
       ? upstream.max_tokens
-      : typeof upstream.max_output_tokens === "number" && upstream.max_output_tokens > 0
+      : typeof upstream.max_output_tokens === "number" &&
+          upstream.max_output_tokens > 0
         ? upstream.max_output_tokens
         : undefined;
   const reasoning =
@@ -117,6 +135,16 @@ export function mapUpstreamModel(provider: string, upstream: UpstreamModel): Cat
     contextWindow,
     maxTokens,
     reasoning,
-    thinkingLevelMap: reasoning ? { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: null, max: null } : undefined,
+    thinkingLevelMap: reasoning
+      ? {
+          off: null,
+          minimal: null,
+          low: "low",
+          medium: "medium",
+          high: "high",
+          xhigh: null,
+          max: null,
+        }
+      : undefined,
   };
 }

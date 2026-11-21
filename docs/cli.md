@@ -46,17 +46,18 @@ with `ctx.diagnostic()` prints `FAIL`/`ERROR` and sets exit code 1. See
 
 The prompt accepts plain tasks and slash commands. `/help` lists every command grouped by category; `ctrl+p` opens the fuzzy command palette.
 
-| Key      | Action                                      |
-| -------- | ------------------------------------------- |
-| `Tab`    | Toggle `plan` / `yolo` mode.                |
-| `Escape` | Cancel the active turn, or exit shell mode. |
-| `ctrl+p` | Command palette.                            |
-| `ctrl+o` | Toggle tool output expansion.               |
-| `ctrl+b` | Jump to the transcript bottom.              |
-| `ctrl+n` | New session.                                |
-| `ctrl+f` | Search sessions.                            |
-| `ctrl+t` | Toggle thinking display.                    |
-| `ctrl+j` | Toggle the todo sidebar.                    |
+| Key      | Action                                                            |
+| -------- | ----------------------------------------------------------------- |
+| `Tab`    | Toggle `plan` / `yolo` mode.                                      |
+| `Escape` | Cancel the active turn, or exit shell mode.                       |
+| `ctrl+p` | Command palette.                                                  |
+| `ctrl+o` | Toggle tool output expansion.                                     |
+| `ctrl+b` | Jump to the transcript bottom.                                    |
+| `ctrl+n` | New session.                                                      |
+| `ctrl+f` | Search sessions.                                                  |
+| `ctrl+t` | Toggle thinking display.                                          |
+| `ctrl+j` | Toggle the todo sidebar.                                          |
+| unset    | `cycleThinking` cycles supported thinking levels when configured. |
 
 Mouse wheel scrolling and click-to-focus work in interactive terminals. Set `ui.mouse` to `false` to disable them. All shortcuts are overridable in [Config](./config.md#keybindings).
 
@@ -67,7 +68,9 @@ While a question prompt is open, number keys and arrows select an option, `Space
 - `plan` allows built-in read-only tools and any tool that declares `readOnlyHint`, including MCP and extension tools.
 - `yolo` allows every tool. `bash` still runs as a global exclusive barrier unless `runtime.bashConcurrency` is `parallel`.
 
-The status line shows the active mode, persona, context usage, and open-todo count. When a goal or todos exist, the goal panel opens beside the transcript.
+The status line shows the active mode, persona, and open-todo count. The footer shows the workspace path and the context meter with cumulative token and cost totals. For a reasoning model it also shows the active thinking level next to the model name. When a goal or todos exist, the goal panel opens beside the transcript.
+
+Set `keybindings.cycleThinking` in [Config](./config.md#keybindings) to cycle through the thinking levels supported by the current model.
 
 ## Shell mode
 

@@ -251,7 +251,9 @@ export const ConfigSchema = z
             contextWindow: z.number().int().positive().optional(),
             maxTokens: z.number().int().positive().optional(),
             reasoning: z.boolean().optional(),
-            thinkingLevelMap: z.record(z.string(), z.union([z.string(), z.null()])).optional(),
+            thinkingLevelMap: z
+              .record(z.string(), z.union([z.string(), z.null()]))
+              .optional(),
           })
           .strict(),
       )

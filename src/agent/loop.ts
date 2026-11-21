@@ -957,9 +957,12 @@ export class AgentRuntime {
               const cost = computeUsageCost(pricing, u as any);
               if (cost) this.cumulativeCost += cost.costUsd;
             }
-            const promptTokens = (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0);
+            const promptTokens =
+              (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0);
             this.latestCacheHitRate =
-              promptTokens > 0 ? ((u.cacheRead ?? 0) / promptTokens) * 100 : this.latestCacheHitRate;
+              promptTokens > 0
+                ? ((u.cacheRead ?? 0) / promptTokens) * 100
+                : this.latestCacheHitRate;
           }
           const turnTokens = used > 0 ? used : 0;
           if (

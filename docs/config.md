@@ -41,43 +41,63 @@ agent persona, or change your colours and editor behaviour.
 
 ## Top level
 
-| Key               | Type   | Default        | Description                                     |
-| ----------------- | ------ | -------------- | ----------------------------------------------- |
-| `defaultProvider` | string | `"kilo"`       | Profile used when `--provider` is omitted.      |
-| `providers`       | object | `kilo` profile | Named provider profiles.                        |
-| `runtime`         | object | see below      | Loop, scheduler, and execution limits.          |
-| `context`         | object | see below      | Context budget and compaction.                  |
-| `web`             | object | see below      | Web search and fetch settings.                  |
-| `sessions`        | object | see below      | Session persistence.                            |
-| `usage`           | object | see below      | Per-call usage ledger and prices.               |
-| `lsp`             | object | see below      | Optional language server integration.           |
-| `ui`              | object | see below      | Theme and editor preferences. User config only. |
-| `keybindings`     | object | see below      | Keyboard shortcut overrides.                    |
-| `mcpServers`      | object | `{}`           | Stdio MCP server definitions. User config only. |
-| `extensions`      | object | see below      | Extension trust settings. User config only.     |
+| Key                   | Type   | Default        | Description                                             |
+| --------------------- | ------ | -------------- | ------------------------------------------------------- |
+| `defaultProvider`     | string | `"kilo"`       | Profile used when `--provider` is omitted.              |
+| `providers`           | object | `kilo` profile | Named provider profiles.                                |
+| `modelOverrides`      | object | `{}`           | Per-model metadata overrides keyed by `provider/model`. |
+| `modelThinkingLevels` | object | `{}`           | Default thinking level per `provider/model`.            |
+| `runtime`             | object | see below      | Loop, scheduler, and execution limits.                  |
+| `context`             | object | see below      | Context budget and compaction.                          |
+| `web`                 | object | see below      | Web search and fetch settings.                          |
+| `sessions`            | object | see below      | Session persistence.                                    |
+| `usage`               | object | see below      | Per-call usage ledger and prices.                       |
+| `lsp`                 | object | see below      | Optional language server integration.                   |
+| `ui`                  | object | see below      | Theme and editor preferences. User config only.         |
+| `keybindings`         | object | see below      | Keyboard shortcut overrides.                            |
+| `mcpServers`          | object | `{}`           | Stdio MCP server definitions. User config only.         |
+| `extensions`          | object | see below      | Extension trust settings. User config only.             |
 
 ## `providers.<name>`
 
 A profile is a named endpoint plus model and credentials.
 
-| Key                  | Type                                  | Default           | Description                                                                                                              |
-| -------------------- | ------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `type`               | string                                | required          | `openai-compatible`, `ollama`, or `gemini`.                                                                              |
-| `model`              | string                                | required          | Model id. `--model` overrides it for one run.                                                                            |
-| `baseUrl`            | URL string                            | adapter-specific  | `http://127.0.0.1:1234/v1` for OpenAI-compatible, `http://127.0.0.1:11434` for Ollama, provider default for Gemini.      |
-| `apiKeyEnv`          | string \| null                        | none              | Environment variable that holds the key.                                                                                 |
-| `apiKey`             | string \| null                        | none              | Inline key. Prefer `apiKeyEnv` or the credentials file.                                                                  |
-| `headers`            | object of strings                     | none              | Extra HTTP headers.                                                                                                      |
-| `contextWindow`      | positive integer                      | provider metadata | Explicit context window for models without metadata. Highest-priority source for the status meter and compaction budget. |
-| `supportsVision`     | boolean                               | provider metadata | Whether the selected model accepts image input. Overrides provider detection.                                            |
-| `compactionStrategy` | `"auto"` \| `"summary"` \| `"native"` | context setting   | Provider-level compaction policy. A model entry overrides it.                                                            |
-| `models`             | object                                | none              | Map of model id to `{ "compactionStrategy": ... }` for per-model policy.                                                 |
-| `keepAlive`          | string                                | adapter default   | Ollama only: how long the model stays loaded.                                                                            |
-| `think`              | boolean \| string                     | adapter default   | Ollama only: forwarded as the `think` option for reasoning models.                                                       |
-| `options`            | object                                | none              | Ollama only: request options merged into every call (for example sampling settings).                                     |
+| Key                  | Type                                  | Default           | Description                                                                                                         |
+| -------------------- | ------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `type`               | string                                | required          | `openai-compatible`, `ollama`, or `gemini`.                                                                         |
+| `model`              | string                                | required          | Model id. `--model` overrides it for one run.                                                                       |
+| `baseUrl`            | URL string                            | adapter-specific  | `http://127.0.0.1:1234/v1` for OpenAI-compatible, `http://127.0.0.1:11434` for Ollama, provider default for Gemini. |
+| `apiKeyEnv`          | string \| null                        | none              | Environment variable that holds the key.                                                                            |
+| `apiKey`             | string \| null                        | none              | Inline key. Prefer `apiKeyEnv` or the credentials file.                                                             |
+| `headers`            | object of strings                     | none              | Extra HTTP headers.                                                                                                 |
+| `contextWindow`      | positive integer                      | catalog           | Explicit context window. Highest-priority source for the footer and compaction budget.                              |
+| `supportsVision`     | boolean                               | provider metadata | Whether the selected model accepts image input. Overrides provider detection.                                       |
+| `compactionStrategy` | `"auto"` \| `"summary"` \| `"native"` | context setting   | Provider-level compaction policy. A model entry overrides it.                                                       |
+| `models`             | object                                | none              | Map of model id to `{ "compactionStrategy": ... }` for per-model policy.                                            |
+| `keepAlive`          | string                                | adapter default   | Ollama only: how long the model stays loaded.                                                                       |
+| `think`              | boolean \| string                     | adapter default   | Ollama only: forwarded as the `think` option for reasoning models.                                                  |
+| `options`            | object                                | none              | Ollama only: request options merged into every call (for example sampling settings).                                |
 
 Credential lookup order for a profile: `apiKeyEnv` environment variable, then the
 stored credential, then inline `apiKey`.
+
+## `modelOverrides`
+
+Overrides catalog metadata for a model without replacing its profile. Keys are
+`<provider>/<model>`; unknown keys are ignored.
+
+| Key                | Type                     | Default | Description                                                            |
+| ------------------ | ------------------------ | ------- | ---------------------------------------------------------------------- |
+| `contextWindow`    | positive integer         | none    | Override the catalog context window.                                   |
+| `maxTokens`        | positive integer         | none    | Override the catalog output limit.                                     |
+| `reasoning`        | boolean                  | none    | Override whether the model supports thinking.                          |
+| `thinkingLevelMap` | object of string \| null | none    | Map each thinking level to a provider value; `null` means unsupported. |
+
+## `modelThinkingLevels`
+
+Default thinking level per `<provider>/<model>` key. Values are `off`, `minimal`,
+`low`, `medium`, `high`, `xhigh`, or `max`. A level the model does not support is
+clamped to the nearest supported one when applied. `/thinking` updates this map.
 
 ## `runtime`
 
@@ -247,17 +267,18 @@ rm -rf ~/.config/atom-lite/checkpoints
 
 Keyboard shortcut overrides. All fields are nullable; set a field to `null` to disable its shortcut.
 
-| Key                | Type           | Default       | Description              |
-| ------------------ | -------------- | ------------- | ------------------------ |
-| `jumpBottom`       | string or null | `"ctrl+b"`    | Jump to bottom.          |
-| `newSession`       | string or null | `"ctrl+n"`    | Start a new session.     |
-| `searchSessions`   | string or null | `"ctrl+f"`    | Search sessions.         |
-| `scrollUp`         | string or null | `"ctrl+up"`   | Scroll up.               |
-| `scrollDown`       | string or null | `"ctrl+down"` | Scroll down.             |
-| `toggleThinking`   | string or null | `"ctrl+t"`    | Toggle thinking display. |
-| `toggleGoalPanel`  | string or null | `"ctrl+j"`    | Toggle the todo sidebar. |
-| `inputHistoryUp`   | string or null | `"up"`        | Previous input history.  |
-| `inputHistoryDown` | string or null | `"down"`      | Next input history.      |
+| Key                | Type           | Default       | Description                                 |
+| ------------------ | -------------- | ------------- | ------------------------------------------- |
+| `jumpBottom`       | string or null | `"ctrl+b"`    | Jump to bottom.                             |
+| `newSession`       | string or null | `"ctrl+n"`    | Start a new session.                        |
+| `searchSessions`   | string or null | `"ctrl+f"`    | Search sessions.                            |
+| `scrollUp`         | string or null | `"ctrl+up"`   | Scroll up.                                  |
+| `scrollDown`       | string or null | `"ctrl+down"` | Scroll down.                                |
+| `toggleThinking`   | string or null | `"ctrl+t"`    | Toggle thinking display.                    |
+| `cycleThinking`    | string or null | `null`        | Cycle to the next supported thinking level. |
+| `toggleGoalPanel`  | string or null | `"ctrl+j"`    | Toggle the todo sidebar.                    |
+| `inputHistoryUp`   | string or null | `"up"`        | Previous input history.                     |
+| `inputHistoryDown` | string or null | `"down"`      | Next input history.                         |
 
 ### Editor keybindings (fixed)
 

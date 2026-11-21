@@ -39,7 +39,14 @@ export type AgentEvent =
     }
   | { type: "final"; text: string }
   | { type: "usage"; input?: number; output?: number; elapsedMs?: number }
-  | { type: "context_usage"; used?: number; window?: number; tokens?: number | null; contextWindow?: number | null; percent?: number | null }
+  | {
+      type: "context_usage";
+      used?: number;
+      window?: number;
+      tokens?: number | null;
+      contextWindow?: number | null;
+      percent?: number | null;
+    }
   | { type: "model_switched"; provider: string; model: string }
   | { type: "skill_loaded"; name: string }
   | {

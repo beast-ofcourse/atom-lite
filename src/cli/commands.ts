@@ -221,7 +221,6 @@ export class CommandRegistry {
   }
 }
 
-
 /**
  * Build the command registry. `skills` become first-class commands so a skill
  * is invoked through exactly the same dispatch path as a built-in.

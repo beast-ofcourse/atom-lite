@@ -32,11 +32,7 @@ const scroller = new ScrollView(transcript.container, { follow: "end" });
 const root = new VStack([]);
 root.addChild(scroller, { grow: 1, shrink: 1, minSize: 0 });
 root.addChild(new Text("input"), { grow: 0, shrink: 0 });
-const stream = new StreamText(
-  transcript,
-  STREAM_LIVE_LINES,
-  STREAM_SEAL_BATCH,
-);
+const stream = new StreamText(transcript, STREAM_LIVE_LINES, STREAM_SEAL_BATCH);
 const thinking = new ThinkingBlock();
 transcript.add(thinking);
 
