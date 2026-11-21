@@ -104,6 +104,15 @@ const KNOWN_WINDOWS: Array<[RegExp, number]> = [
   [/reflection\/beam-free/, 1_048_576],
 ];
 
+/** Pi-style compact token count: raw below 1k. */
+export function formatTokens(count: number): string {
+  if (count < 1000) return count.toString();
+  if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
+  if (count < 1000000) return `${Math.round(count / 1000)}k`;
+  if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
+  return `${Math.round(count / 1000000)}M`;
+}
+
 /** Compact token count used by the status line: 999, 1.2k, 256k, 1M. */
 export function formatTokenCount(count: number): string {
   if (!Number.isFinite(count) || count < 0) return "0";

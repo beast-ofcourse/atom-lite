@@ -35,6 +35,9 @@ test("context usage reports the latest response, not cumulative totals", async (
   assert.deepEqual(runtime.getContextUsage(), {
     used: 1220,
     window: 1_000_000,
+    tokens: 1220,
+    contextWindow: 1_000_000,
+    percent: 0.122,
   });
   const usageEvents = events.filter((e) => e.type === "context_usage");
   assert.equal(usageEvents.at(-1).used, 1220);
@@ -53,12 +56,18 @@ test("switching models clears stale context usage and accepts a new window", () 
   assert.deepEqual(runtime.getContextUsage(), {
     used: undefined,
     window: 128_000,
+    tokens: null,
+    contextWindow: 128_000,
+    percent: null,
   });
 
   runtime.setContextWindow(1_000_000);
   assert.deepEqual(runtime.getContextUsage(), {
     used: undefined,
     window: 1_000_000,
+    tokens: null,
+    contextWindow: 1_000_000,
+    percent: null,
   });
   assert.ok(
     events.some(

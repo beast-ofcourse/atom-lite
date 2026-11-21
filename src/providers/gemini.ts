@@ -134,7 +134,7 @@ export class GeminiAdapter implements ProviderAdapter {
   ): any {
     const body: any = { contents };
     if (systemInstruction) body.systemInstruction = systemInstruction;
-    const effort = (request.options as any)?.effort;
+    const effort = (request.options as any)?.reasoning ?? (request.options as any)?.effort;
     const temperature = (request.options as any)?.temperature;
     if (effort || typeof temperature === "number") {
       body.generationConfig = { ...(body.generationConfig ?? {}) };

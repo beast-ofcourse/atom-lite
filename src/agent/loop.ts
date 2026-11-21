@@ -71,6 +71,7 @@ export class AgentRuntime {
   private onEvent: AgentRuntimeOptions["onEvent"];
   private tools: AgentRuntimeOptions["tools"];
   private effort: string;
+  private reasoning: string;
   private bashConcurrency: "serial" | "parallel";
   private toolMap: Map<string, AgentRuntimeOptions["tools"][number]>;
   private limits: AgentLimits;
@@ -106,6 +107,7 @@ export class AgentRuntime {
     this.onEvent = options.onEvent;
     this.tools = options.tools;
     this.effort = options.effort ?? "medium";
+    this.reasoning = options.reasoning ?? options.effort ?? "medium";
     this.bashConcurrency = options.bashConcurrency ?? "serial";
     this.contextManager =
       options.contextManager ??
@@ -224,7 +226,21 @@ export class AgentRuntime {
   }
 
   getContextUsage(): ContextUsage {
-    return { used: this.contextUsed, window: this.contextWindow };
+    const used = this.contextUsed;
+    const window = this.contextWindow;
+    const tokens = used ?? null;
+    const contextWindow = window ?? null;
+    const percent =
+      typeof used === "number" && typeof window === "number" && window > 0
+        ? (used / window) * 100
+        : null;
+    return {
+      used,
+      window,
+      tokens,
+      contextWindow,
+      percent,
+    };
   }
 
   /** Reset per-session context usage (e.g. when starting a new session). */
@@ -238,15 +254,25 @@ export class AgentRuntime {
   }
 
   private emitContextUsage(): void {
+    const usage = this.getContextUsage();
     this.onEvent?.({
       type: "context_usage",
       used: this.contextUsed,
       window: this.contextWindow,
+      tokens: usage.tokens,
+      contextWindow: usage.contextWindow,
+      percent: usage.percent,
     });
   }
 
   setEffort(effort: string): void {
     this.effort = effort;
+    this.reasoning = effort;
+  }
+
+  setReasoning(reasoning: string): void {
+    this.reasoning = reasoning;
+    this.effort = reasoning;
   }
 
   setMode(mode: "plan" | "yolo"): void {
@@ -824,6 +850,7 @@ export class AgentRuntime {
           messages,
           tools: this.tools.map((t) => t.definition),
           effort: this.effort,
+          reasoning: this.reasoning,
           temperature: this.persona?.temperature,
           signal,
           requestId,
@@ -895,13 +922,6 @@ export class AgentRuntime {
             this.contextUsed = used;
             this.emitContextUsage();
             this.contextManager.noteUsage?.(used);
-            const inputTokens = response.usage?.input ?? used;
-            if (
-              this.contextWindow !== undefined &&
-              inputTokens > this.contextWindow
-            ) {
-              this.setContextWindow(inputTokens);
-            }
           }
           const turnTokens = used > 0 ? used : 0;
           if (

@@ -2626,7 +2626,11 @@ test("turn_end reports measured duration, output tokens, and model time", async 
   try {
     await client.open();
     const hello = await client.waitFor("hello");
-    assert.deepEqual(hello.context, {});
+    assert.deepEqual(hello.context, {
+      tokens: null,
+      contextWindow: null,
+      percent: null,
+    });
 
     client.send({ type: "input", text: "go" });
     const end = await client.waitFor("turn_end");
@@ -2641,7 +2645,12 @@ test("turn_end reports measured duration, output tokens, and model time", async 
     const second = new Client(server.wsUrl);
     await second.open();
     const after = await second.waitFor("hello");
-    assert.deepEqual(after.context, { used: 62 });
+    assert.deepEqual(after.context, {
+      used: 62,
+      tokens: 62,
+      contextWindow: null,
+      percent: null,
+    });
     second.close();
   } finally {
     client.close();

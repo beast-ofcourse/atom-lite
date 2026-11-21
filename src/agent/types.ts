@@ -39,7 +39,7 @@ export type AgentEvent =
     }
   | { type: "final"; text: string }
   | { type: "usage"; input?: number; output?: number; elapsedMs?: number }
-  | { type: "context_usage"; used?: number; window?: number }
+  | { type: "context_usage"; used?: number; window?: number; tokens?: number | null; contextWindow?: number | null; percent?: number | null }
   | { type: "model_switched"; provider: string; model: string }
   | { type: "skill_loaded"; name: string }
   | {
@@ -123,6 +123,7 @@ export interface AgentRuntimeOptions {
   contextManager?: ContextManager;
   onEvent?: (event: AgentEvent) => void;
   effort?: string;
+  reasoning?: string;
   bashConcurrency?: "serial" | "parallel";
   /** Selected model's context window, when known. */
   contextWindow?: number;
@@ -166,6 +167,12 @@ export interface ContextUsage {
   used?: number;
   /** Selected model's context window, when known. */
   window?: number;
+  /** New shape: token count, may be null when unknown. */
+  tokens?: number | null;
+  /** New shape: resolved model context window, may be null when unknown. */
+  contextWindow?: number | null;
+  /** New shape: percentage of the window, may be null when unknown. */
+  percent?: number | null;
 }
 
 export interface RunTurnParams {

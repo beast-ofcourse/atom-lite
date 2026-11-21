@@ -41,12 +41,41 @@ export interface ToolDefinition {
   parameters: Record<string, unknown>;
 }
 
+export type ModelThinkingLevel =
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
+export type ThinkingLevel = Exclude<ModelThinkingLevel, "off">;
+
+export type ThinkingLevelMap = Partial<Record<ModelThinkingLevel, string | null>>;
+
 export interface ModelInfo {
   id: string;
   contextWindow?: number;
+  maxTokens?: number;
   supportsTools?: boolean;
   supportsStreaming?: boolean;
   supportsVision?: boolean;
+  reasoning?: boolean;
+  thinkingLevelMap?: ThinkingLevelMap;
+}
+
+export interface ModelResponse {
+  message: Message & { role: "assistant" };
+  toolCalls: ToolCall[];
+  finishReason: FinishReason;
+  usage?: TokenUsage;
+  /** Wall time spent waiting for this provider call, measured by the runtime. */
+  elapsedMs?: number;
+  /** Neutral thinking level requested for this response. */
+  thinkingLevel?: ModelThinkingLevel;
+  /** Provider-native thinking value actually sent for this response. */
+  providerThinkingLevel?: string;
 }
 
 export interface TokenUsage {

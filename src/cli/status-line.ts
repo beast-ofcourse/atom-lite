@@ -4,7 +4,7 @@ import { darkTheme, type Theme } from "./theme.js";
 
 export interface StatusLineParts {
   left: string;
-  tokens: string;
+  tokens?: string;
   effort: string;
   /** Current agent mode, rendered as "mode:<value>" in the top row. */
   mode?: string;
@@ -77,11 +77,15 @@ export class StatusLine implements Component {
       right,
       contentWidth,
     );
-    const bottom = truncateToWidth(tokens.dim(this.parts.tokens), contentWidth);
     const rows = [
       " " + top + " ".repeat(Math.max(0, width - visibleWidth(top) - 1)),
-      " " + bottom + " ".repeat(Math.max(0, width - visibleWidth(bottom) - 1)),
     ];
+    if (this.parts.tokens) {
+      const bottom = truncateToWidth(tokens.dim(this.parts.tokens), contentWidth);
+      rows.push(
+        " " + bottom + " ".repeat(Math.max(0, width - visibleWidth(bottom) - 1)),
+      );
+    }
     if (this.parts.activity !== undefined) {
       const activity = truncateToWidth(this.parts.activity, contentWidth);
       rows.push(

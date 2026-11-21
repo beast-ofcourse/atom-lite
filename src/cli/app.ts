@@ -35,6 +35,7 @@ import {
 } from "./theme.js";
 import { SecretInput } from "./secret-input.js";
 import { StatusLine } from "./status-line.js";
+import { Footer } from "./footer.js";
 import { GoalPanel } from "./goal-panel.js";
 import { purgeOrphanCheckpoints } from "../runtime/legacy-checkpoint-purge.js";
 import { Activity } from "./activity.js";
@@ -49,6 +50,7 @@ import {
   knownContextWindow,
   knownVisionModel,
 } from "../providers/context-window.js";
+import { resolveModelCapabilities } from "../providers/model-catalog.js";
 import {
   STREAM_LIVE_LINES,
   STREAM_SEAL_BATCH,
@@ -1041,16 +1043,21 @@ export async function run(args: string[]): Promise<void> {
   const header = new Text(theme.tokens.dim(headerLabel()), 1, 0);
 
   const statusBar = new StatusLine(theme);
+  const footer = new Footer(theme);
   const activity = new Activity({ theme, onChange: () => updateStatus() });
   tuiReady = true;
   statusBar.setParts({
     left: `${provider.id}/${(provider as any).model ?? "default"}`,
-    tokens: "tokens: ?",
     effort: "effort: medium",
     mode: currentMode,
     agent: runtime.getPersona()?.name,
     activity: activity.text(),
     openTodos: runtime.openTodoCount(),
+  });
+  footer.setParts({
+    pwd: process.cwd(),
+    model: `${provider.id}/${(provider as any).model ?? "default"}`,
+    autoCompact: true,
   });
 
   const selectListTheme = {
@@ -1181,6 +1188,7 @@ export async function run(args: string[]): Promise<void> {
   root.addChild(statusBar, { grow: 0, shrink: 0 });
   // folder:branch info below the status line, dimmed
   root.addChild(header, { grow: 0, shrink: 0 });
+  root.addChild(footer, { grow: 0, shrink: 0 });
   const dropdownContainer = new Container();
   root.addChild(dropdownContainer, { grow: 0, shrink: 0 });
   tui.setLayoutRoot(root);
@@ -1490,12 +1498,21 @@ export async function run(args: string[]): Promise<void> {
     const usage = runtime.getContextUsage();
     statusBar.setParts({
       left: `${provider.id}/${currentModelLabel()}`,
-      tokens: `tokens: ${formatContextUsage(usage.used, usage.window)}`,
       effort: `effort: ${effortLevel}`,
       mode: currentMode,
       agent: runtime.getPersona()?.name,
       activity: activity.text(),
       openTodos: runtime.openTodoCount(),
+    });
+    footer.setParts({
+      pwd: process.cwd(),
+      used: usage.used,
+      window: usage.window,
+      percent: usage.percent ?? null,
+      model: `${provider.id}/${currentModelLabel()}`,
+      reasoning: false,
+      thinkingLevel: effortLevel,
+      autoCompact: true,
     });
     tui.requestRender();
   }
@@ -1545,17 +1562,16 @@ export async function run(args: string[]): Promise<void> {
     const profile = provider.id;
     const model = currentModelLabel();
     const pcfg = profileConfig(profile);
-    const configuredWindow = pcfg?.contextWindow;
-    const staticWindow = knownContextWindow(model);
-    // Prefer the largest known value so a stale 256K guess never masks a 1M
-    // model: config (if explicit) is a floor, static table and live metadata
-    // can only raise it.
-    const initialWindow =
-      typeof configuredWindow === "number" && configuredWindow > 0
-        ? Math.max(configuredWindow, staticWindow ?? 0) || configuredWindow
-        : staticWindow;
-    runtime.setContextWindow(initialWindow);
-    // Config override for vision takes precedence over provider metadata.
+    const override = (config as any)?.modelOverrides?.[`${profile}/${model}`];
+    const resolved = resolveModelCapabilities(profile, model, {
+      profileContextWindow:
+        typeof pcfg?.contextWindow === "number" ? pcfg.contextWindow : undefined,
+      override: override as any,
+    });
+    runtime.setContextWindow(resolved.contextWindow);
+    // Carry reasoning capability onto the runtime's selected model metadata
+    // through the provider profile for later slices; store on a side channel.
+    (provider as any)._resolvedModelInfo = resolved;
     if (typeof pcfg?.supportsVision === "boolean") {
       runtime.setSupportsVision(pcfg.supportsVision);
     } else {
@@ -1563,37 +1579,6 @@ export async function run(args: string[]): Promise<void> {
       if (typeof guessed === "boolean") runtime.setSupportsVision(guessed);
     }
     if (tuiReady) updateStatus();
-
-    const getModelInfo = (provider as any).getModelInfo;
-    if (typeof getModelInfo !== "function") return;
-    void Promise.resolve()
-      .then(() => getModelInfo.call(provider))
-      .then((info: any) => {
-        if (provider.id !== profile || currentModelLabel() !== model) return;
-        const resolved = info?.contextWindow;
-        if (typeof resolved === "number" && resolved > 0) {
-          const current = runtime.getContextUsage().window;
-          const floor =
-            typeof configuredWindow === "number" && configuredWindow > 0
-              ? configuredWindow
-              : (staticWindow ?? 0);
-          // Live metadata may only raise the window; never downgrade below
-          // the configured/static floor.
-          if (current === undefined || resolved > (current ?? 0)) {
-            runtime.setContextWindow(Math.max(floor, resolved));
-            if (tuiReady) updateStatus();
-          }
-        }
-        if (
-          typeof pcfg?.supportsVision !== "boolean" &&
-          typeof info?.supportsVision === "boolean"
-        ) {
-          runtime.setSupportsVision(info.supportsVision);
-        }
-      })
-      .catch(() => {
-        // Keep the static/config fallback.
-      });
   }
 
   // Resolve the initial model's window before the first response.

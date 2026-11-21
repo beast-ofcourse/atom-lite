@@ -183,8 +183,8 @@ export class OllamaAdapter implements ProviderAdapter {
     if (keepAlive !== undefined) body.keep_alive = keepAlive;
 
     let think = reqOpts.think !== undefined ? reqOpts.think : this.think;
-    if (think === undefined && reqOpts.effort !== undefined) {
-      think = reqOpts.effort;
+    if (think === undefined && (reqOpts.reasoning ?? reqOpts.effort) !== undefined) {
+      think = (reqOpts.reasoning ?? reqOpts.effort) as any;
     }
     if (think !== undefined) body.think = think;
 

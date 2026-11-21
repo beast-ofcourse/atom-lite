@@ -236,6 +236,19 @@ export const ConfigSchema = z
   .object({
     defaultProvider: z.string().default("openai-compatible"),
     providers: z.record(z.string(), ProviderConfigSchema).default({}),
+    modelOverrides: z
+      .record(
+        z.string(),
+        z
+          .object({
+            contextWindow: z.number().int().positive().optional(),
+            maxTokens: z.number().int().positive().optional(),
+            reasoning: z.boolean().optional(),
+            thinkingLevelMap: z.record(z.string(), z.union([z.string(), z.null()])).optional(),
+          })
+          .strict(),
+      )
+      .default({}),
     runtime: RuntimeConfigSchema.prefault({}),
     context: ContextConfigSchema.prefault({}),
     web: WebConfigSchema.prefault({}),
