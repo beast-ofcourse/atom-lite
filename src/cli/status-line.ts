@@ -81,7 +81,7 @@ export class StatusLine implements Component {
       .filter(Boolean)
       .join("  ");
     const left = this.parts.cwd
-      ? `${tokens.status(this.parts.left)} ${tokens.dim(this.parts.cwd)}`
+      ? `${tokens.status(this.parts.left)} ${tokens.dim("|")} ${tokens.dim(this.parts.cwd)}`
       : tokens.status(this.parts.left);
     const top = formatStatusLine(left, right, contentWidth);
     const rows = [

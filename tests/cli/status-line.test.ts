@@ -59,7 +59,7 @@ test("status line keeps activity and cwd inline and hides empty todos", () => {
   );
   const plain = rows.map(stripTerminalSequences);
   assert.equal(rows.length, 2);
-  assert.match(plain[0], /kilo\/kilo-auto\/free ~\/repo:main/);
+  assert.match(plain[0], /kilo\/kilo-auto\/free \| ~\/repo:main/);
   assert.match(plain[0], /● ready/);
   assert.doesNotMatch(plain[0], /todos:0/);
 });
