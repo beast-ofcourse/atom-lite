@@ -13,6 +13,12 @@ export interface FooterParts {
   thinkingLevel?: string;
   autoCompact?: boolean;
   extraStats?: string[];
+  cumulativeInput?: number;
+  cumulativeOutput?: number;
+  cumulativeCacheRead?: number;
+  cumulativeCacheWrite?: number;
+  cumulativeCost?: number;
+  cacheHitRate?: number;
 }
 
 export class Footer implements Component {
@@ -55,7 +61,20 @@ export class Footer implements Component {
     if (colourBasis > 90) contextStr = t.error(contextDisplay);
     else if (colourBasis > 70) contextStr = t.warning(contextDisplay);
 
-    const statsParts = [...(this.parts.extraStats ?? []), contextStr];
+    const statsParts: string[] = [...(this.parts.extraStats ?? [])];
+    const cu = this.parts;
+    if (cu.cumulativeInput) statsParts.push(`↑${formatTokens(cu.cumulativeInput)}`);
+    if (cu.cumulativeOutput) statsParts.push(`↓${formatTokens(cu.cumulativeOutput)}`);
+    if (cu.cumulativeCacheRead) statsParts.push(`R${formatTokens(cu.cumulativeCacheRead)}`);
+    if (cu.cumulativeCacheWrite) statsParts.push(`W${formatTokens(cu.cumulativeCacheWrite)}`);
+    if (
+      ((cu.cumulativeCacheRead ?? 0) > 0 || (cu.cumulativeCacheWrite ?? 0) > 0) &&
+      cu.cacheHitRate !== undefined
+    ) {
+      statsParts.push(`CH${cu.cacheHitRate.toFixed(1)}%`);
+    }
+    if (cu.cumulativeCost) statsParts.push(`$${cu.cumulativeCost.toFixed(3)}`);
+    statsParts.push(contextStr);
 
     let rightSide = this.parts.model || "no-model";
     if (this.parts.reasoning) {

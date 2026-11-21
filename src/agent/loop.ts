@@ -32,6 +32,7 @@ import {
   type GoalState,
 } from "../runtime/goal.js";
 import { runModelTurn } from "./model-turn.js";
+import { computeUsageCost } from "../usage/ledger.js";
 import { TurnRecorder } from "./turn-recorder.js";
 import type { AgentPersona } from "../agents/registry.js";
 import { composePersonaSystemPrompt } from "../agents/persona.js";
@@ -82,6 +83,12 @@ export class AgentRuntime {
 
   private contextWindow: number | undefined;
   private contextUsed: number | undefined;
+  private cumulativeInput = 0;
+  private cumulativeOutput = 0;
+  private cumulativeCacheRead = 0;
+  private cumulativeCacheWrite = 0;
+  private cumulativeCost = 0;
+  private latestCacheHitRate: number | undefined;
   private supportsVision: boolean | undefined;
   private backgroundTasks: BackgroundTaskManager;
   private todoStore: TodoStore;
@@ -243,11 +250,28 @@ export class AgentRuntime {
     };
   }
 
+  getCumulativeUsage() {
+    return {
+      input: this.cumulativeInput,
+      output: this.cumulativeOutput,
+      cacheRead: this.cumulativeCacheRead,
+      cacheWrite: this.cumulativeCacheWrite,
+      cost: this.cumulativeCost,
+      cacheHitRate: this.latestCacheHitRate,
+    };
+  }
+
   /** Reset per-session context usage (e.g. when starting a new session). */
   resetContextUsage(): void {
     this.warmer?.stop();
     this.lastBuiltMessages = null;
     this.contextUsed = undefined;
+    this.cumulativeInput = 0;
+    this.cumulativeOutput = 0;
+    this.cumulativeCacheRead = 0;
+    this.cumulativeCacheWrite = 0;
+    this.cumulativeCost = 0;
+    this.latestCacheHitRate = undefined;
     this.contextManager.setSessionMemory(null);
     this.contextManager.resetUsage();
     this.emitContextUsage();
@@ -798,11 +822,9 @@ export class AgentRuntime {
         if (this.contextManager.consumeCompaction()) {
           // Prefer an estimate over "unknown" so the TUI keeps showing a
           // number; the next assistant response replaces it with real usage.
-          const estimate = this.contextManager.getLastBuildTokens?.();
-          this.contextUsed =
-            typeof estimate === "number" && estimate > 0
-              ? estimate
-              : this.contextUsed;
+          // After compaction the previous usage no longer describes the new
+          // context; stay unknown until the next measured response.
+          this.contextUsed = undefined;
           this.emitContextUsage();
           const summary = this.contextManager.consumeCompactionSummary();
           const coveredCount =
@@ -922,6 +944,19 @@ export class AgentRuntime {
             this.contextUsed = used;
             this.emitContextUsage();
             this.contextManager.noteUsage?.(used);
+            const u = response.usage ?? {};
+            this.cumulativeInput += u.input ?? 0;
+            this.cumulativeOutput += u.output ?? 0;
+            this.cumulativeCacheRead += u.cacheRead ?? 0;
+            this.cumulativeCacheWrite += u.cacheWrite ?? 0;
+            const pricing = this.usageLedger?.prices?.[this.model];
+            if (pricing) {
+              const cost = computeUsageCost(pricing, u as any);
+              if (cost) this.cumulativeCost += cost.costUsd;
+            }
+            const promptTokens = (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0);
+            this.latestCacheHitRate =
+              promptTokens > 0 ? ((u.cacheRead ?? 0) / promptTokens) * 100 : this.latestCacheHitRate;
           }
           const turnTokens = used > 0 ? used : 0;
           if (

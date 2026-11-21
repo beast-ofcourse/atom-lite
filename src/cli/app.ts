@@ -51,6 +51,7 @@ import {
   knownVisionModel,
 } from "../providers/context-window.js";
 import { resolveModelCapabilities } from "../providers/model-catalog.js";
+import { clampThinkingLevel, getSupportedThinkingLevels } from "../providers/thinking-levels.js";
 import {
   STREAM_LIVE_LINES,
   STREAM_SEAL_BATCH,
@@ -1497,6 +1498,7 @@ export async function run(args: string[]): Promise<void> {
 
   function updateStatus(): void {
     const usage = runtime.getContextUsage();
+    const cum = runtime.getCumulativeUsage();
     statusBar.setParts({
       left: `${provider.id}/${currentModelLabel()}`,
       effort: `effort: ${effortLevel}`,
@@ -1514,6 +1516,12 @@ export async function run(args: string[]): Promise<void> {
       reasoning: currentModelReasoning,
       thinkingLevel: effortLevel,
       autoCompact: true,
+      cumulativeInput: cum.input,
+      cumulativeOutput: cum.output,
+      cumulativeCacheRead: cum.cacheRead,
+      cumulativeCacheWrite: cum.cacheWrite,
+      cumulativeCost: cum.cost,
+      cacheHitRate: cum.cacheHitRate,
     });
     tui.requestRender();
   }
@@ -1594,8 +1602,27 @@ export async function run(args: string[]): Promise<void> {
     if (tuiReady) updateStatus();
   }
 
+  function applyModelThinkingDefault(profile: string, model: string): void {
+    const key = `${profile}/${model}`;
+    const configured = config.modelThinkingLevels?.[key];
+    const resolved = resolveModelCapabilities(profile, model, {
+      profileContextWindow: profileConfig(profile)?.contextWindow as number | undefined,
+      override: config.modelOverrides?.[key],
+    });
+    const supported = getSupportedThinkingLevels(resolved);
+    let level: string = configured ?? effortLevel;
+    if (!supported.includes(level as any)) {
+      level = clampThinkingLevel(resolved, level as any);
+    }
+    effortLevel = level;
+    runtime.setEffort(level);
+    runtime.setReasoning(level);
+    updateStatus();
+  }
+
   // Resolve the initial model's window before the first response.
   refreshContextWindow();
+  applyModelThinkingDefault(provider.id, currentModelLabel());
 
   for (const loaded of extensionLoader.loadedExtensions()) {
     for (const [name, provider] of loaded.registries?.providers ?? new Map()) {
@@ -1722,6 +1749,7 @@ export async function run(args: string[]): Promise<void> {
     provider = createProvider(config, profile, model);
     runtime.switchModel(provider, model);
     refreshContextWindow();
+    applyModelThinkingDefault(profile, model);
     await commitModelSelection(profile, model, (message) => {
       appendLine(`warning: could not persist model choice: ${message}`);
     });
