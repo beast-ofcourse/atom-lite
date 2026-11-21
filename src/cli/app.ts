@@ -1579,8 +1579,9 @@ export async function run(args: string[]): Promise<void> {
   }
 
   /**
-   * Show the best-known window immediately, then refine it from live provider
-   * metadata without blocking the TUI.
+   * Resolve the window from the catalog first. Gateway models the catalog does
+   * not know (for example Kilo's routed models) fall back to the provider's own
+   * /models metadata, which is authoritative for those model ids.
    */
   async function refreshContextWindow(): Promise<void> {
     const profile = provider.id;
@@ -1594,25 +1595,30 @@ export async function run(args: string[]): Promise<void> {
           : undefined,
       override: override as any,
     });
-    runtime.setContextWindow(resolved.contextWindow);
+    let window = resolved.contextWindow;
+    let info: any;
+    if (typeof provider.getModelInfo === "function") {
+      try {
+        info = await provider.getModelInfo.call(provider);
+      } catch {
+        // keep catalog resolution
+      }
+    }
+    if (
+      window === undefined &&
+      typeof info?.contextWindow === "number" &&
+      info.contextWindow > 0
+    ) {
+      window = info.contextWindow;
+    }
+    runtime.setContextWindow(window);
     currentModelCapabilities = resolved;
     if (typeof pcfg?.supportsVision === "boolean") {
       runtime.setSupportsVision(pcfg.supportsVision);
     } else {
-      const getModelInfo = provider.getModelInfo;
-      let resolvedVision: boolean | undefined;
-      if (typeof getModelInfo === "function") {
-        try {
-          const info = await getModelInfo.call(provider);
-          if (typeof info?.supportsVision === "boolean")
-            resolvedVision = info.supportsVision;
-        } catch {
-          // keep fallback
-        }
-      }
       const guessed =
-        typeof resolvedVision === "boolean"
-          ? resolvedVision
+        typeof info?.supportsVision === "boolean"
+          ? info.supportsVision
           : knownVisionModel(model);
       if (typeof guessed === "boolean") runtime.setSupportsVision(guessed);
     }

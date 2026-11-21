@@ -22,6 +22,17 @@ test("map upstream metadata to catalog entry", () => {
   assert.ok(entry.thinkingLevelMap);
 });
 
+test("kilo gateway models resolve from the catalog seed", () => {
+  assert.equal(
+    resolveModelCapabilities("kilo", "kilo-auto/free").contextWindow,
+    256000,
+  );
+  assert.equal(
+    resolveModelCapabilities("kilo", "kilo-auto/efficient").contextWindow,
+    1000000,
+  );
+});
+
 test("remote overlay wins over seed", () => {
   clearRemoteOverlay();
   setRemoteOverlay({
