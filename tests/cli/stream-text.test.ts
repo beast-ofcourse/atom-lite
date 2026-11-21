@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Transcript } from "../../dist/cli/transcript.js";
+import { Text } from "@earendil-works/pi-tui";
 import { StreamText } from "../../dist/cli/stream-text.js";
 
 // Longer than one 16ms display frame, shorter than the old 50ms throttle,
@@ -72,6 +73,20 @@ test("stream text never seals a fenced code block mid-block", () => {
     .join("\n");
   assert.match(rendered, /code line 99/);
   assert.match(rendered, /after fence/);
+});
+
+test("stream text moves the live block after existing transcript entries", () => {
+  const transcript = new Transcript();
+  transcript.add(new Text("header"));
+  const stream = new StreamText(transcript);
+  // A user box / thinking block is added after StreamText was constructed.
+  transcript.add(new Text("user input"));
+  stream.append("assistant answer");
+  const rendered = transcript.container.render(80).join("\n");
+  assert.ok(
+    rendered.indexOf("user input") < rendered.indexOf("assistant answer"),
+    rendered,
+  );
 });
 
 test("stream text renders markdown headings", () => {

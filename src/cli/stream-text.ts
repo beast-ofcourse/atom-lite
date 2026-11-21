@@ -50,6 +50,7 @@ export class StreamText {
   /** Pre-created once; reusing it avoids a layout rebuild on the first token. */
   private readonly live: Markdown;
   private readonly markdownTheme: MarkdownTheme;
+  private active = false;
 
   constructor(
     private readonly transcript: Transcript,
@@ -69,7 +70,22 @@ export class StreamText {
     this.transcript.add(this.live);
   }
 
+  /** Place the live block after the current turn's chrome before streaming. */
+  private begin(): void {
+    if (this.buffer) {
+      this.seal(this.buffer);
+      this.buffer = "";
+    }
+    const children = this.transcript.container.children;
+    const index = children.indexOf(this.live);
+    if (index >= 0) children.splice(index, 1);
+    children.push(this.live);
+    this.transcript.markStructureChanged();
+    this.active = true;
+  }
+
   append(delta: string): void {
+    if (!this.active) this.begin();
     this.buffer += delta;
     const cut = sealPoint(this.buffer, this.maxLines, this.sealBatch);
     if (cut > 0) {
@@ -107,5 +123,6 @@ export class StreamText {
     }
     this.buffer = "";
     this.live.setText("");
+    this.active = false;
   }
 }

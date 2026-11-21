@@ -15,6 +15,10 @@ becomes `0.18.1`.
 - `config`: `modelOverrides` and `modelThinkingLevels` carry per-model metadata and default thinking levels. The shipped model catalog can be refreshed by a curated remote overlay.
 - `cli`: `/usage` prints token and cost totals grouped by the models that answered in the session.
 
+### Fixed
+
+- `cli`: streamed assistant answers now render after the current user turn instead of at the top of the transcript.
+
 ### Changed
 
 - `agent`: the model context window is fixed for the session. Oversized requests are handled by compaction instead of growing the window.
