@@ -51,10 +51,12 @@ const terminal = {
 const tui = new TuiAltScreen(terminal, false, undefined, { mouse: false });
 const renderDurations = [];
 const renderChildCounts = [];
+let measuring = false;
 const originalRender = tui.doRender.bind(tui);
 tui.doRender = () => {
   const started = performance.now();
   originalRender();
+  if (!measuring) return;
   renderDurations.push(performance.now() - started);
   renderChildCounts.push(transcript.container.children.length);
 };
@@ -104,6 +106,9 @@ const thinking = new ThinkingBlock();
 transcript.add(thinking);
 const stream = new StreamText(transcript, STREAM_LIVE_LINES, STREAM_SEAL_BATCH);
 activity.start("thinking");
+// Mirrors app.ts: pay cold render at startup, excluded from interaction metrics.
+for (let i = 0; i < 8; i++) tui.doRender();
+measuring = true;
 
 const start = performance.now();
 for (let i = 0; i < deltas; i++) {

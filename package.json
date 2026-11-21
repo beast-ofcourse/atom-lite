@@ -74,7 +74,7 @@
     "node": ">=22.19"
   },
   "dependencies": {
-    "@earendil-works/pi-tui": "^1.5.0",
+    "@earendil-works/pi-tui": "^1.6.0",
     "grok-mermaid": "^0.2.3",
     "htmlparser2": "^10.1.0",
     "jiti": "2.7.0",

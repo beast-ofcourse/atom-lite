@@ -1,5 +1,6 @@
-// True side-by-side benchmark: Atom-lite's pi-tui (1.5) vs the Pi agent's
-// current tui package (1.6, built from /home/bhavin/temp/pi/packages/tui).
+// True side-by-side benchmark: Atom-lite's pi-tui vs the Pi agent's built tui.
+// Each workload runs several times per arm; medians are reported to damp GC/JIT noise.
+import { readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
 import * as ours from "@earendil-works/pi-tui";
@@ -12,18 +13,28 @@ const piLayout = await import(pathToFileURL(`${PI_ROOT}/layout.js`).href);
 const WIDTH = 120;
 const HEIGHT = 36;
 const DELTAS = Number(process.env.BENCH_PI_DELTAS ?? 160);
+const REPEATS = Number(process.env.BENCH_PI_REPEATS ?? 5);
+
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor((sorted.length - 1) / 2)];
+}
 
 function percentile(values, p) {
   const sorted = [...values].sort((a, b) => a - b);
-  return Number(sorted[Math.floor((sorted.length - 1) * p)].toFixed(3));
+  return sorted[Math.floor((sorted.length - 1) * p)];
 }
 
 function stats(samples) {
   return {
-    p50Ms: percentile(samples, 0.5),
-    p95Ms: percentile(samples, 0.95),
+    p50Ms: Number(percentile(samples, 0.5).toFixed(3)),
+    p95Ms: Number(percentile(samples, 0.95).toFixed(3)),
     maxMs: Number(Math.max(...samples).toFixed(3)),
   };
+}
+
+function gc() {
+  globalThis.gc?.();
 }
 
 function makeHarness(lib, layout, seedCount, withEditor) {
@@ -83,6 +94,7 @@ function makeHarness(lib, layout, seedCount, withEditor) {
 }
 
 function runStream(lib, layout) {
+  gc();
   const h = makeHarness(lib, layout, 400, false);
   const samples = [];
   for (let i = 0; i < DELTAS; i++) {
@@ -95,6 +107,7 @@ function runStream(lib, layout) {
 }
 
 function runScroll(lib, layout) {
+  gc();
   const h = makeHarness(lib, layout, 900, false);
   const samples = [];
   for (let i = 0; i < 200; i++) {
@@ -107,10 +120,11 @@ function runScroll(lib, layout) {
 }
 
 function runKeys(lib, layout) {
+  gc();
   const h = makeHarness(lib, layout, 400, true);
   const editor = h.root.children[1];
   const samples = [];
-  for (let i = 0; i < 240; i++) {
+  for (let i = 0; i < 400; i++) {
     editor.handleInput(String.fromCharCode(97 + (i % 26)));
     const start = performance.now();
     h.render();
@@ -119,21 +133,49 @@ function runKeys(lib, layout) {
   return { ...stats(samples), children: h.transcript.children.length };
 }
 
+const workloads = { stream: runStream, scroll: runScroll, keys: runKeys };
+const arms = {
+  atom: {
+    lib: ours,
+    layout: { renderLayoutFrame: ourLayout },
+    version: `pi-tui ${JSON.parse(readFileSync(new URL("../node_modules/@earendil-works/pi-tui/package.json", import.meta.url), "utf8")).version}`,
+  },
+  pi: {
+    lib: pi,
+    layout: piLayout,
+    version: `pi-tui ${JSON.parse(readFileSync("/home/bhavin/temp/pi/packages/tui/package.json", "utf8")).version} (built)`,
+  },
+};
+
 const report = {
   width: WIDTH,
   height: HEIGHT,
   deltas: DELTAS,
-  atom: {
-    version: "pi-tui 1.5 (installed)",
-    stream: runStream(ours, { renderLayoutFrame: ourLayout }),
-    scroll: runScroll(ours, { renderLayoutFrame: ourLayout }),
-    keys: runKeys(ours, { renderLayoutFrame: ourLayout }),
-  },
-  pi: {
-    version: "pi-tui 1.6 (built from /home/bhavin/temp/pi)",
-    stream: runStream(pi, piLayout),
-    scroll: runScroll(pi, piLayout),
-    keys: runKeys(pi, piLayout),
-  },
+  repeats: REPEATS,
+  versions: { atom: arms.atom.version, pi: arms.pi.version },
 };
+
+for (const [name, run] of Object.entries(workloads)) {
+  const samples = { atom: [], pi: [] };
+  for (let r = 0; r < REPEATS; r++) {
+    // Alternate order so neither arm is always first.
+    const order = r % 2 === 0 ? ["atom", "pi"] : ["pi", "atom"];
+    for (const arm of order)
+      samples[arm].push(run(arms[arm].lib, arms[arm].layout));
+  }
+  const summarize = (arr) => ({
+    p50Ms: Number(median(arr.map((s) => s.p50Ms)).toFixed(3)),
+    p95Ms: Number(median(arr.map((s) => s.p95Ms)).toFixed(3)),
+    maxMs: Number(median(arr.map((s) => s.maxMs)).toFixed(3)),
+  });
+  const atom = summarize(samples.atom);
+  const pi = summarize(samples.pi);
+  report[name] = {
+    atom,
+    pi,
+    p95Speedup: Number((pi.p95Ms / atom.p95Ms).toFixed(2)),
+    maxSpeedup: Number((pi.maxMs / atom.maxMs).toFixed(2)),
+  };
+}
+
 console.log(JSON.stringify(report, null, 2));

@@ -3691,6 +3691,9 @@ export async function run(args: string[]): Promise<void> {
   });
 
   tui.start();
+  // Pay the one-time cold render at startup so the first keystroke or wheel
+  // event does not stall on layout/JIT warm-up.
+  (tui as unknown as { doRender(): void }).doRender();
   const configuredUntrusted =
     configuredAgent.warning !== undefined &&
     agentReg.untrusted().some((agent) => agent.name === config.runtime.agent);
