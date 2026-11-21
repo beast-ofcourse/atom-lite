@@ -1,19 +1,19 @@
 {
-  "sourceCommit": "1b26a93-dirty",
+  "sourceCommit": "1783587",
   "seeded": 900,
   "deltas": 120,
   "width": 120,
   "height": 36,
   "liveWindow": 40,
   "content": {
-    "p50Ms": 0.245,
-    "p95Ms": 1.001,
-    "maxMs": 17.501
+    "p50Ms": 0.261,
+    "p95Ms": 1.559,
+    "maxMs": 16.947
   },
   "viewOnly": {
-    "p50Ms": 0.093,
-    "p95Ms": 0.587,
-    "maxMs": 1.557
+    "p50Ms": 0.105,
+    "p95Ms": 0.581,
+    "maxMs": 1.546
   },
-  "children": 218
+  "children": 318
 }
