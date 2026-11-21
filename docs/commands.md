@@ -10,14 +10,14 @@ Type `/help` in the prompt to list every command grouped by category. `ctrl+p` o
 
 ## General
 
-| Command                 | Behavior                                 |
-| ----------------------- | ---------------------------------------- |
-| `/help` (alias `/?`)    | Show the grouped command list.           |
-| `/doctor`               | Run diagnostics.                         |
-| `/keybindings`          | Open the keybindings config file.        |
-| `/shortcuts`            | List configured shortcuts.               |
-| `/thinking`             | Toggle thinking display for the session. |
-| `/exit` (alias `/quit`) | Exit the TUI.                            |
+| Command                         | Behavior                                 |
+| ------------------------------- | ---------------------------------------- |
+| `/help` (alias `/?`)            | Show the grouped command list.           |
+| `/doctor`                       | Run diagnostics.                         |
+| `/keybindings`                  | Open the keybindings config file.        |
+| `/shortcuts`                    | List configured shortcuts.               |
+| `/thinking`                     | Toggle thinking display for the session. |
+| `/exit` (aliases `/quit`, `/q`) | Exit the TUI.                            |
 
 ## Model
 

@@ -138,6 +138,7 @@ test("registry lists every built-in command plus skills", () => {
     assert.ok(names.includes(name), `missing ${name}`);
   }
   assert.equal(registry.get("quit")?.name, "exit");
+  assert.equal(registry.get("q")?.name, "exit");
 });
 
 test("help output is grouped by category and derived from the registry", () => {
@@ -248,9 +249,11 @@ test("plain prompts are not treated as commands", async () => {
 test("exit aliases request shutdown", async () => {
   const registry = createCommandRegistry();
   const { ctx, calls } = fakeContext();
-  const result = await registry.dispatch("/quit", ctx);
-  assert.equal(result.exit, true);
-  assert.deepEqual(calls, ["exit"]);
+  for (const command of ["/quit", "/q"]) {
+    const result = await registry.dispatch(command, ctx);
+    assert.equal(result.exit, true);
+  }
+  assert.deepEqual(calls, ["exit", "exit"]);
 });
 
 test("session commands open pickers, search, and rename", async () => {

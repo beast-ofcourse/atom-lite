@@ -767,7 +767,7 @@ export function createCommandRegistry(
   });
   registry.register({
     name: "exit",
-    aliases: ["quit"],
+    aliases: ["quit", "q"],
     description: "exit atom-lite",
     category: "System",
     exits: true,
