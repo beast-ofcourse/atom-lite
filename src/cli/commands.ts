@@ -54,6 +54,7 @@ export interface CommandContext {
   openThinkingPicker(): void;
   openThemePicker(): void;
   openSessionsPicker(scope: "workspace" | "all"): void;
+  showUsage(): void;
   searchSessions(query: string): void;
   renameSession(title: string): void;
   listExtensions(): string;
@@ -491,6 +492,15 @@ export function createCommandRegistry(
     argumentHint: "[focus]",
     async run(ctx, args) {
       await ctx.runCompact(args);
+    },
+  });
+
+  registry.register({
+    name: "usage",
+    description: "show per-model usage breakdown",
+    category: "Session",
+    run(ctx) {
+      ctx.showUsage();
     },
   });
 

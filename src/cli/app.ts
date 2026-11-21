@@ -47,11 +47,14 @@ import { QuestionPromptView } from "./question-prompt.js";
 import { Banner } from "./banner.js";
 import {
   formatContextUsage,
+  formatTokens,
   knownContextWindow,
   knownVisionModel,
 } from "../providers/context-window.js";
 import { resolveModelCapabilities } from "../providers/model-catalog.js";
 import { clampThinkingLevel, getSupportedThinkingLevels } from "../providers/thinking-levels.js";
+import { startRemoteCatalogRefresh } from "../providers/remote-catalog.js";
+import { getUsageBreakdown } from "../usage/ledger.js";
 import {
   STREAM_LIVE_LINES,
   STREAM_SEAL_BATCH,
@@ -268,6 +271,7 @@ export async function run(args: string[]): Promise<void> {
   }
 
   let config = loadConfig();
+  startRemoteCatalogRefresh();
   initLsp(config, process.cwd());
   const shutdownLspOnce = () => {
     void shutdownLsp();
@@ -1527,6 +1531,19 @@ export async function run(args: string[]): Promise<void> {
     tui.requestRender();
   }
 
+  function showUsage(): void {
+    const records = usageLedger?.records ?? [];
+    const breakdown = getUsageBreakdown(records);
+    if (breakdown.length === 0) {
+      appendLine("no recorded usage");
+      return;
+    }
+    appendLine("usage by model:");
+    for (const e of breakdown) {
+      appendLine(`  ${e.key}: $${e.cost.toFixed(3)} (${formatTokens(e.tokens)} tokens)`);
+    }
+  }
+
   function syncGoalPanel(): void {
     goalPanel.setState(runtime.getGoal(), runtime.getTodos());
     updateStatus();
@@ -2266,6 +2283,7 @@ export async function run(args: string[]): Promise<void> {
     openThemePicker,
     openAgentPicker,
     openSessionsPicker,
+    showUsage,
     openKeybindings: () => {
       const path = defaultUserConfigPath();
       appendLine(`keybindings config: ${path}`);

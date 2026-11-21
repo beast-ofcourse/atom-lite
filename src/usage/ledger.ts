@@ -65,6 +65,8 @@ export interface UsageRecord {
   requestId: string;
   provider: string;
   model: string;
+  /** What produced this record; defaults to "model". */
+  kind?: "model" | "tool" | "summary";
   usage: LedgerUsage;
   /** Estimated token contribution of each outgoing message component. */
   attribution?: MessageAttribution;
@@ -79,6 +81,8 @@ export interface UsageRecord {
 
 export interface UsageLedger {
   record(record: UsageRecord): void;
+  /** In-memory copy of recorded records, when the implementation keeps one. */
+  records?: UsageRecord[];
   /** Optional explicit prices, keyed by model id. Never fetched remotely. */
   prices?: PricingMap;
 }
@@ -89,6 +93,7 @@ export interface UsageCallContext {
   requestId: string;
   provider: string;
   model: string;
+  kind?: "model" | "tool" | "summary";
   attribution?: MessageAttribution;
   compacted?: boolean;
   prefix?: PrefixInfo;
@@ -129,10 +134,38 @@ export function recordModelUsage(
   }
 }
 
+export interface UsageBreakdownEntry {
+  key: string;
+  cost: number;
+  tokens: number;
+}
+
+/** Group usage records by responding model, with a separate bucket for tool/summary overhead. */
+export function getUsageBreakdown(records: readonly UsageRecord[]): UsageBreakdownEntry[] {
+  const groups = new Map<string, { cost: number; tokens: number }>();
+  for (const r of records) {
+    const key =
+      r.kind && r.kind !== "model" ? "Tools/summaries" : `${r.provider}/${r.model}`;
+    const tokens =
+      (r.usage.input ?? 0) +
+      (r.usage.output ?? 0) +
+      (r.usage.cacheRead ?? 0) +
+      (r.usage.cacheWrite ?? 0);
+    const cost = r.costUsd ?? 0;
+    const prev = groups.get(key) ?? { cost: 0, tokens: 0 };
+    groups.set(key, { cost: prev.cost + cost, tokens: prev.tokens + tokens });
+  }
+  return [...groups.entries()]
+    .map(([key, v]) => ({ key, cost: v.cost, tokens: v.tokens }))
+    .filter((e) => e.tokens > 0 || e.cost > 0)
+    .sort((a, b) => b.cost - a.cost);
+}
+
 /** Append-only, local JSONL ledger. Writes are best-effort and never throw. */
 export class FileUsageLedger implements UsageLedger {
   private dirReady = false;
   readonly prices?: PricingMap;
+  readonly records: UsageRecord[] = [];
 
   constructor(filePath: string, prices?: PricingMap) {
     this.filePath = filePath;
@@ -148,6 +181,7 @@ export class FileUsageLedger implements UsageLedger {
         this.dirReady = true;
       }
       appendFileSync(this.filePath, JSON.stringify(record) + "\n", "utf8");
+      this.records.push(record);
     } catch {
       // Observability must never break an agent turn.
     }
