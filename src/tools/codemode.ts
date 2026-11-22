@@ -19,7 +19,7 @@ export function createCodeModeTool(
   const tools: Record<string, unknown> = {};
   for (const atomTool of atomTools) {
     const name = atomTool.definition.name;
-    tools[name] = CodeModeTool.make({
+    const codeModeTool = CodeModeTool.make({
       description: atomTool.definition.description,
       input: atomTool.definition.parameters as CodeModeTool.JsonSchema,
       output: {} as CodeModeTool.JsonSchema,
@@ -32,6 +32,23 @@ export function createCodeModeTool(
           return runtime.runToolForCodeMode(name, input, context, atomContext);
         }),
     });
+
+    // Tool names using dots or MCP's `__` separator become nested namespaces,
+    // so `mcp__server__tool` is callable as `tools.mcp.server.tool(...)`.
+    const segments = name.split(/\.|__/).filter(Boolean);
+    let current: Record<string, unknown> = tools;
+    for (let i = 0; i < segments.length - 1; i++) {
+      const segment = segments[i];
+      if (
+        typeof current[segment] !== "object" ||
+        current[segment] === null ||
+        Array.isArray(current[segment])
+      ) {
+        current[segment] = {};
+      }
+      current = current[segment] as Record<string, unknown>;
+    }
+    current[segments[segments.length - 1]] = codeModeTool;
   }
 
   const resolvedLimits = {
@@ -48,7 +65,8 @@ export function createCodeModeTool(
       description:
         "Run JavaScript in a confined Code Mode runtime to orchestrate multiple Atom Lite tools in one execution. " +
         "Write plain JavaScript; intermediate tool results stay inside the runtime and only the final result is returned. " +
-        "Call tools as `await tools.<name>({ ... })`, in parallel with `Promise.allSettled`. " +
+        "Dotted or `__` tool names become nested namespaces. Call tools as `await tools.<name>({ ... })`, " +
+        "in parallel with `Promise.allSettled`. " +
         `Available tools: ${toolNames}.`,
       parameters: {
         type: "object",

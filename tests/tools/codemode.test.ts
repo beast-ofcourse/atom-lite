@@ -162,6 +162,65 @@ test("Code Mode keeps intermediate tool results out of the session", async () =>
   assert.deepEqual(tools, ["execute"]);
 });
 
+test("Code Mode builds nested namespaces from tool names", async () => {
+  const dir = dirWithFiles({ "a.txt": "nested" });
+  const namespacedTool = {
+    definition: {
+      name: "mcp__demo__read",
+      description: "namespaced read",
+      parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+    },
+    async execute(call: any, ctx: any) {
+      return readTool.execute(call, ctx);
+    },
+  } as any;
+  const provider = new FakeProvider([
+    {
+      toolCalls: [
+        {
+          id: "e1",
+          name: "execute",
+          arguments: { code: "const r = await tools.mcp.demo.read({ path: 'a.txt' }); return r.split('\\n')[1].trim();" },
+        },
+      ],
+    },
+    { text: "done" },
+  ]);
+  const runtime = new AgentRuntime({ provider, workspace: dir, tools: [readTool, namespacedTool] });
+  const session = new InMemorySession("s1", dir);
+  await runtime.runAgentTurn("namespace", session, new AbortController().signal);
+  const toolResult = session.messages.find((m) => m.role === "tool" && m.name === "execute");
+  assert.ok(toolResult);
+  assert.equal(toolResult.content, '"1: nested"');
+});
+
+test("Code Mode emits tool events", async () => {
+  const dir = dirWithFiles({ "a.txt": "evented" });
+  const provider = new FakeProvider([
+    {
+      toolCalls: [
+        {
+          id: "e1",
+          name: "execute",
+          arguments: { code: "return await tools.read({ path: 'a.txt' });" },
+        },
+      ],
+    },
+    { text: "done" },
+  ]);
+  const events: any[] = [];
+  const runtime = new AgentRuntime({
+    provider,
+    workspace: dir,
+    tools: [readTool],
+    onEvent: (event) => events.push(event),
+  });
+  const session = new InMemorySession("s1", dir);
+  await runtime.runAgentTurn("events", session, new AbortController().signal);
+  assert.ok(events.some((e) => e.type === "tool_call" && e.name === "execute"));
+  assert.ok(events.some((e) => e.type === "tool_result" && e.name === "execute"));
+});
+
 test("Code Mode is listed as a model tool", () => {
   const runtime = new AgentRuntime({ provider: new FakeProvider([]), tools: [readTool] });
   const defs = runtime["tools"].map((tool: any) => tool.definition.name);
