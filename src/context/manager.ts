@@ -662,21 +662,29 @@ export class ContextManager {
     };
     const previous = this.checkpoint?.summary ?? null;
     let summaryText: string;
-    try {
-      summaryText = await call(buildSummaryPrompt({ focus, previous }));
-      if (!hasAllSummaryHeadings(summaryText)) {
-        summaryText = await call(
-          `${summaryNudge()}\n${buildSummaryPrompt({ focus, previous })}`,
-        );
+    let attempts = 0;
+    while (true) {
+      try {
+        summaryText = await call(buildSummaryPrompt({ focus, previous }));
         if (!hasAllSummaryHeadings(summaryText)) {
-          return this.failCompaction(
-            "summary missing required headings",
-            silent,
+          summaryText = await call(
+            `${summaryNudge()}\n${buildSummaryPrompt({ focus, previous })}`,
           );
+          if (!hasAllSummaryHeadings(summaryText)) {
+            return this.failCompaction(
+              "summary missing required headings",
+              silent,
+            );
+          }
         }
+        break;
+      } catch {
+        if (attempts === 0) {
+          attempts++;
+          continue;
+        }
+        return this.failCompaction("summary request failed", silent);
       }
-    } catch {
-      return this.failCompaction("summary request failed", silent);
     }
     if (!summaryText) {
       return this.failCompaction("empty summary", silent);
@@ -1017,8 +1025,34 @@ export class ContextManager {
         this.opts.keepTokens ?? 15000,
       );
       if (!checkpoint) {
+        // Keep the recent tail instead of the full history so a failed
+        // compaction does not leave an oversized request for the model.
+        const keepTokens = this.opts.keepTokens ?? 15000;
+        const split = withOlder(
+          splitRecentTail(
+            workingHistory,
+            keepTokens,
+            Math.floor(this.budget() * 0.4),
+          ),
+        );
+        const historyStart = cached
+          ? 1 + memoryMessages.length
+          : statics.length + instructionMessages.length + memoryMessages.length;
+        messages.splice(
+          historyStart,
+          workingHistory.length,
+          ...split.recent,
+        );
+        categories.splice(
+          historyStart,
+          workingHistory.length,
+          ...split.recent.map(() => "history" as any),
+        );
+        const trimmedTotal =
+          messages.reduce((s, m) => s + estimateMessageTokens(m), 0) +
+          this.toolTokenOverhead;
         this.forceCompact = false;
-        this.lastBuildTokens = total;
+        this.lastBuildTokens = trimmedTotal;
         this.rememberLayout(messages, categories, prefixEnd, false);
         return messages;
       }
@@ -1051,9 +1085,27 @@ export class ContextManager {
       } else {
         result = await this.summarize(older);
         if (!result) {
-          // Validation failure leaves prior session memory intact.
+          // Validation failure leaves prior session memory intact, but trim
+          // the older tail so the failed compaction cannot strand an
+          // oversized request.
+          const historyStart = cached
+            ? 1 + memoryMessages.length
+            : statics.length + instructionMessages.length + memoryMessages.length;
+          messages.splice(
+            historyStart,
+            workingHistory.length,
+            ...split.recent,
+          );
+          categories.splice(
+            historyStart,
+            workingHistory.length,
+            ...split.recent.map(() => "history" as any),
+          );
+          const trimmedTotal =
+            messages.reduce((s, m) => s + estimateMessageTokens(m), 0) +
+            this.toolTokenOverhead;
           this.forceCompact = false;
-          this.lastBuildTokens = total;
+          this.lastBuildTokens = trimmedTotal;
           this.rememberLayout(messages, categories, prefixEnd, false);
           return messages;
         }

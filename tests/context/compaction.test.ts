@@ -115,3 +115,16 @@ test("an oversized summary request is retried with a smaller request", async () 
   assert.equal(requests.length, 2);
   assert.match(JSON.stringify(requests[1].messages), /\[truncated\]/);
 });
+
+test("a transient provider failure is retried once", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "atom-context-"));
+  const { cm, requests } = manager(dir, [
+    "THROW:transient provider error",
+    VALID_SUMMARY,
+  ]);
+  cm.setForceCompact(true);
+  await cm.build(dir, history());
+  assert.equal(requests.length, 2);
+  assert.equal(cm.consumeCompactionFailure(), null);
+  assert.match(cm.getSessionMemory() ?? "", /## Objective/);
+});

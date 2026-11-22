@@ -362,6 +362,10 @@ export class AgentRuntime {
       });
     }
     if (summary) {
+      // Manual compaction replaces the context; stale occupancy must not
+      // keep pressure high and force an immediate recompaction.
+      this.contextUsed = undefined;
+      this.emitContextUsage();
       this.contextManager.resetUsage();
       this.contextManager.setSessionMemory(
         summary,
@@ -767,6 +771,8 @@ export class AgentRuntime {
     await this.extensionDispatch?.("turn_start", { type: "turn_start" });
     let completionNudges = 0;
     const maxCompletionNudges = 3;
+    let compactionRetries = 0;
+    const maxCompactionRetries = 1;
     let truncationContinuations = 0;
     let answerPrefix = "";
     try {
@@ -811,6 +817,13 @@ export class AgentRuntime {
           messages,
         });
         const failure = this.contextManager.consumeCompactionFailure();
+        // A failed compaction must not strand the turn: retry once with a
+        // forced compact before falling back to the current context.
+        if (failure && compactionRetries < maxCompactionRetries) {
+          compactionRetries++;
+          this.contextManager.setForceCompact(true);
+          continue;
+        }
         if (failure) {
           this.onEvent?.({
             type: "context_compaction_failed",

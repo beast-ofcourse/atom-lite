@@ -139,6 +139,48 @@ test("agent loop forwards streamed bash output and tool diffs", async () => {
   assert.deepEqual(writeResult.diff, ["+ hi"]);
 });
 
+test("agent loop retries a failed compaction and still completes", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
+  const contextManager = new ContextManager({
+    systemPrompt: "system",
+    maxInputTokens: 60,
+    reserveOutputTokens: 10,
+    compactAtPercent: 50,
+    maxProjectInstructionBytes: 30000,
+    provider: {
+      id: "failing",
+      generate: async () => {
+        throw new Error("compaction boom");
+      },
+    } as any,
+    model: "failing-model",
+    userInstructionsPath: join(dir, "missing-AGENTS.md"),
+  });
+  const provider = new FakeProvider([{ text: "done" }]);
+  const runtime = new AgentRuntime({
+    provider,
+    workspace: dir,
+    tools: [],
+    contextManager,
+  });
+  const session = new InMemorySession("s1", dir);
+  session.messages = Array.from({ length: 20 }, (_, i) => ({
+    role: i % 2 === 0 ? "user" : "assistant",
+    content: [{ type: "text", text: `message ${i} ${"x".repeat(40)}` }],
+  })) as any;
+  const events: any[] = [];
+  (runtime as any).onEvent = (e: any) => events.push(e);
+  const result = await runtime.runAgentTurn(
+    "go",
+    session,
+    new AbortController().signal,
+  );
+  assert.equal(result, "done");
+  assert.ok(
+    events.filter((e) => e.type === "context_compaction_failed").length === 1,
+  );
+});
+
 test("agent loop does not stop at the old 40-iteration cap", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
   writeFileSync(join(dir, "a.txt"), "hello\n");

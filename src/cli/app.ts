@@ -3483,7 +3483,11 @@ export async function run(args: string[]): Promise<void> {
     }
     const summary = await runtime.compactSession(session, focus || undefined);
     if (!summary) {
-      appendLine("nothing to compact");
+      appendLine(
+        session.messages.length <= 6
+          ? "nothing to compact"
+          : "compaction failed; see the notice above",
+      );
       return;
     }
     appendLine(`compacted: ${summary.slice(0, 200)}`);
