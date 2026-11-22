@@ -104,12 +104,14 @@ export function createCodeModeTool(
             isError: true,
           };
         }
+        const controller = new AbortController();
         const job = ctx.backgroundTasks.startJob({
           kind: "codemode",
           title: "Code Mode script",
           command: "Code Mode script",
           recovery: { kind: "codemode", id: "pending", params: { code } },
-          run: () => runCode(code, ctx.signal),
+          cancel: () => controller.abort(),
+          run: () => runCode(code, controller.signal),
         });
         return {
           toolCallId: call.id,

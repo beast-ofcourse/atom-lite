@@ -161,6 +161,19 @@ test("output file keeps the full stream when the preview is capped", async () =>
   assert.equal(readFileSync(done!.outputPath!, "utf8").length, 40000);
 });
 
+test("adopt settles a child that exited before listeners attached", async () => {
+  const mgr = new BackgroundTaskManager();
+  const child = spawn(
+    process.env.SHELL ?? "/bin/sh",
+    ["-c", "echo early"],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
+  await new Promise((resolve) => child.once("exit", resolve));
+  const task = mgr.adopt("early", child, "", Date.now());
+  const done = await mgr.wait(task.id, 1000);
+  assert.equal(done?.status, "completed");
+});
+
 test("adopt takes over a running process and captures later output", async () => {
   const mgr = new BackgroundTaskManager();
   const child = spawn(
@@ -204,8 +217,13 @@ test("empty status file is not mistaken for exit zero", async () => {
   assert.equal(readSupervised(descriptor).code, null);
   writeFileSync(descriptor.statusPath, "");
   assert.equal(readSupervised(descriptor).code, null);
-  const result = await waitSupervised(descriptor, 20);
-  assert.equal(result.code, 0);
+  const keepAlive = setInterval(() => {}, 20);
+  try {
+    const result = await waitSupervised(descriptor, 20);
+    assert.equal(result.code, 0);
+  } finally {
+    clearInterval(keepAlive);
+  }
   rmSync(dir, { recursive: true, force: true });
 });
 

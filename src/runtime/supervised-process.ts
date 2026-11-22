@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { StringDecoder } from "node:string_decoder";
 import {
   closeSync,
   existsSync,
@@ -136,16 +137,19 @@ export function readSupervised(target: SupervisedProcess): SupervisedResult {
 
 export function supervisedReader(target: SupervisedProcess): () => string {
   let offset = 0;
+  const decoder = new StringDecoder("utf8");
   return () => {
     if (!existsSync(target.outputPath)) return "";
     const size = statSync(target.outputPath).size;
     if (size <= offset) return "";
     const fd = openSync(target.outputPath, "r");
     try {
-      const buffer = Buffer.alloc(size - offset);
-      readSync(fd, buffer, 0, buffer.length, offset);
-      offset = size;
-      return buffer.toString("utf8");
+      const length = Math.min(size - offset, 64 * 1024);
+      const buffer = Buffer.alloc(length);
+      const bytesRead = readSync(fd, buffer, 0, length, offset);
+      if (bytesRead <= 0) return "";
+      offset += bytesRead;
+      return decoder.write(buffer.subarray(0, bytesRead));
     } finally {
       closeSync(fd);
     }
@@ -174,6 +178,7 @@ export function waitSupervised(
         return;
       }
       timer = setTimeout(poll, intervalMs);
+      timer.unref();
     };
     if (signal?.aborted) onAbort();
     else poll();

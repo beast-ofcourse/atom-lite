@@ -96,6 +96,7 @@ export class AgentRuntime {
   private latestCacheHitRate: number | undefined;
   private supportsVision: boolean | undefined;
   private backgroundTasks: BackgroundTaskManager;
+  private currentSession?: Pick<AgentSession, "appendMessage">;
   private todoStore: TodoStore;
   private goalStore: GoalStore;
   private turnIndex = 0;
@@ -162,9 +163,13 @@ export class AgentRuntime {
         status: t.status,
         exitCode: t.exitCode,
       });
-      this.steeringQueue?.push(
-        `[background task completed] Task ${t.id} (${t.type}) finished with status ${t.status} (exit ${t.exitCode ?? "null"}). Output:\n${t.output}\nContinue only if the result changes what you are doing; otherwise answer the user.`,
-      );
+      const notice = `[background task completed] Task ${t.id} (${t.type}) finished with status ${t.status} (exit ${t.exitCode ?? "null"}). Output:\n${t.output}\nContinue only if the result changes what you are doing; otherwise answer the user.`;
+      if (this.steeringQueue) this.steeringQueue.push(notice);
+      else
+        this.currentSession?.appendMessage({
+          role: "system",
+          content: notice,
+        });
     });
 
     this.toolMap = new Map(options.tools.map((t) => [t.definition.name, t]));
@@ -823,6 +828,7 @@ export class AgentRuntime {
     signal: AbortSignal,
     options?: { requestId?: string },
   ): Promise<string> {
+    this.currentSession = session;
     // Restore any persisted session memory for resumed sessions.
     const latest = latestEvent(session, "context_compacted");
     const summary = typeof latest?.summary === "string" ? latest.summary : null;
