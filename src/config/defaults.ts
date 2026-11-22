@@ -16,6 +16,12 @@ export const DEFAULT_CONFIG = {
     mode: "yolo",
     maxTokensPerSession: null as number | null,
     maxTokensPerTurn: null as number | null,
+    codeMode: {
+      enabled: true,
+      timeoutMs: 30000,
+      maxToolCalls: 100,
+      maxOutputBytes: 100000,
+    },
   },
   context: {
     maxInputTokens: null as number | null,

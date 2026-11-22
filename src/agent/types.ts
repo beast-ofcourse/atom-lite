@@ -138,6 +138,13 @@ export interface AgentRuntimeOptions {
   supportsVision?: boolean;
   /** Background task manager override (defaults to a new manager). */
   backgroundTasks?: import("../runtime/background-tasks.js").BackgroundTaskManager;
+  /** Code Mode execution limits. */
+  codeMode?: {
+    enabled?: boolean;
+    timeoutMs?: number;
+    maxToolCalls?: number;
+    maxOutputBytes?: number;
+  };
   /** Shared lock manager for cross-batch tool exclusion (defaults to a new one). */
   lockManager?: LockManager;
   /** Task ledger override (defaults to a new in-memory store). */

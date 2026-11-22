@@ -42,6 +42,14 @@ export const RuntimeConfigSchema = z
     agent: z.string().min(1).optional(),
     maxTokensPerSession: z.number().int().positive().nullable().default(null),
     maxTokensPerTurn: z.number().int().positive().nullable().default(null),
+    codeMode: z
+      .object({
+        enabled: z.boolean().default(true),
+        timeoutMs: z.number().int().positive().default(30000),
+        maxToolCalls: z.number().int().nonnegative().default(100),
+        maxOutputBytes: z.number().int().positive().default(100000),
+      })
+      .prefault({}),
     /**
      * Accepted for backward compatibility but ignored. Automatic checkpoints
      * were removed entirely (ADR 0018); this schema is `.strict()`, so the key

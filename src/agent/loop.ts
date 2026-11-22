@@ -6,6 +6,8 @@ import type {
 } from "./types.js";
 import { DEFAULT_LIMITS } from "../types.js";
 import type { Message, AgentLimits, ToolCall } from "../types.js";
+import type { ToolContext } from "../tools/types.js";
+import { createCodeModeTool } from "../tools/codemode.js";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { executeToolBatch } from "../runtime/scheduler.js";
@@ -76,6 +78,8 @@ export class AgentRuntime {
   private reasoning: string;
   private bashConcurrency: "serial" | "parallel";
   private toolMap: Map<string, AgentRuntimeOptions["tools"][number]>;
+  private codeModeContext: ToolContext | null = null;
+  private codeModeOptionsValue: AgentRuntimeOptions["codeMode"];
   private limits: AgentLimits;
   private extensionDispatch: AgentRuntimeOptions["extensionDispatch"];
   private usageLedger: AgentRuntimeOptions["usageLedger"];
@@ -108,6 +112,7 @@ export class AgentRuntime {
     this.approvals = options.approvals;
     this.questions = options.questions;
     this.web = options.web;
+    this.codeModeOptionsValue = options.codeMode;
     this.mode = options.mode ?? "yolo";
     this.maxTokensPerSession = options.maxTokensPerSession ?? null;
     this.maxTokensPerTurn = options.maxTokensPerTurn ?? null;
@@ -149,6 +154,15 @@ export class AgentRuntime {
       );
     }
     this.toolMap = new Map(options.tools.map((t) => [t.definition.name, t]));
+    const baseTools = options.tools.filter((tool) => tool.definition.name !== "execute");
+    if (options.codeMode?.enabled !== false && baseTools.length > 0) {
+      const codeModeTool = createCodeModeTool(this, baseTools, options.codeMode);
+      this.tools = [...baseTools, codeModeTool];
+      this.toolMap = new Map(this.tools.map((t) => [t.definition.name, t]));
+    } else {
+      this.tools = [...baseTools];
+      this.toolMap = new Map(this.tools.map((t) => [t.definition.name, t]));
+    }
     this.refreshToolTokenOverhead();
     this.limits = { ...DEFAULT_LIMITS, ...(options.limits ?? {}) };
     this.extensionDispatch = options.extensionDispatch;
@@ -343,6 +357,72 @@ export class AgentRuntime {
     this.steeringQueue = queue;
   }
 
+  getCodeModeContext(): ToolContext | null {
+    return this.codeModeContext;
+  }
+
+  setCodeModeContext(ctx: ToolContext): void {
+    this.codeModeContext = ctx;
+  }
+
+  async runToolForCodeMode(
+    name: string,
+    input: unknown,
+    _cmContext: { key: string },
+    atomContext: ToolContext,
+  ): Promise<unknown> {
+    const tool = this.toolMap.get(name);
+    if (!tool) {
+      throw new Error(`TOOL_NOT_FOUND: ${name}`);
+    }
+    const call = {
+      id: _cmContext.key,
+      name,
+      arguments: (input ?? {}) as Record<string, unknown>,
+    };
+    const payload = {
+      type: "tool_call",
+      toolCallId: call.id,
+      name,
+      input: call.arguments,
+    };
+    await this.extensionDispatch?.("tool_call", payload);
+    if (payload.input && payload.input !== call.arguments) {
+      call.arguments = payload.input as Record<string, unknown>;
+    }
+    const results = await executeToolBatch(
+      [call],
+      new Map([[name, tool]]),
+      atomContext,
+      1,
+      atomContext.signal,
+      this.lockManager,
+      this.bashConcurrency,
+    );
+    const result = results[0];
+    const resultPayload = {
+      type: "tool_result",
+      toolCallId: result.toolCallId,
+      name: result.name,
+      content: result.content,
+      details: result.details,
+      structuredContent: result.structuredContent,
+      isError: result.isError,
+      usage: result.usage,
+    };
+    await this.extensionDispatch?.("tool_result", resultPayload);
+    result.content = resultPayload.content ?? result.content;
+    result.isError = resultPayload.isError ?? result.isError;
+    if (result.isError) {
+      throw new Error(result.content);
+    }
+    try {
+      return JSON.parse(result.content);
+    } catch {
+      return result.content;
+    }
+  }
+
   async compactSession(
     session: AgentSession,
     focus?: string,
@@ -418,10 +498,22 @@ export class AgentRuntime {
 
   /** Replace the toolset, e.g. after MCP discovery or a list_changed refresh. */
   setTools(tools: AgentRuntimeOptions["tools"]): void {
-    this.tools = tools;
-    this.toolMap = new Map(tools.map((t) => [t.definition.name, t]));
+    const baseTools = tools.filter((tool) => tool.definition.name !== "execute");
+    if (this.codeModeOptionsValue?.enabled !== false && baseTools.length > 0) {
+      const codeModeTool = createCodeModeTool(
+        this,
+        baseTools,
+        this.codeModeOptionsValue,
+      );
+      this.tools = [...baseTools, codeModeTool];
+      this.toolMap = new Map(this.tools.map((t) => [t.definition.name, t]));
+    } else {
+      this.tools = [...baseTools];
+      this.toolMap = new Map(this.tools.map((t) => [t.definition.name, t]));
+    }
     this.refreshToolTokenOverhead();
   }
+
 
   private refreshToolTokenOverhead(): void {
     const overhead = (this.tools ?? []).reduce((sum, tool: any) => {
@@ -1160,6 +1252,7 @@ export class AgentRuntime {
             );
           },
         };
+        this.codeModeContext = ctx;
 
         // Wrapped tool map emits tool_execution_start/end.
         const wrappedToolMap = new Map(this.toolMap);

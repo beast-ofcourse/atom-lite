@@ -111,7 +111,17 @@ clamped to the nearest supported one when applied. `/thinking` updates this map.
 | `agent`                | string                     | unset      | Default primary persona name applied at startup. User config only. See [Agent personas](./agents.md).                                                                                                      |
 | `maxTokensPerSession`  | positive integer \| null   | `null`     | Optional session token budget (hard stop). `null` means no limit. User config only.                                                                                                                        |
 | `maxTokensPerTurn`     | positive integer \| null   | `null`     | Optional per-turn token soft warning. `null` means no warning. User config only.                                                                                                                           |
+| `codeMode`             | object                     | see below  | Code Mode execution limits.                                                                                                                                                                               |
 | `checkpointing`        | boolean                    | (ignored)  | Deprecated: automatic checkpoints were removed. Accepted for config compatibility; no effect.                                                                                                              |
+
+### `runtime.codeMode`
+
+| Key              | Type              | Default  | Description                      |
+| ---------------- | ----------------- | -------- | -------------------------------- |
+| `enabled`        | boolean           | `true`   | Expose the `execute` tool.       |
+| `timeoutMs`      | positive integer  | `30000`  | Wall-clock timeout per run.      |
+| `maxToolCalls`   | nonnegative integer | `100`  | Maximum tool calls per run.      |
+| `maxOutputBytes` | positive integer  | `100000` | Maximum retained output bytes.   |
 
 ## `context`
 

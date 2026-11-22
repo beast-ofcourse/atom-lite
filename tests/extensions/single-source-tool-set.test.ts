@@ -219,7 +219,7 @@ test("AgentRuntime.setTools swaps the tool set without changing provider or mode
     const first = provider.requests.at(-1);
     assert.deepEqual(
       first.tools.map((tool: any) => tool.name),
-      ["old"],
+      ["old", "execute"],
     );
     assert.equal(first.model, "pinned-model");
 
@@ -231,7 +231,7 @@ test("AgentRuntime.setTools swaps the tool set without changing provider or mode
     const second = provider.requests.at(-1);
     assert.deepEqual(
       second.tools.map((tool: any) => tool.name),
-      ["new"],
+      ["new", "execute"],
     );
     assert.equal(second.model, first.model);
     assert.equal(provider.requests.length, 2);

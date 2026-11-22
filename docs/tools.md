@@ -48,6 +48,12 @@ The result is capped by the smaller of `web.fetch.maxOutputChars` and `runtime.m
 
 `web.search.maxResults` supplies the count when `num_results` is absent and caps an explicit value at 20. Search selects Tavily, Brave, Exa, or Serper from environment keys, or DuckDuckGo when no key is configured. A failing provider is cooled down and skipped on later calls; set `web.search.fallback` to `false` to disable failover and DuckDuckGo fallback. The same `freshness` modes as `webfetch` apply. Provider keys and cache settings are in [`web`](./config.md).
 
+## Code Mode
+
+`execute` runs JavaScript in a confined runtime to orchestrate multiple Atom Lite tools in one call. Tool results stay inside the runtime; only the final, relevant output is returned. Use it for multi-step workflows, parallel calls, loops, conditionals, and data processing. Simple tasks should still use direct tool calls.
+
+Available tools are exposed as `tools.<name>(...)`. Limits are configured under `runtime.codeMode`: `enabled`, `timeoutMs`, `maxToolCalls`, and `maxOutputBytes`.
+
 ## Scheduling
 
 A tool-call batch runs with at most `runtime.maxParallelToolCalls` (default `10`) concurrent calls. Per-file read/write locks prevent conflicting edits. `bash` is a global exclusive barrier unless `runtime.bashConcurrency` is `parallel`.

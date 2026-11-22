@@ -666,6 +666,7 @@ export async function run(args: string[]): Promise<void> {
     web: config.web,
     maxTokensPerSession: config.runtime.maxTokensPerSession,
     maxTokensPerTurn: config.runtime.maxTokensPerTurn,
+    codeMode: config.runtime.codeMode,
     usageLedger,
     contextManager,
     warming: config.context.warming,
