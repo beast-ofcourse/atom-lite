@@ -28,6 +28,13 @@ import {
 } from "./http-headers.js";
 import { parseOpenAIUsage } from "./usage.js";
 
+function resolveReasoningEffort(value: unknown): string | undefined {
+  if (typeof value !== "string" || value === "") return undefined;
+  if (value === "off") return "none";
+  if (value === "max") return "xhigh";
+  return value;
+}
+
 export interface OpenAICompatibleConfig {
   id: string;
   baseUrl: string;
@@ -181,8 +188,9 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     }
     if (request.options) {
       const opts = { ...request.options };
-      const effort = opts.reasoning ?? opts.effort;
+      const effort = resolveReasoningEffort(opts.reasoning ?? opts.effort);
       delete opts.effort;
+      delete opts.reasoning;
       if (effort) opts.reasoning_effort = effort;
       Object.assign(body, opts);
     }
@@ -245,8 +253,9 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     }
     if (request.options) {
       const opts = { ...request.options };
-      const effort = opts.reasoning ?? opts.effort;
+      const effort = resolveReasoningEffort(opts.reasoning ?? opts.effort);
       delete opts.effort;
+      delete opts.reasoning;
       if (effort) opts.reasoning_effort = effort;
       Object.assign(body, opts);
     }
