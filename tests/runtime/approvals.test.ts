@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   checkApproval,
   type ApprovalContext,
+  type ApprovalDecision,
 } from "../../dist/runtime/approvals.js";
 
 function base(overrides: Partial<ApprovalContext> = {}): ApprovalContext {
@@ -154,4 +155,47 @@ test("missing handler refuses in ask mode", async () => {
     sandboxed: false,
   });
   assert.equal(d.allowed, false);
+});
+
+test("concurrent approvals use one prompt and trust-session covers the rest", async () => {
+  let trusted = false;
+  let inFlight = 0;
+  let maxInFlight = 0;
+  let calls = 0;
+  let answer!: (decision: ApprovalDecision) => void;
+  const ctx = base({
+    isTrusted: () => trusted,
+    trustSession: () => {
+      trusted = true;
+    },
+    handler: () => {
+      calls++;
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      return new Promise<ApprovalDecision>((resolve) => {
+        answer = resolve;
+      }).finally(() => {
+        inFlight--;
+      });
+    },
+  });
+  const request = {
+    command: "ls",
+    cwd: "/",
+    timeoutMs: 0,
+    sandboxed: false,
+  };
+
+  const first = checkApproval(ctx, request);
+  const second = checkApproval(ctx, request);
+  await Promise.resolve();
+  assert.equal(calls, 1, "parallel tool calls must not open two prompts");
+
+  answer("trust-session");
+  const [a, b] = await Promise.all([first, second]);
+  assert.equal(maxInFlight, 1);
+  assert.equal(calls, 1);
+  assert.equal(a.allowed, true);
+  assert.equal(b.allowed, true);
+  assert.equal(trusted, true);
 });
