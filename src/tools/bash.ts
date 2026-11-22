@@ -3,6 +3,7 @@ import { StringDecoder } from "node:string_decoder";
 import { resolve } from "node:path";
 import { isWithinWorkspace } from "../security/paths.js";
 import { defaultShell, terminateProcessTree } from "../security/process.js";
+import { writeOutputFile } from "../runtime/background-tasks.js";
 import type { Tool, ToolContext, ToolResult } from "./types.js";
 import type { ToolCall } from "../types.js";
 import { z } from "zod";
@@ -142,8 +143,11 @@ export const bashTool: Tool = {
       };
       let stdout = "";
       let stderr = "";
+      let fullStdout = "";
+      let fullStderr = "";
       let truncated = false;
       let pipesDestroyed = false;
+      let handedOff = false;
       const remaining = (target: "out" | "err") =>
         Math.max(
           0,
@@ -190,6 +194,8 @@ export const bashTool: Tool = {
       };
       const consume = (target: "out" | "err", s: string): string => {
         if (s === "") return "";
+        if (target === "out") fullStdout += s;
+        else fullStderr += s;
         let accepted = s;
         const rem = remaining(target);
         if (Buffer.byteLength(s, "utf8") > rem) {
@@ -213,6 +219,30 @@ export const bashTool: Tool = {
       let timedOut = false;
       let killedByAbort = false;
       const timer = setTimeout(() => {
+        if (ctx.backgroundTasks) {
+          handedOff = true;
+          const adopted = ctx.backgroundTasks.adopt(
+            command,
+            child,
+            fullStdout + fullStderr,
+            start,
+          );
+          flushNow();
+          finish({
+            toolCallId: call.id,
+            name: "bash",
+            content: JSON.stringify({
+              task_id: adopted.id,
+              status: "running",
+              command,
+              timed_out: true,
+              outputPath: adopted.outputPath,
+              pid: child.pid,
+              notice: `Command exceeded its ${timeout} ms timeout and moved to the background. Do not start another copy. You will be notified when it finishes; do not poll.`,
+            }),
+          });
+          return;
+        }
         timedOut = true;
         terminateProcessTree(child, "SIGTERM");
         setTimeout(() => terminateProcessTree(child, "SIGKILL"), 1000).unref();
@@ -240,6 +270,7 @@ export const bashTool: Tool = {
       const watchForClosedPipes = () => {
         if (closeGuard) return;
         closeGuard = setTimeout(() => {
+          if (handedOff) return;
           pipesDestroyed = true;
           child.stdout?.destroy();
           child.stderr?.destroy();
@@ -267,6 +298,7 @@ export const bashTool: Tool = {
         watchForClosedPipes();
       });
       child.on("close", (code, signal) => {
+        if (handedOff) return;
         // Flush any bytes remaining buffered in the decoder, through the same
         // cap accounting as live chunks, then deliver every coalesced but
         // unforwarded chunk: the live view must end with the same text the
@@ -288,7 +320,12 @@ export const bashTool: Tool = {
           parts.push(
             "warning: descendant processes kept result output pipes open; remaining descendant output was not collected",
           );
-        if (truncated) parts.push("OUTPUT_TRUNCATED");
+        let outputPath: string | undefined;
+        if (truncated) {
+          outputPath = writeOutputFile(fullStdout + fullStderr, "bash");
+          parts.push("OUTPUT_TRUNCATED");
+          parts.push(`outputPath: ${outputPath}`);
+        }
         parts.push(`duration_ms: ${duration}`);
         parts.push(`cwd: ${workdir}`);
         if (

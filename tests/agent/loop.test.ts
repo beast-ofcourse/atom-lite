@@ -12,6 +12,7 @@ import {
 } from "../../dist/tools/index.js";
 import { TodoStore } from "../../dist/runtime/todos.js";
 import { BackgroundTaskManager } from "../../dist/runtime/background-tasks.js";
+import type { Tool } from "../../dist/tools/types.js";
 import { mkdirSync, mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { ContextManager } from "../../dist/context/manager.js";
 import { SUMMARY_HEADINGS } from "../../dist/context/checkpoint.js";
@@ -416,6 +417,53 @@ test("non-git workspace mutating turn emits no checkpoint events", async () => {
   assert.ok(
     sessionEvents.every((e) => !String(e.type).startsWith("checkpoint")),
     "unexpected checkpoint event in session log",
+  );
+});
+
+test("turn cancellation stops all background tasks in the session", async () => {
+  const tasks = new BackgroundTaskManager();
+  const controller = new AbortController();
+  const abortTool: Tool = {
+    definition: {
+      name: "abort",
+      description: "abort the turn",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+    async execute() {
+      controller.abort();
+      return { toolCallId: "c2", name: "abort", content: "aborted" };
+    },
+  };
+  const provider = new FakeProvider([
+    {
+      toolCalls: [
+        {
+          id: "c1",
+          name: "bash",
+          arguments: {
+            command: `node -e "setInterval(()=>{},50)"`,
+            background: true,
+          },
+        },
+      ],
+    },
+    { toolCalls: [{ id: "c2", name: "abort", arguments: {} }] },
+    { text: "unreachable" },
+  ]);
+  const runtime = new AgentRuntime({
+    provider,
+    workspace: process.cwd(),
+    tools: [bashTool, abortTool],
+    backgroundTasks: tasks,
+  });
+  const session = new InMemorySession("s1", process.cwd());
+  await assert.rejects(
+    runtime.runAgentTurn("start and abort", session, controller.signal),
+    /USER_CANCELLED/,
+  );
+  assert.ok(
+    tasks.list().every((t) => t.status === "cancelled"),
+    "every session background task was cancelled",
   );
 });
 

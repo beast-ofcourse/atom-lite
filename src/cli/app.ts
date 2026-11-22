@@ -17,6 +17,10 @@ import { join } from "node:path";
 import { writeFileSync, existsSync } from "node:fs";
 import { execSync, spawn } from "node:child_process";
 import { defaultShell, terminateProcessTree } from "../security/process.js";
+import {
+  BackgroundTaskManager,
+  createTaskStore,
+} from "../runtime/background-tasks.js";
 import { redactSecrets } from "../security/redaction.js";
 import { openSearchablePicker, type PickerItem } from "./picker.js";
 import { openCommandPalette, type PaletteItem } from "./palette.js";
@@ -654,10 +658,14 @@ export async function run(args: string[]): Promise<void> {
     nonInteractive: !interactive,
   };
 
+  const backgroundTasks = new BackgroundTaskManager();
+  backgroundTasks.setStore(createTaskStore(process.cwd()));
+
   const runtime = new AgentRuntime({
     provider,
     model: modelOverride ?? provider.model,
     workspace: process.cwd(),
+    backgroundTasks,
     tools: currentTools(false),
     approvals,
     questions,

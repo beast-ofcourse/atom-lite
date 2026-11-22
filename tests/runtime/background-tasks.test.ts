@@ -2,10 +2,14 @@
 // Integration-level: real child processes, short commands, bounded waits.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BackgroundTaskManager } from "../../dist/runtime/background-tasks.js";
+import {
+  BackgroundTaskManager,
+  createTaskStore,
+} from "../../dist/runtime/background-tasks.js";
 
 const SHELL_ECHO = `node -e "process.stdout.write('bg-out');process.stderr.write('bg-err')"`;
 
@@ -57,6 +61,21 @@ test("concurrency cap rejects beyond 4 running tasks", async () => {
   const t = mgr.start(`echo ok`, process.cwd(), process.env);
   await mgr.wait(t.id, 10000);
   assert.equal(mgr.get(t.id)?.status, "completed");
+});
+
+test("cancelAll stops every running task", async () => {
+  const mgr = new BackgroundTaskManager();
+  const sleep = `node -e "setInterval(()=>{},50)"`;
+  const a = mgr.start(sleep, process.cwd(), process.env);
+  const b = mgr.start(sleep, process.cwd(), process.env);
+  const settled = mgr.cancelAll();
+  assert.equal(settled.length, 2);
+  assert.ok(settled.every((t) => t.status === "cancelled"));
+  assert.deepEqual(
+    mgr.list().filter((t) => t.status === "running").length,
+    0,
+  );
+  assert.equal(a.id === b.id, false);
 });
 
 test("cancel terminates a running task", async () => {
@@ -120,6 +139,63 @@ test("waitDetailed reports timedOut separately from completion", async () => {
   const done = await mgr.waitDetailed(slow.id, 5000);
   assert.equal(done?.timedOut, false);
   assert.equal(done?.task?.status, "completed");
+});
+
+test("output file keeps the full stream when the preview is capped", async () => {
+  const mgr = new BackgroundTaskManager();
+  const t = mgr.start(
+    `node -e "process.stdout.write('y'.repeat(40000))"`,
+    process.cwd(),
+    process.env,
+  );
+  const done = await mgr.wait(t.id, 10000);
+  assert.equal(done?.truncated, true);
+  assert.ok(done?.outputPath);
+  assert.ok(done!.output.length < 40000);
+  assert.equal(readFileSync(done!.outputPath!, "utf8").length, 40000);
+});
+
+test("adopt takes over a running process and captures later output", async () => {
+  const mgr = new BackgroundTaskManager();
+  const child = spawn(
+    process.env.SHELL ?? "/bin/sh",
+    ["-c", `node -e "setTimeout(()=>console.log('adopted'),80)"`],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
+  const task = mgr.adopt("adopted command", child, "seed", Date.now());
+  assert.equal(task.status, "running");
+  assert.ok(task.outputPath);
+  assert.match(readFileSync(task.outputPath!, "utf8"), /seed/);
+  const done = await mgr.wait(task.id, 5000);
+  assert.equal(done?.status, "completed");
+  assert.match(done?.output ?? "", /adopted/);
+  assert.match(readFileSync(done!.outputPath!, "utf8"), /adopted/);
+});
+
+test("task store restores records and marks lost running work cancelled", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "task-store-"));
+  const first = new BackgroundTaskManager();
+  first.setStore(createTaskStore("session", dir));
+  const finished = first.start(`echo persisted`, process.cwd(), process.env);
+  await first.wait(finished.id, 10000);
+  const running = first.start(
+    `node -e "setInterval(()=>{},50)"`,
+    process.cwd(),
+    process.env,
+  );
+
+  const restored = new BackgroundTaskManager();
+  restored.setStore(createTaskStore("session", dir));
+  assert.equal(restored.get(finished.id)?.status, "completed");
+  assert.equal(restored.get(running.id)?.status, "cancelled");
+  assert.equal(restored.get(running.id)?.error, "PROCESS_LOST_ON_RESTART");
+  assert.equal(restored.drainCompleted().length, 0, "no stale re-notification");
+  const after = restored.start(`echo after`, process.cwd(), process.env);
+  assert.equal(after.id, "bg-3", "counter continues after restore");
+  await restored.wait(after.id, 10000);
+
+  first.cancel(running.id);
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test("onComplete fires once with the settled record for auto-notification", async () => {

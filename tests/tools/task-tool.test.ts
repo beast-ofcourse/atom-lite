@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { bashTool, taskTool } from "../../dist/tools/index.js";
 import { BackgroundTaskManager } from "../../dist/runtime/background-tasks.js";
+import { readFileSync } from "node:fs";
 import type { ToolContext } from "../../dist/tools/types.js";
 
 function ctx(mgr: BackgroundTaskManager | undefined): ToolContext {
@@ -80,6 +81,44 @@ test("bash background:true without a manager fails explicitly", async () => {
   );
   assert.equal(r.content, "BACKGROUND_TASKS_UNAVAILABLE");
   assert.equal(r.isError, true);
+});
+
+test("foreground timeout moves the command to the background", async () => {
+  const mgr = new BackgroundTaskManager();
+  const start = await bashTool.execute(
+    {
+      id: "1",
+      name: "bash",
+      arguments: {
+        command: `node -e "setTimeout(()=>console.log('late'),150)"`,
+        timeout_ms: 60,
+      },
+    },
+    { ...ctx(mgr), maxBashTimeMs: 5000 },
+  );
+  const result = JSON.parse(start.content);
+  assert.equal(result.status, "running");
+  assert.equal(result.timed_out, true);
+  assert.ok(result.task_id);
+  assert.ok(result.outputPath);
+  const done = await mgr.wait(result.task_id, 5000);
+  assert.equal(done?.status, "completed");
+  assert.match(done?.output ?? "", /late/);
+});
+
+test("truncated foreground output is saved to a file", async () => {
+  const result = await bashTool.execute(
+    {
+      id: "1",
+      name: "bash",
+      arguments: { command: `node -e "process.stdout.write('z'.repeat(4000))"` },
+    },
+    { ...ctx(undefined), maxToolOutputBytes: 100 },
+  );
+  assert.match(result.content, /OUTPUT_TRUNCATED/);
+  const path = result.content.match(/outputPath: (\S+)/)?.[1];
+  assert.ok(path);
+  assert.equal(readFileSync(path!, "utf8").length, 4000);
 });
 
 test("list action returns live task records", async () => {

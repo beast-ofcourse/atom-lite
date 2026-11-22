@@ -58,7 +58,7 @@ Available tools are exposed as `tools.<name>(...)`. Limits are configured under 
 
 A tool-call batch runs with at most `runtime.maxParallelToolCalls` (default `10`) concurrent calls. Per-file read/write locks prevent conflicting edits. `bash` is a global exclusive barrier unless `runtime.bashConcurrency` is `parallel`.
 
-Each result is capped at `runtime.maxToolOutputBytes` (default `30000`). A `bash` call times out at `runtime.maxBashTimeMs` (default `120000`).
+Each result is capped at `runtime.maxToolOutputBytes` (default `30000`). When output exceeds the cap, the full stream is saved to a file and the result includes `outputPath`. A `bash` call times out at `runtime.maxBashTimeMs` (default `120000`). A foreground command still running at that deadline moves to the background instead of being killed, keeping its collected output and reporting `outputPath`; without a background manager it is stopped as before.
 
 ## Background tasks
 
@@ -66,7 +66,7 @@ Each result is capped at `runtime.maxToolOutputBytes` (default `30000`). A `bash
 { "command": "npm run build", "background": true }
 ```
 
-`bash` starts the process and returns a task id. The session is notified automatically when the task finishes, so you do not need to poll for completion. A finished record carries `status`, `exit_code`, `signal`, `output`, `duration_ms`, and `truncated`. Failures also carry `error`; a wait that reaches its deadline reports `timed_out`.
+`bash` starts the process and returns a task id. The session is notified automatically when the task finishes, so you do not need to poll for completion. A record carries `status`, `exit_code`, `signal`, `output`, `duration_ms`, `truncated`, and `outputPath` with the full uncapped stream. Failures also carry `error`; a wait that reaches its deadline reports `timed_out`.
 
 Use `task` to inspect or control tracked work:
 
@@ -78,7 +78,7 @@ Use `task` to inspect or control tracked work:
 | `cancel` | `id`                 | Stop the process and report `cancelled` immediately.            |
 | `list`   | none                 | Enumerate all tracked tasks.                                    |
 
-`timeoutMs` defaults to `30000`. At most four background tasks run at once; starting a fifth returns `COMMAND_FAILED`. Finished records are retained for later inspection, with the oldest pruned first.
+`timeoutMs` defaults to `30000`. At most four background tasks run at once; starting a fifth returns `COMMAND_FAILED`. Task records are stored per workspace and survive a restart, so `task status/output/list` still work; a task that was running when the process exited is restored as `cancelled` with error `PROCESS_LOST_ON_RESTART` and is not re-announced. Finished records are retained for later inspection, with the oldest pruned first.
 
 ## Plan mode
 

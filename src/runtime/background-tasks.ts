@@ -1,5 +1,25 @@
 import { spawn } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { userConfigDir } from "../config/paths.js";
 import { terminateProcessTree } from "../security/process.js";
+
+const OUTPUT_DIR = join(tmpdir(), "atom-lite-task-output");
+
+export function writeOutputFile(output: string, label: string): string {
+  mkdirSync(OUTPUT_DIR, { recursive: true });
+  const path = join(OUTPUT_DIR, `${label}-${randomUUID()}.log`);
+  writeFileSync(path, output);
+  return path;
+}
 
 export type BackgroundTaskStatus =
   | "running"
@@ -21,6 +41,7 @@ export interface BackgroundTask {
   finishedAt?: number;
   durationMs?: number;
   truncated: boolean;
+  outputPath?: string;
 }
 
 interface InternalTask extends BackgroundTask {
@@ -32,6 +53,43 @@ interface InternalTask extends BackgroundTask {
 export interface WaitOutcome {
   task?: BackgroundTask;
   timedOut: boolean;
+}
+
+export interface TaskStore {
+  load(): BackgroundTask[];
+  save(task: BackgroundTask): void;
+  remove(id: string): void;
+}
+
+export function createTaskStore(
+  namespace: string,
+  baseDir = join(userConfigDir(), "background-tasks"),
+): TaskStore {
+  const dir = baseDir;
+  const key = createHash("sha256").update(namespace).digest("hex").slice(0, 16);
+  const path = join(dir, `${key}.json`);
+  return {
+    load() {
+      if (!existsSync(path)) return [];
+      try {
+        const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+        return Array.isArray(parsed) ? (parsed as BackgroundTask[]) : [];
+      } catch {
+        return [];
+      }
+    },
+    save(task) {
+      mkdirSync(dir, { recursive: true });
+      const all = this.load().filter((t) => t.id !== task.id);
+      all.push(task);
+      writeFileSync(path, JSON.stringify(all.slice(-MAX_FINISHED)));
+    },
+    remove(id) {
+      if (!existsSync(path)) return;
+      const all = this.load().filter((t) => t.id !== id);
+      writeFileSync(path, JSON.stringify(all));
+    },
+  };
 }
 
 const MAX_CONCURRENT = 4;
@@ -49,9 +107,33 @@ export class BackgroundTaskManager {
   private counter = 0;
   private completedQueue: string[] = [];
   private onComplete?: (task: BackgroundTask) => void;
+  private store?: TaskStore;
 
   setOnComplete(callback: (task: BackgroundTask) => void): void {
     this.onComplete = callback;
+  }
+
+  setStore(store: TaskStore): void {
+    this.store = store;
+    for (const record of store.load()) {
+      if (record.status === "running") {
+        record.status = "cancelled";
+        record.error = "PROCESS_LOST_ON_RESTART";
+        record.finishedAt = record.startedAt;
+        record.durationMs = 0;
+        store.save(record);
+      }
+      this.tasks.set(record.id, {
+        ...record,
+        child: null,
+        timer: null,
+        waiters: [],
+      });
+      const sequence = Number(record.id.replace("bg-", ""));
+      if (Number.isFinite(sequence) && sequence > this.counter) {
+        this.counter = sequence;
+      }
+    }
   }
 
   private prune(maxFinished: number = MAX_FINISHED): void {
@@ -65,6 +147,7 @@ export class BackgroundTaskManager {
     for (const id of finished) {
       if (excess <= 0) break;
       this.tasks.delete(id);
+      this.store?.remove(id);
       excess--;
     }
   }
@@ -107,17 +190,64 @@ export class BackgroundTaskManager {
       // 10-minute timeout.
       stdio: ["ignore", "pipe", "pipe"],
     });
+    this.attach(task, child);
+    const snapshot = this.snapshot(task);
+    this.store?.save(snapshot);
+    return snapshot;
+  }
+
+  /**
+   * Takes over a process already started by the foreground bash tool. The
+   * caller has captured output up to this point; this manager streams and
+   * settles everything the process writes afterwards.
+   */
+  adopt(
+    command: string,
+    child: ReturnType<typeof spawn>,
+    priorOutput: string,
+    startedAt: number,
+  ): BackgroundTask {
+    const id = `bg-${++this.counter}`;
+    const task: InternalTask = {
+      id,
+      type: "shell",
+      command,
+      status: "running",
+      output: "",
+      exitCode: null,
+      signal: null,
+      startedAt,
+      truncated: priorOutput.length > OUTPUT_CAP,
+      child: null,
+      timer: null,
+      waiters: [],
+    };
+    this.tasks.set(id, task);
+    this.attach(task, child, priorOutput);
+    const snapshot = this.snapshot(task);
+    this.store?.save(snapshot);
+    return snapshot;
+  }
+
+  private attach(
+    task: InternalTask,
+    child: ReturnType<typeof spawn>,
+    priorOutput = "",
+  ): void {
     task.child = child;
+    const outputPath = writeOutputFile(priorOutput, task.id);
+    task.outputPath = outputPath;
+    task.output = priorOutput.slice(0, OUTPUT_CAP);
 
     const append = (chunk: Buffer) => {
       const s = chunk.toString("utf8");
+      appendFileSync(outputPath, s);
       if (task.output.length + s.length > OUTPUT_CAP) {
         task.truncated = true;
-        const accepted = s.slice(
+        task.output += s.slice(
           0,
           Math.max(0, OUTPUT_CAP - task.output.length),
         );
-        task.output += accepted;
       } else {
         task.output += s;
       }
@@ -131,7 +261,9 @@ export class BackgroundTaskManager {
       else this.settle(task, "failed", code, null, "COMMAND_FAILED");
     });
     child.on("error", (err) => {
-      task.output += `COMMAND_FAILED: ${err instanceof Error ? err.message : String(err)}`;
+      const text = `COMMAND_FAILED: ${err instanceof Error ? err.message : String(err)}`;
+      appendFileSync(outputPath, text);
+      task.output += text;
       this.settle(task, "failed", null, null, "COMMAND_FAILED");
     });
 
@@ -141,8 +273,6 @@ export class BackgroundTaskManager {
       this.settle(task, "timed_out", null, "SIGTERM", "TIMEOUT");
     }, DEFAULT_TIMEOUT_MS);
     task.timer.unref();
-
-    return this.snapshot(task);
   }
 
   private settle(
@@ -163,6 +293,7 @@ export class BackgroundTaskManager {
     task.timer = null;
     this.completedQueue.push(task.id);
     const settled = this.snapshot(task);
+    this.store?.save(settled);
     for (const waiter of task.waiters) waiter(settled);
     task.waiters = [];
     this.onComplete?.(settled);
@@ -183,6 +314,7 @@ export class BackgroundTaskManager {
       finishedAt: t.finishedAt,
       durationMs: t.durationMs,
       truncated: t.truncated,
+      outputPath: t.outputPath,
     };
   }
 
@@ -204,6 +336,16 @@ export class BackgroundTaskManager {
   cancel(id: string): BackgroundTask | undefined {
     const t = this.tasks.get(id);
     if (!t || t.status !== "running") return t ? this.snapshot(t) : undefined;
+    return this.cancelTask(t);
+  }
+
+  cancelAll(): BackgroundTask[] {
+    return [...this.tasks.values()]
+      .filter((t) => t.status === "running")
+      .map((t) => this.cancelTask(t));
+  }
+
+  private cancelTask(t: InternalTask): BackgroundTask {
     const settled = this.settle(t, "cancelled", null, "SIGTERM");
     const child = t.child;
     if (child) {

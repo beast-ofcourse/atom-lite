@@ -52,12 +52,12 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "registerCommand",
     status: "supported",
-    consumers: [{"file":"src/cli/app.ts","line":1096}],
+    consumers: [{"file":"src/cli/app.ts","line":1104}],
   },
   {
     method: "unregisterCommand",
     status: "supported",
-    consumers: [{"file":"src/cli/app.ts","line":1096}],
+    consumers: [{"file":"src/cli/app.ts","line":1104}],
   },
   {
     method: "on",
@@ -227,12 +227,12 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "registerProvider",
     status: "reduced",
-    consumers: [{"file":"src/cli/app.ts","line":524}],
+    consumers: [{"file":"src/cli/app.ts","line":528}],
   },
   {
     method: "unregisterProvider",
     status: "supported",
-    consumers: [{"file":"src/cli/app.ts","line":524}],
+    consumers: [{"file":"src/cli/app.ts","line":528}],
   },
   {
     method: "registerModel",

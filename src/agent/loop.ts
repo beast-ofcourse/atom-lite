@@ -898,6 +898,7 @@ export class AgentRuntime {
           }
         }
         if (signal.aborted) {
+          this.backgroundTasks.cancelAll();
           throw new Error("USER_CANCELLED");
         }
 
