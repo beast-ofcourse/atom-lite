@@ -59,6 +59,20 @@ export function createCodeModeTool(
 
   const toolNames = atomTools.map((tool) => tool.definition.name).join(", ");
 
+  const runCode = async (code: string, signal?: AbortSignal) => {
+    const result = await Effect.runPromise(
+      CodeMode.execute({ code, tools: tools as never, limits: resolvedLimits }),
+      signal ? { signal } : undefined,
+    );
+    return result.ok === true
+      ? JSON.stringify(result.value)
+      : `Code Mode failed (${result.error.kind}): ${result.error.message}`;
+  };
+
+  runtime.registerJobRecovery("codemode", async (descriptor) =>
+    runCode(String(descriptor.params?.code ?? "")),
+  );
+
   return {
     definition: {
       name: "execute",
@@ -72,34 +86,60 @@ export function createCodeModeTool(
         type: "object",
         properties: {
           code: { type: "string" },
+          background: { type: "boolean" },
         },
         required: ["code"],
         additionalProperties: false,
       },
     },
-    async execute(call, _ctx): Promise<ToolResult> {
-      const code = String((call.arguments as { code?: unknown })?.code ?? "");
+    async execute(call, ctx): Promise<ToolResult> {
+      const args = call.arguments as { code?: unknown; background?: unknown };
+      const code = String(args.code ?? "");
+      if (args.background === true) {
+        if (!ctx.backgroundTasks) {
+          return {
+            toolCallId: call.id,
+            name: "execute",
+            content: "BACKGROUND_TASKS_UNAVAILABLE",
+            isError: true,
+          };
+        }
+        const job = ctx.backgroundTasks.startJob({
+          kind: "codemode",
+          title: "Code Mode script",
+          command: "Code Mode script",
+          recovery: { kind: "codemode", id: "pending", params: { code } },
+          run: () => runCode(code, ctx.signal),
+        });
+        return {
+          toolCallId: call.id,
+          name: "execute",
+          content: JSON.stringify({
+            task_id: job.id,
+            status: "running",
+            outputPath: job.outputPath,
+            notice:
+              "Code Mode script started in the background. You will be notified when it finishes; do not poll.",
+          }),
+        };
+      }
       const result = await Effect.runPromise(
         CodeMode.execute({
           code,
           tools: tools as never,
           limits: resolvedLimits,
         }),
-        { signal: _ctx.signal },
+        { signal: ctx.signal },
       );
-
       const output =
         result.ok === true
           ? JSON.stringify(result.value)
           : `Code Mode failed (${result.error.kind}): ${result.error.message}`;
-
       const logs = Array.isArray(result.logs) ? result.logs.join("\n") : "";
-      const content = [output, logs].filter(Boolean).join("\n\n");
-
       return {
         toolCallId: call.id,
         name: "execute",
-        content,
+        content: [output, logs].filter(Boolean).join("\n\n"),
         isError: result.ok !== true,
         details: {
           toolCalls: result.toolCalls,

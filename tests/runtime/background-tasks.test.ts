@@ -172,6 +172,67 @@ test("adopt takes over a running process and captures later output", async () =>
   assert.match(readFileSync(done!.outputPath!, "utf8"), /adopted/);
 });
 
+test("generic job kinds are tracked and surfaced with their fields", async () => {
+  const mgr = new BackgroundTaskManager();
+  const subagent = mgr.startJob({
+    kind: "subagent",
+    description: "research",
+    agent: "scout",
+    childSessionID: "child-1",
+    run: async () => "subagent done",
+  });
+  const image = mgr.startJob({
+    kind: "image",
+    title: "cover",
+    path: "/tmp/cover.png",
+    model: "img-1",
+    run: async () => "image done",
+  });
+  const code = mgr.startJob({
+    kind: "codemode",
+    title: "transform",
+    metadata: { script: "return 1" },
+    run: async () => "code done",
+  });
+  assert.deepEqual(
+    new Set(mgr.list().map((t) => t.type)),
+    new Set(["subagent", "image", "codemode"]),
+  );
+  assert.equal(mgr.get(subagent.id)?.childSessionID, "child-1");
+  assert.equal(mgr.get(image.id)?.path, "/tmp/cover.png");
+  assert.equal(mgr.get(code.id)?.metadata?.script, "return 1");
+  for (const job of [subagent, image, code]) {
+    assert.equal((await mgr.wait(job.id, 5000))?.status, "completed");
+  }
+  assert.match(readFileSync(subagent.outputPath!, "utf8"), /subagent done/);
+});
+
+test("registered recoverer resumes running work across managers", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "task-recovery-"));
+  const recoverer = async (descriptor: { params?: Record<string, unknown> }) =>
+    `resumed:${String(descriptor.params?.token ?? "")}`;
+  const first = new BackgroundTaskManager();
+  first.registerRecovery("subagent", recoverer);
+  first.setStore(createTaskStore("session", dir));
+  const stuck = first.startJob({
+    kind: "subagent",
+    description: "delegated work",
+    recovery: { kind: "subagent", id: "pending", params: { token: "abc" } },
+    run: () => new Promise<string>(() => {}),
+  });
+
+  const restarted = new BackgroundTaskManager();
+  restarted.registerRecovery("subagent", recoverer);
+  restarted.setStore(createTaskStore("session", dir));
+  const resumed = await restarted.wait(stuck.id, 5000);
+  assert.equal(resumed?.status, "completed");
+  assert.equal(resumed?.output, "resumed:abc");
+  assert.equal(resumed?.description, "delegated work");
+
+  first.cancel(stuck.id);
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test("task store restores records and marks lost running work cancelled", async () => {
   const dir = mkdtempSync(join(tmpdir(), "task-store-"));
   const first = new BackgroundTaskManager();

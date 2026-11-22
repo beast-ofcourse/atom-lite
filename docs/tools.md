@@ -52,7 +52,7 @@ The result is capped by the smaller of `web.fetch.maxOutputChars` and `runtime.m
 
 `execute` runs JavaScript in a confined runtime to orchestrate multiple Atom Lite tools in one call. Tool results stay inside the runtime; only the final, relevant output is returned. Use it for multi-step workflows, parallel calls, loops, conditionals, and data processing. Simple tasks should still use direct tool calls.
 
-Available tools are exposed as `tools.<name>(...)`. Limits are configured under `runtime.codeMode`: `enabled`, `timeoutMs`, `maxToolCalls`, and `maxOutputBytes`.
+Available tools are exposed as `tools.<name>(...)`. Limits are configured under `runtime.codeMode`: `enabled`, `timeoutMs`, `maxToolCalls`, and `maxOutputBytes`. Set `"background": true` to return a task id immediately and run the script as a `codemode` job; completion notifies the session like any other background job.
 
 ## Scheduling
 
@@ -78,7 +78,7 @@ Use `task` to inspect or control tracked work:
 | `cancel` | `id`                 | Stop the process and report `cancelled` immediately.            |
 | `list`   | none                 | Enumerate all tracked tasks.                                    |
 
-`timeoutMs` defaults to `30000`. At most four background tasks run at once; starting a fifth returns `COMMAND_FAILED`. Task records are stored per workspace and survive a restart, so `task status/output/list` still work; a task that was running when the process exited is restored as `cancelled` with error `PROCESS_LOST_ON_RESTART` and is not re-announced. Finished records are retained for later inspection, with the oldest pruned first.
+`timeoutMs` defaults to `30000`. At most four background tasks run at once; starting a fifth returns `COMMAND_FAILED`. Task records are stored per workspace and survive a restart, so `task status/output/list` still work. A running shell process cannot be reattached after exit and is restored as `cancelled` with error `PROCESS_LOST_ON_RESTART`. Jobs of kind `subagent`, `image`, and `codemode` carry a recovery descriptor; a host that registers a recoverer for that kind resumes the work from the stored descriptor on restart instead. Unregistered kinds fall back to `PROCESS_LOST_ON_RESTART`. Recovered jobs are not re-announced until they settle again. Finished records are retained for later inspection, with the oldest pruned first.
 
 ## Plan mode
 

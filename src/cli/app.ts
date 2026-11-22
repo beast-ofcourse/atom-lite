@@ -659,7 +659,6 @@ export async function run(args: string[]): Promise<void> {
   };
 
   const backgroundTasks = new BackgroundTaskManager();
-  backgroundTasks.setStore(createTaskStore(process.cwd()));
 
   const runtime = new AgentRuntime({
     provider,
@@ -687,6 +686,8 @@ export async function run(args: string[]): Promise<void> {
       maxBashTimeMs: config.runtime.maxBashTimeMs,
     },
   });
+
+  backgroundTasks.setStore(createTaskStore(process.cwd()));
 
   mcpManager.onToolsChanged = () => {
     runtime.setTools(currentTools(true));

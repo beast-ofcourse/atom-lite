@@ -153,6 +153,20 @@ export class AgentRuntime {
         composePersonaSystemPrompt(this.baseSystemPrompt, this.persona),
       );
     }
+    this.backgroundTasks =
+      options.backgroundTasks ?? new BackgroundTaskManager();
+    this.backgroundTasks.setOnComplete((t) => {
+      this.onEvent?.({
+        type: "background_task_complete",
+        id: t.id,
+        status: t.status,
+        exitCode: t.exitCode,
+      });
+      this.steeringQueue?.push(
+        `[background task completed] Task ${t.id} finished with status ${t.status} (exit ${t.exitCode ?? "null"}). Its output is in the session. Continue only if the result changes what you are doing; otherwise answer the user.`,
+      );
+    });
+
     this.toolMap = new Map(options.tools.map((t) => [t.definition.name, t]));
     const baseTools = options.tools.filter((tool) => tool.definition.name !== "execute");
     if (options.codeMode?.enabled !== false && baseTools.length > 0) {
@@ -171,19 +185,6 @@ export class AgentRuntime {
     this.steeringQueue = options.steeringQueue;
     this.contextWindow = options.contextWindow;
     this.supportsVision = options.supportsVision;
-    this.backgroundTasks =
-      options.backgroundTasks ?? new BackgroundTaskManager();
-    this.backgroundTasks.setOnComplete((t) => {
-      this.onEvent?.({
-        type: "background_task_complete",
-        id: t.id,
-        status: t.status,
-        exitCode: t.exitCode,
-      });
-      this.steeringQueue?.push(
-        `[background task completed] Task ${t.id} finished with status ${t.status} (exit ${t.exitCode ?? "null"}). Its output is in the session. Continue only if the result changes what you are doing; otherwise answer the user.`,
-      );
-    });
     this.todoStore = options.todoStore ?? new TodoStore();
     this.todoStoreInjected = options.todoStore !== undefined;
     this.goalStore = options.goalStore ?? new GoalStore();
@@ -356,6 +357,13 @@ export class AgentRuntime {
 
   getPersona(): AgentPersona | undefined {
     return this.persona;
+  }
+
+  registerJobRecovery(
+    kind: import("../runtime/background-tasks.js").JobKind,
+    recoverer: import("../runtime/background-tasks.js").JobRecoverer,
+  ): void {
+    this.backgroundTasks.registerRecovery(kind, recoverer);
   }
 
   setSteeringQueue(queue: string[]): void {

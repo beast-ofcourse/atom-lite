@@ -4,6 +4,7 @@ import { AgentRuntime } from "../../dist/agent/loop.js";
 import { FakeProvider } from "../../dist/providers/fake.js";
 import { InMemorySession } from "../../dist/sessions/store.js";
 import { readTool, bashTool } from "../../dist/tools/index.js";
+import { BackgroundTaskManager } from "../../dist/runtime/background-tasks.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -37,6 +38,41 @@ test("Code Mode executes a tool and returns only its final result", async () => 
   const toolResult = session.messages.find((m) => m.role === "tool" && m.name === "execute");
   assert.ok(toolResult);
   assert.equal(toolResult.content, '"1: HELLO"');
+});
+
+test("Code Mode can run as a background codemode job", async () => {
+  const dir = dirWithFiles({});
+  const tasks = new BackgroundTaskManager();
+  const provider = new FakeProvider([
+    {
+      toolCalls: [
+        {
+          id: "e1",
+          name: "execute",
+          arguments: { code: "return 42;", background: true },
+        },
+      ],
+    },
+    { text: "done" },
+  ]);
+  const runtime = new AgentRuntime({
+    provider,
+    workspace: dir,
+    tools: [readTool],
+    backgroundTasks: tasks,
+  });
+  const session = new InMemorySession("s1", dir);
+  const result = await runtime.runAgentTurn(
+    "background code",
+    session,
+    new AbortController().signal,
+  );
+  assert.equal(result, "done");
+  const job = tasks.list().find((t) => t.type === "codemode");
+  assert.ok(job);
+  const done = await tasks.wait(job!.id, 5000);
+  assert.equal(done?.status, "completed");
+  assert.match(done?.output ?? "", /42/);
 });
 
 test("Code Mode runs tool calls in parallel", async () => {

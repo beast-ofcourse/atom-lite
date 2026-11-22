@@ -28,10 +28,19 @@ export type BackgroundTaskStatus =
   | "cancelled"
   | "timed_out";
 
+export type JobKind = "shell" | "subagent" | "image" | "codemode";
+
+export interface RecoveryDescriptor {
+  kind: JobKind;
+  id: string;
+  params?: Record<string, unknown>;
+}
+
 export interface BackgroundTask {
   id: string;
-  type: "shell";
+  type: JobKind;
   command: string;
+  title?: string;
   status: BackgroundTaskStatus;
   output: string;
   error?: string;
@@ -42,12 +51,39 @@ export interface BackgroundTask {
   durationMs?: number;
   truncated: boolean;
   outputPath?: string;
+  path?: string;
+  model?: string;
+  childSessionID?: string;
+  agent?: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+  recovery?: RecoveryDescriptor;
 }
+
+export interface StartJobInput {
+  kind: JobKind;
+  run: () => Promise<string>;
+  id?: string;
+  startedAt?: number;
+  title?: string;
+  command?: string;
+  path?: string;
+  model?: string;
+  childSessionID?: string;
+  agent?: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+  recovery?: RecoveryDescriptor;
+  cancel?: () => void;
+}
+
+export type JobRecoverer = (descriptor: RecoveryDescriptor) => Promise<string>;
 
 interface InternalTask extends BackgroundTask {
   child: ReturnType<typeof spawn> | null;
   timer: NodeJS.Timeout | null;
   waiters: Array<(t: BackgroundTask) => void>;
+  cancelJob?: () => void;
 }
 
 export interface WaitOutcome {
@@ -108,32 +144,75 @@ export class BackgroundTaskManager {
   private completedQueue: string[] = [];
   private onComplete?: (task: BackgroundTask) => void;
   private store?: TaskStore;
+  private recoverers = new Map<JobKind, JobRecoverer>();
 
   setOnComplete(callback: (task: BackgroundTask) => void): void {
     this.onComplete = callback;
   }
 
+  registerRecovery(kind: JobKind, recoverer: JobRecoverer): void {
+    this.recoverers.set(kind, recoverer);
+  }
+
   setStore(store: TaskStore): void {
     this.store = store;
     for (const record of store.load()) {
-      if (record.status === "running") {
+      const sequence = Number(record.id.replace("bg-", ""));
+      if (Number.isFinite(sequence) && sequence > this.counter) {
+        this.counter = sequence;
+      }
+      if (record.status !== "running") {
+        this.recordRestored(record);
+        continue;
+      }
+      const descriptor = record.recovery ?? {
+        kind: record.type,
+        id: record.id,
+      };
+      const recoverer = this.recoverers.get(descriptor.kind);
+      if (!recoverer) {
         record.status = "cancelled";
         record.error = "PROCESS_LOST_ON_RESTART";
         record.finishedAt = record.startedAt;
         record.durationMs = 0;
         store.save(record);
+        this.recordRestored(record);
+        continue;
       }
-      this.tasks.set(record.id, {
-        ...record,
-        child: null,
-        timer: null,
-        waiters: [],
+      let resume!: (value: string) => void;
+      let abandon!: (reason: unknown) => void;
+      const run = new Promise<string>((resolve, reject) => {
+        resume = resolve;
+        abandon = reject;
       });
-      const sequence = Number(record.id.replace("bg-", ""));
-      if (Number.isFinite(sequence) && sequence > this.counter) {
-        this.counter = sequence;
-      }
+      this.startJob({
+        kind: record.type,
+        id: record.id,
+        startedAt: record.startedAt,
+        title: record.title,
+        command: record.command,
+        path: record.path,
+        model: record.model,
+        childSessionID: record.childSessionID,
+        agent: record.agent,
+        description: record.description,
+        metadata: record.metadata,
+        recovery: descriptor,
+        run: () => run,
+      });
+      void Promise.resolve()
+        .then(() => recoverer(descriptor))
+        .then(resume, abandon);
     }
+  }
+
+  private recordRestored(record: BackgroundTask): void {
+    this.tasks.set(record.id, {
+      ...record,
+      child: null,
+      timer: null,
+      waiters: [],
+    });
   }
 
   private prune(maxFinished: number = MAX_FINISHED): void {
@@ -229,6 +308,104 @@ export class BackgroundTaskManager {
     return snapshot;
   }
 
+  startJob(input: StartJobInput): BackgroundTask {
+    if (input.kind === "shell") {
+      this.prune();
+      const running = [...this.tasks.values()].filter(
+        (t) => t.status === "running" && t.type === "shell",
+      ).length;
+      if (running >= MAX_CONCURRENT) {
+        throw new Error("too many background tasks");
+      }
+    }
+    const id = input.id ?? `bg-${++this.counter}`;
+    const sequence = Number(id.replace("bg-", ""));
+    if (Number.isFinite(sequence) && sequence > this.counter) {
+      this.counter = sequence;
+    }
+    const task: InternalTask = {
+      id,
+      type: input.kind,
+      command:
+        input.command ?? input.title ?? input.description ?? input.kind,
+      title: input.title,
+      status: "running",
+      output: "",
+      exitCode: null,
+      signal: null,
+      startedAt: input.startedAt ?? Date.now(),
+      truncated: false,
+      path: input.path,
+      model: input.model,
+      childSessionID: input.childSessionID,
+      agent: input.agent,
+      description: input.description,
+      metadata: input.metadata,
+      recovery: input.recovery
+        ? { ...input.recovery, id }
+        : undefined,
+      child: null,
+      timer: null,
+      waiters: [],
+    };
+    this.tasks.set(id, task);
+    const outputPath = writeOutputFile("", id);
+    task.outputPath = outputPath;
+    this.store?.save(this.snapshot(task));
+
+    let active = true;
+    task.cancelJob = () => {
+      active = false;
+      input.cancel?.();
+    };
+    task.timer = setTimeout(() => {
+      if (!active) return;
+      active = false;
+      input.cancel?.();
+      this.settle(task, "timed_out", null, "TIMEOUT", "TIMEOUT");
+    }, DEFAULT_TIMEOUT_MS);
+    task.timer.unref();
+
+    Promise.resolve()
+      .then(input.run)
+      .then(
+        (output) => {
+          if (!active) return;
+          active = false;
+          this.recordOutput(task, output, outputPath);
+          this.settle(task, "completed", 0, null);
+        },
+        (err) => {
+          if (!active) return;
+          active = false;
+          const message =
+            err instanceof Error ? err.message : String(err);
+          this.recordOutput(task, `JOB_FAILED: ${message}`, outputPath);
+          this.settle(task, "failed", null, null, "JOB_FAILED");
+        },
+      );
+
+    return this.snapshot(task);
+  }
+
+  private recordOutput(
+    task: InternalTask,
+    text: string,
+    outputPath: string,
+  ): void {
+    if (!text) return;
+    appendFileSync(outputPath, text);
+    if (task.output.length + text.length > OUTPUT_CAP) {
+      task.truncated = true;
+      task.output += text.slice(
+        0,
+        Math.max(0, OUTPUT_CAP - task.output.length),
+      );
+    } else {
+      task.output += text;
+    }
+  }
+
   private attach(
     task: InternalTask,
     child: ReturnType<typeof spawn>,
@@ -239,19 +416,8 @@ export class BackgroundTaskManager {
     task.outputPath = outputPath;
     task.output = priorOutput.slice(0, OUTPUT_CAP);
 
-    const append = (chunk: Buffer) => {
-      const s = chunk.toString("utf8");
-      appendFileSync(outputPath, s);
-      if (task.output.length + s.length > OUTPUT_CAP) {
-        task.truncated = true;
-        task.output += s.slice(
-          0,
-          Math.max(0, OUTPUT_CAP - task.output.length),
-        );
-      } else {
-        task.output += s;
-      }
-    };
+    const append = (chunk: Buffer) =>
+      this.recordOutput(task, chunk.toString("utf8"), outputPath);
     child.stdout?.on("data", (c: Buffer) => append(c));
     child.stderr?.on("data", (c: Buffer) => append(c));
 
@@ -305,6 +471,7 @@ export class BackgroundTaskManager {
       id: t.id,
       type: t.type,
       command: t.command,
+      title: t.title,
       status: t.status,
       output: t.output,
       ...(t.error !== undefined ? { error: t.error } : {}),
@@ -315,6 +482,13 @@ export class BackgroundTaskManager {
       durationMs: t.durationMs,
       truncated: t.truncated,
       outputPath: t.outputPath,
+      path: t.path,
+      model: t.model,
+      childSessionID: t.childSessionID,
+      agent: t.agent,
+      description: t.description,
+      metadata: t.metadata,
+      recovery: t.recovery,
     };
   }
 
@@ -347,6 +521,7 @@ export class BackgroundTaskManager {
 
   private cancelTask(t: InternalTask): BackgroundTask {
     const settled = this.settle(t, "cancelled", null, "SIGTERM");
+    if (t.cancelJob) t.cancelJob();
     const child = t.child;
     if (child) {
       terminateProcessTree(child, "SIGTERM");
