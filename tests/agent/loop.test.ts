@@ -13,7 +13,10 @@ import {
 import { TodoStore } from "../../dist/runtime/todos.js";
 import { mkdirSync, mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { ContextManager } from "../../dist/context/manager.js";
+import { SUMMARY_HEADINGS } from "../../dist/context/checkpoint.js";
 import { tmpdir } from "node:os";
+
+const VALID_SUMMARY = SUMMARY_HEADINGS.map((h: string) => `${h}\n- value`).join("\n\n");
 import { join } from "node:path";
 
 test("agent loop returns final text from a fake provider", async () => {
@@ -179,6 +182,69 @@ test("agent loop retries a failed compaction and still completes", async () => {
   assert.ok(
     events.filter((e) => e.type === "context_compaction_failed").length === 1,
   );
+});
+
+test("long-horizon turns compact and continue across multiple turns", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws-long-"));
+  const contextManager = new ContextManager({
+    systemPrompt: "system",
+    maxInputTokens: 120,
+    reserveOutputTokens: 20,
+    compactAtPercent: 60,
+    maxProjectInstructionBytes: 30000,
+    provider: {
+      id: "compact",
+      generate: async () => ({
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: VALID_SUMMARY }],
+        },
+        toolCalls: [],
+        finishReason: "stop",
+        usage: { input: 10, output: 5 },
+      }),
+    } as any,
+    model: "compact-model",
+    userInstructionsPath: join(dir, "missing-AGENTS.md"),
+  });
+  const provider = new FakeProvider([
+    { text: "done 1" },
+    { text: "done 2" },
+    { text: "done 3" },
+  ]);
+  const runtime = new AgentRuntime({
+    provider,
+    workspace: dir,
+    tools: [],
+    contextManager,
+  });
+  const session = new InMemorySession("long", dir);
+  session.messages = Array.from({ length: 30 }, (_, i) => ({
+    role: i % 2 === 0 ? "user" : "assistant",
+    content: [{ type: "text", text: `history ${i} ${"x".repeat(60)}` }],
+  })) as any;
+  const events: any[] = [];
+  const sessionEvents: any[] = [];
+  (session as any).appendEvent = (event: any) => {
+    sessionEvents.push(event);
+    return event;
+  };
+  (runtime as any).onEvent = (event: any) => events.push(event);
+
+  for (let i = 0; i < 3; i++) {
+    const result = await runtime.runAgentTurn(
+      `continue turn ${i + 1}`,
+      session,
+      new AbortController().signal,
+    );
+    assert.equal(result, `done ${i + 1}`);
+  }
+
+  assert.ok(
+    sessionEvents.some((event) => event.type === "context_compacted"),
+    "long-horizon run should compact at least once",
+  );
+  assert.ok(session.messages.length > 0);
 });
 
 test("agent loop does not stop at the old 40-iteration cap", async () => {
