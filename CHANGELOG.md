@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every release increments the patch number, regardless of change size: `0.18.0`
 becomes `0.18.1`.
 
-## v0.18.9 — 2026-11-22
+## v0.18.10 — 2026-11-22
 
 ### Added
 
