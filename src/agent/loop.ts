@@ -15,6 +15,7 @@ import {
   getDiagnostics as getLspDiagnostics,
 } from "../lsp/index.js";
 import { ContextManager } from "../context/manager.js";
+import { isOverflowError } from "../context/checkpoint.js";
 import { discoverInstructionPaths } from "../context/instructions.js";
 import { CacheWarmer } from "../context/warming.js";
 import {
@@ -773,6 +774,8 @@ export class AgentRuntime {
     const maxCompletionNudges = 3;
     let compactionRetries = 0;
     const maxCompactionRetries = 1;
+    let overflowRetries = 0;
+    const maxOverflowRetries = 1;
     let truncationContinuations = 0;
     let answerPrefix = "";
     try {
@@ -879,6 +882,8 @@ export class AgentRuntime {
           messages,
           tools: this.tools.map((t) => t.definition),
         });
+        let modelError: unknown;
+        try {
         for await (const ev of runModelTurn({
           provider: this.provider,
           model: this.model,
@@ -921,6 +926,21 @@ export class AgentRuntime {
               response.message.thinking = response.metadata.thinking;
             }
           }
+        }
+        } catch (err) {
+          modelError = err;
+        }
+
+        if (modelError) {
+          if (
+            isOverflowError(modelError) &&
+            overflowRetries < maxOverflowRetries
+          ) {
+            overflowRetries++;
+            this.contextManager.setForceCompact(true);
+            continue;
+          }
+          throw modelError;
         }
 
         if (response) {
