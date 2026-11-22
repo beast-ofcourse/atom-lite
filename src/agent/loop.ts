@@ -173,6 +173,17 @@ export class AgentRuntime {
     this.supportsVision = options.supportsVision;
     this.backgroundTasks =
       options.backgroundTasks ?? new BackgroundTaskManager();
+    this.backgroundTasks.setOnComplete((t) => {
+      this.onEvent?.({
+        type: "background_task_complete",
+        id: t.id,
+        status: t.status,
+        exitCode: t.exitCode,
+      });
+      this.steeringQueue?.push(
+        `[background task completed] Task ${t.id} finished with status ${t.status} (exit ${t.exitCode ?? "null"}). Its output is in the session. Continue only if the result changes what you are doing; otherwise answer the user.`,
+      );
+    });
     this.todoStore = options.todoStore ?? new TodoStore();
     this.todoStoreInjected = options.todoStore !== undefined;
     this.goalStore = options.goalStore ?? new GoalStore();
@@ -236,13 +247,7 @@ export class AgentRuntime {
     for (const t of this.backgroundTasks.drainCompleted()) {
       session.appendMessage({
         role: "system",
-        content: `[background task ${t.id} ${t.status}] ${t.output}`,
-      });
-      this.onEvent?.({
-        type: "background_task_complete",
-        id: t.id,
-        status: t.status,
-        exitCode: t.exitCode,
+        content: `[background task ${t.id} ${t.status}]${t.error ? ` ${t.error}` : ""} ${t.output}`,
       });
     }
   }
@@ -1419,14 +1424,7 @@ export class AgentRuntime {
           return answerPrefix + text;
         }
 
-        // Inject completed background task results as system messages.
-        const completed = this.backgroundTasks.drainCompleted();
-        for (const t of completed) {
-          session.appendMessage({
-            role: "system",
-            content: `[background task ${t.id} completed] ${t.output}`,
-          });
-        }
+        this.injectCompletedBackgroundTasks(session);
 
         if (terminate) {
           await this.extensionDispatch?.("agent_settled", {

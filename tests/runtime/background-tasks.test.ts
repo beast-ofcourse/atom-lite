@@ -91,6 +91,72 @@ test("drainCompleted yields finished tasks and empties the queue", async () => {
   assert.equal(mgr.drainCompleted().length, 0);
 });
 
+test("cancel settles to cancelled immediately and frees the slot", async () => {
+  const mgr = new BackgroundTaskManager();
+  const ids: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    ids.push(
+      mgr.start(`node -e "setInterval(()=>{},50)"`, process.cwd(), process.env).id,
+    );
+  }
+  const cancelled = mgr.cancel(ids[0]);
+  assert.equal(cancelled?.status, "cancelled");
+  assert.equal(cancelled?.signal, "SIGTERM");
+  assert.ok(cancelled?.finishedAt);
+  const immediate = await mgr.wait(ids[0], 1);
+  assert.equal(immediate?.status, "cancelled");
+  const replacement = mgr.start(`echo freed`, process.cwd(), process.env);
+  assert.ok(replacement.id);
+  for (const id of ids.slice(1)) mgr.cancel(id);
+  mgr.cancel(replacement.id);
+});
+
+test("waitDetailed reports timedOut separately from completion", async () => {
+  const mgr = new BackgroundTaskManager();
+  const slow = mgr.start(`node -e "setTimeout(()=>{},300)"`, process.cwd(), process.env);
+  const timed = await mgr.waitDetailed(slow.id, 20);
+  assert.equal(timed?.timedOut, true);
+  assert.equal(timed?.task?.status, "running");
+  const done = await mgr.waitDetailed(slow.id, 5000);
+  assert.equal(done?.timedOut, false);
+  assert.equal(done?.task?.status, "completed");
+});
+
+test("onComplete fires once with the settled record for auto-notification", async () => {
+  const mgr = new BackgroundTaskManager();
+  const seen: string[] = [];
+  mgr.setOnComplete((t) => seen.push(`${t.id}:${t.status}`));
+  const done = mgr.start(`echo notified`, process.cwd(), process.env);
+  await mgr.wait(done.id, 10000);
+  await new Promise((r) => setTimeout(r, 30));
+  assert.deepEqual(seen, [`${done.id}:completed`]);
+
+  const cancelled = mgr.start(`node -e "setInterval(()=>{},50)"`, process.cwd(), process.env);
+  mgr.cancel(cancelled.id);
+  await new Promise((r) => setTimeout(r, 30));
+  assert.ok(seen.includes(`${cancelled.id}:cancelled`));
+  assert.equal(seen.filter((s) => s.startsWith(cancelled.id)).length, 1);
+});
+
+test("list enumerates live task records", async () => {
+  const mgr = new BackgroundTaskManager();
+  const t = mgr.start(`echo listed`, process.cwd(), process.env);
+  const all = mgr.list();
+  assert.ok(all.some((x) => x.id === t.id));
+  assert.equal(all.find((x) => x.id === t.id)?.type, "shell");
+  await mgr.wait(t.id, 10000);
+});
+
+test("failed task carries an error field", async () => {
+  const mgr = new BackgroundTaskManager();
+  const t = mgr.start(`node -e "process.exit(3)"`, process.cwd(), process.env);
+  const done = await mgr.wait(t.id, 10000);
+  assert.equal(done?.status, "failed");
+  assert.equal(done?.exitCode, 3);
+  assert.equal(done?.error, "COMMAND_FAILED");
+  assert.ok(done?.durationMs !== undefined);
+});
+
 test("finished records are pruned so the manager cannot grow unbounded", async () => {
   const mgr = new BackgroundTaskManager();
   const ids: string[] = [];

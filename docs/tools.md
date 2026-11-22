@@ -12,7 +12,7 @@ Atom-lite ships built-in tools. The model chooses which to call; the runtime val
 | `glob`      | Find files matching a glob pattern.                              |
 | `webfetch`  | Fetch a URL and convert HTML to markdown.                        |
 | `websearch` | Search the web and return ranked results.                        |
-| `task`      | Query or control a background bash task.                         |
+| `task`      | Inspect, wait on, cancel, or list background bash tasks.         |
 | `todo`      | Maintain the session task ledger.                                |
 | `question`  | Ask you to choose an option or type an answer mid-turn.          |
 
@@ -66,7 +66,19 @@ Each result is capped at `runtime.maxToolOutputBytes` (default `30000`). A `bash
 { "command": "npm run build", "background": true }
 ```
 
-`bash` starts the process and returns a task id. Use `task` to inspect output, check status, or stop it. Background tasks belong to one turn and are drained when the turn ends.
+`bash` starts the process and returns a task id. The session is notified automatically when the task finishes, so you do not need to poll for completion. A finished record carries `status`, `exit_code`, `signal`, `output`, `duration_ms`, and `truncated`. Failures also carry `error`; a wait that reaches its deadline reports `timed_out`.
+
+Use `task` to inspect or control tracked work:
+
+| Action   | Arguments            | Behavior                                                        |
+| -------- | -------------------- | --------------------------------------------------------------- |
+| `status` | `id`                 | Return the live record.                                         |
+| `output` | `id`                 | Return the live record, including collected output.             |
+| `wait`   | `id`, `timeoutMs`?   | Block until the task ends or the deadline; reports `timed_out`. |
+| `cancel` | `id`                 | Stop the process and report `cancelled` immediately.            |
+| `list`   | none                 | Enumerate all tracked tasks.                                    |
+
+`timeoutMs` defaults to `30000`. At most four background tasks run at once; starting a fifth returns `COMMAND_FAILED`. Finished records are retained for later inspection, with the oldest pruned first.
 
 ## Plan mode
 

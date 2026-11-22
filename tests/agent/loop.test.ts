@@ -11,6 +11,7 @@ import {
   todoTool,
 } from "../../dist/tools/index.js";
 import { TodoStore } from "../../dist/runtime/todos.js";
+import { BackgroundTaskManager } from "../../dist/runtime/background-tasks.js";
 import { mkdirSync, mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { ContextManager } from "../../dist/context/manager.js";
 import { SUMMARY_HEADINGS } from "../../dist/context/checkpoint.js";
@@ -416,6 +417,64 @@ test("non-git workspace mutating turn emits no checkpoint events", async () => {
     sessionEvents.every((e) => !String(e.type).startsWith("checkpoint")),
     "unexpected checkpoint event in session log",
   );
+});
+
+test("background completion injects the result and resumes through steering", async () => {
+  const tasks = new BackgroundTaskManager();
+  const steering: string[] = [];
+  const events: any[] = [];
+  const provider = new FakeProvider([
+    {
+      toolCalls: [
+        {
+          id: "c1",
+          name: "bash",
+          arguments: {
+            command: `node -e "setTimeout(()=>console.log('bgdone'),30)"`,
+            background: true,
+          },
+        },
+      ],
+    },
+    {
+      toolCalls: [
+        {
+          id: "c2",
+          name: "bash",
+          arguments: { command: `node -e "setTimeout(()=>{},200)"` },
+        },
+      ],
+    },
+    { text: "final" },
+  ]);
+  const runtime = new AgentRuntime({
+    provider,
+    workspace: process.cwd(),
+    tools: [bashTool],
+    backgroundTasks: tasks,
+    steeringQueue: steering,
+    onEvent: (e) => events.push(e),
+  });
+  const session = new InMemorySession("s1", process.cwd());
+  const result = await runtime.runAgentTurn(
+    "start a job",
+    session,
+    new AbortController().signal,
+  );
+
+  assert.equal(result, "final");
+  assert.ok(
+    events.some((e) => e.type === "background_task_complete" && e.status === "completed"),
+  );
+  assert.ok(
+    session.messages.some(
+      (m: any) =>
+        m.role === "system" &&
+        String(m.content).includes("bgdone") &&
+        String(m.content).includes("completed"),
+    ),
+  );
+  assert.equal(steering.length, 0, "synthetic resume message was consumed");
 });
 
 // Contract: plain user messages, however long or repeated, never populate the

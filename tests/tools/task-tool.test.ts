@@ -82,6 +82,79 @@ test("bash background:true without a manager fails explicitly", async () => {
   assert.equal(r.isError, true);
 });
 
+test("list action returns live task records", async () => {
+  const mgr = new BackgroundTaskManager();
+  const start = JSON.parse(
+    (
+      await bashTool.execute(
+        {
+          id: "1",
+          name: "bash",
+          arguments: { command: `node -e "setTimeout(()=>{},200)"`, background: true },
+        },
+        ctx(mgr),
+      )
+    ).content,
+  );
+  const listed = await taskTool.execute(
+    { id: "2", name: "task", arguments: { action: "list" } },
+    ctx(mgr),
+  );
+  const tasks = JSON.parse(listed.content);
+  assert.ok(Array.isArray(tasks));
+  assert.ok(tasks.some((t: { id: string }) => t.id === start.task_id));
+  mgr.cancel(start.task_id);
+});
+
+test("wait action exposes timed_out on deadline", async () => {
+  const mgr = new BackgroundTaskManager();
+  const start = JSON.parse(
+    (
+      await bashTool.execute(
+        {
+          id: "1",
+          name: "bash",
+          arguments: { command: `node -e "setTimeout(()=>{},300)"`, background: true },
+        },
+        ctx(mgr),
+      )
+    ).content,
+  );
+  const waited = await taskTool.execute(
+    {
+      id: "2",
+      name: "task",
+      arguments: { action: "wait", id: start.task_id, timeoutMs: 20 },
+    },
+    ctx(mgr),
+  );
+  const result = JSON.parse(waited.content);
+  assert.equal(result.timed_out, true);
+  assert.equal(result.status, "running");
+  mgr.cancel(start.task_id);
+});
+
+test("cancel action reports cancelled immediately", async () => {
+  const mgr = new BackgroundTaskManager();
+  const start = JSON.parse(
+    (
+      await bashTool.execute(
+        {
+          id: "1",
+          name: "bash",
+          arguments: { command: `node -e "setInterval(()=>{},50)"`, background: true },
+        },
+        ctx(mgr),
+      )
+    ).content,
+  );
+  const cancelled = await taskTool.execute(
+    { id: "2", name: "task", arguments: { action: "cancel", id: start.task_id } },
+    ctx(mgr),
+  );
+  assert.equal(JSON.parse(cancelled.content).status, "cancelled");
+});
+
 test("invalid action enum is rejected", async () => {
   const r = await taskTool.execute(
     { id: "1", name: "task", arguments: { action: "kill", id: "x" } },

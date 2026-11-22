@@ -4,8 +4,8 @@ import type { ToolCall } from "../types.js";
 
 const ArgsSchema = z
   .object({
-    action: z.enum(["status", "output", "wait", "cancel"]),
-    id: z.string(),
+    action: z.enum(["status", "output", "wait", "cancel", "list"]),
+    id: z.string().optional(),
     timeoutMs: z.number().int().positive().optional(),
   })
   .strict();
@@ -14,18 +14,18 @@ export const taskTool: Tool = {
   definition: {
     name: "task",
     description:
-      "Query or control a background task started by bash with background:true.",
+      "Query or control background bash tasks. Completion notifies the session automatically, so do not poll; use status/output to inspect, wait to block with a timeout, cancel to stop, and list to enumerate. A wait result includes timed_out when the deadline expired.",
     parameters: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["status", "output", "wait", "cancel"],
+          enum: ["status", "output", "wait", "cancel", "list"],
         },
         id: { type: "string" },
         timeoutMs: { type: "integer", minimum: 1 },
       },
-      required: ["action", "id"],
+      required: ["action"],
       additionalProperties: false,
     },
   },
@@ -49,6 +49,17 @@ export const taskTool: Tool = {
       };
     }
     const { action, id, timeoutMs } = parsed.data;
+    if (action === "list") {
+      return { toolCallId: call.id, name: "task", content: JSON.stringify(mgr.list()) };
+    }
+    if (!id) {
+      return {
+        toolCallId: call.id,
+        name: "task",
+        content: "TOOL_ARGUMENT_INVALID: id is required for this action",
+        isError: true,
+      };
+    }
     if (action === "status" || action === "output") {
       const t = mgr.get(id);
       if (!t)
@@ -71,22 +82,22 @@ export const taskTool: Tool = {
         };
       return { toolCallId: call.id, name: "task", content: JSON.stringify(t) };
     }
-    if (action === "wait") {
-      const t = await mgr.wait(id, timeoutMs ?? 30000, ctx.signal);
-      if (!t)
-        return {
-          toolCallId: call.id,
-          name: "task",
-          content: "TASK_NOT_FOUND",
-          isError: true,
-        };
-      return { toolCallId: call.id, name: "task", content: JSON.stringify(t) };
-    }
+    const outcome = await mgr.waitDetailed(
+      id,
+      timeoutMs ?? 30_000,
+      ctx.signal,
+    );
+    if (!outcome?.task)
+      return {
+        toolCallId: call.id,
+        name: "task",
+        content: "TASK_NOT_FOUND",
+        isError: true,
+      };
     return {
       toolCallId: call.id,
       name: "task",
-      content: "INVALID_ACTION",
-      isError: true,
+      content: JSON.stringify({ ...outcome.task, timed_out: outcome.timedOut }),
     };
   },
 };

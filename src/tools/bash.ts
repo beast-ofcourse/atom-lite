@@ -20,7 +20,7 @@ export const bashTool: Tool = {
   definition: {
     name: "bash",
     description:
-      "Execute a shell command in the workspace (or the optional cwd) and return its output. Set background:true to run asynchronously. Commands run in the workspace root unless cwd is provided; a previous cd does not persist between calls.",
+      "Execute a shell command in the workspace (or the optional cwd) and return its output. Set background:true to run asynchronously and return immediately; completion notifies the session automatically, so do not poll. No trailing '&' is needed. Commands run in the workspace root unless cwd is provided; a previous cd does not persist between calls.",
     parameters: {
       type: "object",
       properties: {
