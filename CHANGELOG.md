@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every release increments the patch number, regardless of change size: `0.18.0`
 becomes `0.18.1`. Explicitly requested minor versions are the exception.
 
+## v0.19.1 — 2026-11-22
+
+### Changed
+
+- `npm`: republish the v0.19.0 changes because npm held v0.19.0 in staging. No source changes since v0.19.0.
+
 ## v0.19.0 — 2026-11-22
 
 ### Added
