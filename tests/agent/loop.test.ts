@@ -9,6 +9,7 @@ import {
   writeTool,
   bashTool,
   todoTool,
+  taskTool,
 } from "../../dist/tools/index.js";
 import { TodoStore } from "../../dist/runtime/todos.js";
 import { BackgroundTaskManager } from "../../dist/runtime/background-tasks.js";
@@ -488,8 +489,8 @@ test("background completion injects the result and resumes through steering", as
       toolCalls: [
         {
           id: "c2",
-          name: "bash",
-          arguments: { command: `node -e "setTimeout(()=>{},200)"` },
+          name: "task",
+          arguments: { action: "wait", id: "bg-1", timeoutMs: 5000 },
         },
       ],
     },
@@ -498,7 +499,7 @@ test("background completion injects the result and resumes through steering", as
   const runtime = new AgentRuntime({
     provider,
     workspace: process.cwd(),
-    tools: [bashTool],
+    tools: [bashTool, taskTool],
     backgroundTasks: tasks,
     steeringQueue: steering,
     onEvent: (e) => events.push(e),
