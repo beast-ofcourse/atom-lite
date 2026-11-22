@@ -2,7 +2,7 @@
 // Integration-level: real child processes, short commands, bounded waits.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +10,11 @@ import {
   BackgroundTaskManager,
   createTaskStore,
 } from "../../dist/runtime/background-tasks.js";
+import {
+  readSupervised,
+  spawnSupervised,
+  waitSupervised,
+} from "../../dist/runtime/supervised-process.js";
 
 const SHELL_ECHO = `node -e "process.stdout.write('bg-out');process.stderr.write('bg-err')"`;
 
@@ -88,9 +93,10 @@ test("cancel terminates a running task", async () => {
   await new Promise((r) => setTimeout(r, 50));
   const after = mgr.cancel(t.id);
   assert.ok(after);
-  // Status flips once the process actually exits.
+  assert.equal(after?.status, "cancelled");
+  assert.equal(after?.signal, "SIGTERM");
   const done = await mgr.wait(t.id, 10000);
-  assert.ok(["cancelled", "failed"].includes(done?.status ?? ""));
+  assert.equal(done?.status, "cancelled");
 });
 
 test("wait resolves with the finished record when already done", async () => {
@@ -170,6 +176,37 @@ test("adopt takes over a running process and captures later output", async () =>
   assert.equal(done?.status, "completed");
   assert.match(done?.output ?? "", /adopted/);
   assert.match(readFileSync(done!.outputPath!, "utf8"), /adopted/);
+});
+
+test("cancel propagates to produced work", async () => {
+  const mgr = new BackgroundTaskManager();
+  let cancelled = false;
+  mgr.registerProducer("image", async (_params, registerCancel) => {
+    registerCancel(() => {
+      cancelled = true;
+    });
+    return new Promise<string>(() => {});
+  });
+  const job = mgr.startProducedJob("image");
+  assert.equal(job.status, "running");
+  assert.equal(mgr.cancel(job.id)?.status, "cancelled");
+  assert.equal(cancelled, true);
+});
+
+test("empty status file is not mistaken for exit zero", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "task-status-"));
+  const descriptor = spawnSupervised(
+    `node -e "setTimeout(()=>{},200)"`,
+    process.cwd(),
+    process.env,
+    dir,
+  );
+  assert.equal(readSupervised(descriptor).code, null);
+  writeFileSync(descriptor.statusPath, "");
+  assert.equal(readSupervised(descriptor).code, null);
+  const result = await waitSupervised(descriptor, 20);
+  assert.equal(result.code, 0);
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test("shell job reattaches to a live child after a simulated restart", async () => {

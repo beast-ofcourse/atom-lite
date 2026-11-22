@@ -193,7 +193,7 @@ export const bashTool: Tool = {
         }
       };
       const consume = (target: "out" | "err", s: string): string => {
-        if (s === "") return "";
+        if (handedOff || s === "") return "";
         if (target === "out") fullStdout += s;
         else fullStderr += s;
         let accepted = s;
@@ -211,6 +211,7 @@ export const bashTool: Tool = {
         return accepted;
       };
       const append = (target: "out" | "err", chunk: Buffer) => {
+        if (handedOff) return;
         const s = decoder[target].write(chunk);
         consume(target, s);
       };
@@ -221,6 +222,8 @@ export const bashTool: Tool = {
       const timer = setTimeout(() => {
         if (ctx.backgroundTasks) {
           handedOff = true;
+          child.stdout?.removeAllListeners("data");
+          child.stderr?.removeAllListeners("data");
           const adopted = ctx.backgroundTasks.adopt(
             command,
             child,

@@ -163,7 +163,7 @@ export class AgentRuntime {
         exitCode: t.exitCode,
       });
       this.steeringQueue?.push(
-        `[background task completed] Task ${t.id} finished with status ${t.status} (exit ${t.exitCode ?? "null"}). Its output is in the session. Continue only if the result changes what you are doing; otherwise answer the user.`,
+        `[background task completed] Task ${t.id} (${t.type}) finished with status ${t.status} (exit ${t.exitCode ?? "null"}). Output:\n${t.output}\nContinue only if the result changes what you are doing; otherwise answer the user.`,
       );
     });
 
@@ -240,17 +240,6 @@ export class AgentRuntime {
 
   setSupportsVision(value: boolean | undefined): void {
     this.supportsVision = value;
-  }
-
-  private injectCompletedBackgroundTasks(
-    session: Pick<AgentSession, "appendMessage">,
-  ): void {
-    for (const t of this.backgroundTasks.drainCompleted()) {
-      session.appendMessage({
-        role: "system",
-        content: `[background task ${t.id} ${t.status}]${t.error ? ` ${t.error}` : ""} ${t.output}`,
-      });
-    }
   }
 
   getContextUsage(): ContextUsage {
@@ -867,7 +856,7 @@ export class AgentRuntime {
     });
     this.onEvent?.({ type: "request_id", requestId });
     this.todoTouchedThisTurn = false;
-    this.injectCompletedBackgroundTasks(session);
+    this.backgroundTasks.drainCompleted();
 
     session.appendMessage({
       role: "user",
@@ -1433,7 +1422,7 @@ export class AgentRuntime {
           return answerPrefix + text;
         }
 
-        this.injectCompletedBackgroundTasks(session);
+        this.backgroundTasks.drainCompleted();
 
         if (terminate) {
           await this.extensionDispatch?.("agent_settled", {

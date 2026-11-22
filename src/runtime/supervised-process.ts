@@ -1,6 +1,15 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 export interface SupervisedProcess {
@@ -10,6 +19,7 @@ export interface SupervisedProcess {
   command: string;
   cwd: string;
   startedAt: number;
+  token: string;
 }
 
 export interface SupervisedResult {
@@ -29,18 +39,21 @@ export function spawnSupervised(
   const statusPath = join(dir, `${token}.status`);
   writeFileSync(outputPath, "");
   const out = openSync(outputPath, "a");
-  const shell = process.platform === "win32" ? "cmd.exe" : "/bin/sh";
-  const flag = process.platform === "win32" ? "/d /s /c" : "-c";
-  const wrapped =
-    process.platform === "win32"
-      ? `(${command}) & echo %ERRORLEVEL% > "${statusPath}"`
-      : `(${command}); __atom_code=$?; printf '%s' "$__atom_code" > '${statusPath}'; exit $__atom_code`;
-  const child = spawn(shell, [flag, wrapped], {
+  const win32 = process.platform === "win32";
+  const shell = win32 ? "cmd.exe" : "/bin/sh";
+  const wrapped = win32
+    ? `(${command}) & echo !ERRORLEVEL! > "${statusPath}"`
+    : `(${command}); __atom_code=$?; printf '%s' "$__atom_code" > '${statusPath}'; exit $__atom_code # atom:${token}`;
+  const args = win32
+    ? ["/v:on", "/d", "/s", "/c", wrapped]
+    : ["-c", wrapped];
+  const child = spawn(shell, args, {
     cwd,
     env,
-    detached: process.platform !== "win32",
+    detached: !win32,
     stdio: ["ignore", out, out],
   });
+  closeSync(out);
   child.unref();
   return {
     pid: child.pid ?? 0,
@@ -49,77 +62,118 @@ export function spawnSupervised(
     command,
     cwd,
     startedAt: Date.now(),
+    token,
   };
 }
 
 export function supervisedParams(
-  process: SupervisedProcess,
+  target: SupervisedProcess,
 ): Record<string, unknown> {
-  return { ...process };
+  return { ...target };
 }
 
 export function supervisedFromParams(
   params: Record<string, unknown> | undefined,
 ): SupervisedProcess | undefined {
   if (!params) return undefined;
-  const { pid, outputPath, statusPath, command, cwd, startedAt } = params;
+  const { pid, outputPath, statusPath, command, cwd, startedAt, token } = params;
   if (
     typeof pid !== "number" ||
     typeof outputPath !== "string" ||
     typeof statusPath !== "string" ||
     typeof command !== "string" ||
     typeof cwd !== "string" ||
-    typeof startedAt !== "number"
+    typeof startedAt !== "number" ||
+    typeof token !== "string"
   ) {
     return undefined;
   }
-  return { pid, outputPath, statusPath, command, cwd, startedAt };
+  return { pid, outputPath, statusPath, command, cwd, startedAt, token };
 }
 
-export function isSupervisedRunning(pid: number): boolean {
-  if (!pid) return false;
+function sameProcess(target: SupervisedProcess): boolean {
+  if (!target.pid) return false;
+  if (process.platform !== "linux") {
+    try {
+      globalThis.process.kill(target.pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
   try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === "EPERM";
+    const cmdline = readFileSync(`/proc/${target.pid}/cmdline`, "utf8");
+    return cmdline.includes(target.token);
+  } catch {
+    return false;
   }
 }
 
-export function readSupervised(process: SupervisedProcess): SupervisedResult {
-  const output = existsSync(process.outputPath)
-    ? readFileSync(process.outputPath, "utf8")
+export function isSupervisedProcessRunning(
+  target: SupervisedProcess,
+): boolean {
+  return !isSupervisedFinished(target) && sameProcess(target);
+}
+
+export function isSupervisedFinished(target: SupervisedProcess): boolean {
+  return readStatusCode(target) !== null;
+}
+
+function readStatusCode(target: SupervisedProcess): number | null {
+  if (!existsSync(target.statusPath)) return null;
+  const raw = readFileSync(target.statusPath, "utf8").trim();
+  if (raw === "") return null;
+  const code = Number(raw);
+  return Number.isFinite(code) ? code : null;
+}
+
+export function readSupervised(target: SupervisedProcess): SupervisedResult {
+  const output = existsSync(target.outputPath)
+    ? readFileSync(target.outputPath, "utf8")
     : "";
-  const code = existsSync(process.statusPath)
-    ? Number(readFileSync(process.statusPath, "utf8").trim())
-    : null;
-  return { code: Number.isFinite(code) ? code : null, output };
+  return { code: readStatusCode(target), output };
+}
+
+export function supervisedReader(target: SupervisedProcess): () => string {
+  let offset = 0;
+  return () => {
+    if (!existsSync(target.outputPath)) return "";
+    const size = statSync(target.outputPath).size;
+    if (size <= offset) return "";
+    const fd = openSync(target.outputPath, "r");
+    try {
+      const buffer = Buffer.alloc(size - offset);
+      readSync(fd, buffer, 0, buffer.length, offset);
+      offset = size;
+      return buffer.toString("utf8");
+    } finally {
+      closeSync(fd);
+    }
+  };
 }
 
 export function waitSupervised(
-  process: SupervisedProcess,
+  target: SupervisedProcess,
   intervalMs = 100,
   signal?: AbortSignal,
 ): Promise<SupervisedResult> {
   return new Promise((resolve) => {
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
-    const finish = (result: SupervisedResult) => {
+    const finish = () => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
-      resolve(result);
+      resolve(readSupervised(target));
     };
-    const onAbort = () => finish(readSupervised(process));
+    const onAbort = () => finish();
     const poll = () => {
-      const current = readSupervised(process);
-      if (current.code !== null || !isSupervisedRunning(process.pid)) {
-        finish(current);
+      if (isSupervisedFinished(target) || !sameProcess(target)) {
+        finish();
         return;
       }
       timer = setTimeout(poll, intervalMs);
-      timer.unref();
     };
     if (signal?.aborted) onAbort();
     else poll();
@@ -130,6 +184,7 @@ export function terminateSupervised(
   target: SupervisedProcess,
   signal: NodeJS.Signals = "SIGTERM",
 ): void {
+  if (!sameProcess(target)) return;
   try {
     globalThis.process.kill(-target.pid, signal);
   } catch {

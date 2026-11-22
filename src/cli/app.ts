@@ -687,10 +687,10 @@ export async function run(args: string[]): Promise<void> {
     },
   });
 
-  backgroundTasks.setStore(createTaskStore(process.cwd()));
-
-  backgroundTasks.registerProducer("subagent", async (params) => {
+  backgroundTasks.registerProducer("subagent", async (params, registerCancel) => {
     const prompt = String(params.prompt ?? "");
+    const controller = new AbortController();
+    registerCancel(() => controller.abort());
     const child = new AgentRuntime({
       provider,
       model: modelOverride ?? provider.model,
@@ -709,10 +709,10 @@ export async function run(args: string[]): Promise<void> {
       process.cwd(),
       provider.id,
     );
-    return child.runAgentTurn(prompt, childSession, new AbortController().signal);
+    return child.runAgentTurn(prompt, childSession, controller.signal);
   });
 
-  backgroundTasks.registerProducer("image", async (params) => {
+  backgroundTasks.registerProducer("image", async (params, registerCancel) => {
     const command = String(params.command ?? "");
     if (!command) throw new Error("image job needs params.command");
     await new Promise<void>((resolve, reject) => {
@@ -721,6 +721,7 @@ export async function run(args: string[]): Promise<void> {
         [process.platform === "win32" ? "/c" : "-c", command],
         { cwd: process.cwd(), env: process.env },
       );
+      registerCancel(() => child.kill("SIGTERM"));
       let stderr = "";
       child.stderr?.on("data", (c: Buffer) => (stderr += c.toString()));
       child.on("error", reject);
@@ -730,6 +731,8 @@ export async function run(args: string[]): Promise<void> {
     });
     return String(params.path ?? "image generated");
   });
+
+  backgroundTasks.setStore(createTaskStore(process.cwd()));
 
   mcpManager.onToolsChanged = () => {
     runtime.setTools(currentTools(true));

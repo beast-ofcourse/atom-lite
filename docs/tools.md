@@ -79,7 +79,7 @@ Use `task` to inspect or control tracked work:
 | `list`   | none                 | Enumerate all tracked tasks.                                    |
 | `start`  | `kind`, `params`?    | Launch a produced job; returns a task id and `outputPath`.      |
 
-`kind` is `shell`, `subagent`, `image`, or `codemode`. `subagent` delegates `params.prompt` to a child agent turn. `image` runs `params.command` and reports `params.path`. An unknown kind without a registered producer returns `NO_PRODUCER_FOR_<kind>`.
+`kind` is `subagent`, `image`, or `codemode`. Shell jobs start through `bash` with `background:true`. `subagent` delegates `params.prompt` to a child agent turn. `image` runs `params.command` and reports `params.path`. An unknown kind without a registered producer returns `NO_PRODUCER_FOR_<kind>`.
 
 `timeoutMs` defaults to `30000`. At most four background shell processes run at once; starting a fifth returns `COMMAND_FAILED`. Task records are stored per workspace and survive a restart, so `task status/output/list` still work. Shell jobs store the child PID, output file, and exit-status file. On restart a still-running child is reattached and waited on; its original exit code and output are reported when it ends. Jobs of kind `subagent`, `image`, and `codemode` carry a recovery descriptor; a host that registers a recoverer for that kind resumes the work from the stored descriptor on restart instead. Unregistered kinds fall back to `PROCESS_LOST_ON_RESTART`. Recovered jobs are not re-announced until they settle again. Finished records are retained for later inspection, with the oldest pruned first.
 

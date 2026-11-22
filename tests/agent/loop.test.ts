@@ -515,12 +515,13 @@ test("background completion injects the result and resumes through steering", as
     events.some((e) => e.type === "background_task_complete" && e.status === "completed"),
   );
   assert.ok(
-    session.messages.some(
-      (m: any) =>
-        m.role === "system" &&
-        String(m.content).includes("bgdone") &&
-        String(m.content).includes("completed"),
-    ),
+    session.messages.some((m: any) => {
+      if (m.role !== "user") return false;
+      const text = Array.isArray(m.content)
+        ? m.content.map((p: any) => String(p.text ?? "")).join("")
+        : String(m.content);
+      return text.includes("bgdone") && text.includes("completed");
+    }),
   );
   assert.equal(steering.length, 0, "synthetic resume message was consumed");
 });

@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,11 +13,12 @@ import { join } from "node:path";
 import { userConfigDir } from "../config/paths.js";
 import { terminateProcessTree } from "../security/process.js";
 import {
-  isSupervisedRunning,
+  isSupervisedProcessRunning,
   readSupervised,
   spawnSupervised,
   supervisedFromParams,
   supervisedParams,
+  supervisedReader,
   terminateSupervised,
   waitSupervised,
   type SupervisedProcess,
@@ -29,6 +31,15 @@ export function writeOutputFile(output: string, label: string): string {
   const path = join(OUTPUT_DIR, `${label}-${randomUUID()}.log`);
   writeFileSync(path, output);
   return path;
+}
+
+function deleteOutputFile(outputPath: string | undefined): void {
+  if (!outputPath || !existsSync(outputPath)) return;
+  try {
+    unlinkSync(outputPath);
+  } catch {
+    // A concurrent reader may already have removed it.
+  }
 }
 
 export type BackgroundTaskStatus =
@@ -88,7 +99,10 @@ export interface StartJobInput {
 }
 
 export type JobRecoverer = (descriptor: RecoveryDescriptor) => Promise<string>;
-export type JobProducer = (params: Record<string, unknown>) => Promise<string>;
+export type JobProducer = (
+  params: Record<string, unknown>,
+  registerCancel: (cancel: () => void) => void,
+) => Promise<string>;
 
 interface InternalTask extends BackgroundTask {
   child: ReturnType<typeof spawn> | null;
@@ -131,12 +145,18 @@ export function createTaskStore(
       mkdirSync(dir, { recursive: true });
       const all = this.load().filter((t) => t.id !== task.id);
       all.push(task);
-      writeFileSync(path, JSON.stringify(all.slice(-MAX_FINISHED)));
+      const kept = all.slice(-MAX_FINISHED);
+      for (const dropped of all.slice(0, -MAX_FINISHED)) {
+        deleteOutputFile(dropped.outputPath);
+      }
+      writeFileSync(path, JSON.stringify(kept));
     },
     remove(id) {
       if (!existsSync(path)) return;
-      const all = this.load().filter((t) => t.id !== id);
-      writeFileSync(path, JSON.stringify(all));
+      const all = this.load();
+      const removed = all.find((t) => t.id === id);
+      deleteOutputFile(removed?.outputPath);
+      writeFileSync(path, JSON.stringify(all.filter((t) => t.id !== id)));
     },
   };
 }
@@ -183,11 +203,23 @@ export class BackgroundTaskManager {
   ): BackgroundTask {
     const producer = this.producers.get(kind);
     if (!producer) throw new Error(`NO_PRODUCER_FOR_${kind}`);
+    let cancelWork: (() => void) | undefined;
+    let work: Promise<string>;
+    try {
+      work = Promise.resolve(
+        producer(params, (cancel) => {
+          cancelWork = cancel;
+        }),
+      );
+    } catch (err) {
+      work = Promise.reject(err);
+    }
     return this.startJob({
       ...fields,
       kind,
       recovery: { kind, id: "pending", params },
-      run: () => producer(params),
+      cancel: () => cancelWork?.(),
+      run: () => work,
     });
   }
 
@@ -362,7 +394,7 @@ export class BackgroundTaskManager {
     if (input.kind === "shell") {
       this.prune();
       const running = [...this.tasks.values()].filter(
-        (t) => t.status === "running" && t.type === "shell",
+        (t) => t.status === "running",
       ).length;
       if (running >= MAX_CONCURRENT) {
         throw new Error("too many background tasks");
@@ -453,7 +485,7 @@ export class BackgroundTaskManager {
   ): void {
     task.outputPath = descriptor.outputPath;
     task.supervised = descriptor;
-    if (!isSupervisedRunning(descriptor.pid)) {
+    if (!isSupervisedProcessRunning(descriptor)) {
       const current = readSupervised(descriptor);
       this.applyOutput(task, current.output, descriptor.outputPath);
       if (current.code === null) {
@@ -489,12 +521,9 @@ export class BackgroundTaskManager {
     task: InternalTask,
     descriptor: SupervisedProcess,
   ): void {
+    const readDelta = supervisedReader(descriptor);
     task.pollTimer = setInterval(() => {
-      this.applyOutput(
-        task,
-        readSupervised(descriptor).output,
-        descriptor.outputPath,
-      );
+      this.appendOutput(task, readDelta(), descriptor.outputPath);
     }, 100);
     task.pollTimer.unref();
     void waitSupervised(descriptor).then((result) => {
@@ -508,6 +537,24 @@ export class BackgroundTaskManager {
         result.code === 0 ? undefined : "COMMAND_FAILED",
       );
     });
+  }
+
+  private appendOutput(
+    task: InternalTask,
+    text: string,
+    outputPath: string,
+  ): void {
+    if (!text) return;
+    task.outputPath = outputPath;
+    if (task.output.length + text.length > OUTPUT_CAP) {
+      task.truncated = true;
+      task.output += text.slice(
+        0,
+        Math.max(0, OUTPUT_CAP - task.output.length),
+      );
+    } else {
+      task.output += text;
+    }
   }
 
   private applyOutput(
@@ -548,6 +595,17 @@ export class BackgroundTaskManager {
     const outputPath = writeOutputFile(priorOutput, task.id);
     task.outputPath = outputPath;
     task.output = priorOutput.slice(0, OUTPUT_CAP);
+
+    if (child.exitCode !== null || child.signalCode !== null) {
+      const code = child.exitCode;
+      const signal = child.signalCode;
+      queueMicrotask(() => {
+        if (signal) this.settle(task, "cancelled", code, signal);
+        else if (code === 0) this.settle(task, "completed", code, null);
+        else this.settle(task, "failed", code ?? null, null, "COMMAND_FAILED");
+      });
+      return;
+    }
 
     const append = (chunk: Buffer) =>
       this.recordOutput(task, chunk.toString("utf8"), outputPath);
