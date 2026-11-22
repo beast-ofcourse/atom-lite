@@ -11,6 +11,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { userConfigDir } from "../config/paths.js";
 import { terminateProcessTree } from "../security/process.js";
+import {
+  isSupervisedRunning,
+  readSupervised,
+  spawnSupervised,
+  supervisedFromParams,
+  supervisedParams,
+  terminateSupervised,
+  waitSupervised,
+  type SupervisedProcess,
+} from "./supervised-process.js";
 
 const OUTPUT_DIR = join(tmpdir(), "atom-lite-task-output");
 
@@ -78,12 +88,15 @@ export interface StartJobInput {
 }
 
 export type JobRecoverer = (descriptor: RecoveryDescriptor) => Promise<string>;
+export type JobProducer = (params: Record<string, unknown>) => Promise<string>;
 
 interface InternalTask extends BackgroundTask {
   child: ReturnType<typeof spawn> | null;
   timer: NodeJS.Timeout | null;
   waiters: Array<(t: BackgroundTask) => void>;
   cancelJob?: () => void;
+  supervised?: SupervisedProcess;
+  pollTimer?: NodeJS.Timeout;
 }
 
 export interface WaitOutcome {
@@ -145,6 +158,7 @@ export class BackgroundTaskManager {
   private onComplete?: (task: BackgroundTask) => void;
   private store?: TaskStore;
   private recoverers = new Map<JobKind, JobRecoverer>();
+  private producers = new Map<JobKind, JobProducer>();
 
   setOnComplete(callback: (task: BackgroundTask) => void): void {
     this.onComplete = callback;
@@ -152,6 +166,29 @@ export class BackgroundTaskManager {
 
   registerRecovery(kind: JobKind, recoverer: JobRecoverer): void {
     this.recoverers.set(kind, recoverer);
+  }
+
+  registerProducer(kind: JobKind, producer: JobProducer): void {
+    this.producers.set(kind, producer);
+  }
+
+  hasProducer(kind: JobKind): boolean {
+    return this.producers.has(kind);
+  }
+
+  startProducedJob(
+    kind: JobKind,
+    params: Record<string, unknown> = {},
+    fields: Partial<StartJobInput> = {},
+  ): BackgroundTask {
+    const producer = this.producers.get(kind);
+    if (!producer) throw new Error(`NO_PRODUCER_FOR_${kind}`);
+    return this.startJob({
+      ...fields,
+      kind,
+      recovery: { kind, id: "pending", params },
+      run: () => producer(params),
+    });
   }
 
   setStore(store: TaskStore): void {
@@ -163,6 +200,21 @@ export class BackgroundTaskManager {
       }
       if (record.status !== "running") {
         this.recordRestored(record);
+        continue;
+      }
+      const supervised =
+        record.type === "shell"
+          ? supervisedFromParams(record.recovery?.params)
+          : undefined;
+      if (supervised) {
+        const task: InternalTask = {
+          ...record,
+          child: null,
+          timer: null,
+          waiters: [],
+        };
+        this.tasks.set(record.id, task);
+        this.reattachSupervised(task, supervised);
         continue;
       }
       const descriptor = record.recovery ?? {
@@ -240,6 +292,12 @@ export class BackgroundTaskManager {
       throw new Error("too many background tasks");
     }
     const id = `bg-${++this.counter}`;
+    const descriptor = spawnSupervised(
+      command,
+      cwd,
+      env,
+      join(tmpdir(), "atom-lite-supervised"),
+    );
     const task: InternalTask = {
       id,
       type: "shell",
@@ -248,28 +306,20 @@ export class BackgroundTaskManager {
       output: "",
       exitCode: null,
       signal: null,
-      startedAt: Date.now(),
+      startedAt: descriptor.startedAt,
       truncated: false,
+      supervised: descriptor,
+      recovery: {
+        kind: "shell",
+        id,
+        params: supervisedParams(descriptor),
+      },
       child: null,
       timer: null,
       waiters: [],
     };
     this.tasks.set(id, task);
-
-    const shell =
-      process.platform === "win32"
-        ? (process.env.ComSpec ?? "cmd.exe")
-        : (process.env.SHELL ?? "/bin/sh");
-    const flag = process.platform === "win32" ? "/c" : "-c";
-    const child = spawn(shell, [flag, command], {
-      cwd,
-      env,
-      detached: process.platform !== "win32",
-      // EOF-on-stdin so commands that read stdin do not block for the whole
-      // 10-minute timeout.
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    this.attach(task, child);
+    this.attachSupervised(task, descriptor);
     const snapshot = this.snapshot(task);
     this.store?.save(snapshot);
     return snapshot;
@@ -388,6 +438,89 @@ export class BackgroundTaskManager {
     return this.snapshot(task);
   }
 
+  private attachSupervised(
+    task: InternalTask,
+    descriptor: SupervisedProcess,
+  ): void {
+    task.outputPath = descriptor.outputPath;
+    this.watchSupervised(task, descriptor);
+    this.armTimeout(task, descriptor);
+  }
+
+  private reattachSupervised(
+    task: InternalTask,
+    descriptor: SupervisedProcess,
+  ): void {
+    task.outputPath = descriptor.outputPath;
+    task.supervised = descriptor;
+    if (!isSupervisedRunning(descriptor.pid)) {
+      const current = readSupervised(descriptor);
+      this.applyOutput(task, current.output, descriptor.outputPath);
+      if (current.code === null) {
+        this.settle(task, "cancelled", null, null, "PROCESS_LOST_ON_RESTART");
+      } else {
+        this.settle(
+          task,
+          current.code === 0 ? "completed" : "failed",
+          current.code,
+          null,
+          current.code === 0 ? undefined : "COMMAND_FAILED",
+        );
+      }
+      return;
+    }
+    this.watchSupervised(task, descriptor);
+    this.armTimeout(task, descriptor);
+  }
+
+  private armTimeout(
+    task: InternalTask,
+    descriptor: SupervisedProcess,
+  ): void {
+    task.timer = setTimeout(() => {
+      terminateSupervised(descriptor, "SIGTERM");
+      setTimeout(() => terminateSupervised(descriptor, "SIGKILL"), 1000).unref();
+      this.settle(task, "timed_out", null, "SIGTERM", "TIMEOUT");
+    }, DEFAULT_TIMEOUT_MS);
+    task.timer.unref();
+  }
+
+  private watchSupervised(
+    task: InternalTask,
+    descriptor: SupervisedProcess,
+  ): void {
+    task.pollTimer = setInterval(() => {
+      this.applyOutput(
+        task,
+        readSupervised(descriptor).output,
+        descriptor.outputPath,
+      );
+    }, 100);
+    task.pollTimer.unref();
+    void waitSupervised(descriptor).then((result) => {
+      if (task.status !== "running") return;
+      this.applyOutput(task, result.output, descriptor.outputPath);
+      this.settle(
+        task,
+        result.code === 0 ? "completed" : "failed",
+        result.code,
+        null,
+        result.code === 0 ? undefined : "COMMAND_FAILED",
+      );
+    });
+  }
+
+  private applyOutput(
+    task: InternalTask,
+    output: string,
+    outputPath: string,
+  ): void {
+    if (!output) return;
+    task.outputPath = outputPath;
+    task.output = output.slice(0, OUTPUT_CAP);
+    task.truncated = output.length > OUTPUT_CAP;
+  }
+
   private recordOutput(
     task: InternalTask,
     text: string,
@@ -457,6 +590,8 @@ export class BackgroundTaskManager {
     if (error) task.error = error;
     if (task.timer) clearTimeout(task.timer);
     task.timer = null;
+    if (task.pollTimer) clearInterval(task.pollTimer);
+    task.pollTimer = undefined;
     this.completedQueue.push(task.id);
     const settled = this.snapshot(task);
     this.store?.save(settled);
@@ -520,6 +655,7 @@ export class BackgroundTaskManager {
   }
 
   private cancelTask(t: InternalTask): BackgroundTask {
+    if (t.supervised) terminateSupervised(t.supervised, "SIGTERM");
     const settled = this.settle(t, "cancelled", null, "SIGTERM");
     if (t.cancelJob) t.cancelJob();
     const child = t.child;

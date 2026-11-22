@@ -83,6 +83,61 @@ test("bash background:true without a manager fails explicitly", async () => {
   assert.equal(r.isError, true);
 });
 
+test("task start launches registered subagent and image producers", async () => {
+  const mgr = new BackgroundTaskManager();
+  mgr.registerProducer("subagent", async (params) => `answer:${String(params.prompt)}`);
+  mgr.registerProducer("image", async () => "/tmp/generated.svg");
+
+  const sub = await taskTool.execute(
+    {
+      id: "1",
+      name: "task",
+      arguments: {
+        action: "start",
+        kind: "subagent",
+        params: { prompt: "hi" },
+        agent: "scout",
+        description: "delegated",
+      },
+    },
+    ctx(mgr),
+  );
+  const subStarted = JSON.parse(sub.content);
+  assert.equal(subStarted.status, "running");
+  assert.equal(mgr.get(subStarted.task_id)?.type, "subagent");
+  assert.equal(mgr.get(subStarted.task_id)?.agent, "scout");
+  assert.equal((await mgr.wait(subStarted.task_id, 5000))?.output, "answer:hi");
+
+  const image = await taskTool.execute(
+    {
+      id: "2",
+      name: "task",
+      arguments: {
+        action: "start",
+        kind: "image",
+        params: { command: "true" },
+        path: "/tmp/generated.svg",
+      },
+    },
+    ctx(mgr),
+  );
+  const imageStarted = JSON.parse(image.content);
+  assert.equal(mgr.get(imageStarted.task_id)?.type, "image");
+  assert.equal(
+    (await mgr.wait(imageStarted.task_id, 5000))?.output,
+    "/tmp/generated.svg",
+  );
+});
+
+test("task start without a registered producer fails explicitly", async () => {
+  const result = await taskTool.execute(
+    { id: "1", name: "task", arguments: { action: "start", kind: "image" } },
+    ctx(new BackgroundTaskManager()),
+  );
+  assert.equal(result.content, "NO_PRODUCER_FOR_image");
+  assert.equal(result.isError, true);
+});
+
 test("foreground timeout moves the command to the background", async () => {
   const mgr = new BackgroundTaskManager();
   const start = await bashTool.execute(

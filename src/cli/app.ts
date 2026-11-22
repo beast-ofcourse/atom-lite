@@ -689,6 +689,48 @@ export async function run(args: string[]): Promise<void> {
 
   backgroundTasks.setStore(createTaskStore(process.cwd()));
 
+  backgroundTasks.registerProducer("subagent", async (params) => {
+    const prompt = String(params.prompt ?? "");
+    const child = new AgentRuntime({
+      provider,
+      model: modelOverride ?? provider.model,
+      workspace: process.cwd(),
+      tools: currentTools(false),
+      codeMode: config.runtime.codeMode,
+      mode: "yolo",
+      limits: {
+        maxParallelToolCalls: config.runtime.maxParallelToolCalls,
+        maxToolOutputBytes: config.runtime.maxToolOutputBytes,
+        maxBashTimeMs: config.runtime.maxBashTimeMs,
+      },
+    });
+    const childSession = new InMemorySession(
+      randomUUID(),
+      process.cwd(),
+      provider.id,
+    );
+    return child.runAgentTurn(prompt, childSession, new AbortController().signal);
+  });
+
+  backgroundTasks.registerProducer("image", async (params) => {
+    const command = String(params.command ?? "");
+    if (!command) throw new Error("image job needs params.command");
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(
+        defaultShell(),
+        [process.platform === "win32" ? "/c" : "-c", command],
+        { cwd: process.cwd(), env: process.env },
+      );
+      let stderr = "";
+      child.stderr?.on("data", (c: Buffer) => (stderr += c.toString()));
+      child.on("error", reject);
+      child.on("close", (code) =>
+        code === 0 ? resolve() : reject(new Error(stderr || `exit ${code}`)),
+      );
+    });
+    return String(params.path ?? "image generated");
+  });
+
   mcpManager.onToolsChanged = () => {
     runtime.setTools(currentTools(true));
   };

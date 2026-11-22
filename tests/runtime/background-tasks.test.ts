@@ -172,6 +172,45 @@ test("adopt takes over a running process and captures later output", async () =>
   assert.match(readFileSync(done!.outputPath!, "utf8"), /adopted/);
 });
 
+test("shell job reattaches to a live child after a simulated restart", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "task-shell-recovery-"));
+  const first = new BackgroundTaskManager();
+  first.setStore(createTaskStore("session", dir));
+  const job = first.start(
+    `node -e "setTimeout(()=>console.log('survived'),400)"`,
+    process.cwd(),
+    process.env,
+  );
+  assert.equal(job.status, "running");
+  assert.equal(typeof job.recovery?.params?.pid, "number");
+
+  const restarted = new BackgroundTaskManager();
+  restarted.setStore(createTaskStore("session", dir));
+  assert.equal(restarted.get(job.id)?.status, "running");
+  const done = await restarted.wait(job.id, 5000);
+  assert.equal(done?.status, "completed");
+  assert.match(done?.output ?? "", /survived/);
+  assert.match(readFileSync(done!.outputPath!, "utf8"), /survived/);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("reattached shell job reports the original exit code", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "task-shell-code-"));
+  const first = new BackgroundTaskManager();
+  first.setStore(createTaskStore("session", dir));
+  const job = first.start(
+    `node -e "setTimeout(()=>process.exit(7),300)"`,
+    process.cwd(),
+    process.env,
+  );
+  const restarted = new BackgroundTaskManager();
+  restarted.setStore(createTaskStore("session", dir));
+  const done = await restarted.wait(job.id, 5000);
+  assert.equal(done?.status, "failed");
+  assert.equal(done?.exitCode, 7);
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test("generic job kinds are tracked and surfaced with their fields", async () => {
   const mgr = new BackgroundTaskManager();
   const subagent = mgr.startJob({
@@ -233,17 +272,17 @@ test("registered recoverer resumes running work across managers", async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test("task store restores records and marks lost running work cancelled", async () => {
+test("task store marks unrecoverable running work cancelled", async () => {
   const dir = mkdtempSync(join(tmpdir(), "task-store-"));
   const first = new BackgroundTaskManager();
   first.setStore(createTaskStore("session", dir));
   const finished = first.start(`echo persisted`, process.cwd(), process.env);
   await first.wait(finished.id, 10000);
-  const running = first.start(
-    `node -e "setInterval(()=>{},50)"`,
-    process.cwd(),
-    process.env,
-  );
+  const running = first.startJob({
+    kind: "image",
+    path: "/tmp/pending.png",
+    run: () => new Promise<string>(() => {}),
+  });
 
   const restored = new BackgroundTaskManager();
   restored.setStore(createTaskStore("session", dir));

@@ -4,9 +4,16 @@ import type { ToolCall } from "../types.js";
 
 const ArgsSchema = z
   .object({
-    action: z.enum(["status", "output", "wait", "cancel", "list"]),
+    action: z.enum(["status", "output", "wait", "cancel", "list", "start"]),
     id: z.string().optional(),
     timeoutMs: z.number().int().positive().optional(),
+    kind: z.enum(["shell", "subagent", "image", "codemode"]).optional(),
+    params: z.record(z.string(), z.unknown()).optional(),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    path: z.string().optional(),
+    model: z.string().optional(),
+    agent: z.string().optional(),
   })
   .strict();
 
@@ -14,16 +21,26 @@ export const taskTool: Tool = {
   definition: {
     name: "task",
     description:
-      "Query or control background bash tasks. Completion notifies the session automatically, so do not poll; use status/output to inspect, wait to block with a timeout, cancel to stop, and list to enumerate. A wait result includes timed_out when the deadline expired.",
+      "Start, query, or control background jobs. Completion notifies the session automatically, so do not poll. Use start with a kind (shell, subagent, image, codemode) and params to launch work; status/output inspect, wait blocks with a timeout, cancel stops, and list enumerates. A wait result includes timed_out when the deadline expired.",
     parameters: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["status", "output", "wait", "cancel", "list"],
+          enum: ["status", "output", "wait", "cancel", "list", "start"],
         },
         id: { type: "string" },
         timeoutMs: { type: "integer", minimum: 1 },
+        kind: {
+          type: "string",
+          enum: ["shell", "subagent", "image", "codemode"],
+        },
+        params: { type: "object" },
+        title: { type: "string" },
+        description: { type: "string" },
+        path: { type: "string" },
+        model: { type: "string" },
+        agent: { type: "string" },
       },
       required: ["action"],
       additionalProperties: false,
@@ -48,7 +65,41 @@ export const taskTool: Tool = {
         isError: true,
       };
     }
-    const { action, id, timeoutMs } = parsed.data;
+    const { action, id, timeoutMs, kind, params, title, description, path, model, agent } = parsed.data;
+    if (action === "start") {
+      if (!kind)
+        return {
+          toolCallId: call.id,
+          name: "task",
+          content: "TOOL_ARGUMENT_INVALID: kind is required for start",
+          isError: true,
+        };
+      if (!mgr.hasProducer(kind))
+        return {
+          toolCallId: call.id,
+          name: "task",
+          content: `NO_PRODUCER_FOR_${kind}`,
+          isError: true,
+        };
+      const fields: Record<string, unknown> = {};
+      if (title !== undefined) fields.title = title;
+      if (description !== undefined) fields.description = description;
+      if (path !== undefined) fields.path = path;
+      if (model !== undefined) fields.model = model;
+      if (agent !== undefined) fields.agent = agent;
+      const job = mgr.startProducedJob(kind, params ?? {}, fields);
+      return {
+        toolCallId: call.id,
+        name: "task",
+        content: JSON.stringify({
+          task_id: job.id,
+          status: "running",
+          outputPath: job.outputPath,
+          notice:
+            "Job started in the background. You will be notified when it finishes; do not poll.",
+        }),
+      };
+    }
     if (action === "list") {
       return { toolCallId: call.id, name: "task", content: JSON.stringify(mgr.list()) };
     }
