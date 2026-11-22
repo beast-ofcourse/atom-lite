@@ -36,6 +36,7 @@ export type AgentEvent =
       content: string;
       isError?: boolean;
       diff?: string[];
+      details?: unknown;
     }
   | { type: "final"; text: string }
   | { type: "usage"; input?: number; output?: number; elapsedMs?: number }
