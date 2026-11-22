@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { AgentRuntime } from "../../dist/agent/loop.js";
 import { FakeProvider } from "../../dist/providers/fake.js";
 import { InMemorySession } from "../../dist/sessions/store.js";
-import { readTool } from "../../dist/tools/index.js";
+import { readTool, bashTool } from "../../dist/tools/index.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -112,6 +112,54 @@ test("Code Mode respects persona permissions", async () => {
   assert.ok(toolResult);
   assert.equal(toolResult.isError, true);
   assert.match(toolResult.content, /PERSONA_PERMISSION_DENIED|Code Mode failed/);
+});
+
+test("Code Mode cancellation aborts the run", async () => {
+  const dir = dirWithFiles({});
+  const provider = new FakeProvider([
+    {
+      toolCalls: [
+        {
+          id: "e1",
+          name: "execute",
+          arguments: { code: "return await tools.bash({ command: 'sleep 5' });" },
+        },
+      ],
+    },
+    { text: "done" },
+  ]);
+  const runtime = new AgentRuntime({
+    provider,
+    workspace: dir,
+    tools: [bashTool],
+    mode: "yolo",
+  });
+  const session = new InMemorySession("s1", dir);
+  const controller = new AbortController();
+  const promise = runtime.runAgentTurn("cancel", session, controller.signal);
+  setTimeout(() => controller.abort(), 100);
+  await assert.rejects(promise, /USER_CANCELLED/);
+});
+
+test("Code Mode keeps intermediate tool results out of the session", async () => {
+  const dir = dirWithFiles({ "a.txt": "hello" });
+  const provider = new FakeProvider([
+    {
+      toolCalls: [
+        {
+          id: "e1",
+          name: "execute",
+          arguments: { code: "const r = await tools.read({ path: 'a.txt' }); return r.split('\\n')[1].trim();" },
+        },
+      ],
+    },
+    { text: "done" },
+  ]);
+  const runtime = new AgentRuntime({ provider, workspace: dir, tools: [readTool] });
+  const session = new InMemorySession("s1", dir);
+  await runtime.runAgentTurn("context", session, new AbortController().signal);
+  const tools = session.messages.filter((m) => m.role === "tool").map((m) => m.name);
+  assert.deepEqual(tools, ["execute"]);
 });
 
 test("Code Mode is listed as a model tool", () => {
