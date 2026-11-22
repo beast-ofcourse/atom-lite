@@ -4,7 +4,30 @@ All notable changes to this project are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every release increments the patch number, regardless of change size: `0.18.0`
-becomes `0.18.1`.
+becomes `0.18.1`. Explicitly requested minor versions are the exception.
+
+## v0.19.0 — 2026-11-22
+
+### Added
+
+- `tools`: `task` adds `list` and `start` actions; background records carry job kind, error, duration, output path, and timeout state.
+- `runtime`: background shell jobs persist a PID, output file, and exit-status file, and reattach to a still-running child after restart.
+- `runtime`: generic job kinds cover `shell`, `subagent`, `image`, and `codemode`, with registered producers and recoverers.
+- `agent`: a timed-out foreground bash command moves to the background instead of being killed and reports its output path.
+- `agent`: completed background jobs notify the session automatically and resume the turn when a steering queue is available.
+
+### Fixed
+
+- `providers`: OpenAI-compatible requests now send `none` for neutral `off` and `xhigh` for neutral `max`, avoiding 400 errors on models that reject `off` and `max`.
+- `runtime`: cancel settles a background job immediately, propagates cancellation to produced work, and escalates to SIGKILL.
+- `runtime`: background completion notices use one channel, system-message fallback works without a steering queue, and restored jobs do not re-announce stale results.
+- `runtime`: output polling reads only appended bytes and keeps the event loop unblocked; finished output files are pruned.
+
+### Changed
+
+- `tools`: background stdout and stderr are combined in one record; `task wait` reports `timed_out` separately from the task's own status.
+- `cli`: turn cancellation stops every background task in the session.
+- `docs`: document background job kinds, task actions, and reattach behavior.
 
 ## v0.18.10 — 2026-11-22
 
