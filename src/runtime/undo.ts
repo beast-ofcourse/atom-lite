@@ -13,7 +13,6 @@ export interface UndoRecord {
 }
 
 interface SessionLike {
-  id?: string;
   workspace?: string;
   messages: Message[];
   undoStack?: UndoRecord[];
@@ -27,12 +26,12 @@ function workspaceOf(session: SessionLike): string {
 }
 
 function undoStack(session: SessionLike): UndoRecord[] {
-  if (!Array.isArray(session.undoStack)) session.undoStack = [];
+  session.undoStack ??= [];
   return session.undoStack;
 }
 
 function redoStack(session: SessionLike): UndoRecord[] {
-  if (!Array.isArray(session.redoStack)) session.redoStack = [];
+  session.redoStack ??= [];
   return session.redoStack;
 }
 
@@ -54,36 +53,27 @@ export class UndoManager {
       messageID?: string;
     } = {},
   ): Promise<UndoRecord | undefined> {
-    const before =
-      options.before ?? session.pendingSnapshot;
+    const before = options.before ?? session.pendingSnapshot;
     if (!before) return undefined;
-    const after = options.after ?? (await Snapshot.capture(workspaceOf(session)));
+    const after =
+      options.after ?? (await Snapshot.capture(workspaceOf(session)));
     if (!after) return undefined;
-    const beforeCount =
-      options.messageCountBefore ?? session.pendingMessageCount ?? session.messages.length;
-    const afterCount = options.messageCountAfter ?? session.messages.length;
-    const files = await Snapshot.files({
-      from: before,
-      to: after,
-      workspace: workspaceOf(session),
-    });
-    const diff = await Snapshot.diff({
-      from: before,
-      to: after,
-      workspace: workspaceOf(session),
-    });
+    const workspace = workspaceOf(session);
     const record: UndoRecord = {
       messageID:
-        options.messageID ?? `turn-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        options.messageID ??
+        `turn-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       snapshot: before,
       afterSnapshot: after,
-      files,
-      diff,
-      messageCountBefore: beforeCount,
-      messageCountAfter: afterCount,
+      files: await Snapshot.files({ from: before, to: after, workspace }),
+      diff: await Snapshot.diff({ from: before, to: after, workspace }),
+      messageCountBefore:
+        options.messageCountBefore ??
+        session.pendingMessageCount ??
+        session.messages.length,
+      messageCountAfter: options.messageCountAfter ?? session.messages.length,
     };
-    const stack = undoStack(session);
-    stack.push(record);
+    undoStack(session).push(record);
     redoStack(session).length = 0;
     session.pendingSnapshot = undefined;
     session.pendingMessageCount = undefined;
@@ -100,36 +90,13 @@ export class UndoManager {
     messageCountAfter?: number;
   }): Promise<UndoRecord> {
     const session = options.session;
-    const before = options.before ?? session.pendingSnapshot ?? (await Snapshot.capture(workspaceOf(session)));
-    const after = options.after ?? (await Snapshot.capture(workspaceOf(session)));
-    const files =
-      options.files ??
-      (before && after
-        ? await Snapshot.files({ from: before, to: after, workspace: workspaceOf(session) })
-        : []);
-    const diff =
-      before && after
-        ? await Snapshot.diff({ from: before, to: after, workspace: workspaceOf(session) })
-        : [];
-    const record: UndoRecord = {
-      messageID: options.messageID,
-      snapshot: before,
-      afterSnapshot: after,
-      files,
-      diff,
-      messageCountBefore:
-        options.messageCountBefore ?? session.pendingMessageCount ?? session.messages.length,
-      messageCountAfter:
-        options.messageCountAfter ?? session.messages.length,
-    };
-    undoStack(session).push(record);
-    redoStack(session).length = 0;
+    const record = await this.commitTurn(session, options);
+    if (!record) throw new Error("cannot stage undo without a snapshot");
     return record;
   }
 
   async undo(session: SessionLike): Promise<UndoRecord | undefined> {
-    const stack = undoStack(session);
-    const record = stack.pop();
+    const record = undoStack(session).pop();
     if (!record) return undefined;
     if (record.snapshot && record.files.length > 0) {
       await Snapshot.restore({
@@ -144,8 +111,7 @@ export class UndoManager {
   }
 
   async redo(session: SessionLike): Promise<UndoRecord | undefined> {
-    const stack = redoStack(session);
-    const record = stack.pop();
+    const record = redoStack(session).pop();
     if (!record) return undefined;
     if (record.afterSnapshot && record.files.length > 0) {
       await Snapshot.restore({
@@ -153,10 +119,8 @@ export class UndoManager {
         workspace: workspaceOf(session),
       });
     }
-    if (record.droppedMessages && record.droppedMessages.length > 0) {
+    if (record.droppedMessages) {
       session.messages.push(...record.droppedMessages);
-    } else {
-      // Best effort: nothing to re-add.
     }
     undoStack(session).push(record);
     return record;
@@ -175,33 +139,5 @@ export class UndoManager {
 
   hasRedo(session: SessionLike): boolean {
     return redoStack(session).length > 0;
-  }
-
-  // Static convenience wrappers.
-  static async captureBefore(session: SessionLike): Promise<string | undefined> {
-    return new UndoManager().captureBefore(session);
-  }
-
-  static async commitTurn(
-    session: SessionLike,
-    options?: Parameters<UndoManager["commitTurn"]>[1],
-  ): Promise<UndoRecord | undefined> {
-    return new UndoManager().commitTurn(session, options);
-  }
-
-  static async stage(options: Parameters<UndoManager["stage"]>[0]): Promise<UndoRecord> {
-    return new UndoManager().stage(options);
-  }
-
-  static async undo(session: SessionLike): Promise<UndoRecord | undefined> {
-    return new UndoManager().undo(session);
-  }
-
-  static async redo(session: SessionLike): Promise<UndoRecord | undefined> {
-    return new UndoManager().redo(session);
-  }
-
-  static clear(session: SessionLike): void {
-    new UndoManager().clear(session);
   }
 }

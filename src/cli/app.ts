@@ -22,7 +22,6 @@ import {
   createTaskStore,
 } from "../runtime/background-tasks.js";
 import { UndoManager } from "../runtime/undo.js";
-import { Snapshot } from "../runtime/snapshot.js";
 import { redactSecrets } from "../security/redaction.js";
 import { openSearchablePicker, type PickerItem } from "./picker.js";
 import { openCommandPalette, type PaletteItem } from "./palette.js";
@@ -1556,6 +1555,11 @@ export async function run(args: string[]): Promise<void> {
   }
 
   async function runBtw(question: string): Promise<void> {
+    if (activeTurnController !== null) {
+      appendLine("finish the turn first", theme.tokens.error);
+      tui.requestRender();
+      return;
+    }
     if (!session) {
       appendLine("no active session", theme.tokens.error);
       tui.requestRender();

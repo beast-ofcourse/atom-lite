@@ -298,6 +298,13 @@ test("/undo and /redo exist in the registry", () => {
   assert.ok(registry.get("redo"), "/redo should exist");
 });
 
+test("/btw is registered with a question argument", () => {
+  const registry = createCommandRegistry();
+  const command = registry.get("btw");
+  assert.ok(command);
+  assert.match(command!.description, /side|question/i);
+});
+
 test("expandDirectoryPath expands home paths only", () => {
   assert.equal(expandDirectoryPath("~"), homedir());
   assert.equal(expandDirectoryPath("~/proj"), join(homedir(), "proj"));
