@@ -155,6 +155,34 @@ test("listing is scoped by workspace", async () => {
   });
 });
 
+test("resuming restores the newest directory change", async () => {
+  await withStore(async (store) => {
+    const created = store.create({
+      workspace: "/w",
+      provider: "fake",
+      id: "cd1",
+    });
+    created.appendMessage({
+      role: "user",
+      content: [{ type: "text", text: "move" }],
+    });
+    created.appendDurableEvent?.({
+      type: "session_directory_changed",
+      directory: "/new/project",
+    });
+    await created.flush();
+
+    const resumed = store.resume("cd1");
+    assert.ok(resumed);
+    assert.equal(resumed.workspace, "/new/project");
+    assert.deepEqual(
+      store.list("/new/project").map((summary) => summary.id),
+      ["cd1"],
+    );
+    assert.equal(store.list("/w").length, 0);
+  });
+});
+
 test("history lines render retained messages without system prompts", () => {
   const lines = sessionHistoryLines([
     { role: "system", content: "prompt scaffolding" },

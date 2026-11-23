@@ -22,6 +22,8 @@ A new session stays in memory until its first message, so creating one and quitt
 
 `--list-sessions` and `--search-sessions` print stable tab-separated rows for scripts.
 
+`/cd` records a `session_directory_changed` event. Resume restores the latest directory from that event, so the session's workspace follows the last directory you used.
+
 ## Ownership
 
 While a session is open, a sibling `<sessionId>.jsonl.lock` file records the owning process. The terminal and the browser server both take this lock, so one session cannot be driven from two places at once. The refusal names the holder. A lock left by a killed process is reclaimed automatically.

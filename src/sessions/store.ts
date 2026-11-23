@@ -23,10 +23,11 @@ import {
   sessionSearchText,
   sessionTitleFromEvents,
 } from "./search.js";
+import { sessionWorkspaceFromEvents } from "./history.js";
 
 export interface Session {
   readonly id: string;
-  readonly workspace: string;
+  workspace: string;
   readonly provider: string;
   messages: Message[];
   /**
@@ -56,7 +57,7 @@ export interface Session {
 
 export class InMemorySession implements Session {
   readonly id: string;
-  readonly workspace: string;
+  workspace: string;
   readonly provider: string;
   messages: Message[] = [];
   events: SessionEvent[] = [];
@@ -126,7 +127,7 @@ function ensureFile(path: string): void {
 
 export class JsonlSession implements Session {
   readonly id: string;
-  readonly workspace: string;
+  workspace: string;
   readonly provider: string;
   readonly filePath: string;
   messages: Message[] = [];
@@ -433,9 +434,14 @@ export class JsonlSessionStore {
         return undefined;
       }
       const events = parseJsonlEvents(filePath);
-      // Derive workspace/provider from first session_started event.
+      // Derive workspace/provider from events; the newest directory change wins.
       const started = events.find((e) => e.type === "session_started") as any;
-      const workspace = started?.workspace ?? process.cwd();
+      const workspace = sessionWorkspaceFromEvents(
+        events,
+        typeof started?.workspace === "string"
+          ? started.workspace
+          : process.cwd(),
+      );
       const provider = started?.provider ?? "fake";
       return new JsonlSession({
         id,
@@ -500,7 +506,10 @@ export class JsonlSessionStore {
         events = [];
       }
       const started = events.find((e) => e.type === "session_started") as any;
-      const ws = started?.workspace ?? "";
+      const ws = sessionWorkspaceFromEvents(
+        events,
+        typeof started?.workspace === "string" ? started.workspace : "",
+      );
       // A workspace-scoped listing only includes logs that prove they belong
       // to that workspace. A log with no workspace metadata is not offered
       // anywhere, rather than leaking into every workspace.

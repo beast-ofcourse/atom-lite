@@ -4,11 +4,12 @@ import {
   bareCommandName,
   CommandRegistry,
   createCommandRegistry,
+  expandDirectoryPath,
   parseCommandInput,
   type CommandContext,
 } from "../../dist/cli/commands.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -96,6 +97,7 @@ function fakeContext() {
     listAgents: () => AGENTS,
     activateAgent: (name) => calls.push(`agent:${name}`),
     runTurn: async (prompt) => calls.push(`turn:${prompt}`),
+    changeDirectory: (dir) => calls.push(`cd:${dir}`),
     requestExit: () => calls.push("exit"),
   };
   return { ctx, lines, calls };
@@ -294,6 +296,35 @@ test("/undo and /redo exist in the registry", () => {
   const registry = createCommandRegistry({ skills: SKILLS });
   assert.ok(registry.get("undo"), "/undo should exist");
   assert.ok(registry.get("redo"), "/redo should exist");
+});
+
+test("expandDirectoryPath expands home paths only", () => {
+  assert.equal(expandDirectoryPath("~"), homedir());
+  assert.equal(expandDirectoryPath("~/proj"), join(homedir(), "proj"));
+  assert.equal(expandDirectoryPath("  ~/proj  "), join(homedir(), "proj"));
+  assert.equal(expandDirectoryPath("../proj"), "../proj");
+  assert.equal(expandDirectoryPath("~other/proj"), "~other/proj");
+});
+
+test("/cd resolves the path and /chdir is an alias", async () => {
+  const registry = createCommandRegistry();
+  const { ctx, calls } = fakeContext();
+
+  await registry.dispatch("/cd ~/project", ctx);
+  await registry.dispatch("/chdir /tmp", ctx);
+
+  assert.equal(registry.get("chdir")?.name, "cd");
+  assert.deepEqual(calls, ["cd:" + join(homedir(), "project"), "cd:/tmp"]);
+});
+
+test("/cd with no argument reports usage", async () => {
+  const registry = createCommandRegistry();
+  const { ctx, calls, lines } = fakeContext();
+
+  await registry.dispatch("/cd", ctx);
+
+  assert.deepEqual(calls, []);
+  assert.deepEqual(lines, ["usage: /cd <directory>"]);
 });
 
 test("/diff shows working-tree changes against git HEAD", async () => {

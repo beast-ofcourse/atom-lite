@@ -2,6 +2,8 @@ import type { SlashCommand } from "@earendil-works/pi-tui";
 import type { Skill } from "../skills/registry.js";
 import type { AgentPersona } from "../agents/registry.js";
 import { execFileSync } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 /**
  * One interactive command. The registry is the single source of truth for
@@ -79,7 +81,17 @@ export interface CommandContext {
   isTurnActive?(): boolean;
   /** Manage project trust for extensions/agents. Takes effect on reload. */
   setProjectTrust(decision: "allow" | "deny" | "reset"): void;
+  changeDirectory(dir: string): void;
   requestExit(): void;
+}
+
+/** Expand `~` and `~/...` to absolute home paths; leave other paths unchanged. */
+export function expandDirectoryPath(input: string): string {
+  const target = input.trim();
+  const home = homedir();
+  if (target === "~") return home;
+  if (target.startsWith("~/")) return join(home, target.slice(2));
+  return target;
 }
 
 export interface ParsedCommand {
@@ -469,6 +481,22 @@ export function createCommandRegistry(
     argumentHint: "[all]",
     run(ctx, args) {
       ctx.openSessionsPicker(args.trim() === "all" ? "all" : "workspace");
+    },
+  });
+
+  registry.register({
+    name: "cd",
+    aliases: ["chdir"],
+    description: "change the working directory",
+    category: "Session",
+    argumentHint: "<directory>",
+    run(ctx, args) {
+      const target = args.trim();
+      if (!target) {
+        ctx.appendLine("usage: /cd <directory>");
+        return;
+      }
+      ctx.changeDirectory(expandDirectoryPath(target));
     },
   });
 

@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every release increments the patch number, regardless of change size: `0.18.0`
 becomes `0.18.1`. Explicitly requested minor versions are the exception.
 
+## v0.19.3 — 2026-11-24
+
+### Added
+
+- `cli`: `/cd` (alias `/chdir`) changes the working directory mid-session, expanding `~` and validating the target.
+- `agent`: tools and the status line re-scope to the directory set by `/cd`; the change is rejected while a turn is active.
+- `sessions`: `session_directory_changed` events record the workspace so resume restores the latest directory.
+
 ## v0.19.2 — 2026-11-23
 
 ### Added

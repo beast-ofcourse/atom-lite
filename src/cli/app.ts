@@ -13,8 +13,8 @@ import {
   DefaultSkillRegistry,
   skillCacheSignature,
 } from "../skills/registry.js";
-import { join } from "node:path";
-import { writeFileSync, existsSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { writeFileSync, existsSync, realpathSync, statSync } from "node:fs";
 import { execSync, spawn } from "node:child_process";
 import { defaultShell, terminateProcessTree } from "../security/process.js";
 import {
@@ -341,17 +341,6 @@ export async function run(args: string[]): Promise<void> {
 
   const interactive = process.stdin.isTTY === true && !jsonMode;
 
-  let agentReg = new DefaultAgentRegistry(process.cwd(), {
-    projectTrusted: isProjectTrusted(process.cwd()),
-  });
-  const configuredAgent = resolveConfiguredAgent(
-    agentReg,
-    config.runtime.agent,
-  );
-  if (configuredAgent.warning && !interactive) {
-    process.stderr.write(`atom-lite: ${configuredAgent.warning}\n`);
-  }
-
   // one-shot task from positional or stdin
   let stdinTask = "";
   if (
@@ -395,6 +384,27 @@ export async function run(args: string[]): Promise<void> {
       }
       throw err;
     }
+  }
+
+  if (session.workspace !== process.cwd()) {
+    try {
+      process.chdir(session.workspace);
+    } catch {
+      process.stderr.write(
+        `atom-lite: could not enter session directory ${session.workspace}\n`,
+      );
+    }
+  }
+
+  let agentReg = new DefaultAgentRegistry(process.cwd(), {
+    projectTrusted: isProjectTrusted(process.cwd()),
+  });
+  const configuredAgent = resolveConfiguredAgent(
+    agentReg,
+    config.runtime.agent,
+  );
+  if (configuredAgent.warning && !interactive) {
+    process.stderr.write(`atom-lite: ${configuredAgent.warning}\n`);
   }
 
   // Automatic checkpoints were removed (ADR 0018); sweep up orphaned capture
@@ -666,7 +676,7 @@ export async function run(args: string[]): Promise<void> {
   const runtime = new AgentRuntime({
     provider,
     model: modelOverride ?? provider.model,
-    workspace: process.cwd(),
+    workspace: session.workspace,
     backgroundTasks,
     tools: currentTools(false),
     approvals,
@@ -699,7 +709,7 @@ export async function run(args: string[]): Promise<void> {
       const child = new AgentRuntime({
         provider,
         model: modelOverride ?? provider.model,
-        workspace: process.cwd(),
+        workspace: session.workspace,
         tools: currentTools(false),
         codeMode: config.runtime.codeMode,
         mode: "yolo",
@@ -711,7 +721,7 @@ export async function run(args: string[]): Promise<void> {
       });
       const childSession = new InMemorySession(
         randomUUID(),
-        process.cwd(),
+        session.workspace,
         provider.id,
       );
       return child.runAgentTurn(prompt, childSession, controller.signal);
@@ -1570,6 +1580,45 @@ export async function run(args: string[]): Promise<void> {
     } finally {
       activeExtensionSignal = undefined;
     }
+    tui.requestRender();
+  }
+
+  function changeDirectory(directory: string): void {
+    if (activeTurnController !== null) {
+      appendLine("finish the turn first", theme.tokens.error);
+      tui.requestRender();
+      return;
+    }
+    let resolved: string;
+    try {
+      resolved = realpathSync(resolve(directory));
+      if (!statSync(resolved).isDirectory()) {
+        appendLine(`cd: not a directory: ${directory}`, theme.tokens.error);
+        tui.requestRender();
+        return;
+      }
+    } catch {
+      appendLine(`cd: no such directory: ${directory}`, theme.tokens.error);
+      tui.requestRender();
+      return;
+    }
+    try {
+      process.chdir(resolved);
+    } catch (err) {
+      appendLine(
+        `cd: ${err instanceof Error ? err.message : String(err)}`,
+        theme.tokens.error,
+      );
+      tui.requestRender();
+      return;
+    }
+    session.workspace = resolved;
+    runtime.setWorkspace(resolved);
+    const event = { type: "session_directory_changed", directory: resolved };
+    if (session.appendDurableEvent) session.appendDurableEvent(event);
+    else session.appendEvent?.(event);
+    updateStatus();
+    appendLine(`directory: ${resolved}`, theme.tokens.success);
     tui.requestRender();
   }
 
@@ -2575,6 +2624,7 @@ export async function run(args: string[]): Promise<void> {
     runUndo,
     runRedo,
     runBtw,
+    changeDirectory,
     isTurnActive: () => activeTurnController !== null,
     requestExit: () => {
       void closeInteractiveSession(
@@ -2717,6 +2767,17 @@ export async function run(args: string[]): Promise<void> {
     const previous = session;
     session = next;
     previous.releaseLock?.();
+    if (session.workspace !== process.cwd()) {
+      try {
+        process.chdir(session.workspace);
+      } catch {
+        appendLine(
+          `could not enter session directory ${session.workspace}`,
+          theme.tokens.error,
+        );
+      }
+    }
+    runtime.setWorkspace(session.workspace);
     session.appendEvent?.({ type: "session_resumed", from: previous.id });
     runtime.restoreSessionState(next);
     syncGoalPanel();

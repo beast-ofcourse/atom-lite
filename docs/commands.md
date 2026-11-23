@@ -60,6 +60,7 @@ Criteria may span multiple lines. Statement and criteria are user-owned; the mod
 | ------------------------------------------------------------ | ---------------------------------------------------------------- |
 | `/rename [rename <title>]` (alias `/session`)                | Show session info or set the title.                              |
 | `/sessions [all]`                                            | Resume a session from this workspace, or from all workspaces.    |
+| `/cd <directory>` (alias `/chdir`)                           | Change the working directory for tools and status.               |
 | `/search <query>`                                            | Print matching sessions with snippets.                           |
 | `/new` (alias `/clear`)                                      | Start a new session.                                             |
 | `/compact [focus]`                                           | Compact older context now.                                       |
@@ -72,6 +73,8 @@ Criteria may span multiple lines. Statement and criteria are user-owned; the mod
 | `/steer <message>`                                           | Inject a message into the active turn.                           |
 
 `/steer` queues the message if a turn is running; otherwise it starts a new turn.
+
+`/cd` expands `~` and `~/...`, then requires an existing directory. It is rejected while a turn is active. The new directory becomes the workspace for tools and the status line, and a `session_directory_changed` event restores it on resume.
 
 ## Extensions and skills
 

@@ -36,6 +36,24 @@ export function sessionHistoryLines(messages: Message[]): string[] {
   return lines;
 }
 
+/** Workspace of the newest directory change, or the session's starting workspace. */
+export function sessionWorkspaceFromEvents(
+  events: SessionEvent[],
+  fallback: string,
+): string {
+  let workspace = fallback;
+  for (const event of events) {
+    if (
+      event.type === "session_directory_changed" &&
+      typeof event.directory === "string" &&
+      event.directory
+    ) {
+      workspace = event.directory;
+    }
+  }
+  return workspace;
+}
+
 export interface SessionSelection {
   provider?: string;
   model?: string;
