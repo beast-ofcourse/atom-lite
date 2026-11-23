@@ -1476,7 +1476,6 @@ export class AgentRuntime {
     );
     this.restoreTodos(session);
     this.restoreGoal(session);
-    this.syncInstructionBaseline(session);
 
     const requestId = (options?.requestId ?? "").trim() || randomUUID();
     this.contextManager.setUsageContext?.(session.id ?? "", requestId);
