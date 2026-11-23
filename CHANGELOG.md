@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every release increments the patch number, regardless of change size: `0.18.0`
 becomes `0.18.1`. Explicitly requested minor versions are the exception.
 
+## v0.19.2 — 2026-11-23
+
+### Added
+
+- `runtime`: git snapshot service (`Snapshot`) with capture/restore/diff/files backed by git plumbing.
+- `runtime`: `UndoManager` stages revert records (snapshot, files, diff) per session.
+- `cli`: `/undo` and `/redo` commands revert and restore the last turn.
+
 ## v0.19.1 — 2026-11-22
 
 ### Changed

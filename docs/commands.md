@@ -64,6 +64,8 @@ Criteria may span multiple lines. Statement and criteria are user-owned; the mod
 | `/new` (alias `/clear`)                                      | Start a new session.                                          |
 | `/compact [focus]`                                           | Compact older context now.                                    |
 | `/diff [--stat] [path]`                                      | Show workspace changes against git `HEAD`.                    |
+| `/undo`                                                      | Revert the last turn's file changes and conversation pointer. |
+| `/redo`                                                      | Restore what `/undo` removed.                                 |
 | `/export [path] [--format md\|json] [--force] [--no-redact]` | Export the transcript.                                        |
 | `/usage`                                                     | Show token and cost totals per model used in the session.     |
 | `/steer <message>`                                           | Inject a message into the active turn.                        |

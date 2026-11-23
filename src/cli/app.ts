@@ -21,6 +21,8 @@ import {
   BackgroundTaskManager,
   createTaskStore,
 } from "../runtime/background-tasks.js";
+import { UndoManager } from "../runtime/undo.js";
+import { Snapshot } from "../runtime/snapshot.js";
 import { redactSecrets } from "../security/redaction.js";
 import { openSearchablePicker, type PickerItem } from "./picker.js";
 import { openCommandPalette, type PaletteItem } from "./palette.js";
@@ -659,6 +661,7 @@ export async function run(args: string[]): Promise<void> {
   };
 
   const backgroundTasks = new BackgroundTaskManager();
+  const undoManager = new UndoManager();
 
   const runtime = new AgentRuntime({
     provider,
@@ -1411,6 +1414,8 @@ export async function run(args: string[]): Promise<void> {
     const controller = new AbortController();
     activeTurnController = controller;
     activeExtensionSignal = controller.signal;
+    const messageCountBefore = session.messages.length;
+    const beforeSnapshot = await undoManager.captureBefore(session);
     try {
       if (useTools) {
         await mcpManager.syncTools();
@@ -1440,6 +1445,17 @@ export async function run(args: string[]): Promise<void> {
         );
       }
     } finally {
+      if (beforeSnapshot) {
+        try {
+          await undoManager.commitTurn(session, {
+            before: beforeSnapshot,
+            messageCountBefore,
+            messageCountAfter: session.messages.length,
+          });
+        } catch {
+          // best effort
+        }
+      }
       activeTurnController = null;
       activeExtensionSignal = undefined;
       activity.stop();
@@ -1464,6 +1480,51 @@ export async function run(args: string[]): Promise<void> {
         void runTurn(next);
       }
     }
+  }
+
+  async function waitForTurnCompletion(): Promise<void> {
+    while (activeTurnController !== null) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  async function runUndo(): Promise<void> {
+    if (activeTurnController !== null) {
+      activeTurnController.abort();
+      await waitForTurnCompletion();
+    }
+    const record = await undoManager.undo(session);
+    if (!record) {
+      appendLine("Nothing to undo");
+      tui.requestRender();
+      return;
+    }
+    appendLine(
+      `Undo: reverted ${record.files.length} file(s)`,
+      theme.tokens.success,
+    );
+    if (record.diff.length > 0) {
+      for (const entry of record.diff) appendLine(entry.diff, theme.tokens.dim);
+    }
+    tui.requestRender();
+  }
+
+  async function runRedo(): Promise<void> {
+    if (activeTurnController !== null) {
+      activeTurnController.abort();
+      await waitForTurnCompletion();
+    }
+    const record = await undoManager.redo(session);
+    if (!record) {
+      appendLine("Nothing to redo");
+      tui.requestRender();
+      return;
+    }
+    appendLine(
+      `Redo: restored ${record.files.length} file(s)`,
+      theme.tokens.success,
+    );
+    tui.requestRender();
   }
 
   /** Run a shell command directly (shell mode / `!` prefix). */
@@ -2468,6 +2529,8 @@ export async function run(args: string[]): Promise<void> {
       updateStatus();
     },
     runTurn,
+    runUndo,
+    runRedo,
     isTurnActive: () => activeTurnController !== null,
     requestExit: () => {
       void closeInteractiveSession(

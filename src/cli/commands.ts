@@ -72,6 +72,8 @@ export interface CommandContext {
   activateAgent(name: string): void;
   openAgentPicker(): void;
   runTurn(prompt: string): Promise<void>;
+  runUndo(): Promise<void> | void;
+  runRedo(): Promise<void> | void;
   /** True while the agent loop owns the turn; used by /goal resume. */
   isTurnActive?(): boolean;
   /** Manage project trust for extensions/agents. Takes effect on reload. */
@@ -600,6 +602,26 @@ export function createCommandRegistry(
         }
       }
       ctx.appendLine(lines.join("\n"));
+    },
+  });
+
+  registry.register({
+    name: "undo",
+    description: "undo the last turn",
+    category: "Session",
+    async run(ctx) {
+      if (typeof ctx.runUndo === "function") await ctx.runUndo();
+      else ctx.appendLine("Nothing to undo");
+    },
+  });
+
+  registry.register({
+    name: "redo",
+    description: "redo the last undone turn",
+    category: "Session",
+    async run(ctx) {
+      if (typeof ctx.runRedo === "function") await ctx.runRedo();
+      else ctx.appendLine("Nothing to redo");
     },
   });
 

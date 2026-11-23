@@ -290,11 +290,10 @@ test("empty session searches and renames explain their usage", async () => {
   ]);
 });
 
-test("/undo no longer exists in the registry", () => {
+test("/undo and /redo exist in the registry", () => {
   const registry = createCommandRegistry({ skills: SKILLS });
-  assert.equal(registry.get("undo"), undefined);
-  const names = registry.list().map((command) => command.name);
-  assert.ok(!names.includes("undo"), "/undo should be removed");
+  assert.ok(registry.get("undo"), "/undo should exist");
+  assert.ok(registry.get("redo"), "/redo should exist");
 });
 
 test("/diff shows working-tree changes against git HEAD", async () => {
