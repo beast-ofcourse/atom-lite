@@ -1396,6 +1396,7 @@ export async function run(args: string[]): Promise<void> {
   let turnStartedAt = 0;
   let turnOutputTokens = 0;
   let turnModelMs = 0;
+  let turnThinkingMs = 0;
   let shellMode = false;
   const messageQueue: string[] = [];
   const steeringQueue: string[] = [];
@@ -1407,6 +1408,7 @@ export async function run(args: string[]): Promise<void> {
     turnStartedAt = Date.now();
     turnOutputTokens = 0;
     turnModelMs = 0;
+    turnThinkingMs = 0;
     const controller = new AbortController();
     activeTurnController = controller;
     activeExtensionSignal = controller.signal;
@@ -1448,12 +1450,14 @@ export async function run(args: string[]): Promise<void> {
             Date.now() - turnStartedAt,
             turnOutputTokens,
             turnModelMs,
+            turnThinkingMs,
           ),
           theme.tokens.dim,
         );
         turnStartedAt = 0;
         turnOutputTokens = 0;
         turnModelMs = 0;
+        turnThinkingMs = 0;
       }
       if (messageQueue.length > 0) {
         const next = messageQueue.shift()!;
@@ -3247,6 +3251,7 @@ export async function run(args: string[]): Promise<void> {
     } else if (e.type === "usage") {
       turnOutputTokens += e.output ?? 0;
       turnModelMs += e.elapsedMs ?? 0;
+      turnThinkingMs += e.thinkingMs ?? 0;
     } else if (e.type === "background_task_complete") {
       appendLine(
         `background task ${e.id}: ${e.status} (exit ${e.exitCode ?? "null"})`,

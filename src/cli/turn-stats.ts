@@ -14,6 +14,13 @@ export function formatTokensPerSecond(
   return `${Math.round(outputTokens / (modelMs / 1000))} tok/s`;
 }
 
+/** Format a thinking/reasoning duration in the same coarse style as elapsed. */
+export function formatThinkingTime(ms: number): string | undefined {
+  if (!Number.isFinite(ms) || ms <= 0) return undefined;
+  if (ms > 0 && ms < 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return formatElapsed(ms);
+}
+
 /**
  * End-of-turn elapsed time. Sub-second turns keep a measured fraction instead
  * of rounding to a misleading "0s"; the live activity spinner keeps the coarser
@@ -30,9 +37,12 @@ export function formatTurnStats(
   elapsedMs: number,
   outputTokens: number,
   modelMs: number,
+  thinkingMs?: number,
 ): string {
   const parts = [formatTurnElapsed(elapsedMs)];
   const rate = formatTokensPerSecond(outputTokens, modelMs);
   if (rate) parts.push(rate);
+  const think = formatThinkingTime(thinkingMs ?? 0);
+  if (think) parts.push(`think ${think}`);
   return parts.join(" · ");
 }

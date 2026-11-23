@@ -151,6 +151,8 @@ export type ServerMessage =
       outputTokens?: number;
       /** Time spent waiting on those model calls. */
       modelMs?: number;
+      /** Time spent in the reasoning phase across the turn's model calls. */
+      thinkingMs?: number;
     }
   | { type: "input_queued"; text: string }
   | {

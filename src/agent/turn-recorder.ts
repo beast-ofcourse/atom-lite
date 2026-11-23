@@ -32,6 +32,7 @@ export class TurnRecorder {
       usage?: { input?: number; output?: number };
       metadata?: Record<string, unknown>;
       elapsedMs?: number;
+      thinkingMs?: number;
     },
     streamedText: string,
   ): Promise<string> {
@@ -86,6 +87,15 @@ export class TurnRecorder {
         input: response.usage.input,
         output: response.usage.output,
         elapsedMs: response.elapsedMs,
+        thinkingMs: response.thinkingMs,
+      });
+    }
+    // Even without usage, surface reasoning time if available.
+    if (!response.usage && response.thinkingMs !== undefined) {
+      this.onEvent?.({
+        type: "usage",
+        elapsedMs: response.elapsedMs,
+        thinkingMs: response.thinkingMs,
       });
     }
     const toolCalls = response.toolCalls ?? [];

@@ -80,17 +80,26 @@ export async function* runModelTurn(
 
   if (typeof request.provider.stream === "function") {
     const startedAt = Date.now();
+    let thinkingStartedAt: number | undefined;
+    let thinkingEndedAt: number | undefined;
     let response: any;
     let streamedText = "";
     for await (const ev of request.provider.stream(modelRequest)) {
       if (ev.type === "thinking") {
+        if (thinkingStartedAt === undefined) thinkingStartedAt = Date.now();
         yield { type: "thinking_delta", text: ev.text };
       } else if (ev.type === "text") {
+        if (thinkingStartedAt !== undefined && thinkingEndedAt === undefined) {
+          thinkingEndedAt = Date.now();
+        }
         streamedText += ev.text;
         yield { type: "assistant_delta", text: ev.text };
       } else if (ev.type === "done") {
         response = ev.response;
       }
+    }
+    if (thinkingStartedAt !== undefined && thinkingEndedAt === undefined) {
+      thinkingEndedAt = Date.now();
     }
     if (!response) {
       response = {
@@ -105,6 +114,10 @@ export async function* runModelTurn(
       };
     }
     response.elapsedMs = Date.now() - startedAt;
+    if (thinkingStartedAt !== undefined && thinkingEndedAt !== undefined) {
+      const ms = thinkingEndedAt - thinkingStartedAt;
+      if (ms > 0) response.thinkingMs = ms;
+    }
     recordUsage(response);
     yield { type: "final", response, streamedText };
     return;
@@ -113,6 +126,14 @@ export async function* runModelTurn(
   const startedAt = Date.now();
   const response = await request.provider.generate(modelRequest);
   response.elapsedMs = Date.now() - startedAt;
+  // Non-streaming: no per-phase timing available; leave thinkingMs unset
+  // unless the provider reported a thinking duration in metadata.
+  if (
+    response.thinkingMs === undefined &&
+    typeof (response as any)?.metadata?.thinkingMs === "number"
+  ) {
+    response.thinkingMs = (response as any).metadata.thinkingMs;
+  }
   const text =
     response.message.content
       ?.map((p: any) => (p.type === "text" ? p.text : ""))

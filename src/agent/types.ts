@@ -39,7 +39,7 @@ export type AgentEvent =
       details?: unknown;
     }
   | { type: "final"; text: string }
-  | { type: "usage"; input?: number; output?: number; elapsedMs?: number }
+  | { type: "usage"; input?: number; output?: number; elapsedMs?: number; thinkingMs?: number }
   | {
       type: "context_usage";
       used?: number;

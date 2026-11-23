@@ -764,6 +764,16 @@ function formatTokensPerSecond(outputTokens, modelMs) {
   return `${Math.round(outputTokens / (modelMs / 1000))} tok/s`;
 }
 
+function formatThinkingTime(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return "";
+  if (ms > 0 && ms < 1000) return `${(ms / 1000).toFixed(1)}s`;
+  // coarse format: seconds/minutes
+  if (ms < 60000) return `${Math.round(ms / 1000)}s`;
+  const m = Math.floor(ms / 60000);
+  const s = Math.round((ms % 60000) / 1000);
+  return s ? `${m}m ${s}s` : `${m}m`;
+}
+
 /** Append the measured duration and generation speed to the finished reply. */
 function finishTurnStats(message) {
   if (!lastAssistantActions) return;
@@ -771,6 +781,8 @@ function finishTurnStats(message) {
   const parts = [formatDuration(message.elapsedMs)];
   const rate = formatTokensPerSecond(message.outputTokens, message.modelMs);
   if (rate) parts.push(rate);
+  const think = formatThinkingTime(message.thinkingMs);
+  if (think) parts.push(`think ${think}`);
   let stats = lastAssistantActions.querySelector(".msg-stats");
   if (!stats) {
     stats = document.createElement("span");

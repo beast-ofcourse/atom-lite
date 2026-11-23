@@ -68,6 +68,8 @@ export interface ModelResponse {
   usage?: TokenUsage;
   /** Wall time spent waiting for this provider call, measured by the runtime. */
   elapsedMs?: number;
+  /** Wall time spent in the reasoning phase of this provider call, when reported. */
+  thinkingMs?: number;
   /** Neutral thinking level requested for this response. */
   thinkingLevel?: ModelThinkingLevel;
   /** Provider-native thinking value actually sent for this response. */

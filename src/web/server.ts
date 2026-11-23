@@ -286,6 +286,7 @@ export async function startWebServer(
   let turnStartedAt = 0;
   let turnOutputTokens = 0;
   let turnModelMs = 0;
+  let turnThinkingMs = 0;
   // Everything a client that joins mid-turn needs to rebuild the active turn.
   // Released at turn_end; completed turns live in the session history.
   let turnEvents: AgentEvent[] = [];
@@ -318,6 +319,7 @@ export async function startWebServer(
     if (event.type === "usage") {
       turnOutputTokens += event.output ?? 0;
       turnModelMs += event.elapsedMs ?? 0;
+      turnThinkingMs += event.thinkingMs ?? 0;
     }
     if (turnRunning) {
       // Bound the active-turn buffer: a single enormous turn must not grow
@@ -759,10 +761,12 @@ export async function startWebServer(
         elapsedMs: turnStartedAt > 0 ? Date.now() - turnStartedAt : undefined,
         outputTokens: turnOutputTokens,
         modelMs: turnModelMs,
+        thinkingMs: turnThinkingMs,
       });
       turnStartedAt = 0;
       turnOutputTokens = 0;
       turnModelMs = 0;
+      turnThinkingMs = 0;
       turnEvents = [];
       replayBytes = 0;
       replayTruncated = false;
