@@ -37,12 +37,9 @@ export function formatTurnStats(
   elapsedMs: number,
   outputTokens: number,
   modelMs: number,
-  thinkingMs?: number,
 ): string {
   const parts = [formatTurnElapsed(elapsedMs)];
   const rate = formatTokensPerSecond(outputTokens, modelMs);
   if (rate) parts.push(rate);
-  const think = formatThinkingTime(thinkingMs ?? 0);
-  if (think) parts.push(`think ${think}`);
   return parts.join(" · ");
 }

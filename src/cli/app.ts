@@ -1292,7 +1292,8 @@ export async function run(args: string[]): Promise<void> {
     text: string,
     style: (value: string) => string = theme.tokens.text,
   ): void {
-    thinkingText = null;
+    thinkingText?.end();
+      thinkingText = null;
     streamText.finalize();
     transcript.add(new Text(style(text)));
     tui.requestRender();
@@ -1396,7 +1397,6 @@ export async function run(args: string[]): Promise<void> {
   let turnStartedAt = 0;
   let turnOutputTokens = 0;
   let turnModelMs = 0;
-  let turnThinkingMs = 0;
   let shellMode = false;
   const messageQueue: string[] = [];
   const steeringQueue: string[] = [];
@@ -1408,7 +1408,6 @@ export async function run(args: string[]): Promise<void> {
     turnStartedAt = Date.now();
     turnOutputTokens = 0;
     turnModelMs = 0;
-    turnThinkingMs = 0;
     const controller = new AbortController();
     activeTurnController = controller;
     activeExtensionSignal = controller.signal;
@@ -1450,14 +1449,12 @@ export async function run(args: string[]): Promise<void> {
             Date.now() - turnStartedAt,
             turnOutputTokens,
             turnModelMs,
-            turnThinkingMs,
           ),
           theme.tokens.dim,
         );
         turnStartedAt = 0;
         turnOutputTokens = 0;
         turnModelMs = 0;
-        turnThinkingMs = 0;
       }
       if (messageQueue.length > 0) {
         const next = messageQueue.shift()!;
@@ -2492,7 +2489,8 @@ export async function run(args: string[]): Promise<void> {
     // Drop stale references so toggles only affect the resumed transcript.
     toolBoxes.length = 0;
     toolBoxesById.clear();
-    thinkingText = null;
+    thinkingText?.end();
+      thinkingText = null;
     banner.setTheme(theme);
     transcript.add(banner);
     transcript.add(new Spacer(1));
@@ -3239,10 +3237,12 @@ export async function run(args: string[]): Promise<void> {
       tui.requestRender();
     } else if (e.type === "assistant_delta") {
       activity.setPhase("working");
+      thinkingText?.end();
       thinkingText = null;
       appendDelta(e.text);
     } else if (e.type === "assistant_text") {
       activity.setPhase("working");
+      thinkingText?.end();
       thinkingText = null;
       appendDelta(e.text);
       finalizeText();
@@ -3251,7 +3251,6 @@ export async function run(args: string[]): Promise<void> {
     } else if (e.type === "usage") {
       turnOutputTokens += e.output ?? 0;
       turnModelMs += e.elapsedMs ?? 0;
-      turnThinkingMs += e.thinkingMs ?? 0;
     } else if (e.type === "background_task_complete") {
       appendLine(
         `background task ${e.id}: ${e.status} (exit ${e.exitCode ?? "null"})`,
@@ -3303,6 +3302,7 @@ export async function run(args: string[]): Promise<void> {
       }
       updateStatus();
     } else if (e.type === "tool_call") {
+      thinkingText?.end();
       thinkingText = null;
       finalizeText();
       activity.setPhase("working", e.name);
@@ -3330,6 +3330,7 @@ export async function run(args: string[]): Promise<void> {
         tui.requestRender();
       }
     } else if (e.type === "final") {
+      thinkingText?.end();
       thinkingText = null;
       finalizeText();
       activity.stop();

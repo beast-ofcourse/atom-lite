@@ -912,10 +912,10 @@ function createThinkingBlock(
   const label = document.createElement("span");
   label.className = "thinking-label";
   label.textContent = live
-    ? "Thinking"
+    ? "💭 thinking"
     : elapsed > 0
-      ? `Thought for ${formatElapsed(elapsed)}`
-      : "Thought";
+      ? `💭 thinking - ${formatThinkingTime(elapsed)}`
+      : "💭 thinking";
   summary.append(label);
   const body = document.createElement("div");
   body.className = "thinking-body";
@@ -949,9 +949,9 @@ function showThinking(text) {
           body.textContent = raw;
           const elapsed = Date.now() - startedAt;
           label.textContent =
-            elapsed >= 1000
-              ? `Thought for ${formatElapsed(elapsed)}`
-              : "Thought";
+            elapsed > 0
+              ? `💭 thinking - ${formatThinkingTime(elapsed)}`
+              : "💭 thinking";
           wrap.dataset.state = "done";
           scrollToEnd();
         },
