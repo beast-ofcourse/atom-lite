@@ -74,6 +74,7 @@ export interface CommandContext {
   runTurn(prompt: string): Promise<void>;
   runUndo(): Promise<void> | void;
   runRedo(): Promise<void> | void;
+  runBtw?(question: string): Promise<void> | void;
   /** True while the agent loop owns the turn; used by /goal resume. */
   isTurnActive?(): boolean;
   /** Manage project trust for extensions/agents. Takes effect on reload. */
@@ -622,6 +623,23 @@ export function createCommandRegistry(
     async run(ctx) {
       if (typeof ctx.runRedo === "function") await ctx.runRedo();
       else ctx.appendLine("Nothing to redo");
+    },
+  });
+
+  registry.register({
+    name: "btw",
+    description: "ask a side question (not added to history)",
+    category: "Session",
+    argumentHint: "[question]",
+    async run(ctx, args) {
+      const question = (args ?? "").trim();
+      if (typeof ctx.runBtw === "function") {
+        await ctx.runBtw(question);
+      } else if (!question) {
+        ctx.appendLine("usage: /btw <question>");
+      } else {
+        ctx.appendLine("btw unavailable");
+      }
     },
   });
 

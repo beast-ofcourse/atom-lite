@@ -13,6 +13,8 @@ becomes `0.18.1`. Explicitly requested minor versions are the exception.
 - `runtime`: git snapshot service (`Snapshot`) with capture/restore/diff/files backed by git plumbing.
 - `runtime`: `UndoManager` stages revert records (snapshot, files, diff) per session.
 - `cli`: `/undo` and `/redo` commands revert and restore the last turn.
+- `agent`: `AgentRuntime.generate()` runs a single no-tool model call without mutating session history.
+- `cli`: `/btw <question>` asks a side question from session context.
 
 ## v0.19.1 — 2026-11-22
 

@@ -690,30 +690,33 @@ export async function run(args: string[]): Promise<void> {
     },
   });
 
-  backgroundTasks.registerProducer("subagent", async (params, registerCancel) => {
-    const prompt = String(params.prompt ?? "");
-    const controller = new AbortController();
-    registerCancel(() => controller.abort());
-    const child = new AgentRuntime({
-      provider,
-      model: modelOverride ?? provider.model,
-      workspace: process.cwd(),
-      tools: currentTools(false),
-      codeMode: config.runtime.codeMode,
-      mode: "yolo",
-      limits: {
-        maxParallelToolCalls: config.runtime.maxParallelToolCalls,
-        maxToolOutputBytes: config.runtime.maxToolOutputBytes,
-        maxBashTimeMs: config.runtime.maxBashTimeMs,
-      },
-    });
-    const childSession = new InMemorySession(
-      randomUUID(),
-      process.cwd(),
-      provider.id,
-    );
-    return child.runAgentTurn(prompt, childSession, controller.signal);
-  });
+  backgroundTasks.registerProducer(
+    "subagent",
+    async (params, registerCancel) => {
+      const prompt = String(params.prompt ?? "");
+      const controller = new AbortController();
+      registerCancel(() => controller.abort());
+      const child = new AgentRuntime({
+        provider,
+        model: modelOverride ?? provider.model,
+        workspace: process.cwd(),
+        tools: currentTools(false),
+        codeMode: config.runtime.codeMode,
+        mode: "yolo",
+        limits: {
+          maxParallelToolCalls: config.runtime.maxParallelToolCalls,
+          maxToolOutputBytes: config.runtime.maxToolOutputBytes,
+          maxBashTimeMs: config.runtime.maxBashTimeMs,
+        },
+      });
+      const childSession = new InMemorySession(
+        randomUUID(),
+        process.cwd(),
+        provider.id,
+      );
+      return child.runAgentTurn(prompt, childSession, controller.signal);
+    },
+  );
 
   backgroundTasks.registerProducer("image", async (params, registerCancel) => {
     const command = String(params.command ?? "");
@@ -986,17 +989,32 @@ export async function run(args: string[]): Promise<void> {
         await mcpManager.syncTools();
         runtime.setTools(currentTools(true));
       }
-      const result = await runtime.runAgentTurn(
-        oneShot || " ",
-        session,
-        controller.signal,
-      );
-      if (jsonMode) {
-        process.stdout.write(
-          JSON.stringify({ result, sessionId: session.id }) + "\n",
-        );
+      const trimmedOneShot = (oneShot || "").trim();
+      if (trimmedOneShot.startsWith("/btw")) {
+        const q = trimmedOneShot.slice(4).trim();
+        if (!q) throw new Error("usage: /btw <question>");
+        if (!session) throw new Error("no active session");
+        const answer = await runtime.generate(q, session, controller.signal);
+        if (jsonMode) {
+          process.stdout.write(
+            JSON.stringify({ result: answer, sessionId: session.id }) + "\n",
+          );
+        } else {
+          process.stdout.write(answer + "\n");
+        }
       } else {
-        process.stdout.write(result + "\n");
+        const result = await runtime.runAgentTurn(
+          oneShot || " ",
+          session,
+          controller.signal,
+        );
+        if (jsonMode) {
+          process.stdout.write(
+            JSON.stringify({ result, sessionId: session.id }) + "\n",
+          );
+        } else {
+          process.stdout.write(result + "\n");
+        }
       }
     } catch (err) {
       if (jsonMode)
@@ -1296,7 +1314,7 @@ export async function run(args: string[]): Promise<void> {
     style: (value: string) => string = theme.tokens.text,
   ): void {
     thinkingText?.end();
-      thinkingText = null;
+    thinkingText = null;
     streamText.finalize();
     transcript.add(new Text(style(text)));
     tui.requestRender();
@@ -1527,6 +1545,34 @@ export async function run(args: string[]): Promise<void> {
     tui.requestRender();
   }
 
+  async function runBtw(question: string): Promise<void> {
+    if (!session) {
+      appendLine("no active session", theme.tokens.error);
+      tui.requestRender();
+      return;
+    }
+    const q = question.trim();
+    if (!q) {
+      appendLine("usage: /btw <question>");
+      tui.requestRender();
+      return;
+    }
+    const controller = new AbortController();
+    activeExtensionSignal = controller.signal;
+    try {
+      const answer = await runtime.generate(q, session, controller.signal);
+      appendLine(answer, theme.tokens.dim);
+    } catch (err) {
+      appendLine(
+        `atom-lite: ${err instanceof Error ? err.message : String(err)}`,
+        theme.tokens.error,
+      );
+    } finally {
+      activeExtensionSignal = undefined;
+    }
+    tui.requestRender();
+  }
+
   /** Run a shell command directly (shell mode / `!` prefix). */
   async function runShellCommand(command: string): Promise<void> {
     const shell = defaultShell();
@@ -1717,10 +1763,7 @@ export async function run(args: string[]): Promise<void> {
         // keep catalog resolution
       }
     }
-    if (
-      typeof info?.contextWindow === "number" &&
-      info.contextWindow > 0
-    ) {
+    if (typeof info?.contextWindow === "number" && info.contextWindow > 0) {
       window = info.contextWindow;
     }
     if (window === undefined) {
@@ -2531,6 +2574,7 @@ export async function run(args: string[]): Promise<void> {
     runTurn,
     runUndo,
     runRedo,
+    runBtw,
     isTurnActive: () => activeTurnController !== null,
     requestExit: () => {
       void closeInteractiveSession(
@@ -2553,7 +2597,7 @@ export async function run(args: string[]): Promise<void> {
     toolBoxes.length = 0;
     toolBoxesById.clear();
     thinkingText?.end();
-      thinkingText = null;
+    thinkingText = null;
     banner.setTheme(theme);
     transcript.add(banner);
     transcript.add(new Spacer(1));

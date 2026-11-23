@@ -6,7 +6,7 @@ import type {
 } from "./types.js";
 import { DEFAULT_LIMITS } from "../types.js";
 import type { Message, AgentLimits, ToolCall } from "../types.js";
-import type { ToolContext } from "../tools/types.js";
+import type { Tool, ToolContext } from "../tools/types.js";
 import { createCodeModeTool } from "../tools/codemode.js";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -173,9 +173,15 @@ export class AgentRuntime {
     });
 
     this.toolMap = new Map(options.tools.map((t) => [t.definition.name, t]));
-    const baseTools = options.tools.filter((tool) => tool.definition.name !== "execute");
+    const baseTools = options.tools.filter(
+      (tool) => tool.definition.name !== "execute",
+    );
     if (options.codeMode?.enabled !== false && baseTools.length > 0) {
-      const codeModeTool = createCodeModeTool(this, baseTools, options.codeMode);
+      const codeModeTool = createCodeModeTool(
+        this,
+        baseTools,
+        options.codeMode,
+      );
       this.tools = [...baseTools, codeModeTool];
       this.toolMap = new Map(this.tools.map((t) => [t.definition.name, t]));
     } else {
@@ -505,7 +511,9 @@ export class AgentRuntime {
 
   /** Replace the toolset, e.g. after MCP discovery or a list_changed refresh. */
   setTools(tools: AgentRuntimeOptions["tools"]): void {
-    const baseTools = tools.filter((tool) => tool.definition.name !== "execute");
+    const baseTools = tools.filter(
+      (tool) => tool.definition.name !== "execute",
+    );
     if (this.codeModeOptionsValue?.enabled !== false && baseTools.length > 0) {
       const codeModeTool = createCodeModeTool(
         this,
@@ -520,7 +528,6 @@ export class AgentRuntime {
     }
     this.refreshToolTokenOverhead();
   }
-
 
   private refreshToolTokenOverhead(): void {
     const overhead = (this.tools ?? []).reduce((sum, tool: any) => {
@@ -985,49 +992,49 @@ export class AgentRuntime {
         });
         let modelError: unknown;
         try {
-        for await (const ev of runModelTurn({
-          provider: this.provider,
-          model: this.model,
-          messages,
-          tools: this.tools.map((t) => t.definition),
-          effort: this.effort,
-          reasoning: this.reasoning,
-          temperature: this.persona?.temperature,
-          signal,
-          requestId,
-          usageLedger: this.usageLedger,
-          sessionId: session.id,
-        })) {
-          if (ev.type === "thinking_delta") {
-            thinkingBuffer += ev.text;
-            this.onEvent?.({ type: "thinking_delta", text: ev.text });
-          } else if (ev.type === "assistant_delta") {
-            streamedText += ev.text;
-            this.onEvent?.({ type: "assistant_delta", text: ev.text });
-          } else if (ev.type === "assistant_text") {
-            streamedText = ev.text;
-            this.onEvent?.({ type: "assistant_text", text: ev.text });
-          } else if (ev.type === "final") {
-            response = ev.response;
-            streamedText = ev.streamedText;
-            if (thinkingBuffer) {
-              if (response?.message && !response.message.thinking)
-                response.message.thinking = thinkingBuffer;
-              if (!response?.metadata?.thinking) {
-                response.metadata = {
-                  ...(response?.metadata ?? {}),
-                  thinking: thinkingBuffer,
-                };
+          for await (const ev of runModelTurn({
+            provider: this.provider,
+            model: this.model,
+            messages,
+            tools: this.tools.map((t) => t.definition),
+            effort: this.effort,
+            reasoning: this.reasoning,
+            temperature: this.persona?.temperature,
+            signal,
+            requestId,
+            usageLedger: this.usageLedger,
+            sessionId: session.id,
+          })) {
+            if (ev.type === "thinking_delta") {
+              thinkingBuffer += ev.text;
+              this.onEvent?.({ type: "thinking_delta", text: ev.text });
+            } else if (ev.type === "assistant_delta") {
+              streamedText += ev.text;
+              this.onEvent?.({ type: "assistant_delta", text: ev.text });
+            } else if (ev.type === "assistant_text") {
+              streamedText = ev.text;
+              this.onEvent?.({ type: "assistant_text", text: ev.text });
+            } else if (ev.type === "final") {
+              response = ev.response;
+              streamedText = ev.streamedText;
+              if (thinkingBuffer) {
+                if (response?.message && !response.message.thinking)
+                  response.message.thinking = thinkingBuffer;
+                if (!response?.metadata?.thinking) {
+                  response.metadata = {
+                    ...(response?.metadata ?? {}),
+                    thinking: thinkingBuffer,
+                  };
+                }
+              } else if (
+                response?.metadata?.thinking &&
+                response?.message &&
+                !response.message.thinking
+              ) {
+                response.message.thinking = response.metadata.thinking;
               }
-            } else if (
-              response?.metadata?.thinking &&
-              response?.message &&
-              !response.message.thinking
-            ) {
-              response.message.thinking = response.metadata.thinking;
             }
           }
-        }
         } catch (err) {
           modelError = err;
         }
@@ -1446,5 +1453,82 @@ export class AgentRuntime {
         // Best-effort durability; never fail the turn on flush errors.
       }
     }
+  }
+
+  async generate(
+    input: string,
+    session: AgentSession,
+    signal: AbortSignal,
+    options?: { tools?: Tool[]; requestId?: string },
+  ): Promise<string> {
+    const latest = latestEvent(session, "context_compacted");
+    const summary = typeof latest?.summary === "string" ? latest.summary : null;
+    const restoredCheckpoint =
+      summary && latest?.schemaVersion === 1
+        ? (latest as unknown as import("../context/manager.js").MemoryCheckpoint)
+        : null;
+    this.contextManager.setSessionMemory(
+      summary,
+      typeof latest?.coveredCount === "number"
+        ? latest.coveredCount
+        : undefined,
+      restoredCheckpoint,
+    );
+    this.restoreTodos(session);
+    this.restoreGoal(session);
+    this.syncInstructionBaseline(session);
+
+    const requestId = (options?.requestId ?? "").trim() || randomUUID();
+    this.contextManager.setUsageContext?.(session.id ?? "", requestId);
+
+    this.syncStaticContext(false, this.activeFiles(session));
+
+    const history: Message[] = [
+      ...session.messages,
+      { role: "user", content: [{ type: "text", text: input }] },
+    ];
+    const messages = await this.contextManager.build(this.workspace, history);
+    this.lastBuiltMessages = messages;
+
+    const tools = options?.tools ?? [];
+    const toolDefs = tools.map((tool) => tool.definition);
+
+    let streamedText = "";
+    let finalText = "";
+    let response: {
+      message?: { content?: Array<{ type: string; text?: string }> };
+    } | null = null;
+    for await (const ev of runModelTurn({
+      provider: this.provider,
+      model: this.model,
+      messages,
+      tools: toolDefs,
+      effort: this.effort,
+      reasoning: this.reasoning,
+      temperature: this.persona?.temperature,
+      signal,
+      requestId,
+      usageLedger: this.usageLedger,
+      sessionId: session.id,
+    })) {
+      if (ev.type === "assistant_delta") {
+        streamedText += ev.text;
+      } else if (ev.type === "assistant_text") {
+        streamedText = ev.text;
+      } else if (ev.type === "final") {
+        response = ev.response as {
+          message?: { content?: Array<{ type: string; text?: string }> };
+        };
+        streamedText = ev.streamedText || streamedText;
+      }
+    }
+    if (response?.message?.content) {
+      const text = response.message.content
+        .map((part) => (part.type === "text" ? (part.text ?? "") : ""))
+        .join("");
+      if (text) finalText = text;
+    }
+    if (!finalText) finalText = streamedText;
+    return finalText;
   }
 }

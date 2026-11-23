@@ -56,19 +56,20 @@ Criteria may span multiple lines. Statement and criteria are user-owned; the mod
 
 ## Session
 
-| Command                                                      | Behavior                                                      |
-| ------------------------------------------------------------ | ------------------------------------------------------------- |
-| `/rename [rename <title>]` (alias `/session`)                | Show session info or set the title.                           |
-| `/sessions [all]`                                            | Resume a session from this workspace, or from all workspaces. |
-| `/search <query>`                                            | Print matching sessions with snippets.                        |
-| `/new` (alias `/clear`)                                      | Start a new session.                                          |
-| `/compact [focus]`                                           | Compact older context now.                                    |
-| `/diff [--stat] [path]`                                      | Show workspace changes against git `HEAD`.                    |
-| `/undo`                                                      | Revert the last turn's file changes and conversation pointer. |
-| `/redo`                                                      | Restore what `/undo` removed.                                 |
-| `/export [path] [--format md\|json] [--force] [--no-redact]` | Export the transcript.                                        |
-| `/usage`                                                     | Show token and cost totals per model used in the session.     |
-| `/steer <message>`                                           | Inject a message into the active turn.                        |
+| Command                                                      | Behavior                                                         |
+| ------------------------------------------------------------ | ---------------------------------------------------------------- |
+| `/rename [rename <title>]` (alias `/session`)                | Show session info or set the title.                              |
+| `/sessions [all]`                                            | Resume a session from this workspace, or from all workspaces.    |
+| `/search <query>`                                            | Print matching sessions with snippets.                           |
+| `/new` (alias `/clear`)                                      | Start a new session.                                             |
+| `/compact [focus]`                                           | Compact older context now.                                       |
+| `/diff [--stat] [path]`                                      | Show workspace changes against git `HEAD`.                       |
+| `/undo`                                                      | Revert the last turn's file changes and conversation pointer.    |
+| `/redo`                                                      | Restore what `/undo` removed.                                    |
+| `/btw <question>`                                            | Ask a side question from session context (no tools, no history). |
+| `/export [path] [--format md\|json] [--force] [--no-redact]` | Export the transcript.                                           |
+| `/usage`                                                     | Show token and cost totals per model used in the session.        |
+| `/steer <message>`                                           | Inject a message into the active turn.                           |
 
 `/steer` queues the message if a turn is running; otherwise it starts a new turn.
 
