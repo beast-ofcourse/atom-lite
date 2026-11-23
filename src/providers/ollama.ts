@@ -8,7 +8,7 @@ import type {
 } from "../types.js";
 import type { ProviderAdapter } from "./types.js";
 import { parseArgs } from "./tool-calls.js";
-import { knownVisionModel } from "./context-window.js";
+import { knownVisionModel, knownContextWindow } from "./context-window.js";
 import { isRetryableStatus, retryDelayMs, delay } from "./retry.js";
 import { resolveFinishReason } from "./finish-reason.js";
 import {
@@ -482,9 +482,14 @@ export class OllamaAdapter implements ProviderAdapter {
     } catch {
       // ignore; keep defaults
     }
+    if (this.contextWindow === undefined) {
+      const guessed = knownContextWindow(this.model);
+      if (guessed !== undefined) this.contextWindow = guessed;
+    }
+    const resolvedWindow = this.contextWindow;
     return {
       id: this.model,
-      contextWindow: this.contextWindow,
+      contextWindow: resolvedWindow,
       supportsTools: this.supportsToolsFlag,
       supportsStreaming: this.supportsStreamingFlag,
       supportsVision:

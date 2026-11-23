@@ -24,6 +24,12 @@ interface ModelEntry {
     context_window?: number;
     max_context_length?: number;
   };
+  meta?: {
+    n_ctx?: number;
+    n_ctx_train?: number;
+    [key: string]: unknown;
+  };
+  loaded_context_length?: number;
   architecture?: {
     context_length?: number;
   };
@@ -59,6 +65,9 @@ export function contextWindowFromModelEntry(
     e.input_token_limit,
     e.max_context_window_tokens,
     e.n_ctx,
+    (e.meta as any)?.n_ctx,
+    (e.meta as any)?.n_ctx_train,
+    e.loaded_context_length,
     e.max_seq_len,
     e.limits?.context,
     e.limits?.max_input_tokens,

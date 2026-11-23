@@ -1656,11 +1656,13 @@ export async function run(args: string[]): Promise<void> {
       }
     }
     if (
-      window === undefined &&
       typeof info?.contextWindow === "number" &&
       info.contextWindow > 0
     ) {
       window = info.contextWindow;
+    }
+    if (window === undefined) {
+      window = knownContextWindow(model);
     }
     runtime.setContextWindow(window);
     currentModelCapabilities = resolved;
@@ -1702,7 +1704,7 @@ export async function run(args: string[]): Promise<void> {
   }
 
   // Resolve the initial model's window before the first response.
-  refreshContextWindow();
+  await refreshContextWindow();
   applyModelThinkingDefault(provider.id, currentModelLabel());
 
   for (const loaded of extensionLoader.loadedExtensions()) {

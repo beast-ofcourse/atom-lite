@@ -11,6 +11,7 @@ import {
   contextWindowFromModelEntry,
   supportsVisionFromModelEntry,
   knownVisionModel,
+  knownContextWindow,
 } from "./context-window.js";
 import { isRetryableStatus, retryDelayMs, delay } from "./retry.js";
 import { resolveFinishReason } from "./finish-reason.js";
@@ -85,10 +86,48 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     const entry = data.find(
       (m: any) => String(m?.id ?? m?.name ?? "") === this.model,
     );
+    let contextWindow =
+      this.contextWindowOverride ?? contextWindowFromModelEntry(entry);
+    // llama.cpp nests the usable context under meta; LM Studio exposes it via
+    // /api/v0/models. Try those before giving up.
+    if (contextWindow === undefined && entry?.meta) {
+      const meta = entry.meta as any;
+      if (typeof meta?.n_ctx === "number" && meta.n_ctx > 0)
+        contextWindow = meta.n_ctx;
+      else if (typeof meta?.n_ctx_train === "number" && meta.n_ctx_train > 0)
+        contextWindow = meta.n_ctx_train;
+    }
+    if (contextWindow === undefined) {
+      try {
+        const root = this.baseUrl.replace(/\/v1\/?$/, "");
+        const res = await fetch(`${root}/api/v0/models`);
+        if (res.ok) {
+          const json = (await res.json()) as any;
+          const list = json?.data ?? json?.models ?? [];
+          const e = list.find(
+            (m: any) => String(m?.id ?? m?.name ?? "") === this.model,
+          );
+          if (e) {
+            if (typeof e?.loaded_context_length === "number" && e.loaded_context_length > 0)
+              contextWindow = e.loaded_context_length;
+            else {
+              const fromEntry = contextWindowFromModelEntry(e);
+              if (fromEntry !== undefined) contextWindow = fromEntry;
+              else if (typeof e?.max_context_length === "number")
+                contextWindow = e.max_context_length;
+            }
+          }
+        }
+      } catch {
+        // ignore; keep whatever we have
+      }
+    }
+    if (contextWindow === undefined) {
+      contextWindow = knownContextWindow(this.model);
+    }
     return {
       id: this.model,
-      contextWindow:
-        this.contextWindowOverride ?? contextWindowFromModelEntry(entry),
+      contextWindow,
       supportsTools: true,
       supportsStreaming: true,
       supportsVision:
@@ -210,7 +249,19 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       name: tc.function?.name,
       arguments: parseArgs(tc.function?.arguments ?? ""),
     }));
-    const usage: TokenUsage | undefined = parseOpenAIUsage(json.usage);
+    let usage: TokenUsage | undefined = parseOpenAIUsage(json.usage);
+  if ((usage === undefined || usage.output === undefined) && json?.timings) {
+    const t = json.timings;
+    const input = typeof t.prompt_n === "number" ? t.prompt_n : usage?.input;
+    const output = typeof t.predicted_n === "number" ? t.predicted_n : usage?.output;
+    usage = {
+      input,
+      output,
+      total: typeof input === "number" && typeof output === "number" ? input + output : usage?.total,
+      cacheRead: usage?.cacheRead,
+      cacheWrite: usage?.cacheWrite,
+    };
+  }
     return {
       message: {
         role: "assistant",
@@ -337,6 +388,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     const rawBatches: RawToolCallChunk[][] = [];
     let text = "";
     let usage: TokenUsage | undefined;
+    let timings: any;
     let reportedFinishReason: unknown;
     while (true) {
       const { done, value } = await reader.read();
@@ -353,6 +405,9 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
           const json = JSON.parse(data);
           if (json.usage) {
             usage = parseOpenAIUsage(json.usage);
+          }
+          if (json.timings) {
+            timings = json.timings;
           }
           if (json.choices?.[0]?.finish_reason) {
             reportedFinishReason = json.choices[0].finish_reason;
@@ -376,6 +431,27 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     }
     const assembled = assembleToolCalls(rawBatches);
     const finalCalls = toToolCalls(assembled);
+    if (
+      (usage === undefined || usage.output === undefined) &&
+      timings
+    ) {
+      const input =
+        typeof timings.prompt_n === "number" ? timings.prompt_n : usage?.input;
+      const output =
+        typeof timings.predicted_n === "number"
+          ? timings.predicted_n
+          : usage?.output;
+      usage = {
+        input,
+        output,
+        total:
+          typeof input === "number" && typeof output === "number"
+            ? input + output
+            : usage?.total,
+        cacheRead: usage?.cacheRead,
+        cacheWrite: usage?.cacheWrite,
+      };
+    }
     const response: ModelResponse = {
       message: {
         role: "assistant",

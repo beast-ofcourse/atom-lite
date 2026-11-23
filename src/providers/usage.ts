@@ -7,11 +7,29 @@ import type { TokenUsage } from "../types.js";
  */
 export function parseOpenAIUsage(raw: any): TokenUsage | undefined {
   if (!raw) return undefined;
-  const usage: TokenUsage = {
-    input: raw.prompt_tokens,
-    output: raw.completion_tokens,
-    total: raw.total_tokens,
-  };
+  const input =
+    typeof raw.prompt_tokens === "number"
+      ? raw.prompt_tokens
+      : typeof raw.input_tokens === "number"
+        ? raw.input_tokens
+        : typeof raw.prompt_eval_count === "number"
+          ? raw.prompt_eval_count
+          : undefined;
+  const output =
+    typeof raw.completion_tokens === "number"
+      ? raw.completion_tokens
+      : typeof raw.output_tokens === "number"
+        ? raw.output_tokens
+        : typeof raw.eval_count === "number"
+          ? raw.eval_count
+          : undefined;
+  const total =
+    typeof raw.total_tokens === "number"
+      ? raw.total_tokens
+      : typeof input === "number" && typeof output === "number"
+        ? input + output
+        : undefined;
+  const usage: TokenUsage = { input, output, total };
 
   const details = raw.prompt_tokens_details;
   const cached =
