@@ -6,23 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every release increments the patch number, regardless of change size: `0.18.0`
 becomes `0.18.1`. Explicitly requested minor versions are the exception.
 
-## v0.19.3 — 2026-11-24
+## v0.19.4 — 2026-11-24
 
 ### Added
 
-- `cli`: `/cd` (alias `/chdir`) changes the working directory mid-session, expanding `~` and validating the target.
-- `agent`: tools and the status line re-scope to the directory set by `/cd`; the change is rejected while a turn is active.
+- `cli`: `/undo` and `/redo` revert and restore the last turn's file changes and conversation pointer using git snapshots.
+- `runtime`: git snapshot service with capture, restore, diff, and files backed by git plumbing; best-effort outside git repositories.
+- `cli`: `/btw <question>` answers a side question from session context without mutating history or calling tools.
+- `agent`: `AgentRuntime.generate()` runs a single no-tool model call for side questions.
+- `cli`: `/cd` (alias `/chdir`) changes the working directory mid-session, expands `~`, validates the target, and re-scopes tools; the change is rejected while a turn is active.
+- `cli`/`web`: the thinking indicator shows measured reasoning duration beside it in both surfaces.
+
+### Fixed
+
+- `providers`: local models from LM Studio, llama.cpp, and Ollama now report real tokens/sec and context window usage.
+- `ci`: the release workflow publishes directly to npm instead of staging, avoiding staged-version publish conflicts.
+
+### Changed
+
 - `sessions`: `session_directory_changed` events record the workspace so resume restores the latest directory.
-
-## v0.19.2 — 2026-11-23
-
-### Added
-
-- `runtime`: git snapshot service (`Snapshot`) with capture/restore/diff/files backed by git plumbing.
-- `runtime`: `UndoManager` stages revert records (snapshot, files, diff) per session.
-- `cli`: `/undo` and `/redo` commands revert and restore the last turn.
-- `agent`: `AgentRuntime.generate()` runs a single no-tool model call without mutating session history.
-- `cli`: `/btw <question>` asks a side question from session context.
 
 ## v0.19.1 — 2026-11-22
 
