@@ -17,6 +17,7 @@ import {
   resolveRequestId,
 } from "./http-headers.js";
 import { parseGeminiUsage } from "./usage.js";
+import { serializeBody } from "./serialization.js";
 
 export interface GeminiConfig {
   id: string;
@@ -168,6 +169,7 @@ export class GeminiAdapter implements ProviderAdapter {
     body: any,
     requestId: string,
     signal: AbortSignal | undefined,
+    onSerialized?: (elapsedMs: number) => void,
   ): Promise<Response> {
     let res: Response | undefined;
     let lastErr: Error | undefined;
@@ -176,7 +178,7 @@ export class GeminiAdapter implements ProviderAdapter {
         res = await fetch(url, {
           method: "POST",
           headers: this.buildHeaders(requestId),
-          body: JSON.stringify(body),
+          body: serializeBody(body, onSerialized),
           signal,
         });
       } catch (err) {
@@ -269,6 +271,7 @@ export class GeminiAdapter implements ProviderAdapter {
       body,
       requestId,
       request.signal,
+      request.onSerialized,
     );
     const json = (await res.json()) as any;
     const candidate = json.candidates?.[0];
@@ -322,6 +325,7 @@ export class GeminiAdapter implements ProviderAdapter {
       body,
       requestId,
       request.signal,
+      request.onSerialized,
     );
 
     let text = "";

@@ -96,6 +96,8 @@ export interface ModelRequest {
   options?: Record<string, unknown>;
   signal?: AbortSignal;
   requestId?: string;
+  /** Reports time spent serializing the provider request body. */
+  onSerialized?: (elapsedMs: number) => void;
 }
 
 export interface ModelResponse {

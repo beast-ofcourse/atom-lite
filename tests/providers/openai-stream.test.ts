@@ -50,3 +50,38 @@ test("OpenAI-compatible stream retries without stream_options and keeps usage", 
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+
+test("OpenAI-compatible adapter reports request serialization time", async () => {
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        choices: [
+          { message: { role: "assistant", content: "ok" }, finish_reason: "stop" },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+    );
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+
+  try {
+    const adapter = new OpenAICompatibleAdapter({
+      id: "test",
+      baseUrl: `http://127.0.0.1:${port}`,
+      model: "test-model",
+    });
+    const samples: number[] = [];
+    await adapter.generate({
+      model: "test-model",
+      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      onSerialized: (ms) => samples.push(ms),
+    });
+    assert.equal(samples.length, 1);
+    assert.ok(samples[0] >= 0);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

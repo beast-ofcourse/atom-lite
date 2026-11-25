@@ -18,6 +18,8 @@ export interface ModelTurnRequest {
   usageLedger?: UsageLedger;
   /** Session id recorded alongside the call, when known. */
   sessionId?: string;
+  /** Reports time spent serializing each provider request body. */
+  onSerialized?: (elapsedMs: number) => void;
 }
 
 export type ModelTurnEvent =
@@ -76,6 +78,7 @@ export async function* runModelTurn(
     signal: request.signal,
     options,
     requestId: request.requestId,
+    onSerialized: request.onSerialized,
   };
 
   if (typeof request.provider.stream === "function") {

@@ -287,6 +287,9 @@ export async function startWebServer(
   let turnOutputTokens = 0;
   let turnModelMs = 0;
   let turnThinkingMs = 0;
+  let turnModelCalls = 0;
+  let turnPromptTokens = 0;
+  let turnCachedInputTokens = 0;
   // Everything a client that joins mid-turn needs to rebuild the active turn.
   // Released at turn_end; completed turns live in the session history.
   let turnEvents: AgentEvent[] = [];
@@ -320,6 +323,10 @@ export async function startWebServer(
       turnOutputTokens += event.output ?? 0;
       turnModelMs += event.elapsedMs ?? 0;
       turnThinkingMs += event.thinkingMs ?? 0;
+    } else if (event.type === "turn_timing") {
+      turnModelCalls += event.timing.modelCalls;
+      turnPromptTokens += event.timing.inputTokens;
+      turnCachedInputTokens += event.timing.cachedInputTokens;
     }
     if (turnRunning) {
       // Bound the active-turn buffer: a single enormous turn must not grow
@@ -703,6 +710,9 @@ export async function startWebServer(
     turnStartedAt = Date.now();
     turnOutputTokens = 0;
     turnModelMs = 0;
+    turnModelCalls = 0;
+    turnPromptTokens = 0;
+    turnCachedInputTokens = 0;
     turnSessionStart = session.events.length;
     const attachments = sessionAttachments.get(session.id) ?? [];
     sessionAttachments.delete(session.id);
@@ -762,11 +772,17 @@ export async function startWebServer(
         outputTokens: turnOutputTokens,
         modelMs: turnModelMs,
         thinkingMs: turnThinkingMs,
+        modelCalls: turnModelCalls,
+        promptTokens: turnPromptTokens,
+        cachedInputTokens: turnCachedInputTokens,
       });
       turnStartedAt = 0;
       turnOutputTokens = 0;
       turnModelMs = 0;
       turnThinkingMs = 0;
+      turnModelCalls = 0;
+      turnPromptTokens = 0;
+      turnCachedInputTokens = 0;
       turnEvents = [];
       replayBytes = 0;
       replayTruncated = false;

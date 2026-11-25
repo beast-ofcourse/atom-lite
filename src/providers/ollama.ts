@@ -16,6 +16,7 @@ import {
   mergeHeaders,
   resolveRequestId,
 } from "./http-headers.js";
+import { serializeBody } from "./serialization.js";
 
 export interface OllamaConfig {
   id?: string;
@@ -234,7 +235,7 @@ export class OllamaAdapter implements ProviderAdapter {
         res = await fetch(url, {
           method: "POST",
           headers: this.buildHeaders(requestId),
-          body: JSON.stringify(body),
+          body: serializeBody(body, request.onSerialized),
           signal: request.signal,
         });
       } catch (err) {
@@ -308,7 +309,7 @@ export class OllamaAdapter implements ProviderAdapter {
         res = await fetch(url, {
           method: "POST",
           headers: this.buildHeaders(requestId),
-          body: JSON.stringify(body),
+          body: serializeBody(body, request.onSerialized),
           signal: request.signal,
         });
       } catch (err) {

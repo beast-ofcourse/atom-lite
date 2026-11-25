@@ -76,6 +76,26 @@ export class InMemorySession implements Session {
   append(message: Message): void {
     this.appendMessage(message);
   }
+  appendEvent(event: unknown): SessionEvent {
+    const partial =
+      event && typeof event === "object"
+        ? (event as Partial<SessionEvent>)
+        : ({} as Partial<SessionEvent>);
+    const ev: SessionEvent = {
+      timestamp: nowIso(),
+      sessionId: this.id,
+      seq: ++this.seq,
+      type: typeof partial.type === "string" ? partial.type : "event",
+      ...partial,
+    };
+    ev.timestamp = partial.timestamp ?? ev.timestamp;
+    ev.sessionId = this.id;
+    ev.seq = typeof partial.seq === "number" ? partial.seq : ev.seq;
+    this.events.push(ev);
+    const message = eventToMessage(ev);
+    if (message) this.messages.push(message);
+    return ev;
+  }
   async flush(): Promise<void> {
     // no-op
   }

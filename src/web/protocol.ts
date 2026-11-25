@@ -153,6 +153,12 @@ export type ServerMessage =
       modelMs?: number;
       /** Time spent in the reasoning phase across the turn's model calls. */
       thinkingMs?: number;
+      /** Model calls made during the turn. */
+      modelCalls?: number;
+      /** Prompt tokens sent across the turn's model calls. */
+      promptTokens?: number;
+      /** Prompt tokens served from the provider cache. */
+      cachedInputTokens?: number;
     }
   | { type: "input_queued"; text: string }
   | {

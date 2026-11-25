@@ -1429,21 +1429,29 @@ export async function run(args: string[]): Promise<void> {
   let turnStartedAt = 0;
   let turnOutputTokens = 0;
   let turnModelMs = 0;
+  const turnTimingRef: {
+    current?: import("../agent/types.js").TurnTiming;
+  } = {};
+  const currentTurnTiming = (): import("../agent/types.js").TurnTiming | undefined =>
+    turnTimingRef.current;
   let shellMode = false;
-  const messageQueue: string[] = [];
+  const messageQueue: Array<{ text: string; submittedAt: number }> = [];
   const steeringQueue: string[] = [];
   runtime.setSteeringQueue(steeringQueue);
 
   /** Run one interactive turn while keeping the status bar's activity fresh. */
-  async function runTurn(prompt: string): Promise<void> {
+  async function runTurn(prompt: string, submittedAt = Date.now()): Promise<void> {
     activity.start("formulating");
     turnStartedAt = Date.now();
+    const queuedMs = Math.max(0, turnStartedAt - submittedAt);
     turnOutputTokens = 0;
     turnModelMs = 0;
+    turnTimingRef.current = undefined;
     const controller = new AbortController();
     activeTurnController = controller;
     activeExtensionSignal = controller.signal;
     const messageCountBefore = session.messages.length;
+    const preflightStartedAt = Date.now();
     const beforeSnapshot = await undoManager.captureBefore(session);
     try {
       if (useTools) {
@@ -1454,6 +1462,10 @@ export async function run(args: string[]): Promise<void> {
         prompt,
         session,
         controller.signal,
+        {
+          queuedMs,
+          preflightMs: Date.now() - preflightStartedAt,
+        },
       );
       if (turnResult === "TOKEN_BUDGET_REACHED") {
         appendLine("token budget reached; stopping", theme.tokens.warning);
@@ -1489,24 +1501,36 @@ export async function run(args: string[]): Promise<void> {
       activeExtensionSignal = undefined;
       activity.stop();
       if (turnStartedAt > 0) {
+        const timing = currentTurnTiming();
         appendLine(
           formatTurnStats(
             Date.now() - turnStartedAt,
             turnOutputTokens,
             turnModelMs,
+            timing
+              ? {
+                  modelCalls: timing.modelCalls,
+                  promptTokens: timing.inputTokens,
+                  cacheHitRate:
+                    timing.inputTokens > 0
+                      ? (timing.cachedInputTokens / timing.inputTokens) * 100
+                      : undefined,
+                }
+              : undefined,
           ),
           theme.tokens.dim,
         );
         turnStartedAt = 0;
         turnOutputTokens = 0;
         turnModelMs = 0;
+        turnTimingRef.current = undefined;
       }
       if (messageQueue.length > 0) {
         const next = messageQueue.shift()!;
         transcript.add(new Spacer(1));
-        transcript.add(new UserBox(`> ${next}`));
+        transcript.add(new UserBox(`> ${next.text}`));
         tui.requestRender();
-        void runTurn(next);
+        void runTurn(next.text, next.submittedAt);
       }
     }
   }
@@ -3563,6 +3587,8 @@ export async function run(args: string[]): Promise<void> {
     } else if (e.type === "usage") {
       turnOutputTokens += e.output ?? 0;
       turnModelMs += e.elapsedMs ?? 0;
+    } else if (e.type === "turn_timing") {
+      turnTimingRef.current = e.timing;
     } else if (e.type === "background_task_complete") {
       appendLine(
         `background task ${e.id}: ${e.status} (exit ${e.exitCode ?? "null"})`,
@@ -3966,7 +3992,7 @@ export async function run(args: string[]): Promise<void> {
     }
 
     if (activeTurnController) {
-      messageQueue.push(trimmed);
+      messageQueue.push({ text: trimmed, submittedAt: Date.now() });
       appendLine(`queued: ${trimmed}`, theme.tokens.dim);
       tui.requestRender();
       return;

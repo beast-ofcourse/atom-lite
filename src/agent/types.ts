@@ -12,7 +12,30 @@ import type { UsageLedger } from "../usage/ledger.js";
 import type { AtomEvent } from "../extensions/types.js";
 import type { LockManager } from "../runtime/locks.js";
 
+/** One turn's timing and spend. Contains no prompt, tool, or answer text. */
+export interface TurnTiming {
+  turnId: number;
+  requestId: string;
+  modelCalls: number;
+  queuedMs: number;
+  preflightMs: number;
+  contextBuildMs: number;
+  serializeMs: number;
+  requestSentAt: number | null;
+  firstTokenMs: number | null;
+  firstToolStartMs: number | null;
+  toolBatchMs: number;
+  postTurnMs: number;
+  fixedPromptTokens: number;
+  historyTokens: number;
+  toolResultTokens: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+}
+
 export type AgentEvent =
+  | { type: "turn_timing"; timing: TurnTiming }
   | { type: "assistant_delta"; text: string }
   | { type: "thinking_delta"; text: string }
   | { type: "assistant_text"; text: string }

@@ -28,6 +28,7 @@ import {
   setHeader,
 } from "./http-headers.js";
 import { parseOpenAIUsage } from "./usage.js";
+import { serializeBody } from "./serialization.js";
 
 function resolveReasoningEffort(value: unknown): string | undefined {
   if (typeof value !== "string" || value === "") return undefined;
@@ -238,7 +239,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     const res = await this.fetchWithRetry(url, {
       method: "POST",
       headers: this.buildHeaders(requestId),
-      body: JSON.stringify(body),
+      body: serializeBody(body, request.onSerialized),
       signal: request.signal,
     });
     const json = (await res.json()) as any;
@@ -315,7 +316,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       fetch(url, {
         method: "POST",
         headers: this.buildHeaders(requestId),
-        body: JSON.stringify(body),
+        body: serializeBody(body, request.onSerialized),
         signal: request.signal,
       });
     let res: Response | undefined;

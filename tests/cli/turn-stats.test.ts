@@ -19,6 +19,25 @@ test("turn stats omit a rate when the provider reported no usage", () => {
   assert.equal(formatTurnStats(4_200, 120, 0), "4s");
 });
 
+test("turn stats include model calls, prompt tokens, and cache share", () => {
+  assert.equal(
+    formatTurnStats(1_200, 100, 500, {
+      modelCalls: 2,
+      promptTokens: 12_400,
+      cacheHitRate: 91,
+    }),
+    "1s · 200 tok/s · 2 calls · 12.4k prompt · 91% cached",
+  );
+  assert.equal(
+    formatTurnStats(420, 240, 420, { modelCalls: 1 }),
+    "0.4s · 571 tok/s · 1 call",
+  );
+  assert.equal(
+    formatTurnStats(420, 240, 420, { modelCalls: 1, promptTokens: 900 }),
+    "0.4s · 571 tok/s · 1 call · 900 prompt",
+  );
+});
+
 test("tokens per second uses model time, not wall time", () => {
   // 500 output tokens over 10s of model time is 50 tok/s even if the turn
   // spent a minute waiting on tools.

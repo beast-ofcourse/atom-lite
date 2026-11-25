@@ -781,6 +781,24 @@ function finishTurnStats(message) {
   const parts = [formatDuration(message.elapsedMs)];
   const rate = formatTokensPerSecond(message.outputTokens, message.modelMs);
   if (rate) parts.push(rate);
+  if (Number.isFinite(message.modelCalls) && message.modelCalls > 0) {
+    parts.push(
+      `${message.modelCalls} ${message.modelCalls === 1 ? "call" : "calls"}`,
+    );
+  }
+  if (Number.isFinite(message.promptTokens) && message.promptTokens > 0) {
+    parts.push(`${formatTokenCount(message.promptTokens)} prompt`);
+  }
+  if (
+    Number.isFinite(message.cachedInputTokens) &&
+    message.cachedInputTokens > 0 &&
+    Number.isFinite(message.promptTokens) &&
+    message.promptTokens > 0
+  ) {
+    parts.push(
+      `${Math.round((message.cachedInputTokens / message.promptTokens) * 100)}% cached`,
+    );
+  }
   const think = formatThinkingTime(message.thinkingMs);
   if (think) parts.push(`think ${think}`);
   let stats = lastAssistantActions.querySelector(".msg-stats");

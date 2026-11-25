@@ -3,6 +3,7 @@ import type {
   AgentSession,
   ContextUsage,
   SessionEventLike,
+  TurnTiming,
 } from "./types.js";
 import { DEFAULT_LIMITS } from "../types.js";
 import type { Message, AgentLimits, ToolCall } from "../types.js";
@@ -21,6 +22,7 @@ import {
 } from "../lsp/index.js";
 import { ContextManager } from "../context/manager.js";
 import { isOverflowError } from "../context/checkpoint.js";
+import { estimateMessageTokens } from "../context/budget.js";
 import { discoverInstructionPaths } from "../context/instructions.js";
 import { CacheWarmer } from "../context/warming.js";
 import {
@@ -840,9 +842,31 @@ export class AgentRuntime {
     input: string,
     session: AgentSession,
     signal: AbortSignal,
-    options?: { requestId?: string },
+    options?: {
+      requestId?: string;
+      queuedMs?: number;
+      preflightMs?: number;
+    },
   ): Promise<string> {
     this.currentSession = session;
+    const turnStartedAt = Date.now();
+    const queuedMs = options?.queuedMs ?? 0;
+    const reportedPreflightMs = options?.preflightMs;
+    let firstBuildStartedAt: number | null = null;
+    let contextBuildMs = 0;
+    let serializeMs = 0;
+    let preflightMs = reportedPreflightMs ?? 0;
+    let modelCalls = 0;
+    let firstRequestAt: number | null = null;
+    let firstTokenMs: number | null = null;
+    let firstToolStartMs: number | null = null;
+    let toolBatchMs = 0;
+    let inputTokens = 0;
+    let cachedInputTokens = 0;
+    let outputTokens = 0;
+    let turnMessages: Message[] = [];
+    let postTurnMs = 0;
+    let emittedTiming = false;
     // Restore any persisted session memory for resumed sessions.
     const latest = latestEvent(session, "context_compacted");
     const summary = typeof latest?.summary === "string" ? latest.summary : null;
@@ -875,6 +899,58 @@ export class AgentRuntime {
       turn: this.turnIndex,
     });
     this.onEvent?.({ type: "request_id", requestId });
+    const emitTurnTiming = (): void => {
+      if (emittedTiming) return;
+      emittedTiming = true;
+      const toolDefinitionTokens = this.tools.reduce((sum, tool) => {
+        try {
+          return sum + Math.ceil(JSON.stringify(tool.definition).length / 4);
+        } catch {
+          return sum;
+        }
+      }, 0);
+      const systemTokens = turnMessages
+        .filter((message) => message.role === "system")
+        .reduce((sum, message) => sum + estimateMessageTokens(message), 0);
+      const historyTokens = turnMessages
+        .filter(
+          (message) => message.role === "user" || message.role === "assistant",
+        )
+        .reduce((sum, message) => sum + estimateMessageTokens(message), 0);
+      const toolResultTokens = turnMessages
+        .filter((message) => message.role === "tool")
+        .reduce((sum, message) => sum + estimateMessageTokens(message), 0);
+      const timing: TurnTiming = {
+        turnId: this.turnIndex,
+        requestId,
+        modelCalls,
+        queuedMs,
+        preflightMs,
+        contextBuildMs,
+        serializeMs,
+        requestSentAt: firstRequestAt,
+        firstTokenMs,
+        firstToolStartMs,
+        toolBatchMs,
+        postTurnMs,
+        fixedPromptTokens: systemTokens + toolDefinitionTokens,
+        historyTokens,
+        toolResultTokens,
+        inputTokens,
+        cachedInputTokens,
+        outputTokens,
+      };
+      try {
+        session.appendEvent?.({ type: "turn_timing", timing });
+      } catch {
+        // Timing is observability; never fail a turn because it could not persist.
+      }
+      try {
+        this.onEvent?.({ type: "turn_timing", timing });
+      } catch {
+        // A sink error must not change the turn result.
+      }
+    };
     this.todoTouchedThisTurn = false;
     this.backgroundTasks.drainCompleted();
 
@@ -928,10 +1004,19 @@ export class AgentRuntime {
           completionNudges > 0 && this.todoStore.openCount() > 0,
           this.activeFiles(session),
         );
+        if (firstBuildStartedAt === null) {
+          firstBuildStartedAt = Date.now();
+          if (reportedPreflightMs === undefined) {
+            preflightMs = firstBuildStartedAt - turnStartedAt;
+          }
+        }
+        const buildStartedAt = Date.now();
         const messages = await this.contextManager.build(
           this.workspace,
           session.messages,
         );
+        contextBuildMs += Date.now() - buildStartedAt;
+        turnMessages = messages;
         this.lastBuiltMessages = messages;
         this.warmer?.start();
         await this.extensionDispatch?.("context_build", {
@@ -1002,6 +1087,9 @@ export class AgentRuntime {
           tools: this.tools.map((t) => t.definition),
         });
         let modelError: unknown;
+        modelCalls += 1;
+        const requestStartedAt = Date.now();
+        if (firstRequestAt === null) firstRequestAt = requestStartedAt;
         try {
           for await (const ev of runModelTurn({
             provider: this.provider,
@@ -1015,7 +1103,18 @@ export class AgentRuntime {
             requestId,
             usageLedger: this.usageLedger,
             sessionId: session.id,
+            onSerialized: (elapsedMs) => {
+              serializeMs += elapsedMs;
+            },
           })) {
+            if (
+              firstTokenMs === null &&
+              (ev.type === "assistant_delta" ||
+                ev.type === "assistant_text" ||
+                (ev.type === "final" && !streamedText))
+            ) {
+              firstTokenMs = Date.now() - requestStartedAt;
+            }
             if (ev.type === "thinking_delta") {
               thinkingBuffer += ev.text;
               this.onEvent?.({ type: "thinking_delta", text: ev.text });
@@ -1097,15 +1196,18 @@ export class AgentRuntime {
         }
 
         if (response.usage) {
-          const used =
-            (response.usage.input ?? 0) + (response.usage.output ?? 0);
+          const u = response.usage;
+          inputTokens +=
+            (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0);
+          cachedInputTokens += u.cacheRead ?? 0;
+          outputTokens += u.output ?? 0;
+          const used = (u.input ?? 0) + (u.output ?? 0);
           if (used > 0) {
             // The latest assistant step's prompt + generated tokens is the
             // current context occupancy (not a cumulative session total).
             this.contextUsed = used;
             this.emitContextUsage();
             this.contextManager.noteUsage?.(used);
-            const u = response.usage ?? {};
             this.cumulativeInput += u.input ?? 0;
             this.cumulativeOutput += u.output ?? 0;
             this.cumulativeCacheRead += u.cacheRead ?? 0;
@@ -1445,6 +1547,10 @@ export class AgentRuntime {
           firstResolve = undefined;
         }
 
+        if (firstToolStartMs === null && execCalls.length > 0) {
+          firstToolStartMs = Date.now() - turnStartedAt;
+        }
+        const batchStartedAt = Date.now();
         const streamingDone = executeToolBatchStreaming(
           execCalls,
           wrappedToolMap,
@@ -1466,9 +1572,11 @@ export class AgentRuntime {
         void pendingBatchDone.then(
           () => {
             pendingBatchActive = false;
+            toolBatchMs += Date.now() - batchStartedAt;
           },
           () => {
             pendingBatchActive = false;
+            toolBatchMs += Date.now() - batchStartedAt;
           },
         );
 
@@ -1494,11 +1602,14 @@ export class AgentRuntime {
     } finally {
       if (pendingBatchDone) await pendingBatchDone.catch(() => {});
       await Promise.allSettled(turnPendingUpdates);
+      const postTurnStartedAt = Date.now();
       try {
         await session.flush?.();
       } catch {
         // Best-effort durability; never fail the turn on flush errors.
       }
+      postTurnMs = Date.now() - postTurnStartedAt;
+      emitTurnTiming();
     }
   }
 
