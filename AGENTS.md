@@ -45,7 +45,8 @@ Use the `git-skill` skill (`.agents/skills/git-skill/SKILL.md`) for repository h
 Single-context repo: published docs in `docs/`, private gitignored ADRs in `docs/adr/`. See `docs/agents/domain.md`.
 
 
-
+## Important Note
+- Whenever you are writing a ticket using the "to-tickets" skill Write the upsides and downsides of implementing that ticket , Every ticket should contain this [Do this whenever user says to write tickets or activates to-ticket skill]
 
 
 
