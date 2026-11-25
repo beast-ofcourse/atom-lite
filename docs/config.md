@@ -106,7 +106,7 @@ clamped to the nearest supported one when applied. `/thinking` updates this map.
 | `maxParallelToolCalls` | positive integer           | `10`       | Concurrency cap for a tool-call batch.                                                                                                                                                                     |
 | `maxToolOutputBytes`   | positive integer           | `30000`    | Output cap per tool result.                                                                                                                                                                                |
 | `maxBashTimeMs`        | positive integer           | `120000`   | Timeout for a single `bash` call (2 minutes).                                                                                                                                                              |
-| `bashConcurrency`      | `"serial"` \| `"parallel"` | `"serial"` | `serial` keeps `bash` as a global exclusive barrier.                                                                                                                                                       |
+| `bashConcurrency`      | `"serial"` \| `"parallel"` | `"parallel"` | `parallel` lets bash calls run together under a shared barrier exclusive with file operations; `serial` keeps `bash` as a global exclusive barrier.                                                                                                                                                       |
 | `mode`                 | `"plan"` \| `"yolo"`       | `"yolo"`   | `plan` allows read-only tools (built-in read-only tools and any tool declaring `readOnlyHint`, including MCP/extension tools); `yolo` allows all tools without approval. User config and environment only. |
 | `agent`                | string                     | unset      | Default primary persona name applied at startup. User config only. See [Agent personas](./agents.md).                                                                                                      |
 | `maxTokensPerSession`  | positive integer \| null   | `null`     | Optional session token budget (hard stop). `null` means no limit. User config only.                                                                                                                        |
@@ -403,7 +403,7 @@ relevant file is touched.
   },
   "runtime": {
     "mode": "plan",
-    "bashConcurrency": "serial",
+    "bashConcurrency": "parallel",
     "maxParallelToolCalls": 10
   },
   "context": {

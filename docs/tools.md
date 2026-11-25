@@ -56,7 +56,7 @@ Available tools are exposed as `tools.<name>(...)`. Limits are configured under 
 
 ## Scheduling
 
-A tool-call batch runs with at most `runtime.maxParallelToolCalls` (default `10`) concurrent calls. Per-file read/write locks prevent conflicting edits. `bash` is a global exclusive barrier unless `runtime.bashConcurrency` is `parallel`.
+A tool-call batch runs with at most `runtime.maxParallelToolCalls` (default `10`) concurrent calls. Per-file read/write locks prevent conflicting edits. `bash` calls run together under a shared barrier by default; set `runtime.bashConcurrency` to `serial` to make each `bash` call a global exclusive barrier.
 
 Each result is capped at `runtime.maxToolOutputBytes` (default `30000`). When output exceeds the cap, the full stream is saved to a file and the result includes `outputPath`. A `bash` call times out at `runtime.maxBashTimeMs` (default `120000`). A foreground command still running at that deadline moves to the background instead of being killed, keeping its collected output and reporting `outputPath`; without a background manager it is stopped as before.
 

@@ -95,7 +95,7 @@ export class ToolExecutor {
 
   constructor(options: ToolExecutorOptions = {}) {
     this.maxParallel = Math.max(1, options.maxParallelToolCalls ?? 4);
-    this.bashConcurrency = options.bashConcurrency ?? "serial";
+    this.bashConcurrency = options.bashConcurrency ?? "parallel";
   }
 
   async run(

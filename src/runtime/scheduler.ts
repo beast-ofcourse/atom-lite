@@ -15,7 +15,7 @@ export async function executeToolBatch(
   maxParallel: number,
   signal: AbortSignal,
   lockManager?: LockManager,
-  bashConcurrency: "serial" | "parallel" = "serial",
+  bashConcurrency: "serial" | "parallel" = "parallel",
 ): Promise<ToolResult[]> {
   const executor = new ToolExecutor({
     maxParallelToolCalls: maxParallel,
@@ -32,7 +32,7 @@ export async function executeToolBatchStreaming(
   signal: AbortSignal,
   onResult: (result: ToolResult) => void | Promise<void>,
   lockManager?: LockManager,
-  bashConcurrency: "serial" | "parallel" = "serial",
+  bashConcurrency: "serial" | "parallel" = "parallel",
 ): Promise<void> {
   const executor = new ToolExecutor({
     maxParallelToolCalls: maxParallel,

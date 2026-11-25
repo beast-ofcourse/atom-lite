@@ -12,7 +12,7 @@ export const DEFAULT_CONFIG = {
     maxParallelToolCalls: 10,
     maxToolOutputBytes: 30000,
     maxBashTimeMs: 120000,
-    bashConcurrency: "serial",
+    bashConcurrency: "parallel",
     mode: "yolo",
     maxTokensPerSession: null as number | null,
     maxTokensPerTurn: null as number | null,

@@ -36,7 +36,7 @@ export const RuntimeConfigSchema = z
     maxParallelToolCalls: z.number().int().positive().default(10),
     maxToolOutputBytes: z.number().int().positive().default(30_000),
     maxBashTimeMs: z.number().int().positive().default(120_000),
-    bashConcurrency: z.enum(["serial", "parallel"]).default("serial"),
+    bashConcurrency: z.enum(["serial", "parallel"]).default("parallel"),
     mode: z.enum(["plan", "yolo"]).default("yolo"),
     /** Default primary persona applied at startup. User config only. */
     agent: z.string().min(1).optional(),

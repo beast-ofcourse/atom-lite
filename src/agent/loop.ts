@@ -125,7 +125,7 @@ export class AgentRuntime {
     this.tools = options.tools;
     this.effort = options.effort ?? "medium";
     this.reasoning = options.reasoning ?? options.effort ?? "medium";
-    this.bashConcurrency = options.bashConcurrency ?? "serial";
+    this.bashConcurrency = options.bashConcurrency ?? "parallel";
     this.contextManager =
       options.contextManager ??
       new ContextManager({

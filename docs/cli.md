@@ -66,7 +66,7 @@ While a question prompt is open, number keys and arrows select an option, `Space
 ## Modes
 
 - `plan` allows built-in read-only tools and any tool that declares `readOnlyHint`, including MCP and extension tools. A call to a mutating tool returns an error that names the tool and tells the agent to press Tab to switch to `yolo`.
-- `yolo` allows every tool. `bash` still runs as a global exclusive barrier unless `runtime.bashConcurrency` is `parallel`.
+- `yolo` allows every tool. `bash` calls run together under a shared barrier by default; set `runtime.bashConcurrency` to `serial` to make each `bash` call a global exclusive barrier.
 
 The status line shows the active mode, persona, and open-todo count. The footer shows the workspace path and the context meter with cumulative token and cost totals. For a reasoning model it also shows the active thinking level next to the model name. When a goal or todos exist, the goal panel opens beside the transcript.
 
