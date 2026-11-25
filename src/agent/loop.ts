@@ -1482,8 +1482,9 @@ export class AgentRuntime {
 
     this.syncStaticContext(false, this.activeFiles(session));
 
+    const sessionMessages = [...session.messages];
     const history: Message[] = [
-      ...session.messages,
+      ...sessionMessages,
       { role: "user", content: [{ type: "text", text: input }] },
     ];
     const messages = await this.contextManager.build(this.workspace, history);

@@ -1554,37 +1554,174 @@ export async function run(args: string[]): Promise<void> {
     tui.requestRender();
   }
 
-  async function runBtw(question: string): Promise<void> {
-    if (activeTurnController !== null) {
-      appendLine("finish the turn first", theme.tokens.error);
+  async function promptBtwQuestion(): Promise<string | undefined> {
+    return new Promise<string | undefined>((resolve) => {
+      if (!interactive) {
+        resolve(undefined);
+        return;
+      }
+      uiModalOpen = true;
+      closeOverlay();
+      dropdownContainer.clear();
+      const wrapper = new Container();
+      wrapper.addChild(new Text(theme.tokens.accent("/btw")));
+      wrapper.addChild(
+        new Text(theme.tokens.dim("Ask a side question about the conversation")),
+      );
+      const editor = new Editor(tui, editorTheme, {});
+      let settled = false;
+      const finish = (value: string | undefined) => {
+        if (settled) return;
+        settled = true;
+        removeInput();
+        closeActiveOverlay = undefined;
+        dropdownContainer.clear();
+        uiModalOpen = false;
+        tui.setFocus(input);
+        tui.requestRender();
+        resolve(value);
+      };
+      editor.onSubmit = (value: string) => {
+        finish(value.trim() || undefined);
+      };
+      wrapper.addChild(editor);
+      wrapper.addChild(
+        new Text(theme.tokens.dim("Enter to submit · Esc to cancel")),
+      );
+      dropdownContainer.addChild(wrapper);
+      tui.setFocus(editor);
       tui.requestRender();
-      return;
-    }
+      const removeInput = tui.addInputListener((data: string) => {
+        if (matchesKey(data, Key.escape)) {
+          finish(undefined);
+          return { consume: true };
+        }
+        return undefined;
+      });
+      closeActiveOverlay = () => {
+        removeInput();
+        dropdownContainer.clear();
+        uiModalOpen = false;
+      };
+    });
+  }
+
+  async function showBtwAnswer(question: string, answer: string): Promise<void> {
+    return new Promise<void>((resolve) => {
+      uiModalOpen = true;
+      closeOverlay();
+      dropdownContainer.clear();
+      const wrapper = new Container();
+      wrapper.addChild(new Text(theme.tokens.accent("/btw")));
+      wrapper.addChild(
+        new Text(theme.tokens.dim(question.replace(/\s+/g, " "))),
+      );
+      const body = new Container();
+      body.addChild(
+        new Markdown(
+          answer.trim() || "(no answer)",
+          0,
+          0,
+          markdownThemeFor(theme),
+        ),
+      );
+      const scroll = new ScrollView(body, { follow: "none" });
+      wrapper.addChild(scroll);
+      wrapper.addChild(
+        new Text(theme.tokens.dim("Enter/Esc to close")),
+      );
+      dropdownContainer.addChild(wrapper);
+      tui.requestRender();
+
+      const removeInput = tui.addInputListener((data: string) => {
+        if (matchesKey(data, Key.escape) || matchesKey(data, Key.enter)) {
+          removeInput();
+          closeActiveOverlay = undefined;
+          dropdownContainer.clear();
+          uiModalOpen = false;
+          tui.setFocus(input);
+          tui.requestRender();
+          resolve();
+          return { consume: true };
+        }
+        return undefined;
+      });
+      closeActiveOverlay = () => {
+        removeInput();
+        dropdownContainer.clear();
+        uiModalOpen = false;
+      };
+    });
+  }
+
+  async function runBtw(question: string): Promise<void> {
     if (!session) {
       appendLine("no active session", theme.tokens.error);
       tui.requestRender();
       return;
     }
-    const q = question.trim();
+    let q = question.trim();
     if (!q) {
-      appendLine("usage: /btw <question>");
-      tui.requestRender();
-      return;
+      q = (await promptBtwQuestion()) ?? "";
+      if (!q) {
+        appendLine("usage: /btw <question>");
+        tui.requestRender();
+        return;
+      }
     }
+    // Show a loading overlay immediately so the side question is visible even
+    // while a turn is running and the answer is still being generated.
+    uiModalOpen = true;
+    closeOverlay();
+    dropdownContainer.clear();
+    const loading = new Container();
+    loading.addChild(new Text(theme.tokens.accent("/btw")));
+    loading.addChild(new Text(theme.tokens.dim(q.replace(/\s+/g, " "))));
+    loading.addChild(new Text(theme.tokens.dim("thinking… (Esc to cancel)")));
+    dropdownContainer.addChild(loading);
+    tui.requestRender();
+
     const controller = new AbortController();
+    const previousExtensionSignal = activeExtensionSignal;
     activeExtensionSignal = controller.signal;
+
+    const removeLoadingInput = tui.addInputListener((data: string) => {
+      if (matchesKey(data, Key.escape)) {
+        controller.abort();
+        return { consume: true };
+      }
+      return undefined;
+    });
+    closeActiveOverlay = () => {
+      removeLoadingInput();
+      dropdownContainer.clear();
+      uiModalOpen = false;
+    };
+    const btwInstructions =
+      "The user is asking a quick side question about the conversation so far. " +
+      "Answer directly and concisely in markdown from what you already know. " +
+      "Do not call any tools and do not take any actions.";
     try {
-      const answer = await runtime.generate(q, session, controller.signal);
-      appendLine(answer, theme.tokens.dim);
+      const answer = await runtime.generate(
+        `${btwInstructions}\n\n${q}`,
+        session,
+        controller.signal,
+      );
+      await showBtwAnswer(q, answer);
     } catch (err) {
+      closeOverlay();
+      dropdownContainer.clear();
+      uiModalOpen = false;
       appendLine(
         `atom-lite: ${err instanceof Error ? err.message : String(err)}`,
         theme.tokens.error,
       );
+      tui.requestRender();
     } finally {
-      activeExtensionSignal = undefined;
+      removeLoadingInput();
+      closeActiveOverlay = undefined;
+      activeExtensionSignal = previousExtensionSignal;
     }
-    tui.requestRender();
   }
 
   function changeDirectory(directory: string): void {
