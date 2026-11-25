@@ -1003,7 +1003,9 @@ export async function run(args: string[]): Promise<void> {
         const q = trimmedOneShot.slice(4).trim();
         if (!q) throw new Error("usage: /btw <question>");
         if (!session) throw new Error("no active session");
-        const answer = await runtime.generate(q, session, controller.signal);
+        const answer = await runtime.generate(q, session, controller.signal, {
+          tools: runtime.getTools(),
+        });
         if (jsonMode) {
           process.stdout.write(
             JSON.stringify({ result: answer, sessionId: session.id }) + "\n",
@@ -1706,6 +1708,7 @@ export async function run(args: string[]): Promise<void> {
         `${btwInstructions}\n\n${q}`,
         session,
         controller.signal,
+        { tools: runtime.getTools() },
       );
       await showBtwAnswer(q, answer);
     } catch (err) {

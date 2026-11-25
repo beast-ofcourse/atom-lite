@@ -52,12 +52,12 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "registerCommand",
     status: "supported",
-    consumers: [{"file":"src/cli/app.ts","line":1180}],
+    consumers: [{"file":"src/cli/app.ts","line":1182}],
   },
   {
     method: "unregisterCommand",
     status: "supported",
-    consumers: [{"file":"src/cli/app.ts","line":1180}],
+    consumers: [{"file":"src/cli/app.ts","line":1182}],
   },
   {
     method: "on",

@@ -510,6 +510,10 @@ export class AgentRuntime {
   }
 
   /** Replace the toolset, e.g. after MCP discovery or a list_changed refresh. */
+  getTools(): AgentRuntimeOptions["tools"] {
+    return this.tools;
+  }
+
   setTools(tools: AgentRuntimeOptions["tools"]): void {
     const baseTools = tools.filter(
       (tool) => tool.definition.name !== "execute",
