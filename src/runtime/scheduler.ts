@@ -23,3 +23,25 @@ export async function executeToolBatch(
   });
   return executor.run(calls, { ...ctx, toolMap, lockManager }, signal);
 }
+
+export async function executeToolBatchStreaming(
+  calls: ToolCall[],
+  toolMap: Map<string, Tool>,
+  ctx: ToolContext,
+  maxParallel: number,
+  signal: AbortSignal,
+  onResult: (result: ToolResult) => void | Promise<void>,
+  lockManager?: LockManager,
+  bashConcurrency: "serial" | "parallel" = "serial",
+): Promise<void> {
+  const executor = new ToolExecutor({
+    maxParallelToolCalls: maxParallel,
+    bashConcurrency,
+  });
+  await executor.runStreaming(
+    calls,
+    { ...ctx, toolMap, lockManager },
+    signal,
+    onResult,
+  );
+}

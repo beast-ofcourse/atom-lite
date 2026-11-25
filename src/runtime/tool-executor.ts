@@ -106,12 +106,33 @@ export class ToolExecutor {
     },
     signal: AbortSignal,
   ): Promise<ToolResult[]> {
+    const results: ToolResult[] = [];
+    await this.runStreaming(calls, context, signal, (result, index) => {
+      results[index] = result;
+    });
+    return results;
+  }
+
+  async runStreaming(
+    calls: ToolCall[],
+    context: ToolContext & {
+      toolMap: Map<string, Tool>;
+      lockManager?: LockManager;
+    },
+    signal: AbortSignal,
+    onResult: (result: ToolResult, index: number) => void | Promise<void>,
+  ): Promise<void> {
     const toolMap = context.toolMap;
     const lockManager = context.lockManager;
     const ctx = context;
     const lm = lockManager ?? new LockManager();
     const n = calls.length;
     const results: ToolResult[] = new Array(n);
+    const handlers: Promise<unknown>[] = [];
+    const setResult = (index: number, result: ToolResult): void => {
+      results[index] = result;
+      handlers.push(Promise.resolve().then(() => onResult(result, index)));
+    };
     const maxParallel = this.maxParallel;
     const bashConcurrency = this.bashConcurrency;
 
@@ -199,70 +220,70 @@ export class ToolExecutor {
           // Plan mode blocks the mutating built-ins. MCP and extension tools
           // are not built-ins, so they must either declare `readOnlyHint` or
           // are treated as mutating and blocked until the mode is lifted.
-          results[i] = {
+          setResult(i, {
             toolCallId: call.id,
             name: call.name,
             content: planModeBlockMessage(call.name),
             isError: true,
-          };
+          });
           return;
         }
         const permissionResult = await personaPermissionResult(call, ctx);
         if (permissionResult) {
-          results[i] = permissionResult;
+          setResult(i, permissionResult);
           return;
         }
         if (signal.aborted) {
-          results[i] = {
+          setResult(i, {
             toolCallId: call.id,
             name: call.name,
             content: "USER_CANCELLED",
             isError: true,
-          };
+          });
           return;
         }
         let release: Release | undefined;
         try {
           await acquireSlot(signal);
         } catch {
-          results[i] = {
+          setResult(i, {
             toolCallId: call.id,
             name: call.name,
             content: "USER_CANCELLED",
             isError: true,
-          };
+          });
           return;
         }
         try {
           release = await acquire(call);
           if (signal.aborted) {
-            results[i] = {
+            setResult(i, {
               toolCallId: call.id,
               name: call.name,
               content: "USER_CANCELLED",
               isError: true,
-            };
+            });
             return;
           }
           const tool = toolMap.get(call.name);
           if (!tool) {
-            results[i] = {
+            setResult(i, {
               toolCallId: call.id,
               name: call.name,
               content: `TOOL_NOT_FOUND: ${call.name}`,
               isError: true,
-            };
+            });
           } else {
             const r = await tool.execute(call, ctx);
-            results[i] = r;
+            setResult(i, r);
           }
         } catch (err) {
-          results[i] = {
+          setResult(i, {
             toolCallId: call.id,
             name: call.name,
             content: `COMMAND_FAILED: ${err instanceof Error ? err.message : String(err)}`,
             isError: true,
-          };
+          });
         } finally {
           if (release) release();
           releaseSlot();
@@ -271,6 +292,6 @@ export class ToolExecutor {
     });
 
     await Promise.all(tasks);
-    return results;
+    await Promise.all(handlers);
   }
 }

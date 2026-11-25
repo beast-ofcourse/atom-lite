@@ -10,7 +10,10 @@ import type { Tool, ToolContext } from "../tools/types.js";
 import { createCodeModeTool } from "../tools/codemode.js";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { executeToolBatch } from "../runtime/scheduler.js";
+import {
+  executeToolBatch,
+  executeToolBatchStreaming,
+} from "../runtime/scheduler.js";
 import { LockManager } from "../runtime/locks.js";
 import {
   touchFile as touchLspFile,
@@ -889,6 +892,10 @@ export class AgentRuntime {
     const maxOverflowRetries = 1;
     let truncationContinuations = 0;
     let answerPrefix = "";
+    const turnPendingUpdates: Promise<unknown>[] = [];
+    let pendingBatchDone: Promise<void> | null = null;
+    let questionDismissed = false;
+    let pendingBatchActive = false;
     try {
       while (true) {
         // Pause is a goal status enforced between iterations. In-flight tool
@@ -1062,6 +1069,12 @@ export class AgentRuntime {
           type: "after_provider_response",
           response,
         });
+        if (pendingBatchActive && pendingBatchDone) {
+          await pendingBatchDone;
+          pendingBatchActive = false;
+          pendingBatchDone = null;
+          continue;
+        }
         const recorder = new TurnRecorder({
           session,
           onEvent: this.onEvent as ((event: unknown) => void) | undefined,
@@ -1161,6 +1174,12 @@ export class AgentRuntime {
           continue;
         }
         if (toolCalls.length === 0) {
+          if (questionDismissed) {
+            await this.extensionDispatch?.("agent_settled", {
+              type: "agent_settled",
+            });
+            return answerPrefix + text;
+          }
           // turn_end / agent_before_settle continuation handling.
           let continued = false;
           const turnResults = await this.extensionDispatch?.("turn_end", {
@@ -1229,9 +1248,6 @@ export class AgentRuntime {
           }
         }
 
-        // Tool callbacks are synchronous: collect their dispatch promises here
-        // and await them after the batch so no update handler outlives the turn.
-        const pendingUpdates: Promise<unknown>[] = [];
         const ctx = {
           workspace: this.workspace,
           mode: this.mode,
@@ -1259,7 +1275,7 @@ export class AgentRuntime {
               stream,
               text,
             });
-            pendingUpdates.push(
+            turnPendingUpdates.push(
               Promise.resolve().then(() =>
                 this.extensionDispatch?.("tool_execution_update", {
                   type: "tool_execution_update",
@@ -1345,31 +1361,32 @@ export class AgentRuntime {
           }
         }
         const goalStatusBeforeTools = this.goalStore.status;
-        const execResults = await executeToolBatch(
-          execCalls,
-          wrappedToolMap,
-          ctx,
-          this.limits.maxParallelToolCalls,
-          signal,
-          this.lockManager,
-          this.bashConcurrency,
-        );
-        await Promise.all(pendingUpdates);
+        let goalPersisted = false;
+        let firstResolve: (() => void) | undefined;
+        const firstResult = new Promise<void>((resolve) => {
+          firstResolve = resolve;
+        });
+        let resultChain = Promise.resolve();
+        const resultErrors: unknown[] = [];
 
-        if (
-          execResults.some((result: any) => result?.name === "todo") &&
-          this.toolMap.has("todo")
-        ) {
-          this.todoTouchedThisTurn = true;
-          this.persistTodos(session);
-          this.emitLedgerState();
-        }
-        if (goalStatusBeforeTools !== this.goalStore.status) {
-          this.persistGoal(session);
-          this.emitGoalState();
-        }
+        const handleResult = async (r: any): Promise<void> => {
+          const payload: any = {
+            type: "tool_result",
+            toolCallId: r.toolCallId,
+            name: r.name,
+            content: r.content,
+            details: r.details,
+            structuredContent: r.structuredContent,
+            isError: r.isError,
+            usage: r.usage,
+          };
+          await this.extensionDispatch?.("tool_result", payload);
+          r.content = payload.content ?? r.content;
+          r.details = payload.details ?? r.details;
+          r.structuredContent = payload.structuredContent ?? r.structuredContent;
+          r.isError = payload.isError ?? r.isError;
+          r.usage = payload.usage ?? r.usage;
 
-        for (const r of execResults) {
           const call = toolCalls.find((c) => c.id === r.toolCallId);
           const callPath = call?.arguments?.path;
           if (
@@ -1391,55 +1408,79 @@ export class AgentRuntime {
               // Best effort.
             }
           }
-        }
 
-        const resultMap = new Map<string, any>();
-        for (const r of blockedResults.values()) resultMap.set(r.toolCallId, r);
-        for (const r of execResults) {
-          // Emit tool_result event and allow patches.
-          const payload: any = {
-            type: "tool_result",
-            toolCallId: r.toolCallId,
-            name: r.name,
-            content: r.content,
-            details: r.details,
-            structuredContent: r.structuredContent,
-            isError: r.isError,
-            usage: r.usage,
-          };
-          await this.extensionDispatch?.("tool_result", payload);
-          r.content = payload.content ?? r.content;
-          r.details = payload.details ?? r.details;
-          r.structuredContent =
-            payload.structuredContent ?? r.structuredContent;
-          r.isError = payload.isError ?? r.isError;
-          r.usage = payload.usage ?? r.usage;
-          resultMap.set(r.toolCallId, r);
-        }
-
-        const orderedResults = toolCalls
-          .map((c: any) => resultMap.get(c.id))
-          .filter(Boolean);
-        for (const r of orderedResults) {
           recorder.recordToolResult(r);
+
+          if (r.name === "todo" && this.toolMap.has("todo")) {
+            this.todoTouchedThisTurn = true;
+            this.persistTodos(session);
+            this.emitLedgerState();
+          }
+          if (!goalPersisted && goalStatusBeforeTools !== this.goalStore.status) {
+            goalPersisted = true;
+            this.persistGoal(session);
+            this.emitGoalState();
+          }
+          if (r?.details?.questionDismissed === true && !signal.aborted) {
+            questionDismissed = true;
+          }
+          if (firstResolve) {
+            const resolve = firstResolve;
+            firstResolve = undefined;
+            resolve();
+          }
+        };
+
+        const enqueueResult = (r: any): Promise<void> => {
+          const task = resultChain.then(() => handleResult(r));
+          resultChain = task.catch((error: unknown) => {
+            resultErrors.push(error);
+          });
+          return task;
+        };
+
+        for (const r of blockedResults.values()) void enqueueResult(r);
+        if (blockedResults.size === 0 && execCalls.length === 0) {
+          firstResolve?.();
+          firstResolve = undefined;
         }
 
-        // A dismissed question is not model-facing output. OpenCode records
-        // the tool call as aborted and ends the step; do the same so the model
-        // never treats a dismissal as an answer.
-        if (
-          !signal.aborted &&
-          orderedResults.some(
-            (r: any) => r?.details?.questionDismissed === true,
-          )
-        ) {
+        const streamingDone = executeToolBatchStreaming(
+          execCalls,
+          wrappedToolMap,
+          ctx,
+          this.limits.maxParallelToolCalls,
+          signal,
+          (r) => {
+            void enqueueResult(r);
+          },
+          this.lockManager,
+          this.bashConcurrency,
+        );
+        pendingBatchActive = true;
+        pendingBatchDone = (async () => {
+          await streamingDone;
+          await resultChain;
+          if (resultErrors.length > 0) throw resultErrors[0];
+        })();
+        void pendingBatchDone.then(
+          () => {
+            pendingBatchActive = false;
+          },
+          () => {
+            pendingBatchActive = false;
+          },
+        );
+
+        await firstResult;
+        this.backgroundTasks.drainCompleted();
+
+        if (questionDismissed) {
           await this.extensionDispatch?.("agent_settled", {
             type: "agent_settled",
           });
           return answerPrefix + text;
         }
-
-        this.backgroundTasks.drainCompleted();
 
         if (terminate) {
           await this.extensionDispatch?.("agent_settled", {
@@ -1451,6 +1492,8 @@ export class AgentRuntime {
       // The while(true) loop always returns or throws from inside; this line is unreachable but satisfies the return type.
       return "TASK_BUDGET_REACHED";
     } finally {
+      if (pendingBatchDone) await pendingBatchDone.catch(() => {});
+      await Promise.allSettled(turnPendingUpdates);
       try {
         await session.flush?.();
       } catch {
