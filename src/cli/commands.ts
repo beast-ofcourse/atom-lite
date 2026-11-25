@@ -2,6 +2,7 @@ import type { SlashCommand } from "@earendil-works/pi-tui";
 import type { Skill } from "../skills/registry.js";
 import type { AgentPersona } from "../agents/registry.js";
 import { execFileSync } from "node:child_process";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -21,6 +22,13 @@ export interface CommandDefinition {
   /** Exit the interactive loop after this command completes. */
   exits?: boolean;
   run(ctx: CommandContext, args: string, raw: string): void | Promise<void>;
+}
+
+export interface PromptTemplate {
+  name: string;
+  description: string;
+  content: string;
+  source: "user" | "project";
 }
 
 export type LoadedSkill = Pick<Skill, "name" | "description">;
@@ -83,6 +91,64 @@ export interface CommandContext {
   setProjectTrust(decision: "allow" | "deny" | "reset"): void;
   changeDirectory(dir: string): void;
   requestExit(): void;
+}
+
+/** Pi-style `$@` / `$ARGUMENTS` substitution for a prompt template body. */
+export function expandPromptTemplate(content: string, args: string): string {
+  return content.replace(/\$@|\$ARGUMENTS/g, () => args.trim());
+}
+
+/**
+ * Load Pi-style markdown prompt templates from a user or project directory.
+ * The filename becomes the command name. Project templates load only when the
+ * workspace is trusted.
+ */
+export function discoverPromptTemplates(
+  userDir: string,
+  projectDirs: string[],
+  projectTrusted: boolean,
+): PromptTemplate[] {
+  const templates = new Map<string, PromptTemplate>();
+  const scan = (dir: string, source: "user" | "project") => {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir).sort();
+    } catch {
+      return;
+    }
+    for (const name of entries) {
+      if (!name.endsWith(".md")) continue;
+      const filePath = join(dir, name);
+      let text: string;
+      try {
+        if (!statSync(filePath).isFile()) continue;
+        text = readFileSync(filePath, "utf8");
+      } catch {
+        continue;
+      }
+      const fenced = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
+      const frontmatter = fenced?.[1] ?? "";
+      const content = fenced ? text.slice(fenced[0].length) : text;
+      const description =
+        /^description:\s*(.+)$/m.exec(frontmatter)?.[1]?.trim() ||
+        content
+          .split("\n")
+          .map((line) => line.trim())
+          .find((line) => line.length > 0) ||
+        name;
+      templates.set(name.slice(0, -3), {
+        name: name.slice(0, -3),
+        description,
+        content: content.trim(),
+        source,
+      });
+    }
+  };
+  scan(userDir, "user");
+  if (projectTrusted) {
+    for (const dir of projectDirs) scan(dir, "project");
+  }
+  return [...templates.values()];
 }
 
 /** Expand `~` and `~/...` to absolute home paths; leave other paths unchanged. */
@@ -241,7 +307,11 @@ export class CommandRegistry {
  * is invoked through exactly the same dispatch path as a built-in.
  */
 export function createCommandRegistry(
-  options: { skills?: Skill[]; extensionCommands?: any[] } = {},
+  options: {
+    skills?: Skill[];
+    extensionCommands?: any[];
+    promptTemplates?: PromptTemplate[];
+  } = {},
 ): CommandRegistry {
   const registry = new CommandRegistry();
 
@@ -872,6 +942,18 @@ export function createCommandRegistry(
       bareInvokable: true,
       async run(ctx, args) {
         await ctx.loadSkill(skill.name, args.trim());
+      },
+    });
+  }
+
+  for (const template of options.promptTemplates ?? []) {
+    registry.register({
+      name: template.name,
+      description: template.description,
+      category: "Prompts",
+      argumentHint: "[arguments]",
+      async run(ctx, args) {
+        await ctx.runTurn(expandPromptTemplate(template.content, args));
       },
     });
   }

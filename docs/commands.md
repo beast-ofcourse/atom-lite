@@ -82,6 +82,7 @@ Criteria may span multiple lines. Statement and criteria are user-owned; the mod
 | ------------------------------- | ------------------------------------------------------- |
 | `/skills`                       | List discovered skills.                                 |
 | `/skill <name> [prompt]`        | Load a skill and optionally give it a prompt.           |
+| `/<template> [arguments]`       | Run a prompt template from `prompts/`.                  |
 | `/extensions [doctor [--json]]` | List extension load status, or show diagnostics.        |
 | `/reload`                       | Reload extensions, skills, and personas from disk.      |
 | `/trust allow\|deny\|reset`     | Manage project trust for local extensions and personas. |
@@ -108,5 +109,24 @@ Commands parse the text after the name as one argument string. Quotes are not re
 ```
 
 Unknown names consume the input and print usage; they never fall through to the agent as a prompt. Skills are also invokable by bare name, so `review this diff` runs the `review` skill when one exists.
+
+## Prompt templates
+
+Markdown files in `<agent-dir>/prompts/*.md`, `.atom-lite/prompts/*.md`, and
+`.pi/prompts/*.md` become slash commands named after the file. Project templates load only after the
+project is trusted. The command expands `$@` and `$ARGUMENTS` to the argument
+text and runs the result as a prompt.
+
+```md title="~/.pi/agent/prompts/review.md"
+---
+description: Review staged changes
+---
+
+Review the staged changes. Focus on $@.
+```
+
+`/review security` runs "Review the staged changes. Focus on security." The
+[subagent example](../examples/extensions/subagent/README.md) ships templates
+for its single, parallel, and chain workflows.
 
 See [CLI](./cli.md) for keybindings and [Config](./config.md) for config fields.

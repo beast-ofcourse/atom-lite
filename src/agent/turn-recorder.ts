@@ -1,5 +1,6 @@
 import type { Message } from "../types.js";
 import type { AtomEvent } from "../extensions/types.js";
+import { computeUsageCost } from "../usage/ledger.js";
 
 export interface TurnRecorderOptions {
   session: { appendMessage(message: Message): void };
@@ -8,17 +9,23 @@ export interface TurnRecorderOptions {
     event: AtomEvent,
     payload: any,
   ) => Promise<any[]> | any[];
+  prices?: Record<string, unknown> | undefined;
+  model?: string;
 }
 
 export class TurnRecorder {
   private session: TurnRecorderOptions["session"];
   private onEvent: TurnRecorderOptions["onEvent"];
   private extensionDispatch: TurnRecorderOptions["extensionDispatch"];
+  private prices: TurnRecorderOptions["prices"];
+  private model: TurnRecorderOptions["model"];
 
   constructor(options: TurnRecorderOptions) {
     this.session = options.session;
     this.onEvent = options.onEvent;
     this.extensionDispatch = options.extensionDispatch;
+    this.prices = options.prices;
+    this.model = options.model;
   }
 
   async recordAssistant(
@@ -29,7 +36,12 @@ export class TurnRecorder {
         name: string;
         arguments: Record<string, unknown>;
       }>;
-      usage?: { input?: number; output?: number };
+      usage?: {
+        input?: number;
+        output?: number;
+        cacheRead?: number;
+        cacheWrite?: number;
+      };
       metadata?: Record<string, unknown>;
       elapsedMs?: number;
       thinkingMs?: number;
@@ -82,10 +94,18 @@ export class TurnRecorder {
           ? message.content
           : "");
     if (response.usage) {
+      const pricing = this.prices?.[this.model ?? ""];
+      const cost = pricing
+        ? computeUsageCost(pricing as any, response.usage as any)?.costUsd
+        : undefined;
       this.onEvent?.({
         type: "usage",
         input: response.usage.input,
         output: response.usage.output,
+        cacheRead: response.usage.cacheRead,
+        cacheWrite: response.usage.cacheWrite,
+        cost,
+        model: this.model,
         elapsedMs: response.elapsedMs,
         thinkingMs: response.thinkingMs,
       });

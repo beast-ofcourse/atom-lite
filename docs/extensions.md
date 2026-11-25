@@ -111,6 +111,43 @@ session entries, the durable store, dialogs, `exec`, logging, tool middleware,
 and inter-extension services. The `no-op` methods above are accepted for
 compatibility but have no effect in this release.
 
+## Shipped examples
+
+`examples/extensions/subagent/` is the Pi-compatible subagent extension. It
+registers one `subagent` tool and runs each task in a separate `atom-lite`
+process with `--mode json`, so the child gets an isolated context window. See
+the [example README](../examples/extensions/subagent/README.md) for install
+steps and agent definitions.
+
+Load it for one run:
+
+```bash
+atom-lite -e ./examples/extensions/subagent/index.ts
+```
+
+Define agents as markdown files with frontmatter under `~/.pi/agent/agents`:
+
+```md title="~/.pi/agent/agents/scout.md"
+---
+name: scout
+description: Fast codebase recon
+tools: read, grep, find, ls
+model: anthropic/claude-haiku-4-5
+---
+
+You are a scout. Return compressed findings for the next agent.
+```
+
+The tool supports single `{ agent, task }`, parallel `{ tasks: [...] }`, and
+chain `{ chain: [...] }` modes. Chain steps substitute `{previous}` with the
+prior step's output. Omit `model` to reuse the parent process's `--model`,
+`--provider`, and `--thinking` flags, or the configured defaults. Project-local
+agents under `.atom-lite/agents` or `.pi/agents` require `agentScope: "both"` and
+interactive confirmation unless the project is trusted.
+
+The extension calls `node:child_process.spawn` directly instead of `pi.exec`, so
+no `exec` scope is declared. Install it only from a source you trust.
+
 ## Tool middleware and services
 
 Two extensions can cooperate on one tool or one typed service without module

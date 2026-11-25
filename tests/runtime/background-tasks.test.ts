@@ -76,10 +76,7 @@ test("cancelAll stops every running task", async () => {
   const settled = mgr.cancelAll();
   assert.equal(settled.length, 2);
   assert.ok(settled.every((t) => t.status === "cancelled"));
-  assert.deepEqual(
-    mgr.list().filter((t) => t.status === "running").length,
-    0,
-  );
+  assert.deepEqual(mgr.list().filter((t) => t.status === "running").length, 0);
   assert.equal(a.id === b.id, false);
 });
 
@@ -121,7 +118,8 @@ test("cancel settles to cancelled immediately and frees the slot", async () => {
   const ids: string[] = [];
   for (let i = 0; i < 4; i++) {
     ids.push(
-      mgr.start(`node -e "setInterval(()=>{},50)"`, process.cwd(), process.env).id,
+      mgr.start(`node -e "setInterval(()=>{},50)"`, process.cwd(), process.env)
+        .id,
     );
   }
   const cancelled = mgr.cancel(ids[0]);
@@ -138,7 +136,11 @@ test("cancel settles to cancelled immediately and frees the slot", async () => {
 
 test("waitDetailed reports timedOut separately from completion", async () => {
   const mgr = new BackgroundTaskManager();
-  const slow = mgr.start(`node -e "setTimeout(()=>{},300)"`, process.cwd(), process.env);
+  const slow = mgr.start(
+    `node -e "setTimeout(()=>{},300)"`,
+    process.cwd(),
+    process.env,
+  );
   const timed = await mgr.waitDetailed(slow.id, 20);
   assert.equal(timed?.timedOut, true);
   assert.equal(timed?.task?.status, "running");
@@ -163,11 +165,9 @@ test("output file keeps the full stream when the preview is capped", async () =>
 
 test("adopt settles a child that exited before listeners attached", async () => {
   const mgr = new BackgroundTaskManager();
-  const child = spawn(
-    process.env.SHELL ?? "/bin/sh",
-    ["-c", "echo early"],
-    { stdio: ["ignore", "pipe", "pipe"] },
-  );
+  const child = spawn(process.env.SHELL ?? "/bin/sh", ["-c", "echo early"], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   await new Promise((resolve) => child.once("exit", resolve));
   const task = mgr.adopt("early", child, "", Date.now());
   const done = await mgr.wait(task.id, 1000);
@@ -225,6 +225,18 @@ test("empty status file is not mistaken for exit zero", async () => {
     clearInterval(keepAlive);
   }
   rmSync(dir, { recursive: true, force: true });
+});
+
+test("a long-running job keeps its exit code after the process exits", async () => {
+  const mgr = new BackgroundTaskManager();
+  const task = mgr.start(
+    `node -e "setTimeout(()=>{},2300)"`,
+    process.cwd(),
+    process.env,
+  );
+  const done = await mgr.wait(task.id, 10000);
+  assert.equal(done?.status, "completed");
+  assert.equal(done?.exitCode, 0);
 });
 
 test("shell job reattaches to a live child after a simulated restart", async () => {
@@ -362,7 +374,11 @@ test("onComplete fires once with the settled record for auto-notification", asyn
   await new Promise((r) => setTimeout(r, 30));
   assert.deepEqual(seen, [`${done.id}:completed`]);
 
-  const cancelled = mgr.start(`node -e "setInterval(()=>{},50)"`, process.cwd(), process.env);
+  const cancelled = mgr.start(
+    `node -e "setInterval(()=>{},50)"`,
+    process.cwd(),
+    process.env,
+  );
   mgr.cancel(cancelled.id);
   await new Promise((r) => setTimeout(r, 30));
   assert.ok(seen.includes(`${cancelled.id}:cancelled`));

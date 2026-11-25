@@ -62,7 +62,17 @@ export type AgentEvent =
       details?: unknown;
     }
   | { type: "final"; text: string }
-  | { type: "usage"; input?: number; output?: number; elapsedMs?: number; thinkingMs?: number }
+  | {
+      type: "usage";
+      input?: number;
+      output?: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      cost?: number;
+      model?: string;
+      elapsedMs?: number;
+      thinkingMs?: number;
+    }
   | {
       type: "context_usage";
       used?: number;

@@ -116,22 +116,12 @@ function concurrentBashTool(counter: { active: number; max: number }) {
   } as any;
 }
 
-test("bash concurrency is serial by default and parallel when opted in", async () => {
+test("bash concurrency is parallel by default and serial when opted in", async () => {
   const calls = [
     { id: "1", name: "bash", arguments: { command: "one" } },
     { id: "2", name: "bash", arguments: { command: "two" } },
   ];
   const dir = mkdtempSync(join(tmpdir(), "ws-"));
-
-  const serial = { active: 0, max: 0 };
-  await executeToolBatch(
-    calls as any,
-    new Map([["bash", concurrentBashTool(serial)]]),
-    ctx(dir),
-    4,
-    new AbortController().signal,
-  );
-  assert.equal(serial.max, 1);
 
   const parallel = { active: 0, max: 0 };
   await executeToolBatch(
@@ -140,10 +130,20 @@ test("bash concurrency is serial by default and parallel when opted in", async (
     ctx(dir),
     4,
     new AbortController().signal,
-    undefined,
-    "parallel",
   );
   assert.equal(parallel.max, 2);
+
+  const sequential = { active: 0, max: 0 };
+  await executeToolBatch(
+    calls as any,
+    new Map([["bash", concurrentBashTool(sequential)]]),
+    ctx(dir),
+    4,
+    new AbortController().signal,
+    undefined,
+    "serial",
+  );
+  assert.equal(sequential.max, 1);
 });
 
 test("parallel bash barrier still excludes file operations", async () => {

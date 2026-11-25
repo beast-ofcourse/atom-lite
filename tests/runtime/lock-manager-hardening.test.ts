@@ -1,6 +1,7 @@
 // Regression: executeToolBatch used to accept a shared LockManager and never
 // pass it to the executor, and AgentRuntime created a new manager per batch.
-// Also pins the bound of the live lock map a shared manager keeps.
+// An external exclusive global lock must block a bash call. Also pins the bound
+// of the live lock map a shared manager keeps.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { getEventListeners } from "node:events";
@@ -33,7 +34,7 @@ function fakeBashTool(ran: { value: boolean }): any {
 
 test("executeToolBatch honors a supplied shared LockManager", async () => {
   const lm = new LockManager();
-  const releaseBarrier = await lm.acquireGlobalBarrier(signal);
+  const releaseBarrier = await lm.acquireGlobal(signal);
   const ran = { value: false };
   const toolMap = new Map([["bash", fakeBashTool(ran)]]);
 
@@ -76,7 +77,7 @@ test("executeToolBatch honors a supplied shared LockManager", async () => {
 
 test("agent runtime uses its shared lock manager for tool batches", async () => {
   const lm = new LockManager();
-  const releaseBarrier = await lm.acquireGlobalBarrier(signal);
+  const releaseBarrier = await lm.acquireGlobal(signal);
   const ran = { value: false };
   const provider = new FakeProvider([
     { toolCalls: [{ id: "1", name: "bash", arguments: { command: "hi" } }] },

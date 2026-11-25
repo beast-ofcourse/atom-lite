@@ -172,11 +172,25 @@ export function waitSupervised(
       resolve(readSupervised(target));
     };
     const onAbort = () => finish();
+    // A process can disappear from /proc before its shell finishes writing the
+    // status file. Reading at that instant yields an empty code and mislabels a
+    // successful job as failed, so wait briefly for the code after process exit.
+    let missingSince: number | undefined;
     const poll = () => {
-      if (isSupervisedFinished(target) || !sameProcess(target)) {
+      if (isSupervisedFinished(target)) {
         finish();
         return;
       }
+      if (!sameProcess(target)) {
+        missingSince ??= Date.now();
+        if (Date.now() - missingSince >= 2000) finish();
+        else {
+          timer = setTimeout(poll, intervalMs);
+          timer.unref();
+        }
+        return;
+      }
+      missingSince = undefined;
       timer = setTimeout(poll, intervalMs);
       timer.unref();
     };

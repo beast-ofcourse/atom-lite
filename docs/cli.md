@@ -5,30 +5,38 @@ Run `atom-lite` in a project to open the full-screen terminal interface.
 ```text
 atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID]
           [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json]
+          [--mode json] [-p] [--no-session] [--thinking LEVEL]
+          [--tools NAMES] [--append-system-prompt FILE]
           [--theme NAME] [--no-color] [--serve [PORT]] [--version] [--help]
 atom-lite extension test <path>
 ```
 
 ## Flags
 
-| Flag                      | Behavior                                                    |
-| ------------------------- | ----------------------------------------------------------- |
-| `task`                    | One-shot task; the agent runs it and exits.                 |
-| `--provider NAME`         | Select a provider profile.                                  |
-| `--model MODEL`           | Override the model for this run.                            |
-| `--continue`              | Resume the most recent session in this workspace.           |
-| `--session ID`            | Resume a specific session.                                  |
-| `--list-sessions`         | Print the session index and exit.                           |
-| `--search-sessions QUERY` | Print matching sessions with snippets and exit.             |
-| `--no-tools`              | Disable all tools; model-only chat.                         |
-| `--json`                  | Non-interactive JSON output.                                |
-| `--theme NAME`            | `auto`, `dark`, `light`, or `ansi` for this run.            |
-| `--no-color`              | Force the no-colour theme.                                  |
-| `--serve [PORT]`          | Serve the browser UI on localhost.                          |
-| `--share`                 | With `--serve`, bind the UI on the LAN and print a QR code. |
-| `--no-qr`                 | With `--share`, print the URL without a QR code.            |
-| `--version`               | Print the version.                                          |
-| `--help`                  | Print usage.                                                |
+| Flag                          | Behavior                                                                      |
+| ----------------------------- | ----------------------------------------------------------------------------- |
+| `task`                        | One-shot task; the agent runs it and exits.                                   |
+| `--provider NAME`             | Select a provider profile.                                                    |
+| `--model MODEL`               | Override the model for this run.                                              |
+| `--continue`                  | Resume the most recent session in this workspace.                             |
+| `--session ID`                | Resume a specific session.                                                    |
+| `--list-sessions`             | Print the session index and exit.                                             |
+| `--search-sessions QUERY`     | Print matching sessions with snippets and exit.                               |
+| `--no-tools`                  | Disable all tools; model-only chat.                                           |
+| `--json`                      | Non-interactive JSON output as one object.                                    |
+| `--mode json`                 | Non-interactive NDJSON event stream, then a `result` record.                  |
+| `-p`                          | Print mode marker; forces non-interactive behavior.                           |
+| `--no-session`                | Use an ephemeral session and write no session log.                            |
+| `--thinking LEVEL`            | Set effort and reasoning: `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. |
+| `--tools NAMES`               | Comma-separated allowlist of model-visible tool names.                        |
+| `--append-system-prompt FILE` | Append a file to the base system prompt. Repeatable.                          |
+| `--theme NAME`                | `auto`, `dark`, `light`, or `ansi` for this run.                              |
+| `--no-color`                  | Force the no-colour theme.                                                    |
+| `--serve [PORT]`              | Serve the browser UI on localhost.                                            |
+| `--share`                     | With `--serve`, bind the UI on the LAN and print a QR code.                   |
+| `--no-qr`                     | With `--share`, print the URL without a QR code.                              |
+| `--version`                   | Print the version.                                                            |
+| `--help`                      | Print usage.                                                                  |
 
 ## Extension test
 
@@ -83,6 +91,17 @@ atom-lite --json "find unused exports" > result.json
 ```
 
 Without a TTY, approval requests are denied rather than hanging. See [Safety](./safety.md).
+
+### Child process events
+
+`--mode json` writes one JSON object per line. Each completed message emits
+`{"type":"message_end","message":...}`, each usage event emits
+`{"type":"usage",...}`, and the turn ends with
+`{"type":"result","result":...,"sessionId":...}`. Errors go to stderr as
+`{"error":"..."}`. Combine it with `--no-session` for isolated child turns that
+write no session log, and with `--tools` and `--append-system-prompt` to bound
+what the child can see and do. The shipped [subagent extension](./extensions.md#shipped-examples)
+uses these flags to run agents in separate processes.
 
 ## Next
 

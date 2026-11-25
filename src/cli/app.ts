@@ -14,7 +14,13 @@ import {
   skillCacheSignature,
 } from "../skills/registry.js";
 import { join, resolve } from "node:path";
-import { writeFileSync, existsSync, realpathSync, statSync } from "node:fs";
+import {
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import { execSync, spawn } from "node:child_process";
 import { defaultShell, terminateProcessTree } from "../security/process.js";
 import {
@@ -28,6 +34,7 @@ import { openCommandPalette, type PaletteItem } from "./palette.js";
 import {
   bareCommandName,
   createCommandRegistry,
+  discoverPromptTemplates,
   type CommandContext,
 } from "./commands.js";
 import {
@@ -201,6 +208,12 @@ export async function run(args: string[]): Promise<void> {
   let providerOverride: string | undefined;
   let modelOverride: string | undefined;
   let jsonMode = false;
+  let jsonEventStream = false;
+  let printMode = false;
+  let noSession = false;
+  let thinkingOverride: string | undefined;
+  const systemPromptPaths: string[] = [];
+  const toolAllowlist = new Set<string>();
   let showVersion = false;
   let sessionOverride: string | undefined;
   let themeOverride: string | undefined;
@@ -221,6 +234,27 @@ export async function run(args: string[]): Promise<void> {
     } else if (a === "--provider") providerOverride = args[++i];
     else if (a === "--model") modelOverride = args[++i];
     else if (a === "--json") jsonMode = true;
+    else if (a === "--mode") {
+      const mode = args[++i];
+      if (mode === "json") {
+        jsonMode = true;
+        jsonEventStream = true;
+      } else {
+        process.stderr.write(`atom-lite: unsupported mode ${mode ?? ""}\n`);
+        process.exitCode = 1;
+        return;
+      }
+    } else if (a === "-p") printMode = true;
+    else if (a === "--no-session") noSession = true;
+    else if (a === "--append-system-prompt") {
+      const path = args[++i];
+      if (path) systemPromptPaths.push(path);
+    } else if (a === "--tools") {
+      for (const name of (args[++i] ?? "").split(",")) {
+        const trimmed = name.trim();
+        if (trimmed) toolAllowlist.add(trimmed);
+      }
+    } else if (a === "--thinking") thinkingOverride = args[++i];
     else if (a === "--version") showVersion = true;
     else if (a === "--continue") positional.push("__continue__");
     else if (a === "--session") sessionOverride = args[++i];
@@ -243,7 +277,7 @@ export async function run(args: string[]): Promise<void> {
       showQr = false;
     } else if (a === "--help") {
       process.stdout.write(
-        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--json] [--theme NAME] [--no-color] [-e PATH] [--serve [PORT]] [--share] [--no-qr] [--version] [--help]\n" +
+        "atom-lite [task] [--provider NAME] [--model MODEL] [--continue] [--session ID] [--list-sessions] [--search-sessions QUERY] [--no-tools] [--no-session] [--json] [--mode json] [-p] [--thinking LEVEL] [--tools NAMES] [--append-system-prompt FILE] [--theme NAME] [--no-color] [-e PATH] [--serve [PORT]] [--share] [--no-qr] [--version] [--help]\n" +
           "atom-lite extension test <path>  run an extension fixture without a provider\n",
       );
       return;
@@ -279,6 +313,33 @@ export async function run(args: string[]): Promise<void> {
   }
 
   let config = loadConfig();
+  if (noSession) config.sessions.enabled = false;
+  if (
+    thinkingOverride &&
+    !["minimal", "low", "medium", "high", "xhigh", "max"].includes(
+      thinkingOverride,
+    )
+  ) {
+    process.stderr.write(
+      `atom-lite: invalid thinking level ${thinkingOverride}\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+  let appendedSystemPrompt = "";
+  for (const path of systemPromptPaths) {
+    if (!existsSync(path) || !statSync(path).isFile()) {
+      process.stderr.write(
+        `atom-lite: system prompt file not found: ${path}\n`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    appendedSystemPrompt += `${readFileSync(path, "utf8").trim()}\n\n`;
+  }
+  const baseSystemPrompt = appendedSystemPrompt
+    ? `${DEFAULT_SYSTEM_PROMPT}\n\n${appendedSystemPrompt.trim()}`
+    : DEFAULT_SYSTEM_PROMPT;
   startRemoteCatalogRefresh();
   initLsp(config, process.cwd());
   const shutdownLspOnce = () => {
@@ -338,7 +399,7 @@ export async function run(args: string[]): Promise<void> {
       ]
     : [];
 
-  const interactive = process.stdin.isTTY === true && !jsonMode;
+  const interactive = process.stdin.isTTY === true && !jsonMode && !printMode;
 
   // one-shot task from positional or stdin
   let stdinTask = "";
@@ -565,17 +626,35 @@ export async function run(args: string[]): Promise<void> {
   // Resolve the model-visible tool set from current loader/MCP state at every
   // refresh point. No cached snapshot: a runtime mutation or reload must be
   // visible on the next turn, and --no-tools must suppress every tool source.
-  const currentTools = (includeMcp: boolean) =>
-    resolveModelTools({
+  const currentTools = (includeMcp: boolean) => {
+    const tools = resolveModelTools({
       builtInTools,
       loader: extensionLoader,
       mcpTools: includeMcp ? createMcpTools(mcpManager) : [],
       useTools,
     });
+    return toolAllowlist.size > 0
+      ? tools.filter((tool) => toolAllowlist.has(tool.definition.name))
+      : tools;
+  };
   // The loader owns handler dispatch; the CLI delegates so every host event
   // goes through the same awaited, error-contained seam.
-  const extensionDispatch = (event: AtomEvent, payload: any) =>
-    extensionLoader.dispatchEvent(event, payload);
+  const writeStreamRecord = (record: unknown): void => {
+    process.stdout.write(`${JSON.stringify(record)}\n`);
+  };
+  const emitJsonResult = (result: unknown, sessionId: string): void => {
+    writeStreamRecord(
+      jsonEventStream
+        ? { type: "result", result, sessionId }
+        : { result, sessionId },
+    );
+  };
+  const extensionDispatch = (event: AtomEvent, payload: any) => {
+    if (jsonEventStream && event === "message_end" && payload?.message) {
+      writeStreamRecord({ type: "message_end", message: payload.message });
+    }
+    return extensionLoader.dispatchEvent(event, payload);
+  };
 
   /**
    * Persist a model switch with the ephemeral flag for bridged providers and
@@ -628,7 +707,7 @@ export async function run(args: string[]): Promise<void> {
   );
 
   const contextManager = new ContextManager({
-    systemPrompt: DEFAULT_SYSTEM_PROMPT,
+    systemPrompt: baseSystemPrompt,
     compactionStrategy,
     maxInputTokens: config.context.maxInputTokens ?? null,
     reserveOutputTokens: config.context.reserveOutputTokens,
@@ -691,6 +770,16 @@ export async function run(args: string[]): Promise<void> {
     warming: config.context.warming,
     background: config.context.background,
     extensionDispatch,
+    onEvent: (event: unknown) => {
+      if (
+        jsonEventStream &&
+        typeof event === "object" &&
+        event !== null &&
+        (event as { type?: unknown }).type === "usage"
+      ) {
+        writeStreamRecord(event);
+      }
+    },
     bashConcurrency: config.runtime.bashConcurrency,
     limits: {
       maxParallelToolCalls: config.runtime.maxParallelToolCalls,
@@ -698,6 +787,11 @@ export async function run(args: string[]): Promise<void> {
       maxBashTimeMs: config.runtime.maxBashTimeMs,
     },
   });
+  if (thinkingOverride) {
+    effortLevel = thinkingOverride;
+    runtime.setEffort(thinkingOverride);
+    runtime.setReasoning(thinkingOverride);
+  }
 
   backgroundTasks.registerProducer(
     "subagent",
@@ -1006,26 +1100,16 @@ export async function run(args: string[]): Promise<void> {
         const answer = await runtime.generate(q, session, controller.signal, {
           tools: runtime.getTools(),
         });
-        if (jsonMode) {
-          process.stdout.write(
-            JSON.stringify({ result: answer, sessionId: session.id }) + "\n",
-          );
-        } else {
-          process.stdout.write(answer + "\n");
-        }
+        if (jsonMode) emitJsonResult(answer, session.id);
+        else process.stdout.write(answer + "\n");
       } else {
         const result = await runtime.runAgentTurn(
           oneShot || " ",
           session,
           controller.signal,
         );
-        if (jsonMode) {
-          process.stdout.write(
-            JSON.stringify({ result, sessionId: session.id }) + "\n",
-          );
-        } else {
-          process.stdout.write(result + "\n");
-        }
+        if (jsonMode) emitJsonResult(result, session.id);
+        else process.stdout.write(result + "\n");
       }
     } catch (err) {
       if (jsonMode)
@@ -1196,9 +1280,18 @@ export async function run(args: string[]): Promise<void> {
     return out;
   };
 
+  const promptTemplates = discoverPromptTemplates(
+    join(defaultAgentDir(), "prompts"),
+    [
+      join(process.cwd(), ".atom-lite", "prompts"),
+      join(process.cwd(), ".pi", "prompts"),
+    ],
+    isProjectTrusted(process.cwd()),
+  );
   let commandRegistry = createCommandRegistry({
     skills: skillReg.list(),
     extensionCommands: collectExtensionCommands(),
+    promptTemplates,
   });
   let registrySkillSignature = skillSignature;
   function refreshCommandRegistry(force = false): void {
@@ -1207,6 +1300,14 @@ export async function run(args: string[]): Promise<void> {
     commandRegistry = createCommandRegistry({
       skills: cachedSkillRegistry().list(),
       extensionCommands: collectExtensionCommands(),
+      promptTemplates: discoverPromptTemplates(
+        join(defaultAgentDir(), "prompts"),
+        [
+          join(process.cwd(), ".atom-lite", "prompts"),
+          join(process.cwd(), ".pi", "prompts"),
+        ],
+        isProjectTrusted(process.cwd()),
+      ),
     });
     registrySkillSignature = sig;
     input.setAutocompleteProvider(

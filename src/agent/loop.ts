@@ -1178,6 +1178,8 @@ export class AgentRuntime {
           session,
           onEvent: this.onEvent as ((event: unknown) => void) | undefined,
           extensionDispatch: this.extensionDispatch,
+          prices: this.usageLedger?.prices,
+          model: this.model,
         });
         const text = await recorder.recordAssistant(response, streamedText);
 
