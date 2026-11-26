@@ -1,4 +1,8 @@
-import type { Component } from "@earendil-works/pi-tui";
+import type {
+  Component,
+  TuiMouseEvent,
+  TuiMouseEventResult,
+} from "@earendil-works/pi-tui";
 import { cyan, dim, green, red, yellow, type Color } from "./panel.js";
 import { wrapTextWithAnsi, visibleWidth } from "@earendil-works/pi-tui";
 import { DiffView } from "./diff-view.js";
@@ -116,6 +120,16 @@ export class ToolBox implements Component {
     this.expanded = !this.expanded;
     this.renderVersion++;
     return this.expanded;
+  }
+
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (event.button !== "left") return undefined;
+    if (event.type === "press") return { handled: true, capture: true };
+    if (event.type === "click") {
+      this.toggleExpanded();
+      return { handled: true };
+    }
+    return undefined;
   }
 
   get isExpanded(): boolean {
@@ -241,7 +255,9 @@ export class ToolBox implements Component {
     }
 
     if (!this.expanded) {
-      return [dim(`(${this.outputLines.length} lines · ctrl+o to expand)`)];
+      return [
+        dim(`(${this.outputLines.length} lines · ctrl+o or click to expand)`),
+      ];
     }
     if (this.outputLines.length > EXPANDED_LINE_LIMIT) {
       const shown = this.outputLines.slice(0, EXPANDED_LINE_LIMIT);

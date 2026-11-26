@@ -1,12 +1,31 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { ToolBox, formatToolArgs } from "../../dist/cli/tool-box.js";
 
 const CYAN = "\x1b[36m";
 const YELLOW = "\x1b[33m";
 const GREEN = "\x1b[32m";
 const RED = "\x1b[31m";
+
+function mouseEvent(
+  type: TuiMouseEvent["type"],
+  button: TuiMouseEvent["button"] = "left",
+): TuiMouseEvent {
+  return {
+    type,
+    button,
+    x: 1,
+    y: 1,
+    screenX: 1,
+    screenY: 1,
+    width: 80,
+    height: 24,
+    shift: false,
+    alt: false,
+    ctrl: false,
+  };
+}
 
 test("tool call and live output use separate coloured panels", () => {
   const box = new ToolBox({
@@ -32,7 +51,7 @@ test("successful and failed results colour the output panel differently", () => 
   ok.setResult("line one\nline two");
   const okRows = ok.render(60);
   assert.ok(okRows.join("\n").includes(GREEN));
-  assert.match(okRows.join("\n"), /2 lines · ctrl\+o to expand/);
+  assert.match(okRows.join("\n"), /2 lines · ctrl\+o or click to expand/);
 
   ok.setExpanded(true);
   assert.match(ok.render(60).join("\n"), /line one/);
@@ -66,6 +85,22 @@ test("toggleExpanded flips the expanded state", () => {
   assert.equal(box.toggleExpanded(), true);
   assert.equal(box.isExpanded, true);
   assert.equal(box.toggleExpanded(), false);
+});
+
+test("left click toggles a tool box once per click", () => {
+  const box = new ToolBox({ id: "1", name: "read", args: { path: "a.ts" } });
+
+  assert.equal(box.handleMouse(mouseEvent("press"))?.capture, true);
+  assert.equal(box.isExpanded, false, "press alone must not toggle");
+
+  assert.equal(box.handleMouse(mouseEvent("click"))?.handled, true);
+  assert.equal(box.isExpanded, true);
+
+  assert.equal(box.handleMouse(mouseEvent("click"))?.handled, true);
+  assert.equal(box.isExpanded, false);
+
+  assert.equal(box.handleMouse(mouseEvent("click", "right")), undefined);
+  assert.equal(box.isExpanded, false, "other buttons must not toggle");
 });
 
 test("render caches per version+width and re-renders on mutation", () => {
