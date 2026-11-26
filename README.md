@@ -8,6 +8,8 @@
 
 A local-first, model-agnostic coding agent for the terminal. One agent loop, ten built-in tools, durable JSONL sessions, and explicit safety boundaries. No cloud account, telemetry, or control plane.
 
+> **Note:** Atom-lite is not a fork of the Pi coding agent. Its agent harness is built from scratch and is unrelated to Pi.
+
 ```bash
 npm install -g atom-lite
 atom-lite "fix the failing test"
