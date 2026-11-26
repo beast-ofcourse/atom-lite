@@ -86,7 +86,9 @@ Criteria may span multiple lines. Statement and criteria are user-owned; the mod
 | `/extensions [doctor [--json]]` | List extension load status, or show diagnostics.        |
 | `/reload`                       | Reload extensions, skills, and personas from disk.      |
 | `/trust allow\|deny\|reset`     | Manage project trust for local extensions and personas. |
-| `/mcp [reconnect [server]]`     | List MCP servers or reconnect one.                      |
+| `/mcp [reconnect [server]]`     | Open the MCP picker, or reconnect one or all servers.   |
+
+`/mcp` with no arguments opens the MCP picker. Use Up/Down to select a server and Space to enable or disable it. The status line shows a `⠋ connecting…` or `⠋ disconnecting…` spinner until the change finishes, then shows the new state. The toggle is saved to your user config. Enter closes the picker and Escape cancels. `/mcp reconnect <server>` reconnects one server; `/mcp reconnect` reconnects all of them.
 
 ## Appearance
 

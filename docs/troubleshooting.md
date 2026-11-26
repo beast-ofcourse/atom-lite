@@ -59,9 +59,15 @@ Some terminals send the same byte sequence for `ctrl+j` and Enter. If `ctrl+j` s
 
 `NO_COLOR` and `--no-color` force the no-colour theme. `/theme auto` follows the terminal colour-scheme report, then `COLORFGBG`. See [Config](./config.md#ui).
 
-## Config fails to load
+## Config problems at startup
 
-Malformed JSON reports `Invalid JSON in config file: <path>`. Unknown keys are rejected by the strict schema, and validation errors name the offending path. Project config cannot set `mode`, token budgets, `agent`, `ui`, `mcpServers`, or `extensions`. See [Config](./config.md#precedence).
+Atom-lite starts with invalid config. Malformed JSON, invalid values, unknown keys, and bad provider profiles are reported as warnings; the affected setting falls back to its default. In the TUI the first warning appears in a small panel at the top right. In non-interactive mode warnings go to stderr. `/doctor` lists the current warnings.
+
+Project config cannot set `mode`, token budgets, `agent`, `ui`, `mcpServers`, or `extensions`. See [Config](./config.md#precedence).
+
+## MCP server does not connect
+
+Check the `mcpServers` entry in user config; project entries are ignored. Set `disable` to `false` or remove it, keep `enabled` true, then run `/mcp reconnect <server>`. In the TUI, press Space on the server in `/mcp` and watch the connection spinner. See [`mcpServers`](./config.md#mcpservers).
 
 ## Tests or typecheck fail after a docs change
 
