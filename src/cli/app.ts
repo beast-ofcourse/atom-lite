@@ -55,7 +55,7 @@ import { ConfigWarning } from "./config-warning.js";
 import { Footer } from "./footer.js";
 import { GoalPanel } from "./goal-panel.js";
 import { purgeOrphanCheckpoints } from "../runtime/legacy-checkpoint-purge.js";
-import { Activity } from "./activity.js";
+import { Activity, SPINNER_FRAMES } from "./activity.js";
 import { formatTurnStats } from "./turn-stats.js";
 import { ToolBox } from "./tool-box.js";
 import { UserBox } from "./user-box.js";
@@ -3842,6 +3842,13 @@ export async function run(args: string[]): Promise<void> {
     }
     uiModalOpen = true;
     let picker: ReturnType<typeof openSearchablePicker>;
+    let toggleTimer: ReturnType<typeof setInterval> | undefined;
+    let pendingToggle: Promise<void> = Promise.resolve();
+    const stopSpinner = (): void => {
+      if (toggleTimer === undefined) return;
+      clearInterval(toggleTimer);
+      toggleTimer = undefined;
+    };
     picker = openSearchablePicker({
       tui,
       container: dropdownContainer,
@@ -3850,38 +3857,56 @@ export async function run(args: string[]): Promise<void> {
       items: mcpPickerItems(),
       closeOnSelect: false,
       onToggle: (item) => {
-        const status = mcpManager.status().find((s) => s.name === item.value);
-        if (!status) return;
-        const disabled = status.enabled;
-        void (async () => {
+        pendingToggle = pendingToggle.then(async () => {
+          const status = mcpManager.status().find((s) => s.name === item.value);
+          if (!status) return;
+          const disabled = status.enabled;
+          const verb = disabled ? "disconnecting" : "connecting";
+          let frame = 0;
+          const show = (): void =>
+            picker.setStatus(`${SPINNER_FRAMES[frame]} ${verb} ${item.value}…`);
+          stopSpinner();
+          show();
+          toggleTimer = setInterval(() => {
+            frame = (frame + 1) % SPINNER_FRAMES.length;
+            show();
+          }, 120);
+          toggleTimer.unref?.();
           try {
             await mcpManager.setEnabled(item.value, !disabled);
             runtime.setTools(currentTools(true));
             saveMcpDisabled(item.value, disabled);
+            stopSpinner();
             picker.updateItems(mcpPickerItems());
             picker.setStatus(
               `${item.value}: ${disabled ? "disabled" : "enabled"}`,
             );
             updateStatus();
           } catch (e) {
+            stopSpinner();
             picker.setStatus(
-              `failed to toggle ${item.value}: ${
+              `failed to apply ${item.value}: ${
                 e instanceof Error ? e.message : String(e)
               }`,
             );
           }
-        })();
+        });
       },
       onSelect: () => {
+        stopSpinner();
         picker.close();
         uiModalOpen = false;
       },
       onCancel: () => {
+        stopSpinner();
         uiModalOpen = false;
       },
       restoreFocus: () => tui.setFocus(input),
     });
-    closeActiveOverlay = picker.close;
+    closeActiveOverlay = () => {
+      stopSpinner();
+      picker.close();
+    };
     picker.setStatus("↑/↓ select · space toggle · enter close");
   }
 
