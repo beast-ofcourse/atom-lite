@@ -116,6 +116,7 @@ export interface ExtensionReport {
   trusted: boolean;
   toolCount: number;
   commandCount: number;
+  language: "javascript" | "lua";
 }
 
 export interface ExtensionLifecycleEvent {
@@ -164,6 +165,8 @@ export interface ExtensionDiagnostic {
   apis: CompatibilityMatrixEntry[];
   /** Store metadata only: entry count and version, never values. */
   store?: ExtensionStoreInfo;
+  /** Source language of the discovered entrypoint. */
+  language: "javascript" | "lua";
   /** `legacy-unscoped` when no manifest was declared, otherwise `scoped`. */
   scopeMode: "legacy-unscoped" | "scoped";
   /** Exact declared scopes, rendered for the trust prompt and doctor. */
@@ -929,6 +932,9 @@ export class ExtensionLoader {
         trusted: entry.trusted,
         toolCount: loaded?.registries.tools.size ?? 0,
         commandCount: loaded?.registries.commands.size ?? 0,
+        language: entry.entryPath.toLowerCase().endsWith(".lua")
+          ? "lua"
+          : "javascript",
       };
     });
   }
@@ -974,6 +980,9 @@ export class ExtensionLoader {
         eventCount: loaded?.registries.handlers.size ?? 0,
         apis: calledMatrixApis(entry.entryPath),
         store: this.storeInfo(loaded),
+        language: entry.entryPath.toLowerCase().endsWith(".lua")
+          ? "lua"
+          : "javascript",
         scopeMode: scopeModeForManifest(entry.manifest?.scopes),
         scopes: describeScopes(entry.manifest?.scopes),
         lifecycleEvents: this.lifecycle.filter(

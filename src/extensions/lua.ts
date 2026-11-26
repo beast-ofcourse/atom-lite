@@ -68,6 +68,8 @@ function pi.off(event, handler)
   return __js_api.off(event, handler)
 end
 
+pi.ui = setmetatable({}, { __index = function(_, k) return __js_api.ui[k] end })
+
 local __atom_async_methods = {"exec", "fetch", "select", "confirm", "input", "span"}
 for _, __name in ipairs(__atom_async_methods) do
   pi[__name] = function(...)
