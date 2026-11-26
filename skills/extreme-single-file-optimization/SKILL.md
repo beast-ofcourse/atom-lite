@@ -1,12 +1,7 @@
 ---
 
 name: extreme-single-file-optimization
-description: >
-Aggressively optimize a single source file in any programming language
-for maximum practical performance, memory efficiency, and resource usage
-while preserving all functionality. Analyze repository-wide dependencies,
-validate every optimization, benchmark improvements, and iteratively
-optimize until diminishing returns.
+description: Optimize one source file for speed and memory.
 ---
 
 # Extreme Single-File Optimization

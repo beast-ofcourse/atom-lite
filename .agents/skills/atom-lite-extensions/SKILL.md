@@ -1,6 +1,6 @@
 ---
 name: atom-lite-extensions
-description: "Build, test, and debug Atom-lite extensions (Pi-compatible). Use for creating an extension, registering tools/commands/events, declaring capability scopes, persisting state, composing middleware or services, diagnosing load failures, and running extension tests."
+description: Build, test, and debug Atom-lite extensions.
 license: MIT
 ---
 

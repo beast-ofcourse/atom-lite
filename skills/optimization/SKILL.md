@@ -1,8 +1,6 @@
 ---
 name: optimization
-description: >
-  Optimize code for performance and efficiency while preserving behavior.
-  Use for "optimize", "make faster", "reduce memory", "performance".
+description: Optimize code for speed and memory without changing behavior.
 ---
 
 # Optimization
