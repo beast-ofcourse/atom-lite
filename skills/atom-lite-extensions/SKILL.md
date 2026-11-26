@@ -162,6 +162,48 @@ Then inspect a live run with `/extensions doctor --json`.
 Completion criterion: the harness passes and doctor shows expected
 registrations, scopes, store metadata, and zero unexpected errors.
 
+## Lua extensions
+
+Atom-lite loads `.lua` files with the same host, API, trust model, and
+generation boundary as JavaScript modules. Pass one with `-e`, install it as
+`index.lua`, or name it in a manifest `extensions` array. Export a global
+function named `activate` that receives `pi`; export a global function named
+`test` that receives `ctx` to use the extension test harness.
+
+```lua title="echo.lua"
+activate = function(pi)
+  pi.registerTool({
+    name = "echo",
+    label = "Echo",
+    description = "Echo text",
+    parameters = {
+      type = "object",
+      properties = { text = { type = "string" } },
+    },
+    execute = function(id, args)
+      return args.text
+    end,
+  })
+end
+
+test = function(ctx)
+  ctx.assert.equal(ctx.tools.length, 1)
+end
+```
+
+Lua tables convert to JSON-like tool schemas, service payloads, and store
+values. Lua functions stay callable as tool, command, event, middleware, and
+migration handlers. Async `ExtensionAPI` methods such as `exec`, `fetch`,
+dialogs, and `span` return resolved values inside Lua callbacks; do not call
+`:await()` on them. JavaScript promises received from other host callbacks,
+including a harness tool's `execute`, still use `:await()`.
+
+Scopes, the durable store, services, observability, diagnostics, reload, and
+unload follow the JavaScript rules in this skill. A Lua callback that exceeds
+the configured handler timeout is contained as a timeout failure. `require`
+cannot load host modules or npm packages because `package.path` and
+`package.cpath` are empty; filesystem access is unrestricted in both languages.
+
 ## Loading and lifecycle
 
 - Discovery order is CLI paths, project, Pi global, Pi settings, Atom-lite

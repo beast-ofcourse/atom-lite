@@ -194,9 +194,6 @@ function disposeEngine(engine: LuaEngine): void {
   ]) {
     engine.global.set(key, undefined);
   }
-  engine.global.set("__atom_callbacks", {});
-  engine.global.set("__atom_unsubs", {});
-  engine.global.set("__atom_handler_keys", {});
 }
 
 function bindApi(

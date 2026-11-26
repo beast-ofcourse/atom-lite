@@ -11,6 +11,23 @@ import { runExtensionTest } from "../../dist/extensions/harness.js";
 
 const FIXTURES = join(import.meta.dirname, "..", "fixtures", "extensions");
 
+test("a Lua conformance fixture mirrors the JavaScript fixture", async () => {
+  const observable = (result: {
+    passed: boolean;
+    assertions: number;
+    failures: string[];
+    errors: string[];
+  }) => ({
+    passed: result.passed,
+    assertions: result.assertions,
+    failures: result.failures,
+    errors: result.errors,
+  });
+  const javascript = await runExtensionTest(join(FIXTURES, "tool-throw.js"));
+  const lua = await runExtensionTest(join(FIXTURES, "tool-throw.lua"));
+  assert.deepEqual(observable(lua), observable(javascript));
+});
+
 test("published fault-injection fixtures pass through the harness", async () => {
   const fixtures = readdirSync(FIXTURES)
     .filter((file) => file.endsWith(".js"))
