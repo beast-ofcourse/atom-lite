@@ -35,6 +35,7 @@ import { UndoManager } from "../runtime/undo.js";
 import { redactSecrets } from "../security/redaction.js";
 import { openSearchablePicker, type PickerItem } from "./picker.js";
 import { openCommandPalette, type PaletteItem } from "./palette.js";
+import { openUrl } from "./open-url.js";
 import {
   bareCommandName,
   createCommandRegistry,
@@ -1165,6 +1166,7 @@ export async function run(args: string[]): Promise<void> {
   const terminal = new ProcessTerminal();
   const tui = new TuiAltScreen(terminal, false, undefined, {
     mouse: mouseEnabled,
+    openUrl,
   });
   const mouseCapture = createMouseCapture((data) => terminal.write(data));
 

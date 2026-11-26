@@ -55,6 +55,18 @@ The goal panel and transcript share the terminal width. `ctrl+j` hides the panel
 
 Some terminals send the same byte sequence for `ctrl+j` and Enter. If `ctrl+j` submits the prompt instead of toggling the sidebar, set `keybindings.toggleGoalPanel` to another key in user config.
 
+## A transcript link does not open
+
+Click a markdown link in the TUI to open it in the default browser. Mouse must be enabled (`ui.mouse`, default `true`). Only `http`, `https`, and `mailto` links are opened.
+
+If the link renders as `text (url)` instead of underlined text, the terminal did not advertise OSC 8 hyperlink support. Set `PI_HYPERLINKS=1` when the terminal supports it:
+
+```bash
+PI_HYPERLINKS=1 atom-lite
+```
+
+In tmux, enable passthrough with `set -g allow-passthrough on` and check that `tmux display-message -p '#{client_termfeatures}'` lists `hyperlinks`. See [Config](./config.md#ui).
+
 ## Colours look wrong
 
 `NO_COLOR` and `--no-color` force the no-colour theme. `/theme auto` follows the terminal colour-scheme report, then `COLORFGBG`. See [Config](./config.md#ui).
