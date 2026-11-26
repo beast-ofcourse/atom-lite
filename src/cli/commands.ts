@@ -774,7 +774,7 @@ export function createCommandRegistry(
 
   registry.register({
     name: "mcp",
-    description: "list or reconnect MCP servers",
+    description: "enable or disable MCP servers",
     category: "System",
     argumentHint: "[reconnect [server]]",
     async run(ctx, args) {

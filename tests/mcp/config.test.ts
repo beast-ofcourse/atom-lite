@@ -49,3 +49,22 @@ test("user config mcpServers validates", () => {
   assert.equal(cfg.mcpServers.srv.requiresApproval, true);
   assert.equal(cfg.mcpServers.srv.startupTimeoutMs, 10000);
 });
+
+test("mcpServers disable takes precedence over enabled", () => {
+  const dir = mkdtempSync(join(tmpdir(), "atom-"));
+  const userPath = join(dir, "user.json");
+  writeFileSync(
+    userPath,
+    JSON.stringify({
+      mcpServers: {
+        off: { command: "node", enabled: true, disable: true },
+        legacy: { command: "node", disabled: true },
+        on: { command: "node", disable: false },
+      },
+    }),
+  );
+  const cfg = loadConfig({ projectRoot: dir, userConfigPath: userPath });
+  assert.equal(cfg.mcpServers.off.enabled, false);
+  assert.equal(cfg.mcpServers.legacy.enabled, false);
+  assert.equal(cfg.mcpServers.on.enabled, true);
+});

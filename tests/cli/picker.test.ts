@@ -120,6 +120,60 @@ test("picker can keep the overlay open after a selection", () => {
   assert.equal(h.removed.length, 1);
 });
 
+test("space toggles the highlighted item without closing or searching", () => {
+  const h = harness();
+  const toggled: string[] = [];
+  const picker = openSearchablePicker({
+    tui: h.tui,
+    container: h.container,
+    title: "mcp",
+    items: ITEMS,
+    closeOnSelect: false,
+    onToggle: (item) => toggled.push(item.value),
+    onSelect: () => assert.fail("unexpected select"),
+    onCancel: () => assert.fail("unexpected cancel"),
+  });
+
+  h.send("\x1b[B");
+  h.send(" ");
+  assert.deepEqual(toggled, ["openai\u0000gpt-4o-mini"]);
+  assert.equal(h.removed.length, 0);
+  assert.ok(textContent(h.added[0]).join("\n").includes("type to search"));
+  picker.close();
+});
+
+test("Kitty space toggles the highlighted item", () => {
+  const h = harness();
+  const toggled: string[] = [];
+  openSearchablePicker({
+    tui: h.tui,
+    container: h.container,
+    title: "mcp",
+    items: ITEMS,
+    onToggle: (item) => toggled.push(item.value),
+    onSelect: () => assert.fail("unexpected select"),
+    onCancel: () => assert.fail("unexpected cancel"),
+  });
+
+  h.send("\x1b[32u");
+  assert.deepEqual(toggled, ["kilo\u0000kilo-auto/free"]);
+});
+
+test("space still types into the search when no toggle hook exists", () => {
+  const h = harness();
+  openSearchablePicker({
+    tui: h.tui,
+    container: h.container,
+    title: "model",
+    items: ITEMS,
+    onSelect: () => {},
+    onCancel: () => {},
+  });
+
+  h.send(" ");
+  assert.ok(textContent(h.added[0]).join("\n").includes("search:"));
+});
+
 test("picker closes on Kitty and legacy Escape", () => {
   for (const escape of ["\x1b[27u", "\x1b"]) {
     const h = harness();

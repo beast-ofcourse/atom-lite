@@ -32,6 +32,8 @@ export interface SearchablePickerOptions {
   closeOnSelect?: boolean;
   /** Called as the highlighted item changes, for live previews. */
   onPreview?: (item: PickerItem) => void;
+  /** Called for the highlighted item on Space; the overlay stays open. */
+  onToggle?: (item: PickerItem) => void;
   restoreFocus?: () => void;
   theme?: Theme;
 }
@@ -72,6 +74,7 @@ export function openSearchablePicker(
     onSelect,
     onCancel,
     onPreview,
+    onToggle,
     restoreFocus,
   } = options;
   const closeOnSelect = options.closeOnSelect ?? true;
@@ -167,6 +170,16 @@ export function openSearchablePicker(
         if (closeOnSelect) close();
         onSelect(item);
       }
+      return { consume: true };
+    }
+    if (
+      onToggle &&
+      (matchesKey(data, Key.space) ||
+        data === " " ||
+        decodeKittyPrintable(data) === " ")
+    ) {
+      const item = list?.getSelectedItem?.();
+      if (item) onToggle(item);
       return { consume: true };
     }
     if (matchesKey(data, Key.backspace)) {

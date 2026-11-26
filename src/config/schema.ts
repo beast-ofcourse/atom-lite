@@ -224,6 +224,9 @@ export const McpServerConfigSchema = z
     env: z.record(z.string(), z.string()).default({}),
     cwd: z.string().optional(),
     enabled: z.boolean().default(true),
+    /** Opt-out aliases for enabled. When present they take precedence. */
+    disable: z.boolean().optional(),
+    disabled: z.boolean().optional(),
     requiresApproval: z.boolean().default(false),
     startupTimeoutMs: z.number().int().positive().default(10_000),
     callTimeoutMs: z.number().int().positive().default(60_000),

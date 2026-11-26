@@ -85,6 +85,27 @@ function normalizeRuntime(
   return out;
 }
 
+function normalizeMcpDisable(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const servers: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(raw)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      servers[name] = value;
+      continue;
+    }
+    const server = value as Record<string, unknown>;
+    const disabled =
+      typeof server.disable === "boolean"
+        ? server.disable
+        : typeof server.disabled === "boolean"
+          ? server.disabled
+          : undefined;
+    servers[name] =
+      disabled === undefined ? value : { ...server, enabled: !disabled };
+  }
+  return servers;
+}
+
 function sanitizeProviders(
   raw: unknown,
   warn: Warning,
@@ -292,10 +313,11 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     ...(env.defaultProvider ? { defaultProvider: env.defaultProvider } : {}),
     runtime: { ...(merged.runtime as object), ...(env.runtime ?? {}) },
   };
-  const candidate = {
+  const candidate: Record<string, unknown> = {
     ...mergedWithEnv,
     ...(options.overrides ?? {}),
   };
+  candidate.mcpServers = normalizeMcpDisable(candidate.mcpServers);
   const parsed = ConfigSchema.safeParse(candidate);
   if (parsed.success) return parsed.data;
 

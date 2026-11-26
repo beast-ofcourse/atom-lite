@@ -109,3 +109,25 @@ export function saveTheme(theme: string, path = defaultUserConfigPath()): void {
     config.ui = { ...ui, theme };
   }, path);
 }
+
+/** Persist an MCP server's disabled state in the user config only. */
+export function saveMcpDisabled(
+  name: string,
+  disabled: boolean,
+  path = defaultUserConfigPath(),
+): void {
+  updateUserConfig((config) => {
+    const servers =
+      config.mcpServers && typeof config.mcpServers === "object"
+        ? (config.mcpServers as Record<string, unknown>)
+        : {};
+    const existing =
+      servers[name] && typeof servers[name] === "object"
+        ? (servers[name] as Record<string, unknown>)
+        : {};
+    const next = { ...existing };
+    delete next.disabled;
+    servers[name] = { ...next, disable: disabled, enabled: !disabled };
+    config.mcpServers = servers;
+  }, path);
+}

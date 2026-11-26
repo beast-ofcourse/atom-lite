@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   readUserConfig,
+  saveMcpDisabled,
   saveProviderModel,
   saveProviderSelection,
   saveTheme,
@@ -113,4 +114,26 @@ test("saveTheme only changes ui.theme", () => {
   assert.equal(raw.ui.theme, "light");
   assert.equal(raw.ui.mouse, false);
   assert.equal(raw.runtime.mode, "yolo");
+});
+
+test("saveMcpDisabled persists one server without touching the others", () => {
+  const path = tempConfigPath();
+  writeFileSync(
+    path,
+    JSON.stringify({
+      mcpServers: {
+        a: { command: "a", disabled: false, enabled: true },
+        b: { command: "b" },
+      },
+      ui: { theme: "dark" },
+    }),
+  );
+  saveMcpDisabled("a", true, path);
+  const raw = readUserConfig(path) as any;
+  assert.equal(raw.mcpServers.a.disable, true);
+  assert.equal(raw.mcpServers.a.enabled, false);
+  assert.equal("disabled" in raw.mcpServers.a, false);
+  assert.equal(raw.mcpServers.a.command, "a");
+  assert.equal(raw.mcpServers.b.command, "b");
+  assert.equal(raw.ui.theme, "dark");
 });

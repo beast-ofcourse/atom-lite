@@ -7,7 +7,11 @@ import {
   defaultUsageLedgerPath,
   userConfigDir,
 } from "../config/paths.js";
-import { saveProviderSelection, saveTheme } from "../config/write.js";
+import {
+  saveMcpDisabled,
+  saveProviderSelection,
+  saveTheme,
+} from "../config/write.js";
 import { resolveApiKey, saveApiKey } from "../config/credentials.js";
 import {
   DefaultSkillRegistry,
@@ -3821,6 +3825,66 @@ export async function run(args: string[]): Promise<void> {
     return lines.join("\n");
   }
 
+  function mcpPickerItems(): PickerItem[] {
+    return mcpManager.status().map((status) => ({
+      value: status.name,
+      label: `${status.enabled ? "[on]" : "[off]"} ${status.name}`,
+      description: `${status.enabled ? status.state : "disabled"}${
+        status.toolCount ? ` · ${status.toolCount} tools` : ""
+      } · space to ${status.enabled ? "disable" : "enable"}`,
+    }));
+  }
+
+  function openMcpPicker(): void {
+    if (mcpManager.serverNames().length === 0) {
+      appendLine("MCP servers: none configured");
+      return;
+    }
+    uiModalOpen = true;
+    let picker: ReturnType<typeof openSearchablePicker>;
+    picker = openSearchablePicker({
+      tui,
+      container: dropdownContainer,
+      title: "MCP servers",
+      theme,
+      items: mcpPickerItems(),
+      closeOnSelect: false,
+      onToggle: (item) => {
+        const status = mcpManager.status().find((s) => s.name === item.value);
+        if (!status) return;
+        const disabled = status.enabled;
+        void (async () => {
+          try {
+            await mcpManager.setEnabled(item.value, !disabled);
+            runtime.setTools(currentTools(true));
+            saveMcpDisabled(item.value, disabled);
+            picker.updateItems(mcpPickerItems());
+            picker.setStatus(
+              `${item.value}: ${disabled ? "disabled" : "enabled"}`,
+            );
+            updateStatus();
+          } catch (e) {
+            picker.setStatus(
+              `failed to toggle ${item.value}: ${
+                e instanceof Error ? e.message : String(e)
+              }`,
+            );
+          }
+        })();
+      },
+      onSelect: () => {
+        picker.close();
+        uiModalOpen = false;
+      },
+      onCancel: () => {
+        uiModalOpen = false;
+      },
+      restoreFocus: () => tui.setFocus(input),
+    });
+    closeActiveOverlay = picker.close;
+    picker.setStatus("↑/↓ select · space toggle · enter close");
+  }
+
   async function runMcp(args: string): Promise<void> {
     const trimmed = (args ?? "").trim();
     if (trimmed === "reconnect" || trimmed.startsWith("reconnect ")) {
@@ -3845,7 +3909,7 @@ export async function run(args: string[]): Promise<void> {
       appendLine("usage: /mcp [reconnect [server]]");
       return;
     }
-    appendLine(formatMcpStatus(mcpManager.status()));
+    openMcpPicker();
   }
 
   async function runExport(args: string): Promise<void> {
