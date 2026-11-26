@@ -60,7 +60,7 @@ export const DEFAULT_CONFIG = {
   },
   lsp: { enabled: false, servers: {} },
   ui: {
-    theme: "auto",
+    theme: "nord",
     mouse: true,
     vimMode: false,
     showThinking: true,

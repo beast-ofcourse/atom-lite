@@ -195,7 +195,7 @@ export const LspConfigSchema = z
 
 export const UiConfigSchema = z
   .object({
-    theme: z.string().default("auto"),
+    theme: z.string().default("nord"),
     mouse: z.boolean().default(true),
     vimMode: z.boolean().default(false),
     showThinking: z.boolean().default(true),

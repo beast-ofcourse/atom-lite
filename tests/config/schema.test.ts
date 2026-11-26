@@ -33,7 +33,7 @@ test("empty config yields documented defaults", () => {
   assert.equal(cfg.context.warming, false);
   assert.equal(cfg.sessions.enabled, true);
   assert.equal(cfg.sessions.retentionDays, null);
-  assert.equal(cfg.ui.theme, "auto");
+  assert.equal(cfg.ui.theme, "nord");
   assert.equal(cfg.runtime.checkpointing, undefined);
   assert.equal(cfg.keybindings.toggleGoalPanel, "ctrl+j");
   assert.equal(DEFAULT_CONFIG.keybindings.toggleGoalPanel, "ctrl+j");

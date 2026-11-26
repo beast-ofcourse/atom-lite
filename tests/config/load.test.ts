@@ -69,13 +69,13 @@ test("loadConfig throws on invalid config", () => {
   );
 });
 
-test("loadConfig defaults ui.theme to auto", () => {
+test("loadConfig defaults ui.theme to nord", () => {
   const dir = mkdtempSync(join(tmpdir(), "atom-"));
   const cfg = loadConfig({
     projectRoot: dir,
     userConfigPath: join(dir, "nope.json"),
   });
-  assert.equal(cfg.ui.theme, "auto");
+  assert.equal(cfg.ui.theme, "nord");
   assert.equal(cfg.ui.mouse, true);
   assert.equal(cfg.ui.vimMode, false);
 });
