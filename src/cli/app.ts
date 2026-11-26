@@ -47,6 +47,7 @@ import {
 } from "./theme.js";
 import { SecretInput } from "./secret-input.js";
 import { StatusLine } from "./status-line.js";
+import { ConfigWarning } from "./config-warning.js";
 import { Footer } from "./footer.js";
 import { GoalPanel } from "./goal-panel.js";
 import { purgeOrphanCheckpoints } from "../runtime/legacy-checkpoint-purge.js";
@@ -312,7 +313,10 @@ export async function run(args: string[]): Promise<void> {
     return;
   }
 
-  let config = loadConfig();
+  const configWarnings: string[] = [];
+  let config = loadConfig({
+    onWarning: (message) => configWarnings.push(message),
+  });
   if (noSession) config.sessions.enabled = false;
   if (
     thinkingOverride &&
@@ -400,6 +404,10 @@ export async function run(args: string[]): Promise<void> {
     : [];
 
   const interactive = process.stdin.isTTY === true && !jsonMode && !printMode;
+  if (!interactive) {
+    for (const message of configWarnings)
+      process.stderr.write(`atom-lite: ${message}\n`);
+  }
 
   // one-shot task from positional or stdin
   let stdinTask = "";
@@ -1220,6 +1228,8 @@ export async function run(args: string[]): Promise<void> {
     return branch ? `${displayPath}:${branch}` : displayPath;
   }
   const statusBar = new StatusLine(theme);
+  const configWarning = new ConfigWarning(theme);
+  configWarning.setMessages(configWarnings);
   const footer = new Footer(theme);
   const activity = new Activity({ theme, onChange: () => updateStatus() });
   tuiReady = true;
@@ -1368,6 +1378,11 @@ export async function run(args: string[]): Promise<void> {
   };
 
   const root = new VStack([]);
+  root.addChild(configWarning, {
+    grow: 0,
+    shrink: 0,
+    visible: () => configWarning.hasMessages,
+  });
   const mainRow = createMainRow(output, goalPanel);
   // Keep fixed chrome (spacer, input, status, header, dropdown)
   // from being collapsed when the transcript grows; only the output region may
@@ -2040,6 +2055,7 @@ export async function run(args: string[]): Promise<void> {
     transcript.setTheme(theme);
     thinkingText?.setTheme(theme);
     statusBar.setTheme(theme);
+    configWarning.setTheme(theme);
     goalPanel.setTheme(theme);
     activity.setTheme(theme);
     if (persist) {
@@ -3779,8 +3795,11 @@ export async function run(args: string[]): Promise<void> {
   async function runDoctor(): Promise<string> {
     const lines: string[] = ["Doctor:"];
     try {
-      loadConfig();
-      lines.push("  config: ok");
+      const doctorWarnings: string[] = [];
+      loadConfig({ onWarning: (message) => doctorWarnings.push(message) });
+      if (doctorWarnings.length)
+        lines.push(`  config: WARN ${doctorWarnings.join("; ")}`);
+      else lines.push("  config: ok");
     } catch (e) {
       lines.push(
         `  config: FAIL ${e instanceof Error ? e.message : String(e)}`,

@@ -57,15 +57,62 @@ test("runtime.agent is unset by default and user-owned", () => {
   assert.equal(defaults.runtime.agent, undefined);
 });
 
-test("loadConfig throws on invalid config", () => {
+test("loadConfig survives an invalid runtime value and reports it", () => {
   const dir = mkdtempSync(join(tmpdir(), "atom-"));
   mkdirSync(join(dir, ".atom-lite"));
   writeFileSync(
     join(dir, ".atom-lite", "config.json"),
     JSON.stringify({ runtime: { maxParallelToolCalls: 0 } }),
   );
-  assert.throws(() =>
-    loadConfig({ projectRoot: dir, userConfigPath: join(dir, "nope.json") }),
+  const warnings: string[] = [];
+  const cfg = loadConfig({
+    projectRoot: dir,
+    userConfigPath: join(dir, "nope.json"),
+    onWarning: (message) => warnings.push(message),
+  });
+  assert.equal(cfg.runtime.maxParallelToolCalls, 10);
+  assert.ok(warnings.some((w) => w.includes("maxParallelToolCalls")));
+});
+
+test("invalid JSON in user config starts with defaults and warns", () => {
+  const dir = mkdtempSync(join(tmpdir(), "atom-"));
+  const userPath = join(dir, "user.json");
+  writeFileSync(userPath, "{ not json");
+  const warnings: string[] = [];
+  const cfg = loadConfig({
+    projectRoot: dir,
+    userConfigPath: userPath,
+    onWarning: (message) => warnings.push(message),
+  });
+  assert.equal(cfg.defaultProvider, "kilo");
+  assert.ok(warnings.some((w) => w.includes("invalid JSON")));
+});
+
+test("an invalid provider profile is ignored without blocking startup", () => {
+  const dir = mkdtempSync(join(tmpdir(), "atom-"));
+  const userPath = join(dir, "user.json");
+  writeFileSync(
+    userPath,
+    JSON.stringify({
+      defaultProvider: "main",
+      providers: {
+        main: { type: "openai-compatible", model: "m" },
+        broken: { type: "openai-compatible" },
+      },
+    }),
+  );
+  const warnings: string[] = [];
+  const cfg = loadConfig({
+    projectRoot: dir,
+    userConfigPath: userPath,
+    onWarning: (message) => warnings.push(message),
+  });
+  assert.equal((cfg.providers as any).main.model, "m");
+  assert.equal((cfg.providers as any).broken, undefined);
+  assert.ok(
+    warnings.some(
+      (w) => w.includes('provider "broken"') && w.includes("model"),
+    ),
   );
 });
 
@@ -170,16 +217,25 @@ test("context.repoMap accepts explicit values", () => {
 });
 
 // Reason: spec (line 90) — maxTokens is a non-negative integer.
-test("context.repoMap rejects a negative maxTokens", () => {
+test("context.repoMap with a negative maxTokens falls back with a warning", () => {
   const dir = mkdtempSync(join(tmpdir(), "atom-"));
   mkdirSync(join(dir, ".atom-lite"));
   writeFileSync(
     join(dir, ".atom-lite", "config.json"),
     JSON.stringify({ context: { repoMap: { maxTokens: -1 } } }),
   );
-  assert.throws(() =>
-    loadConfig({ projectRoot: dir, userConfigPath: join(dir, "nope.json") }),
-  );
+  const warnings: string[] = [];
+  const cfg = loadConfig({
+    projectRoot: dir,
+    userConfigPath: join(dir, "nope.json"),
+    onWarning: (message) => warnings.push(message),
+  });
+  assert.deepEqual((cfg.context as any).repoMap, {
+    enabled: false,
+    maxTokens: 1200,
+    maxFiles: 400,
+  });
+  assert.ok(warnings.some((w) => w.includes("maxTokens")));
 });
 
 // Reason: spec (lines 14, 90, 123) — upgrading does not break existing config files.
@@ -283,15 +339,20 @@ test("a partial project web override keeps sibling leaves", () => {
   });
 });
 
-// Reason: ticket 01 — the strict schema rejects unknown web keys.
-test("web config rejects unknown keys", () => {
+// Reason: ticket 01 — an unknown web key is reported, not fatal at startup.
+test("web config with an unknown key falls back with a warning", () => {
   const dir = mkdtempSync(join(tmpdir(), "atom-"));
   mkdirSync(join(dir, ".atom-lite"));
   writeFileSync(
     join(dir, ".atom-lite", "config.json"),
     JSON.stringify({ web: { fetch: { bogus: 1 } } }),
   );
-  assert.throws(() =>
-    loadConfig({ projectRoot: dir, userConfigPath: join(dir, "nope.json") }),
-  );
+  const warnings: string[] = [];
+  const cfg = loadConfig({
+    projectRoot: dir,
+    userConfigPath: join(dir, "nope.json"),
+    onWarning: (message) => warnings.push(message),
+  });
+  assert.equal((cfg as any).web.fetch.cacheTtlSeconds, 300);
+  assert.ok(warnings.some((w) => w.includes("bogus")));
 });

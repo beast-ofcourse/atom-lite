@@ -123,15 +123,20 @@ test("loadConfig reads a valid user config file", () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test("unknown top-level keys are rejected, not silently ignored", () => {
+test("unknown top-level keys are reported but do not block startup", () => {
   const { dir, path } = configHome();
   writeFileSync(
     path,
     JSON.stringify({ totallyUnknownField: true, providers: {} }),
   );
-  assert.throws(() =>
-    loadConfig({ userConfigPath: path, projectRoot: join(dir, "proj") }),
-  );
+  const warnings: string[] = [];
+  const cfg = loadConfig({
+    userConfigPath: path,
+    projectRoot: join(dir, "proj"),
+    onWarning: (message) => warnings.push(message),
+  });
+  assert.equal((cfg.providers as any).kilo.model, "kilo-auto/free");
+  assert.ok(warnings.some((w) => w.includes("totallyUnknownField")));
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -182,6 +187,7 @@ test("invalid values fail loudly", () => {
     ConfigSchema.parse({ context: { compactAtPercent: 200 } }),
   );
   assert.throws(() => ConfigSchema.parse({ sessions: { retentionDays: -1 } }));
+  assert.throws(() => ConfigSchema.parse({ totallyUnknownField: true }));
 });
 
 test("DEFAULT_CONFIG agrees with schema defaults", () => {

@@ -1,15 +1,18 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ConfigSchema, type Config } from "./schema.js";
+import { ConfigSchema, ProviderConfigSchema, type Config } from "./schema.js";
+import type { ZodType } from "zod";
 import { DEFAULT_CONFIG } from "./defaults.js";
 import { defaultUserConfigPath } from "./paths.js";
+
+type Warning = (message: string) => void;
 
 export interface LoadConfigOptions {
   userConfigPath?: string;
   projectRoot?: string;
   overrides?: Partial<Config>;
   /** Receives non-fatal configuration warnings (for example dropped keys). */
-  onWarning?: (message: string) => void;
+  onWarning?: Warning;
 }
 
 function defaultWarning(message: string): void {
@@ -20,12 +23,26 @@ function defaultWarning(message: string): void {
   }
 }
 
-function readJsonFile(path: string): unknown | undefined {
+function formatIssues(error: {
+  issues: { path: readonly unknown[]; message: string }[];
+}): string {
+  return error.issues
+    .map(
+      (issue) =>
+        `${issue.path.map(String).join(".") || "(root)"}: ${issue.message}`,
+    )
+    .join("; ");
+}
+
+function readJsonFile(path: string, warn: Warning): unknown | undefined {
   if (!existsSync(path)) return undefined;
   try {
     return JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    throw new Error(`Invalid JSON in config file: ${path}`);
+  } catch (err) {
+    warn(
+      `config ${path}: invalid JSON (${err instanceof Error ? err.message : String(err)}); using defaults`,
+    );
+    return undefined;
   }
 }
 
@@ -68,6 +85,43 @@ function normalizeRuntime(
   return out;
 }
 
+function sanitizeProviders(
+  raw: unknown,
+  warn: Warning,
+): Record<string, unknown> {
+  const providers: Record<string, unknown> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    warn("config.providers: expected an object; using defaults");
+    return providers;
+  }
+  for (const [name, value] of Object.entries(raw)) {
+    const parsed = ProviderConfigSchema.safeParse(value);
+    if (parsed.success) providers[name] = parsed.data;
+    else warn(`provider "${name}": ${formatIssues(parsed.error)}; ignored`);
+  }
+  return providers;
+}
+
+function recoverConfig(
+  raw: Record<string, unknown>,
+  warn: Warning,
+): Record<string, unknown> {
+  const shape = ConfigSchema.shape as Record<string, ZodType>;
+  const recovered: Record<string, unknown> = {};
+  for (const [key, schema] of Object.entries(shape)) {
+    if (!Object.prototype.hasOwnProperty.call(raw, key)) continue;
+    const value =
+      key === "providers" ? sanitizeProviders(raw[key], warn) : raw[key];
+    const parsed = schema.safeParse(value);
+    if (parsed.success) recovered[key] = parsed.data;
+    else warn(`config.${key}: ${formatIssues(parsed.error)}; using defaults`);
+  }
+  for (const key of Object.keys(raw)) {
+    if (!(key in shape)) warn(`config.${key}: unknown key; ignored`);
+  }
+  return recovered;
+}
+
 export function loadConfig(options: LoadConfigOptions = {}): Config {
   const userPath = options.userConfigPath ?? defaultUserConfigPath();
   const projectPath = options.projectRoot
@@ -79,8 +133,12 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     ensureUserConfig(userPath);
   }
 
-  const userRaw = (readJsonFile(userPath) ?? {}) as Record<string, unknown>;
-  const projectRaw = (readJsonFile(projectPath) ?? {}) as Record<
+  const warn = options.onWarning ?? defaultWarning;
+  const userRaw = (readJsonFile(userPath, warn) ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const projectRaw = (readJsonFile(projectPath, warn) ?? {}) as Record<
     string,
     unknown
   >;
@@ -111,7 +169,6 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
   const projectWebFetch = (projectWeb.fetch ?? {}) as Record<string, unknown>;
   const projectWebSearch = (projectWeb.search ?? {}) as Record<string, unknown>;
 
-  const warn = options.onWarning ?? defaultWarning;
   if (
     projectRaw.mcpServers &&
     typeof projectRaw.mcpServers === "object" &&
@@ -235,15 +292,16 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     ...(env.defaultProvider ? { defaultProvider: env.defaultProvider } : {}),
     runtime: { ...(merged.runtime as object), ...(env.runtime ?? {}) },
   };
-  const parsed = ConfigSchema.safeParse({
+  const candidate = {
     ...mergedWithEnv,
     ...(options.overrides ?? {}),
-  });
-  if (!parsed.success) {
-    const issues = parsed.error.issues
-      .map((i) => `${i.path.join(".")}: ${i.message}`)
-      .join("; ");
-    throw new Error(`Invalid configuration: ${issues}`);
-  }
-  return parsed.data;
+  };
+  const parsed = ConfigSchema.safeParse(candidate);
+  if (parsed.success) return parsed.data;
+
+  const recovered = ConfigSchema.safeParse(recoverConfig(candidate, warn));
+  if (recovered.success) return recovered.data;
+
+  warn("config recovery failed; using built-in defaults");
+  return ConfigSchema.parse(DEFAULT_CONFIG);
 }
