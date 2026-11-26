@@ -495,6 +495,12 @@ expected. Every other extension error fails the run.
 - Check the matrix before relying on a method; `no-op` methods are accepted but
   have no effect.
 
+## Lua extensions
+
+Atom-lite also loads `.lua` entrypoints through the in-process extension host. A Lua extension exports an `activate` factory receiving `pi` and may export `test` receiving `ctx` for the extension test harness. Lua tables convert to tool parameter schemas and session data; Lua functions remain callable as tool `execute` handlers, event handlers, and middleware. Asynchronous `ExtensionAPI` methods (`exec`, `fetch`, dialogs, `span`) return promises that Lua code awaits with `:await()` inside extension callbacks.
+
+Discovery, trust, capability scopes, the durable store, services, tool middleware, observability, diagnostics, and reload semantics are identical to JavaScript extensions. Lua module loading is restricted to the extension's own directory.
+
 ## Next
 
 - [Commands](./commands.md)

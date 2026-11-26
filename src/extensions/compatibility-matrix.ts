@@ -62,12 +62,12 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "on",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":665}],
+    consumers: [{"file":"src/extensions/loader.ts","line":761}],
   },
   {
     method: "off",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":665}],
+    consumers: [{"file":"src/extensions/loader.ts","line":761}],
   },
   {
     method: "appendEntry",
@@ -207,12 +207,12 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "getWorkspace",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":278}],
+    consumers: [{"file":"src/extensions/loader.ts","line":279}],
   },
   {
     method: "getSession",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":507}],
+    consumers: [{"file":"src/extensions/loader.ts","line":603}],
   },
   {
     method: "getSessionManager",
@@ -222,7 +222,7 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "isProjectTrusted",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":279}],
+    consumers: [{"file":"src/extensions/loader.ts","line":280}],
   },
   {
     method: "registerProvider",
@@ -257,22 +257,22 @@ export const compatibilityMatrix: CompatibilityMatrixEntry[] = [
   {
     method: "span",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":888}],
+    consumers: [{"file":"src/extensions/loader.ts","line":984}],
   },
   {
     method: "metric",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":888}],
+    consumers: [{"file":"src/extensions/loader.ts","line":984}],
   },
   {
     method: "provide",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":420}],
+    consumers: [{"file":"src/extensions/loader.ts","line":421}],
   },
   {
     method: "consume",
     status: "supported",
-    consumers: [{"file":"src/extensions/loader.ts","line":435}],
+    consumers: [{"file":"src/extensions/loader.ts","line":436}],
   },
   {
     method: "supports",

@@ -36,6 +36,7 @@ import {
 } from "./compatibility-matrix.js";
 import { describeScopes, scopeModeForManifest } from "./manifest.js";
 import type { ObservabilityRecords } from "./observability.js";
+import { createLuaRuntime, type LuaRuntime } from "./lua.js";
 
 export interface ExtensionLoaderOptions {
   cliPaths?: string[];
@@ -480,30 +481,125 @@ export class ExtensionLoader {
       }
 
       let moduleExports: Record<string, unknown> = {};
+      let luaRuntime: LuaRuntime | undefined;
       try {
-        const jiti = this.getJiti();
-        // Import once, keeping the full namespace so the extension test
-        // harness can read named exports such as `test`.
-        const imported = (await jiti.import(entry.entryPath)) as unknown;
-        moduleExports =
-          imported && typeof imported === "object"
-            ? (imported as Record<string, unknown>)
-            : {};
-        const factory =
-          typeof imported === "function"
-            ? imported
-            : typeof moduleExports.default === "function"
-              ? moduleExports.default
-              : typeof moduleExports.activate === "function"
-                ? moduleExports.activate
-                : undefined;
+        const isLua = entry.entryPath.toLowerCase().endsWith(".lua");
+        let factory:
+          | ((api: any) => unknown | Promise<unknown>)
+          | undefined;
+        if (isLua) {
+          const luaSource =
+             readFileSync(entry.entryPath, "utf8");
+          luaRuntime = await createLuaRuntime();
+          await luaRuntime.runSource(luaSource);
+          const activateKey = luaRuntime.engine.global.get(
+            "__atom_activate_key",
+          );
+          if (typeof activateKey !== "string") {
+            throw new Error(
+              "extension must export an activate function",
+            );
+          }
+          const timeout = this.handlerTimeoutMs;
+          factory = async (api: any) => {
+            luaRuntime!.engine.global.set("__js_api", api);
+            luaRuntime!.engine.global.set(
+              "__js_registerTool",
+              (tool: any) => {
+                if (tool && typeof tool.__executeKey === "string") {
+                  const key = tool.__executeKey;
+                  delete tool.__executeKey;
+                  tool.execute = async (
+                    id: any,
+                    args: any,
+                    signal: any,
+                    onUpdate: any,
+                    ctx: any,
+                  ) =>
+                    await luaRuntime!.runCallback(
+                      key,
+                      [id, args, signal, onUpdate, ctx],
+                      timeout,
+                    );
+                }
+                return api.registerTool(tool);
+              },
+            );
+            luaRuntime!.engine.global.set(
+              "__js_registerCommand",
+              (cmd: any) => {
+                if (cmd && typeof cmd.__runKey === "string") {
+                  const key = cmd.__runKey;
+                  delete cmd.__runKey;
+                  cmd.run = async (args: any, ctx: any) =>
+                    await luaRuntime!.runCallback(key, [args, ctx], timeout);
+                }
+                if (cmd && typeof cmd.__handlerKey === "string") {
+                  const key = cmd.__handlerKey;
+                  delete cmd.__handlerKey;
+                  cmd.handler = async (args: any, ctx: any) =>
+                    await luaRuntime!.runCallback(key, [args, ctx], timeout);
+                }
+                return api.registerCommand(cmd);
+              },
+            );
+            luaRuntime!.engine.global.set("__js_on", (event: any, key: any) => {
+              return api.on(event, async (payload: any, ctx: any) => {
+                return await luaRuntime!.runCallback(
+                  key,
+                  [payload, ctx],
+                  timeout,
+                );
+              });
+            });
+            luaRuntime!.engine.global.set(
+              "__js_wrapTool",
+              (name: any, key: any) => {
+                return api.wrapTool(name, async (call: any, next: any) => {
+                  return await luaRuntime!.runCallback(
+                    key,
+                    [call, next],
+                    timeout,
+                  );
+                });
+              },
+            );
+            const activateKey2 = luaRuntime!.engine.global.get(
+              "__atom_activate_key",
+            );
+            await luaRuntime!.runCallback(activateKey2, [], timeout);
+          };
+          const testKey = luaRuntime.engine.global.get("__atom_test_key");
+          if (typeof testKey === "string") {
+            moduleExports.test = async (ctx: any) =>
+              await luaRuntime!.runCallback(testKey, [ctx], timeout);
+          }
+          moduleExports.__luaRuntime = luaRuntime;
+        } else {
+          const jiti = this.getJiti();
+          // Import once, keeping the full namespace so the extension test
+          // harness can read named exports such as `test`.
+          const imported = (await jiti.import(entry.entryPath)) as unknown;
+          moduleExports =
+            imported && typeof imported === "object"
+              ? (imported as Record<string, unknown>)
+              : {};
+           factory = (
+             typeof imported === "function"
+               ? imported
+               : typeof moduleExports.default === "function"
+                 ? moduleExports.default
+                 : typeof moduleExports.activate === "function"
+                   ? moduleExports.activate
+                   : undefined
+           ) as any;
+        }
 
         if (typeof factory !== "function") {
           throw new Error(
             "extension must export a default or activate function",
           );
         }
-
         const api = createExtensionAPI(
           entry.id,
           staging.context,
@@ -979,7 +1075,7 @@ function calledMatrixApis(entryPath: string): CompatibilityMatrixEntry[] {
     return [];
   }
   const called = new Set(
-    [...source.matchAll(/\.([A-Za-z_]\w*)\s*\(/g)].map((match) => match[1]),
+    [...source.matchAll(/[.:]([A-Za-z_]\w*)\s*\(/g)].map((match) => match[1]),
   );
   return compatibilityMatrix.filter((entry) => called.has(entry.method));
 }

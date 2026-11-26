@@ -47,7 +47,8 @@ export interface DiscoverExtensionsOptions {
 }
 
 import type { JsonValue } from "../types.js";
-const EXTENSION_EXTENSIONS = new Set([".ts", ".js", ".mjs"]);
+const EXTENSION_SUFFIXES = [".ts", ".js", ".mjs", ".lua"] as const;
+const EXTENSION_EXTENSIONS = new Set<string>(EXTENSION_SUFFIXES);
 
 function readJson(path: string): JsonValue | undefined {
   try {
@@ -178,7 +179,10 @@ function candidate(
   errors: string[] = [],
 ): DiscoveredExtension {
   return {
-    id: basename(rootPath).replace(/\.(ts|js|mjs)$/i, ""),
+    id: basename(rootPath).replace(
+      new RegExp("\\.(" + EXTENSION_SUFFIXES.map((s) => s.slice(1)).join("|") + ")$", "i"),
+      "",
+    ),
     source,
     origin,
     rootPath,
@@ -220,7 +224,7 @@ function packageCandidates(
 }
 
 function indexEntry(dir: string): string | undefined {
-  for (const name of ["index.ts", "index.js", "index.mjs"]) {
+  for (const name of ["index.ts", "index.js", "index.mjs", "index.lua"]) {
     const fullPath = join(dir, name);
     if (existsSync(fullPath)) return fullPath;
   }
