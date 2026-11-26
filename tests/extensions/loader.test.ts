@@ -104,6 +104,35 @@ test("skips project extensions unless the project is trusted", async () => {
   }
 });
 
+test("skips project Lua extensions unless the project is trusted", async () => {
+  const projectDir = tempDir();
+  try {
+    const extensionDir = join(projectDir, ".atom-lite", "extensions");
+    mkdirSync(extensionDir, { recursive: true });
+    writeFileSync(
+      join(extensionDir, "project.lua"),
+      "activate = function(pi) end\n",
+    );
+
+    const isolate = {
+      projectDir,
+      agentDir: join(projectDir, "agent"),
+      userDir: join(projectDir, "user-extensions"),
+    };
+    const untrusted = await new ExtensionLoader(isolate).loadAll();
+    assert.equal(untrusted[0].status, "skipped");
+    assert.match(untrusted[0].error ?? "", /not trusted/);
+
+    const trusted = await new ExtensionLoader({
+      ...isolate,
+      trustedProjects: [projectDir],
+    }).loadAll();
+    assert.equal(trusted[0].status, "loaded");
+  } finally {
+    rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
 test("reports missing factories", async () => {
   const dir = tempDir();
   try {

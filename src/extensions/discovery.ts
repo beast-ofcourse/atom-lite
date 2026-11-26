@@ -58,7 +58,7 @@ function readJson(path: string): JsonValue | undefined {
   }
 }
 
-function extensionSuffix(path: string): string | undefined {
+export function extensionSuffix(path: string): string | undefined {
   const lower = path.toLowerCase();
   for (const suffix of EXTENSION_EXTENSIONS) {
     if (lower.endsWith(suffix)) return suffix;
@@ -180,7 +180,10 @@ function candidate(
 ): DiscoveredExtension {
   return {
     id: basename(rootPath).replace(
-      new RegExp("\\.(" + EXTENSION_SUFFIXES.map((s) => s.slice(1)).join("|") + ")$", "i"),
+      new RegExp(
+        "\\.(" + EXTENSION_SUFFIXES.map((s) => s.slice(1)).join("|") + ")$",
+        "i",
+      ),
       "",
     ),
     source,

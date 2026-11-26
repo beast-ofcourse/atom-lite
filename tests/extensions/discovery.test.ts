@@ -40,6 +40,49 @@ test("discovers index files in one-level directories", () => {
   }
 });
 
+test("discovers .lua files and index.lua directory entrypoints", () => {
+  const dir = tempDir();
+  try {
+    writeFileSync(join(dir, "top.lua"), "activate = function(pi) end\n");
+    mkdirSync(join(dir, "packaged"));
+    writeFileSync(
+      join(dir, "packaged", "index.lua"),
+      "activate = function(pi) end\n",
+    );
+    const found = discoverExtensions({ userDir: dir });
+    assert.deepEqual(found.map((entry) => entry.id).sort(), [
+      "packaged",
+      "top",
+    ]);
+    assert.ok(found.every((entry) => entry.errors.length === 0));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("discovers manifest-declared .lua entrypoints", () => {
+  const dir = tempDir();
+  try {
+    const packageDir = join(dir, "lua-pkg");
+    mkdirSync(packageDir);
+    writeFileSync(
+      join(packageDir, "package.json"),
+      JSON.stringify({ atom: { extensions: ["./entry.lua"] } }),
+    );
+    writeFileSync(
+      join(packageDir, "entry.lua"),
+      "activate = function(pi) end\n",
+    );
+    const found = discoverExtensions({ userDir: dir });
+    assert.equal(found.length, 1);
+    assert.equal(found[0].id, "lua-pkg");
+    assert.match(found[0].entryPath, /entry\.lua$/);
+    assert.equal(found[0].errors.length, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("discovers packaged extensions from package.json", () => {
   const dir = tempDir();
   try {

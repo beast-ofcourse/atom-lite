@@ -4,7 +4,11 @@ import { createJiti } from "jiti";
 import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { discoverExtensions, type DiscoveredExtension } from "./discovery.js";
+import {
+  discoverExtensions,
+  extensionSuffix,
+  type DiscoveredExtension,
+} from "./discovery.js";
 import { loadConfig } from "../config/load.js";
 import { defaultAgentDir, userConfigDir } from "../config/paths.js";
 import {
@@ -36,7 +40,12 @@ import {
 } from "./compatibility-matrix.js";
 import { describeScopes, scopeModeForManifest } from "./manifest.js";
 import type { ObservabilityRecords } from "./observability.js";
-import { createLuaRuntime, type LuaRuntime } from "./lua.js";
+import { createLuaModuleRuntime } from "./lua.js";
+import type {
+  ExtensionModule,
+  ExtensionModuleRuntime,
+  ModuleRuntimeOverrides,
+} from "./module-runtime.js";
 
 export interface ExtensionLoaderOptions {
   cliPaths?: string[];
@@ -63,6 +72,8 @@ export interface ExtensionLoaderOptions {
   onProviderUnregistered?: (name: string) => void;
   /** Host turn, output and middleware hooks passed to every extension API. */
   host?: ExtensionHostHooks;
+  /** Runtime implementations keyed by entrypoint suffix, for custom runtimes. */
+  moduleRuntimes?: ModuleRuntimeOverrides;
 }
 
 export interface LoadedExtension {
@@ -80,6 +91,7 @@ export interface LoadedExtension {
   /** The API instance handed to the factory, for harness assertions. */
   api?: ExtensionAPI;
   store?: ExtensionStore;
+  module?: ExtensionModule;
 }
 
 interface StagedExtension {
@@ -273,6 +285,27 @@ export class ExtensionLoader {
     return instance;
   }
 
+  private selectRuntime(entryPath: string): ExtensionModuleRuntime {
+    const suffix = extensionSuffix(entryPath);
+    const override = suffix ? this.options.moduleRuntimes?.[suffix] : undefined;
+    if (override) return override;
+    if (suffix === ".lua") return createLuaModuleRuntime(this.handlerTimeoutMs);
+    const jiti = this.getJiti();
+    return {
+      async load(path) {
+        const imported = (await jiti.import(path)) as unknown;
+        const exports =
+          imported && typeof imported === "object"
+            ? (imported as Record<string, unknown>)
+            : {};
+        const factory = [imported, exports.default, exports.activate].find(
+          (value) => typeof value === "function",
+        ) as ExtensionModule["factory"];
+        return { factory, exports };
+      },
+    };
+  }
+
   private createStaging(
     entry: DiscoveredExtension,
     services: ServiceRegistry = new Map(),
@@ -402,6 +435,7 @@ export class ExtensionLoader {
    * events queued during staging to their owner and siblings in the live set.
    */
   async commitStaged(staged: StagedExtensionSet): Promise<void> {
+    const previous = this.extensions;
     this.extensions = staged.extensions;
     this.lifecycle = staged.lifecycle;
     this.services = staged.services;
@@ -411,6 +445,7 @@ export class ExtensionLoader {
     // Siblings see lifecycle events only once the new set is live. A handler
     // registered during staging cannot observe an extension from the old set.
     await this.flushBroadcasts();
+    for (const loaded of previous) loaded.module?.dispose?.();
   }
 
   private async buildExtensions(): Promise<{
@@ -483,121 +518,13 @@ export class ExtensionLoader {
         continue;
       }
 
+      let module: ExtensionModule | undefined;
       let moduleExports: Record<string, unknown> = {};
-      let luaRuntime: LuaRuntime | undefined;
       try {
-        const isLua = entry.entryPath.toLowerCase().endsWith(".lua");
-        let factory:
-          | ((api: any) => unknown | Promise<unknown>)
-          | undefined;
-        if (isLua) {
-          const luaSource =
-             readFileSync(entry.entryPath, "utf8");
-          luaRuntime = await createLuaRuntime();
-          await luaRuntime.runSource(luaSource);
-          const activateKey = luaRuntime.engine.global.get(
-            "__atom_activate_key",
-          );
-          if (typeof activateKey !== "string") {
-            throw new Error(
-              "extension must export an activate function",
-            );
-          }
-          const timeout = this.handlerTimeoutMs;
-          factory = async (api: any) => {
-            luaRuntime!.engine.global.set("__js_api", api);
-            luaRuntime!.engine.global.set(
-              "__js_registerTool",
-              (tool: any) => {
-                if (tool && typeof tool.__executeKey === "string") {
-                  const key = tool.__executeKey;
-                  delete tool.__executeKey;
-                  tool.execute = async (
-                    id: any,
-                    args: any,
-                    signal: any,
-                    onUpdate: any,
-                    ctx: any,
-                  ) =>
-                    await luaRuntime!.runCallback(
-                      key,
-                      [id, args, signal, onUpdate, ctx],
-                      timeout,
-                    );
-                }
-                return api.registerTool(tool);
-              },
-            );
-            luaRuntime!.engine.global.set(
-              "__js_registerCommand",
-              (cmd: any) => {
-                if (cmd && typeof cmd.__runKey === "string") {
-                  const key = cmd.__runKey;
-                  delete cmd.__runKey;
-                  cmd.run = async (args: any, ctx: any) =>
-                    await luaRuntime!.runCallback(key, [args, ctx], timeout);
-                }
-                if (cmd && typeof cmd.__handlerKey === "string") {
-                  const key = cmd.__handlerKey;
-                  delete cmd.__handlerKey;
-                  cmd.handler = async (args: any, ctx: any) =>
-                    await luaRuntime!.runCallback(key, [args, ctx], timeout);
-                }
-                return api.registerCommand(cmd);
-              },
-            );
-            luaRuntime!.engine.global.set("__js_on", (event: any, key: any) => {
-              return api.on(event, async (payload: any, ctx: any) => {
-                return await luaRuntime!.runCallback(
-                  key,
-                  [payload, ctx],
-                  timeout,
-                );
-              });
-            });
-            luaRuntime!.engine.global.set(
-              "__js_wrapTool",
-              (name: any, key: any) => {
-                return api.wrapTool(name, async (call: any, next: any) => {
-                  return await luaRuntime!.runCallback(
-                    key,
-                    [call, next],
-                    timeout,
-                  );
-                });
-              },
-            );
-            const activateKey2 = luaRuntime!.engine.global.get(
-              "__atom_activate_key",
-            );
-            await luaRuntime!.runCallback(activateKey2, [], timeout);
-          };
-          const testKey = luaRuntime.engine.global.get("__atom_test_key");
-          if (typeof testKey === "string") {
-            moduleExports.test = async (ctx: any) =>
-              await luaRuntime!.runCallback(testKey, [ctx], timeout);
-          }
-          moduleExports.__luaRuntime = luaRuntime;
-        } else {
-          const jiti = this.getJiti();
-          // Import once, keeping the full namespace so the extension test
-          // harness can read named exports such as `test`.
-          const imported = (await jiti.import(entry.entryPath)) as unknown;
-          moduleExports =
-            imported && typeof imported === "object"
-              ? (imported as Record<string, unknown>)
-              : {};
-           factory = (
-             typeof imported === "function"
-               ? imported
-               : typeof moduleExports.default === "function"
-                 ? moduleExports.default
-                 : typeof moduleExports.activate === "function"
-                   ? moduleExports.activate
-                   : undefined
-           ) as any;
-        }
-
+        const runtime = this.selectRuntime(entry.entryPath);
+        module = await runtime.load(entry.entryPath);
+        moduleExports = module.exports;
+        const factory = module.factory;
         if (typeof factory !== "function") {
           throw new Error(
             "extension must export a default or activate function",
@@ -624,6 +551,7 @@ export class ExtensionLoader {
         );
         api.ui = staging.context.ui;
         staging.api = api;
+        module.bind?.(api);
         await factory(api);
         // The extension declares store.version/migrate in its factory. Run a
         // pending migration once here even when the factory never read state.
@@ -642,8 +570,9 @@ export class ExtensionLoader {
           staging.registries,
           staging.context,
         );
-        staged.push({ ...staging, status: "loaded", moduleExports });
+        staged.push({ ...staging, status: "loaded", moduleExports, module });
       } catch (error) {
+        module?.dispose?.();
         const message =
           error instanceof ExtensionCompatibilityError
             ? `${error.name}: ${error.message}`
@@ -932,9 +861,8 @@ export class ExtensionLoader {
         trusted: entry.trusted,
         toolCount: loaded?.registries.tools.size ?? 0,
         commandCount: loaded?.registries.commands.size ?? 0,
-        language: entry.entryPath.toLowerCase().endsWith(".lua")
-          ? "lua"
-          : "javascript",
+        language:
+          extensionSuffix(entry.entryPath) === ".lua" ? "lua" : "javascript",
       };
     });
   }
@@ -980,9 +908,8 @@ export class ExtensionLoader {
         eventCount: loaded?.registries.handlers.size ?? 0,
         apis: calledMatrixApis(entry.entryPath),
         store: this.storeInfo(loaded),
-        language: entry.entryPath.toLowerCase().endsWith(".lua")
-          ? "lua"
-          : "javascript",
+        language:
+          extensionSuffix(entry.entryPath) === ".lua" ? "lua" : "javascript",
         scopeMode: scopeModeForManifest(entry.manifest?.scopes),
         scopes: describeScopes(entry.manifest?.scopes),
         lifecycleEvents: this.lifecycle.filter(
@@ -1054,7 +981,10 @@ export class ExtensionLoader {
   async unloadAll(): Promise<void> {
     // Removing the set archives each extension's durable state as <id>.json.bak.
     // Reloads swap sets instead, so they keep the live store file.
-    for (const loaded of this.extensions) this.archiveStore(loaded.id);
+    for (const loaded of this.extensions) {
+      loaded.module?.dispose?.();
+      this.archiveStore(loaded.id);
+    }
     await Promise.all(
       this.extensions.map((loaded) =>
         this.recordLifecycle(

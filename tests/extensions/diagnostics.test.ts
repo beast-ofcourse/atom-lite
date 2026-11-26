@@ -256,3 +256,32 @@ test("doctor --json reports a clean extension without an error", async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("doctor labels Lua sources and scans Lua call syntax", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "atom-lite-doctor-lua-"));
+  try {
+    writeFileSync(
+      join(dir, "calls.lua"),
+      [
+        "activate = function(pi)",
+        "  pi:log('colon call')",
+        "  pi.span('traced', function() return 7 end)",
+        "end",
+        "",
+      ].join("\n"),
+    );
+    const loader = new ExtensionLoader({
+      userDir: dir,
+      agentDir: join(dir, "agent"),
+    });
+    await loader.loadAll();
+    const [entry] = JSON.parse(loader.doctorJson());
+    assert.equal(entry.status, "loaded");
+    assert.equal(entry.language, "lua");
+    const methods = entry.apis.map((api: { method: string }) => api.method);
+    assert.ok(methods.includes("log"), JSON.stringify(methods));
+    assert.ok(methods.includes("span"), JSON.stringify(methods));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

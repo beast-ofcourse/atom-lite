@@ -497,9 +497,30 @@ expected. Every other extension error fails the run.
 
 ## Lua extensions
 
-Atom-lite also loads `.lua` entrypoints through the in-process extension host. A Lua extension exports an `activate` factory receiving `pi` and may export `test` receiving `ctx` for the extension test harness. Lua tables convert to tool parameter schemas and session data; Lua functions remain callable as tool `execute` handlers, event handlers, and middleware. Asynchronous `ExtensionAPI` methods (`exec`, `fetch`, dialogs, `span`) return promises that Lua code awaits with `:await()` inside extension callbacks.
+Atom-lite loads `.lua` entrypoints through the same extension host as JavaScript. Export a global function named `activate` that receives `pi`. To run the file with the extension test harness, also export a global function named `test` that receives `ctx`.
 
-Discovery, trust, capability scopes, the durable store, services, tool middleware, observability, diagnostics, and reload semantics are identical to JavaScript extensions. Lua module loading is restricted to the extension's own directory.
+```lua title="extensions/echo.lua"
+activate = function(pi)
+  pi.registerTool({
+    name = "echo",
+    label = "Echo",
+    description = "Echo text",
+    parameters = {
+      type = "object",
+      properties = { text = { type = "string" } },
+    },
+    execute = function(id, args)
+      return args.text
+    end,
+  })
+end
+```
+
+Lua tables convert to JSON-like tool schemas and session values. Lua functions stay callable as tool, command, event, and middleware handlers. Async `ExtensionAPI` methods such as `exec`, `fetch`, dialogs, and `span` return resolved values inside Lua callbacks; do not call `:await()` on them. JavaScript promises you receive from other host callbacks still use `:await()`.
+
+Discovery recognises `.lua` files, `index.lua` directory entrypoints, and manifest-declared `.lua` entries. Trust, capability scopes, the durable store, services, observability, diagnostics, and reload semantics match JavaScript extensions. A Lua callback that exceeds the configured handler timeout is contained as a timeout error.
+
+`require` cannot load host modules or npm packages because `package.path` and `package.cpath` are empty. Lua extensions run in-process with the same filesystem access as JavaScript extensions; no manifest grants or denies filesystem access.
 
 ## Next
 
