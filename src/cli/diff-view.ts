@@ -2,7 +2,7 @@ import type { Component } from "@earendil-works/pi-tui";
 import { green, red, cyan, dim, bold, gray, type Color } from "./panel.js";
 import { wrapTextWithAnsi, visibleWidth } from "@earendil-works/pi-tui";
 
-const TOOL_BG = "\x1b[48;5;236m";
+const TOOL_BG = "\x1b[40m";
 const ADDED_BG = "\x1b[48;5;22m";
 const REMOVED_BG = "\x1b[48;5;52m";
 const BG_RESET = "\x1b[49m";

@@ -177,7 +177,7 @@ export class ToolBox implements Component {
 
   private renderUncached(width: number): string[] {
     const w = Math.max(8, Math.floor(width));
-    const TOOL_BG = "\x1b[48;5;236m";
+    const TOOL_BG = "\x1b[40m";
     const TOOL_BG_RESET = "\x1b[49m";
     const fill = (line: string): string => {
       const pad = Math.max(0, w - visibleWidth(line));
