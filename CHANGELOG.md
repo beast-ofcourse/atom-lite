@@ -6,6 +6,38 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every release increments the patch number, regardless of change size: `0.18.0`
 becomes `0.18.1`. Explicitly requested minor versions are the exception.
 
+## v0.19.5 — 2026-11-26
+
+### Added
+
+- `extensions`: `.lua` entrypoints load through the same host as JavaScript, with `activate` and `test` exports, tools, commands, events, scopes, services, middleware, store, session, and diagnostics parity.
+- `extensions`: a shipped Pi-compatible subagent example runs delegated agents in separate processes and documents single, parallel, and chain workflows.
+- `cli`: `/mcp` opens an interactive picker that enables or disables servers and saves each toggle to user config.
+- `cli`: markdown prompt templates in user and trusted project `prompts/` directories become slash commands with `$@` and `$ARGUMENTS` substitution.
+- `cli`: startup config problems appear as a warning panel in the TUI and as stderr lines in non-interactive runs; `/doctor` lists current warnings.
+- `cli`: tool boxes toggle with a mouse click, and `npm run bench:interactive` measures interactive startup and input latency.
+- `agent`: per-turn timing records context build, preflight, first token, tool batches, and token counts in session events and `--mode json` streams.
+- `packaging`: the npm package declares the `wasmoon` runtime and verifies the Lua asset during publish.
+
+### Fixed
+
+- `cli`: startup continues when config files contain malformed JSON, invalid values, unknown keys, or bad provider profiles.
+- `cli`: `/btw` passes session tools to the generated response instead of running without them.
+- `extensions`: a failed Lua activation no longer clears callbacks needed by fault-injection fixtures.
+
+### Changed
+
+- `config`: `runtime.bashConcurrency` defaults to `parallel`, so independent bash calls run together under a barrier exclusive with file operations.
+- `config`: `ui.theme` defaults to `nord`.
+- `config`: MCP servers accept `disable` and legacy `disabled` aliases that override `enabled`.
+- `cli`: `/btw` now runs as a modal side-question overlay during a turn.
+- `docs`: extension, CLI, command, config, and troubleshooting pages cover Lua extensions, prompt templates, MCP toggles, and config warnings.
+- `skills`: the shipped extension skill documents Lua entrypoints and parity limits.
+
+### Performance
+
+- `agent`: tool results stream into the next model call instead of waiting for the full batch.
+
 ## v0.19.4 — 2026-11-24
 
 ### Added
