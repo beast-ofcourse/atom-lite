@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -25,6 +26,7 @@ import {
   type Session,
 } from "../../dist/sessions/store.js";
 import { startWebServer, webThemeFor } from "../../dist/web/server.js";
+import { parseClientMessage } from "../../dist/web/protocol.js";
 import type { ProviderAdapter } from "../../dist/providers/types.js";
 import type {
   ModelRequest,
@@ -3016,6 +3018,567 @@ test("turn_end reports measured duration, output tokens, and model time", async 
       percent: null,
     });
     second.close();
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+async function putFile(
+  server: Awaited<ReturnType<typeof start>>,
+  path: string,
+  body: { revision: string; content: string },
+  headers: Record<string, string> = {},
+): Promise<Response> {
+  const endpoint = new URL("/file", server.url);
+  endpoint.searchParams.set("token", server.token);
+  endpoint.searchParams.set("path", path);
+  return fetch(endpoint, {
+    method: "PUT",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+}
+
+async function openTerminal(
+  client: Client,
+  id: string,
+  cols = 80,
+  rows = 24,
+): Promise<void> {
+  client.send({ type: "terminal_open", id, cols, rows });
+  const request = await client.waitForNext("approval_request");
+  client.send({ type: "approval", id: request.id, decision: "approve" });
+  const started = await client.waitForMatching(
+    (message) => message.type === "terminal_started" && message.id === id,
+  );
+  assert.equal(started.id, id);
+}
+
+function terminalOutput(client: Client, id: string, text: string) {
+  return client.waitForMatching(
+    (message) =>
+      message.type === "terminal_output" &&
+      message.id === id &&
+      message.data.includes(text),
+  );
+}
+
+function terminalExit(client: Client, id: string) {
+  return client.waitForMatching(
+    (message) => message.type === "terminal_exited" && message.id === id,
+  );
+}
+
+const sha256 = (text: string) =>
+  createHash("sha256").update(text, "utf8").digest("hex");
+
+// Reason: spec (ticket 03) — a file tab saves against the revision it loaded,
+// and the same boundary that guards reads must guard writes.
+test("a file save checks revision, path, token, and size", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-put-ws-"));
+  const source = "first\n";
+  writeFileSync(join(workspace, "note.txt"), source);
+  writeFileSync(join(workspace, "blob.exe"), "MZ");
+  symlinkSync("/etc/hosts", join(workspace, "leak.txt"));
+  const built = buildRuntime([], { workspace });
+  const server = await start(built);
+  try {
+    const revision = sha256(source);
+    const saved = await putFile(server, "note.txt", {
+      revision,
+      content: "second\n",
+    });
+    assert.equal(saved.status, 200);
+    assert.deepEqual(await saved.json(), { revision: sha256("second\n") });
+    assert.equal(readFileSync(join(workspace, "note.txt"), "utf8"), "second\n");
+
+    const stale = await putFile(server, "note.txt", {
+      revision,
+      content: "stale\n",
+    });
+    assert.equal(stale.status, 409);
+    assert.equal(readFileSync(join(workspace, "note.txt"), "utf8"), "second\n");
+
+    for (const path of [
+      "blob.exe",
+      "leak.txt",
+      "../../etc/passwd",
+      "missing.txt",
+      "a".repeat(5000),
+    ]) {
+      const response = await putFile(server, path, {
+        revision: sha256(""),
+        content: "x",
+      });
+      assert.equal(response.status, 404, `path ${path}`);
+    }
+
+    const oversized = await putFile(server, "note.txt", {
+      revision: sha256("second\n"),
+      content: "x".repeat(20 * 1024 * 1024 + 1),
+    });
+    assert.equal(oversized.status, 413);
+    assert.equal(readFileSync(join(workspace, "note.txt"), "utf8"), "second\n");
+
+    const endpoint = new URL("/file", server.url);
+    endpoint.searchParams.set("path", "note.txt");
+    assert.equal(
+      (
+        await fetch(endpoint, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ revision, content: "x" }),
+        })
+      ).status,
+      401,
+    );
+    assert.equal(
+      (
+        await putFile(
+          server,
+          "note.txt",
+          { revision, content: "x" },
+          {
+            Origin: "http://evil.example",
+          },
+        )
+      ).status,
+      403,
+    );
+    assert.equal(
+      await rawStatus(
+        server.port,
+        { Host: "evil.example" },
+        `/file?path=note.txt&token=${server.token}`,
+      ),
+      403,
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+// Reason: spec (ticket 03) — plan mode, viewer-only sessions, and persona
+// permission rules must refuse a browser save with an explicit error.
+test("a file save refuses plan mode, viewers, and denied personas", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-put-guard-ws-"));
+  writeFileSync(join(workspace, "note.txt"), "first\n");
+  const revision = sha256("first\n");
+
+  const planBuilt = buildRuntime([], { workspace });
+  const planServer = await start(planBuilt, { mode: "plan" });
+  try {
+    const response = await putFile(planServer, "note.txt", {
+      revision,
+      content: "second\n",
+    });
+    assert.equal(response.status, 403);
+    assert.match(await response.text(), /plan mode/i);
+  } finally {
+    await planServer.close();
+  }
+
+  const viewerBuilt = buildRuntime([], { workspace });
+  viewerBuilt.approvals.mode = "deny";
+  const viewerServer = await start(viewerBuilt);
+  try {
+    const response = await putFile(viewerServer, "note.txt", {
+      revision,
+      content: "second\n",
+    });
+    assert.equal(response.status, 403);
+    assert.match(await response.text(), /viewer/i);
+  } finally {
+    await viewerServer.close();
+  }
+
+  const personaBuilt = buildRuntime([], { workspace });
+  personaBuilt.runtime.setPersona({
+    name: "read-only",
+    description: "",
+    mode: "primary",
+    permissions: { edit: { "*": "deny" } },
+    body: "",
+    source: "bundled",
+    path: "",
+  } as any);
+  const personaServer = await start(personaBuilt);
+  try {
+    const response = await putFile(personaServer, "note.txt", {
+      revision,
+      content: "second\n",
+    });
+    assert.equal(response.status, 403);
+    assert.match(await response.text(), /persona/i);
+    assert.equal(readFileSync(join(workspace, "note.txt"), "utf8"), "first\n");
+  } finally {
+    await personaServer.close();
+  }
+});
+
+test("a file save asks approval when the persona requires it", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-put-ask-ws-"));
+  writeFileSync(join(workspace, "note.txt"), "first\n");
+  const built = buildRuntime([], { workspace });
+  built.runtime.setPersona({
+    name: "ask-edit",
+    description: "",
+    mode: "primary",
+    permissions: { edit: { "*": "ask" } },
+    body: "",
+    source: "bundled",
+    path: "",
+  } as any);
+  const server = await start(built);
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    const saving = putFile(server, "note.txt", {
+      revision: sha256("first\n"),
+      content: "second\n",
+    });
+    const request = await client.waitFor("approval_request");
+    assert.equal(request.request.tool, "edit");
+    client.send({ type: "approval", id: request.id, decision: "approve" });
+    const response = await saving;
+    assert.equal(response.status, 200);
+    assert.equal(readFileSync(join(workspace, "note.txt"), "utf8"), "second\n");
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: strict protocol validation rejects malformed terminal frames before
+// they reach the shell transport.
+test("terminal messages validate against the strict schema", () => {
+  const opened = parseClientMessage(
+    JSON.stringify({ type: "terminal_open", id: "t1", cols: 80, rows: 24 }),
+  );
+  assert.deepEqual(opened, {
+    message: { type: "terminal_open", id: "t1", cols: 80, rows: 24 },
+  });
+  const badInput = parseClientMessage(
+    JSON.stringify({ type: "terminal_input", id: "t1", data: 4 }),
+  );
+  assert.ok("error" in badInput);
+  if ("error" in badInput) {
+    assert.match(badInput.error, /data must be a string/);
+  }
+  for (const frame of [
+    { type: "terminal_open", id: "" },
+    { type: "terminal_resize", id: "t1", cols: 0, rows: 24 },
+    { type: "terminal_resize", id: "t1", cols: 80, rows: "24" },
+    { type: "terminal_close", id: 7 },
+  ]) {
+    const result = parseClientMessage(JSON.stringify(frame));
+    assert.ok("error" in result, JSON.stringify(frame));
+  }
+  assert.equal(
+    "error" in
+      parseClientMessage(
+        JSON.stringify({
+          type: "terminal_resize",
+          id: "t1",
+          cols: 80,
+          rows: 24,
+        }),
+      ),
+    false,
+  );
+});
+
+// Reason: spec (ticket 03) — the PTY carries raw bytes, so the browser needs a
+// started/output/exit sequence that proves input reached a real shell.
+test("a terminal streams output, accepts input, and exits", async () => {
+  const built = buildRuntime([]);
+  const server = await start(built);
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    await openTerminal(client, "t1");
+    client.send({
+      type: "terminal_input",
+      id: "t1",
+      data: "printf 'HELLO\\n'; exit 7\r",
+    });
+    await terminalOutput(client, "t1", "HELLO");
+    const exited = await terminalExit(client, "t1");
+    assert.equal(exited.code, 7);
+
+    client.send({ type: "terminal_input", id: "t1", data: "again" });
+    const error = await client.waitForMatching((m) => m.type === "error");
+    assert.match(error.message, /unknown terminal session/);
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: full-screen programs need a real resize; invalid bounds and ids
+// must be rejected instead of crashing the shell transport.
+test("terminal resize validates bounds and closed sessions", async () => {
+  const built = buildRuntime([]);
+  const server = await start(built);
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    await openTerminal(client, "t2", 80, 24);
+
+    client.send({ type: "terminal_resize", id: "t2", cols: 0, rows: 24 });
+    assert.match(
+      (await client.waitForMatching((m) => m.type === "error")).message,
+      /cols and rows/,
+    );
+    client.send({ type: "terminal_resize", id: "t2", cols: 80, rows: 24.5 });
+    assert.match(
+      (await client.waitForMatching((m) => m.type === "error")).message,
+      /cols and rows/,
+    );
+
+    client.send({ type: "terminal_resize", id: "t2", cols: 100, rows: 30 });
+    client.send({ type: "terminal_input", id: "t2", data: "stty size\r" });
+    const size = await client.waitForMatching(
+      (m) => m.type === "terminal_output" && /30 100/.test(m.data),
+    );
+    assert.ok(size);
+
+    for (const message of [
+      { type: "terminal_input", id: "missing", data: "x" },
+      { type: "terminal_resize", id: "missing", cols: 80, rows: 24 },
+      { type: "terminal_close", id: "missing" },
+    ]) {
+      client.send(message);
+      assert.match(
+        (await client.waitForMatching((m) => m.type === "error")).message,
+        /unknown terminal session/,
+      );
+    }
+
+    const exit = terminalExit(client, "t2");
+    client.send({ type: "terminal_close", id: "t2" });
+    await exit;
+    client.send({ type: "terminal_resize", id: "t2", cols: 80, rows: 24 });
+    assert.match(
+      (await client.waitForMatching((m) => m.type === "error")).message,
+      /unknown terminal session/,
+    );
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+// Reason: spec (ticket 03) — browser shell access follows the agent's shell
+// approval boundary: controller tab only, plan mode, persona, then dialog.
+test("a terminal open requires a controller, mode, persona, and approval", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-pty-guard-ws-"));
+  const built = buildRuntime([], { workspace });
+  const server = await start(built);
+  const client = new Client(server.wsUrl);
+  const viewer = new Client(server.wsUrl);
+  try {
+    await client.open();
+    await viewer.open();
+    assert.equal((await viewer.waitFor("hello")).readOnly, true);
+
+    viewer.send({ type: "terminal_open", id: "v1" });
+    assert.match(
+      (await viewer.waitForMatching((m) => m.type === "error")).message,
+      /read-only viewer/,
+    );
+
+    client.send({ type: "terminal_open", id: "d1" });
+    const request = await client.waitFor("approval_request");
+    assert.equal(request.request.tool, "bash");
+    client.send({ type: "approval", id: request.id, decision: "deny" });
+    assert.match(
+      (await client.waitForMatching((m) => m.type === "error")).message,
+      /denied/,
+    );
+  } finally {
+    client.close();
+    viewer.close();
+    await server.close();
+  }
+
+  const planBuilt = buildRuntime([], { workspace });
+  const planServer = await start(planBuilt, { mode: "plan" });
+  const planClient = new Client(planServer.wsUrl);
+  try {
+    await planClient.open();
+    planClient.send({ type: "terminal_open", id: "p1" });
+    assert.match(
+      (await planClient.waitForMatching((m) => m.type === "error")).message,
+      /plan mode/,
+    );
+  } finally {
+    planClient.close();
+    await planServer.close();
+  }
+
+  const personaBuilt = buildRuntime([], { workspace });
+  personaBuilt.runtime.setPersona({
+    name: "no-shell",
+    description: "",
+    mode: "primary",
+    permissions: { bash: { "*": "deny" } },
+    body: "",
+    source: "bundled",
+    path: "",
+  } as any);
+  const personaServer = await start(personaBuilt);
+  const personaClient = new Client(personaServer.wsUrl);
+  try {
+    await personaClient.open();
+    personaClient.send({ type: "terminal_open", id: "g1" });
+    assert.match(
+      (await personaClient.waitForMatching((m) => m.type === "error")).message,
+      /persona permissions/,
+    );
+  } finally {
+    personaClient.close();
+    await personaServer.close();
+  }
+});
+
+// Reason: several terminal tabs stay open at once, but an unbounded browser
+// could otherwise spawn shells until the host runs out of resources.
+test("terminal sessions are capped at four", async () => {
+  const built = buildRuntime([]);
+  const server = await start(built);
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    for (let index = 0; index < 4; index += 1) {
+      await openTerminal(client, `cap${index}`);
+    }
+    client.send({ type: "terminal_open", id: "cap4" });
+    assert.match(
+      (await client.waitForMatching((m) => m.type === "error")).message,
+      /at most four|cap reached/i,
+    );
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+async function startLongShell(
+  client: Client,
+  workspace: string,
+  id: string,
+): Promise<number> {
+  const pidPath = join(workspace, `${id}.pid`);
+  client.send({ type: "terminal_open", id });
+  const request = await client.waitForNext("approval_request");
+  client.send({ type: "approval", id: request.id, decision: "approve" });
+  await client.waitForMatching(
+    (m) => m.type === "terminal_started" && m.id === id,
+  );
+  client.send({
+    type: "terminal_input",
+    id,
+    data: `echo $$ > ${pidPath}; printf 'READY_%s\\n' "$$"; read answer\r`,
+  });
+  await client.waitForMatching(
+    (m) =>
+      m.type === "terminal_output" && m.id === id && /READY_\d+/.test(m.data),
+  );
+  return Number(readFileSync(pidPath, "utf8").trim());
+}
+
+// Reason: cleanup is observable at the server seam through terminal_exited and
+// the absence of the shell process, not by sleeping and hoping.
+test("closing a terminal tab kills its shell", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-pty-close-ws-"));
+  const built = buildRuntime([], { workspace });
+  const server = await start(built);
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    const pid = await startLongShell(client, workspace, "close1");
+    assert.doesNotThrow(() => process.kill(pid, 0));
+    const exit = terminalExit(client, "close1");
+    client.send({ type: "terminal_close", id: "close1" });
+    await exit;
+    assert.throws(() => process.kill(pid, 0));
+  } finally {
+    client.close();
+    await server.close();
+  }
+});
+
+test("closing the socket kills its shells", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-pty-socket-ws-"));
+  const built = buildRuntime([], { workspace });
+  const server = await start(built);
+  const client = new Client(server.wsUrl);
+  const observer = new Client(server.wsUrl);
+  try {
+    await client.open();
+    await observer.open();
+    const pid = await startLongShell(client, workspace, "socket1");
+    assert.doesNotThrow(() => process.kill(pid, 0));
+    const exit = terminalExit(observer, "socket1");
+    client.close();
+    await exit;
+    assert.throws(() => process.kill(pid, 0));
+  } finally {
+    client.close();
+    observer.close();
+    await server.close();
+  }
+});
+
+test("server shutdown kills every shell", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-pty-shutdown-ws-"));
+  const built = buildRuntime([], { workspace });
+  const server = await start(built);
+  const client = new Client(server.wsUrl);
+  const observer = new Client(server.wsUrl);
+  try {
+    await client.open();
+    await observer.open();
+    const pid = await startLongShell(client, workspace, "shutdown1");
+    assert.doesNotThrow(() => process.kill(pid, 0));
+    const exit = terminalExit(observer, "shutdown1");
+    const closing = server.close();
+    await exit;
+    await closing;
+    assert.throws(() => process.kill(pid, 0));
+  } finally {
+    client.close();
+    observer.close();
+    await server.close();
+  }
+});
+
+// Reason: a chatty command must not grow the browser buffer without bound.
+test("terminal output is capped per session", async () => {
+  const built = buildRuntime([]);
+  const server = await start(built);
+  const client = new Client(server.wsUrl);
+  try {
+    await client.open();
+    await openTerminal(client, "capped1");
+    const exit = terminalExit(client, "capped1");
+    client.send({
+      type: "terminal_input",
+      id: "capped1",
+      data: "yes 0123456789 | head -c 70000; exit 0\r",
+    });
+    await exit;
+    const sent = client.messages
+      .filter((m) => m.type === "terminal_output" && m.id === "capped1")
+      .reduce((total, m) => total + m.data.length, 0);
+    assert.ok(sent <= 60_000, `${sent} characters sent`);
+    assert.ok(
+      client.messages.some(
+        (m) => m.type === "error" && /output limit/.test(m.message),
+      ),
+    );
   } finally {
     client.close();
     await server.close();
