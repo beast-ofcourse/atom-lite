@@ -235,6 +235,10 @@ const FILE_EXTENSIONS = new Set([
   ".tf",
   ".diff",
   ".patch",
+  ".properties",
+  ".lock",
+  ".env",
+  ".editorconfig",
   ".pdf",
   ...IMAGE_EXTENSIONS,
 ]);
@@ -1303,7 +1307,10 @@ export async function startWebServer(
         const relativePath = normalizedRelativePath(
           url.searchParams.get("path") ?? "",
         );
-        const ext = extname(relativePath).toLowerCase();
+        const name = basename(relativePath).toLowerCase();
+        const ext =
+          extname(relativePath).toLowerCase() ||
+          (name.startsWith(".") ? name : "");
         if (!FILE_EXTENSIONS.has(ext)) {
           sendText(res, 404, "not found\n");
           return;

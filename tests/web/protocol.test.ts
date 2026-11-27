@@ -2116,6 +2116,8 @@ test("workspace files are served with revisions and hardened headers", async () 
   writeFileSync(join(workspace, "icon.svg"), svg);
   writeFileSync(join(workspace, "report.pdf"), pdf);
   writeFileSync(join(workspace, "assets", "pixel.png"), pixel);
+  writeFileSync(join(workspace, ".env"), "TOKEN=local\n");
+  writeFileSync(join(workspace, "app.lock"), "lock\n");
   writeFileSync(join(workspace, "binary.exe"), "MZ");
   writeFileSync(
     join(workspace, "huge.txt"),
@@ -2162,6 +2164,13 @@ test("workspace files are served with revisions and hardened headers", async () 
     const image = await fetch(endpoint);
     assert.match(image.headers.get("content-type") ?? "", /^image\/png/);
     assert.deepEqual(Buffer.from(await image.arrayBuffer()), pixel);
+
+    for (const path of [".env", "app.lock"]) {
+      endpoint.searchParams.set("path", path);
+      const response = await fetch(endpoint);
+      assert.equal(response.status, 200, `path ${path}`);
+      assert.match(response.headers.get("content-type") ?? "", /^text\/plain/);
+    }
 
     for (const path of [
       "binary.exe",
