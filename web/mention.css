@@ -1,0 +1,123 @@
+.mention-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.mention-chips:empty {
+  display: none;
+}
+
+.mention-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.mention-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mention-chip-remove {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mention-chip-remove:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.mention-chip-remove:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.mention-picker {
+  position: fixed;
+  z-index: 72;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--composer-bg);
+  box-shadow: var(--shadow);
+}
+
+.mention-picker[hidden] {
+  display: none;
+}
+
+.mention-option {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mention-option:hover,
+.mention-option.is-active {
+  background: var(--hover);
+}
+
+.mention-option:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.mention-option-icon {
+  width: 10px;
+  flex: 0 0 10px;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+.mention-option-name {
+  flex: 0 0 auto;
+  font-size: var(--text-ui);
+}
+
+.mention-option-path {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mention-empty {
+  padding: 10px 8px;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
