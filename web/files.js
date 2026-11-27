@@ -164,8 +164,10 @@ export function registerFiles(deps) {
       register?.(type, factory);
     };
   }
-  previews.set("application/pdf", fallbackPdfPreview);
-  deps.registerPreview("application/pdf", fallbackPdfPreview);
+  // The PDF module publishes here when it registers before this hook exists.
+  const pdfPreview = deps.pdfPreviewFactory ?? fallbackPdfPreview;
+  previews.set("application/pdf", pdfPreview);
+  deps.registerPreview("application/pdf", pdfPreview);
 }
 
 export function createFilesPane(deps, tab) {
