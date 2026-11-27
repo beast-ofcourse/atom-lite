@@ -1,0 +1,138 @@
+.terminal-pane {
+  --terminal-default-fg: var(--text);
+  --terminal-default-bg: var(--bg);
+
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.terminal-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.terminal-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-id,
+.terminal-status {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.terminal-status {
+  margin-left: auto;
+  color: var(--text-dim);
+}
+
+.terminal-output {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-3);
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 8;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+
+.terminal-output:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--focus);
+}
+
+.terminal-measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  white-space: pre;
+  pointer-events: none;
+}
+
+.terminal-bold {
+  font-weight: 700;
+}
+
+.terminal-dim {
+  opacity: 0.65;
+}
+
+.terminal-italic {
+  font-style: italic;
+}
+
+.terminal-underline {
+  text-decoration: underline;
+}
+
+.terminal-strike {
+  text-decoration: line-through;
+}
+
+.terminal-underline.terminal-strike {
+  text-decoration: underline line-through;
+}
+
+.terminal-hidden {
+  visibility: hidden;
+}
+
+.terminal-notice {
+  white-space: pre-wrap;
+}
+
+.terminal-notice-error {
+  color: var(--danger);
+}
+
+.terminal-notice-info {
+  color: var(--text-dim);
+}
+
+.terminal-input-row {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.terminal-prompt {
+  flex: 0 0 auto;
+  color: var(--ok);
+}
+
+.terminal-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  caret-color: var(--focus);
+}
+
+.terminal-input:disabled {
+  opacity: 0.6;
+}
