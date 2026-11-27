@@ -1,5 +1,10 @@
-import { createServer, type IncomingMessage, type Server } from "node:http";
-import { randomBytes, randomUUID } from "node:crypto";
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
   mkdirSync,
@@ -11,9 +16,19 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, extname, join, resolve, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  extname,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import { WebSocketServer, type WebSocket } from "ws";
+import { spawn as spawnPty, type IPty } from "node-pty";
 import type { AgentRuntime } from "../agent/loop.js";
 import type { AgentEvent } from "../agent/types.js";
 import {
@@ -23,11 +38,16 @@ import {
 } from "../sessions/store.js";
 import type { SessionEvent } from "../sessions/events.js";
 import { contentPartsText } from "../sessions/events.js";
-import type {
-  ApprovalContext,
-  ApprovalDecision,
-  ApprovalRequest,
+import {
+  checkApproval,
+  type ApprovalContext,
+  type ApprovalDecision,
+  type ApprovalRequest,
 } from "../runtime/approvals.js";
+import {
+  permissionInvocation,
+  resolveToolPermission,
+} from "../agents/permissions.js";
 import type { QuestionContext, QuestionOutcome } from "../runtime/questions.js";
 import type { GoalState } from "../runtime/goal.js";
 import { isAndroid, pickNativeDirectory } from "./native-picker.js";
@@ -41,6 +61,12 @@ import {
   type WebMcpServer,
   type WebModel,
   type WebSkill,
+  type WorkspaceDiff,
+  type WorkspaceDiffEntry,
+  type WorkspaceDiffHunk,
+  type WorkspaceFileWriteResult,
+  type WorkspaceTreeEntry,
+  type WorkspaceTreeListing,
 } from "./protocol.js";
 
 export type WebModelSwitchResult =
@@ -138,6 +164,7 @@ const MIME: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".svg": "image/svg+xml",
   ".json": "application/json; charset=utf-8",
+  ".pdf": "application/pdf",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
@@ -153,9 +180,93 @@ const IMAGE_EXTENSIONS = new Set(
   ),
 );
 
+const FILE_EXTENSIONS = new Set([
+  ".txt",
+  ".md",
+  ".markdown",
+  ".json",
+  ".jsonc",
+  ".json5",
+  ".yaml",
+  ".yml",
+  ".toml",
+  ".ini",
+  ".cfg",
+  ".conf",
+  ".csv",
+  ".tsv",
+  ".log",
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".css",
+  ".scss",
+  ".less",
+  ".html",
+  ".htm",
+  ".xml",
+  ".svg",
+  ".py",
+  ".rb",
+  ".go",
+  ".rs",
+  ".java",
+  ".c",
+  ".h",
+  ".cc",
+  ".cpp",
+  ".hpp",
+  ".cs",
+  ".php",
+  ".swift",
+  ".kt",
+  ".kts",
+  ".scala",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".fish",
+  ".ps1",
+  ".bat",
+  ".cmd",
+  ".sql",
+  ".lua",
+  ".vue",
+  ".svelte",
+  ".astro",
+  ".graphql",
+  ".proto",
+  ".tf",
+  ".diff",
+  ".patch",
+  ".properties",
+  ".lock",
+  ".env",
+  ".editorconfig",
+  ".pdf",
+  ...IMAGE_EXTENSIONS,
+]);
+
 const TOKEN_PLACEHOLDER = "__ATOM_LITE_TOKEN__";
 const THEME_PLACEHOLDER = "__ATOM_LITE_THEME__";
 const COOKIE_NAME = "atom_lite_token";
+const WORKSPACE_PATH_MAX_LENGTH = 4096;
+const WORKSPACE_FILE_MAX_BYTES = 20 * 1024 * 1024;
+const WORKSPACE_TREE_MAX_ENTRIES = 500;
+const WORKSPACE_TREE_MAX_NODES = 5_000;
+const WORKSPACE_DIFF_MAX_FILES = 200;
+const WORKSPACE_DIFF_MAX_LINES = 20_000;
+const WORKSPACE_WRITE_BODY_MAX_BYTES = WORKSPACE_FILE_MAX_BYTES + 65_536;
+const TERMINAL_MAX_SESSIONS = 4;
+const TERMINAL_OUTPUT_MAX_CHARS = 60_000;
+const TERMINAL_INVOCATION = "web terminal";
+const naturalCompare = new Intl.Collator("en", {
+  numeric: true,
+  sensitivity: "base",
+}).compare;
 
 /**
  * Map a resolved UI theme name onto the web surface. Light, solarized, and
@@ -236,6 +347,267 @@ function createHostCheck(allowedHost?: string) {
   };
 }
 
+function normalizedRelativePath(raw: string): string {
+  return raw.replace(/^\.\//, "").replace(/\/+$/, "");
+}
+
+function resolveInWorkspace(root: string, relativePath: string): string | null {
+  if (
+    relativePath.length > WORKSPACE_PATH_MAX_LENGTH ||
+    relativePath.includes("\0")
+  ) {
+    return null;
+  }
+  const absolute = resolve(root, relativePath || ".");
+  return absolute === root || absolute.startsWith(root + sep) ? absolute : null;
+}
+
+/** Resolve symlinks before containment so a link cannot become a path escape. */
+function containedRealPath(root: string, absolute: string): string | null {
+  const real = realpathSync(absolute);
+  return real === root || real.startsWith(root + sep) ? real : null;
+}
+
+class RequestTooLargeError extends Error {}
+
+async function readJsonBody(
+  req: IncomingMessage,
+  limit: number,
+): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  return new Promise((resolve, reject) => {
+    req.on("data", (chunk: Buffer | string) => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += buffer.length;
+      if (size > limit) {
+        req.pause();
+        reject(new RequestTooLargeError());
+        return;
+      }
+      chunks.push(buffer);
+    });
+    req.on("end", () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      } catch {
+        reject(new SyntaxError("invalid JSON"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+/** The read and write endpoints share one allowlist and containment check. */
+function workspaceFileTarget(
+  workspace: string,
+  relativePath: string,
+): { real: string; ext: string; size: number } | null {
+  const name = basename(relativePath).toLowerCase();
+  const ext =
+    extname(relativePath).toLowerCase() || (name.startsWith(".") ? name : "");
+  if (!FILE_EXTENSIONS.has(ext)) return null;
+  try {
+    const root = realpathSync(workspace);
+    const absolute = resolveInWorkspace(root, relativePath);
+    const real = absolute ? containedRealPath(root, absolute) : null;
+    const info = real ? statSync(real) : null;
+    if (!real || !info || !info.isFile()) return null;
+    return { real, ext, size: info.size };
+  } catch {
+    return null;
+  }
+}
+
+function sendText(res: ServerResponse, status: number, text: string): void {
+  res.writeHead(status, {
+    "content-type": "text/plain; charset=utf-8",
+    "content-length": Buffer.byteLength(text),
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'none'",
+  });
+  res.end(text);
+}
+
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  const payload = JSON.stringify(body);
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "content-length": Buffer.byteLength(payload),
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'none'",
+  });
+  res.end(payload);
+}
+
+function fileContentType(ext: string): string {
+  if (ext === ".html" || ext === ".htm" || ext === ".svg") {
+    return "text/plain; charset=utf-8";
+  }
+  return MIME[ext] ?? "text/plain; charset=utf-8";
+}
+
+function parseWorkspaceDiff(output: string): WorkspaceDiff {
+  const entries: WorkspaceDiffEntry[] = [];
+  let totalLines = 0;
+  let truncated = false;
+  for (const chunk of output.split(/(?=^diff --git )/m)) {
+    if (!chunk.startsWith("diff --git ")) continue;
+    if (entries.length >= WORKSPACE_DIFF_MAX_FILES) {
+      truncated = true;
+      break;
+    }
+    const header = /^\+\+\+ "?b\/(.+?)"?$/m.exec(chunk);
+    const fallback = /^--- "?a\/(.+?)"?$/m.exec(chunk);
+    const path = (header?.[1] ?? fallback?.[1] ?? "").replace(/^"|"$/g, "");
+    const entry: WorkspaceDiffEntry = {
+      path,
+      summary: "",
+      added: 0,
+      deleted: 0,
+      hunks: [],
+    };
+    let hunk: WorkspaceDiffHunk | null = null;
+    for (const line of chunk.split("\n")) {
+      if (line.startsWith("@@")) {
+        hunk = { header: line, lines: [] };
+        entry.hunks.push(hunk);
+        continue;
+      }
+      if (!hunk) continue;
+      const kind = line.startsWith("+")
+        ? "add"
+        : line.startsWith("-")
+          ? "del"
+          : line.startsWith(" ")
+            ? "context"
+            : null;
+      if (!kind) continue;
+      if (totalLines >= WORKSPACE_DIFF_MAX_LINES) {
+        truncated = true;
+        break;
+      }
+      hunk.lines.push({ type: kind, text: line.slice(1) });
+      totalLines += 1;
+      if (kind === "add") entry.added += 1;
+      else if (kind === "del") entry.deleted += 1;
+    }
+    entry.summary = `+${entry.added} -${entry.deleted}`;
+    entries.push(entry);
+    if (truncated) break;
+  }
+  return { entries, truncated };
+}
+
+function workspaceDiff(workspace: string): WorkspaceDiff {
+  const env = {
+    ...process.env,
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_PAGER: "cat",
+  };
+  const args = ["diff", "--no-color", "--no-ext-diff", "--no-textconv"];
+  let result = spawnSync("git", [...args, "HEAD", "--"], {
+    cwd: workspace,
+    encoding: "utf8",
+    env,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  if (result.status !== 0 && !result.stdout) {
+    const fallback = spawnSync("git", [...args, "--"], {
+      cwd: workspace,
+      encoding: "utf8",
+      env,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    if (fallback.stdout) result = fallback;
+  }
+  const diff = parseWorkspaceDiff(result.stdout ?? "");
+  if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ENOBUFS") {
+    diff.truncated = true;
+  }
+  return diff;
+}
+
+function workspaceTree(
+  rootPath: string,
+  requested: string,
+  recursive: boolean,
+): WorkspaceTreeListing | null {
+  const root = realpathSync(rootPath);
+  const absolute = resolveInWorkspace(root, normalizedRelativePath(requested));
+  if (!absolute) return null;
+  const start = containedRealPath(root, absolute);
+  if (!start || !statSync(start).isDirectory()) return null;
+
+  const path = relative(root, start).split(sep).join("/");
+  const entries: WorkspaceTreeEntry[] = [];
+  const queue = [{ dir: start, path }];
+  let truncated = false;
+  while (queue.length > 0 && !truncated) {
+    const level = queue.shift()!;
+    const children = readdirSync(level.dir, { withFileTypes: true })
+      .map((child) => {
+        try {
+          const real = containedRealPath(root, join(level.dir, child.name));
+          if (!real) return null;
+          const info = statSync(real);
+          const type = info.isDirectory()
+            ? "dir"
+            : info.isFile()
+              ? "file"
+              : null;
+          if (!type) return null;
+          return {
+            name: child.name,
+            path: level.path ? `${level.path}/${child.name}` : child.name,
+            type,
+            size: type === "file" ? info.size : undefined,
+            real,
+            symlink: child.isSymbolicLink(),
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter((child): child is NonNullable<typeof child> => child !== null);
+    children.sort((a, b) =>
+      a.type !== b.type
+        ? a.type === "dir"
+          ? -1
+          : 1
+        : naturalCompare(a.name, b.name),
+    );
+    if (children.length > WORKSPACE_TREE_MAX_ENTRIES) truncated = true;
+    for (const child of children.slice(0, WORKSPACE_TREE_MAX_ENTRIES)) {
+      if (entries.length >= WORKSPACE_TREE_MAX_NODES) {
+        truncated = true;
+        break;
+      }
+      entries.push(
+        child.type === "file" && child.size !== undefined
+          ? {
+              name: child.name,
+              path: child.path,
+              type: "file",
+              size: child.size,
+            }
+          : { name: child.name, path: child.path, type: "dir" },
+      );
+      if (recursive && child.type === "dir" && !child.symlink) {
+        queue.push({ dir: child.real, path: child.path });
+      }
+    }
+  }
+  return {
+    path,
+    parent: path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : null,
+    entries,
+    truncated,
+  };
+}
+
 interface PendingApproval {
   turnId: number;
   message: ServerMessage;
@@ -248,6 +620,17 @@ interface PendingQuestion {
   resolve: (outcome: QuestionOutcome) => void;
   signal?: AbortSignal;
   onAbort?: () => void;
+}
+
+interface TerminalSession {
+  id: string;
+  owner: WebSocket;
+  process: IPty;
+  outputChars: number;
+  capped: boolean;
+  finished: boolean;
+  exited: Promise<void>;
+  resolveExit: () => void;
 }
 
 export async function startWebServer(
@@ -391,6 +774,170 @@ export async function startWebServer(
 
   const fail = (client: WebSocket, err: unknown): void => {
     sendTo(client, { type: "error", message: errorText(err) });
+  };
+
+  const terminals = new Map<string, TerminalSession>();
+
+  const finishTerminal = (session: TerminalSession, code: number): void => {
+    if (session.finished) return;
+    session.finished = true;
+    terminals.delete(session.id);
+    session.resolveExit();
+    broadcast({ type: "terminal_exited", id: session.id, code });
+  };
+
+  const terminateTerminal = (session: TerminalSession): void => {
+    if (session.finished) return;
+    terminals.delete(session.id);
+    try {
+      session.process.kill();
+    } catch {
+      finishTerminal(session, -1);
+    }
+  };
+
+  const shellPath = (): string =>
+    process.platform === "win32" ? "cmd.exe" : (process.env.SHELL ?? "/bin/sh");
+
+  const startTerminal = async (
+    client: WebSocket,
+    id: string,
+    cols?: number,
+    rows?: number,
+  ): Promise<void> => {
+    if (currentMode === "plan") {
+      sendTo(client, {
+        type: "error",
+        message: "terminals are unavailable in plan mode",
+      });
+      return;
+    }
+    if (options.approvals.mode === "deny") {
+      sendTo(client, {
+        type: "error",
+        message: "this viewer cannot open a terminal",
+      });
+      return;
+    }
+    const persona = options.runtime.getPersona();
+    const permission = resolveToolPermission(
+      persona?.permissions,
+      "bash",
+      permissionInvocation("bash", { command: TERMINAL_INVOCATION }),
+    );
+    if (permission?.decision === "deny") {
+      sendTo(client, {
+        type: "error",
+        message: "persona permissions deny terminal access",
+      });
+      return;
+    }
+    if (terminals.size >= TERMINAL_MAX_SESSIONS) {
+      sendTo(client, {
+        type: "error",
+        message: "at most four terminal sessions may run at once",
+      });
+      return;
+    }
+    if (terminals.has(id)) {
+      sendTo(client, {
+        type: "error",
+        message: "terminal session already exists",
+      });
+      return;
+    }
+    let cwd: string;
+    try {
+      cwd = realpathSync(workspace);
+    } catch (err) {
+      fail(client, err);
+      return;
+    }
+    const allowed = await checkApproval(options.approvals, {
+      command: `${TERMINAL_INVOCATION} (${shellPath()})`,
+      cwd,
+      timeoutMs: 0,
+      sandboxed: false,
+      tool: "bash",
+    });
+    if (!allowed.allowed) {
+      sendTo(client, {
+        type: "error",
+        message: "terminal approval was denied",
+      });
+      return;
+    }
+    if (closing || !clients.has(client)) return;
+    try {
+      const child = spawnPty(shellPath(), [], {
+        cwd,
+        cols: cols ?? 80,
+        rows: rows ?? 24,
+        env: { ...process.env, TERM: "xterm-256color" },
+      });
+      let resolveExit = (): void => {};
+      const exited = new Promise<void>((resolve) => {
+        resolveExit = resolve;
+      });
+      const session: TerminalSession = {
+        id,
+        owner: client,
+        process: child,
+        outputChars: 0,
+        capped: false,
+        finished: false,
+        exited,
+        resolveExit,
+      };
+      terminals.set(id, session);
+      child.onData((data) => {
+        if (session.finished) return;
+        const raw = data;
+        if (session.outputChars >= TERMINAL_OUTPUT_MAX_CHARS) {
+          if (!session.capped) {
+            session.capped = true;
+            sendTo(client, {
+              type: "error",
+              message: `terminal output limit reached (${TERMINAL_OUTPUT_MAX_CHARS} characters)`,
+            });
+          }
+          return;
+        }
+        const remaining = TERMINAL_OUTPUT_MAX_CHARS - session.outputChars;
+        const text = raw.length > remaining ? raw.slice(0, remaining) : raw;
+        session.outputChars += text.length;
+        if (text) sendTo(client, { type: "terminal_output", id, data: text });
+      });
+      child.onExit(({ exitCode }) => {
+        finishTerminal(session, exitCode ?? -1);
+      });
+      sendTo(client, { type: "terminal_started", id });
+    } catch (err) {
+      terminals.delete(id);
+      fail(client, err);
+    }
+  };
+
+  const activeTerminal = (
+    client: WebSocket,
+    id: string,
+  ): TerminalSession | null => {
+    const session = terminals.get(id);
+    if (!session || session.finished) {
+      sendTo(client, {
+        type: "error",
+        message: "unknown terminal session",
+      });
+      return null;
+    }
+    if (session.owner !== client) {
+      sendTo(client, {
+        type: "error",
+        message: "terminal session belongs to another tab",
+      });
+      return null;
+    }
+    return session;
   };
 
   /** Expand `~`, resolve relative paths against the current workspace. */
@@ -989,6 +1536,148 @@ export async function startWebServer(
         res.end("missing or invalid token\n");
         return;
       }
+      if (url.pathname === "/diff") {
+        sendJson(res, 200, workspaceDiff(workspace));
+        return;
+      }
+      if (url.pathname === "/file" && req.method !== "PUT") {
+        const relativePath = normalizedRelativePath(
+          url.searchParams.get("path") ?? "",
+        );
+        const target = workspaceFileTarget(workspace, relativePath);
+        if (!target) {
+          sendText(res, 404, "not found\n");
+          return;
+        }
+        if (target.size > WORKSPACE_FILE_MAX_BYTES) {
+          sendText(res, 413, "file too large\n");
+          return;
+        }
+        try {
+          const bytes = await readFile(target.real);
+          res.writeHead(200, {
+            "content-type": fileContentType(target.ext),
+            "content-length": bytes.length,
+            "cache-control": "no-store",
+            "x-content-type-options": "nosniff",
+            "content-security-policy": "default-src 'none'",
+            "x-file-revision": createHash("sha256").update(bytes).digest("hex"),
+          });
+          res.end(bytes);
+        } catch {
+          sendText(res, 404, "not found\n");
+        }
+        return;
+      }
+      if (url.pathname === "/file" && req.method === "PUT") {
+        const relativePath = normalizedRelativePath(
+          url.searchParams.get("path") ?? "",
+        );
+        const target = workspaceFileTarget(workspace, relativePath);
+        if (!target) {
+          req.resume();
+          sendText(res, 404, "not found\n");
+          return;
+        }
+        if (currentMode === "plan") {
+          req.resume();
+          sendText(res, 403, "plan mode does not allow file edits\n");
+          return;
+        }
+        if (options.approvals.mode === "deny") {
+          req.resume();
+          sendText(res, 403, "file edits are not allowed for this viewer\n");
+          return;
+        }
+        const persona = options.runtime.getPersona();
+        const invocation = permissionInvocation("edit", { path: relativePath });
+        const permission = resolveToolPermission(
+          persona?.permissions,
+          "edit",
+          invocation,
+        );
+        if (permission?.decision === "deny") {
+          req.resume();
+          sendText(res, 403, "persona permissions deny file edits\n");
+          return;
+        }
+        if (permission?.decision === "ask") {
+          const approved = await checkApproval(options.approvals, {
+            command: `edit: ${relativePath}`,
+            cwd: realpathSync(workspace),
+            timeoutMs: 0,
+            sandboxed: false,
+            tool: "edit",
+          });
+          if (!approved.allowed) {
+            req.resume();
+            sendText(res, 403, "file edit approval was denied\n");
+            return;
+          }
+        }
+        let payload: unknown;
+        try {
+          payload = await readJsonBody(req, WORKSPACE_WRITE_BODY_MAX_BYTES);
+        } catch (err) {
+          req.resume();
+          if (err instanceof RequestTooLargeError) {
+            sendText(res, 413, "content too large\n");
+          } else {
+            sendText(res, 400, "malformed JSON body\n");
+          }
+          return;
+        }
+        if (
+          !payload ||
+          typeof payload !== "object" ||
+          typeof (payload as { revision?: unknown }).revision !== "string" ||
+          !/^[0-9a-f]{64}$/.test((payload as { revision: string }).revision) ||
+          typeof (payload as { content?: unknown }).content !== "string"
+        ) {
+          sendText(res, 400, "revision and content are required\n");
+          return;
+        }
+        const { revision, content } = payload as {
+          revision: string;
+          content: string;
+        };
+        const bytes = Buffer.from(content, "utf8");
+        if (bytes.length > WORKSPACE_FILE_MAX_BYTES) {
+          sendText(res, 413, "content too large\n");
+          return;
+        }
+        try {
+          const current = await readFile(target.real);
+          if (createHash("sha256").update(current).digest("hex") !== revision) {
+            sendText(res, 409, "file revision is stale\n");
+            return;
+          }
+          writeFileSync(target.real, bytes);
+        } catch {
+          sendText(res, 404, "not found\n");
+          return;
+        }
+        const result: WorkspaceFileWriteResult = {
+          revision: createHash("sha256").update(bytes).digest("hex"),
+        };
+        sendJson(res, 200, result);
+        return;
+      }
+      if (url.pathname === "/tree") {
+        try {
+          const listing = workspaceTree(
+            workspace,
+            url.searchParams.get("path") ?? "",
+            url.searchParams.get("recursive") === "1" ||
+              url.searchParams.get("recursive") === "true",
+          );
+          if (!listing) sendText(res, 404, "not found\n");
+          else sendJson(res, 200, listing);
+        } catch {
+          sendText(res, 404, "not found\n");
+        }
+        return;
+      }
       if (url.pathname === "/image") {
         const raw = url.searchParams.get("path") ?? "";
         let target = raw.trim();
@@ -1393,6 +2082,36 @@ export async function startWebServer(
           }
         })();
         return;
+      case "terminal_open":
+        if (!requireController(client)) return;
+        void startTerminal(client, message.id, message.cols, message.rows);
+        return;
+      case "terminal_input": {
+        const session = activeTerminal(client, message.id);
+        if (!session) return;
+        try {
+          session.process.write(message.data);
+        } catch (err) {
+          fail(client, err);
+        }
+        return;
+      }
+      case "terminal_resize": {
+        const session = activeTerminal(client, message.id);
+        if (!session) return;
+        try {
+          session.process.resize(message.cols, message.rows);
+        } catch (err) {
+          fail(client, err);
+        }
+        return;
+      }
+      case "terminal_close": {
+        const session = activeTerminal(client, message.id);
+        if (!session) return;
+        terminateTerminal(session);
+        return;
+      }
     }
   };
 
@@ -1449,6 +2168,9 @@ export async function startWebServer(
     });
 
     ws.on("close", () => {
+      for (const session of [...terminals.values()]) {
+        if (session.owner === ws) terminateTerminal(session);
+      }
       clients.delete(ws);
       if (controller === ws) {
         controller = [...clients][0] ?? null;
@@ -1486,6 +2208,19 @@ export async function startWebServer(
       if (closePromise) return closePromise;
       closePromise = (async () => {
         closing = true;
+        const sessions = [...terminals.values()];
+        for (const session of sessions) {
+          terminateTerminal(session);
+        }
+        if (sessions.length > 0) {
+          await Promise.race([
+            Promise.all(sessions.map((session) => session.exited)),
+            new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, 2_000);
+              timer.unref?.();
+            }),
+          ]);
+        }
         const httpClosed = new Promise<void>((resolve) =>
           httpServer.close(() => resolve()),
         );

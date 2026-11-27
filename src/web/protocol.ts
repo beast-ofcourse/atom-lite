@@ -30,6 +30,62 @@ export interface DirectoryListing {
   directories: Array<{ name: string; path: string }>;
 }
 
+/** One file or directory in a workspace tree listing. Paths are relative. */
+export interface WorkspaceTreeEntry {
+  name: string;
+  path: string;
+  type: "dir" | "file";
+  /** File size in bytes; absent for directories. */
+  size?: number;
+}
+
+/** One bounded directory level, or a recursive walk when requested. */
+export interface WorkspaceTreeListing {
+  path: string;
+  parent: string | null;
+  entries: WorkspaceTreeEntry[];
+  truncated: boolean;
+}
+
+/** One line of a unified workspace diff, without its diff prefix. */
+export interface WorkspaceDiffLine {
+  type: "add" | "del" | "context";
+  text: string;
+}
+
+/** One hunk of a workspace diff for a single file. */
+export interface WorkspaceDiffHunk {
+  header: string;
+  lines: WorkspaceDiffLine[];
+}
+
+/** One changed file in the workspace diff. */
+export interface WorkspaceDiffEntry {
+  path: string;
+  summary: string;
+  added: number;
+  deleted: number;
+  hunks: WorkspaceDiffHunk[];
+}
+
+/** Bounded workspace changes returned by the read-only diff endpoint. */
+export interface WorkspaceDiff {
+  entries: WorkspaceDiffEntry[];
+  truncated: boolean;
+}
+
+/** Body of a guarded workspace file save. */
+export interface WorkspaceFileWrite {
+  /** SHA-256 hex revision returned by the last read or write. */
+  revision: string;
+  content: string;
+}
+
+/** Revision of a workspace file after a successful save. */
+export interface WorkspaceFileWriteResult {
+  revision: string;
+}
+
 /** One skill exposed by the runtime's skill registry. */
 export interface WebSkill {
   name: string;
@@ -96,7 +152,17 @@ export type ClientMessage =
   | { type: "remove_attachment"; path: string }
   | { type: "list_skills" }
   | { type: "list_mcp" }
-  | { type: "set_mcp_enabled"; name: string; enabled: boolean };
+  | { type: "set_mcp_enabled"; name: string; enabled: boolean }
+  | {
+      type: "terminal_open";
+      id: string;
+      /** Initial pane size; resize messages keep full-screen programs in sync. */
+      cols?: number;
+      rows?: number;
+    }
+  | { type: "terminal_input"; id: string; data: string }
+  | { type: "terminal_resize"; id: string; cols: number; rows: number }
+  | { type: "terminal_close"; id: string };
 
 export type SessionListing = Pick<
   SessionSummary,
@@ -215,12 +281,30 @@ export type ServerMessage =
   | { type: "mcp"; servers: WebMcpServer[] }
   | { type: "directory"; listing: DirectoryListing }
   | { type: "control"; readOnly: boolean }
+  | { type: "terminal_started"; id: string }
+  | { type: "terminal_output"; id: string; data: string }
+  | { type: "terminal_exited"; id: string; code: number | null }
   | { type: "error"; message: string };
 
 export type ClientParseResult = { message: ClientMessage } | { error: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function terminalId(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 && value.length <= 128
+    ? value
+    : null;
+}
+
+function terminalSize(value: unknown): number | null {
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= 1000
+    ? value
+    : null;
 }
 
 /** Parse one WebSocket text frame into a known message, or an error string. */
@@ -454,6 +538,51 @@ export function parseClientMessage(raw: string): ClientParseResult {
           enabled: value.enabled,
         },
       };
+    case "terminal_open": {
+      const id = terminalId(value.id);
+      if (!id) return { error: "terminal_open needs an id" };
+      const cols = value.cols === undefined ? null : terminalSize(value.cols);
+      const rows = value.rows === undefined ? null : terminalSize(value.rows);
+      if (cols === null && value.cols !== undefined) {
+        return { error: "terminal cols must be an integer between 1 and 1000" };
+      }
+      if (rows === null && value.rows !== undefined) {
+        return { error: "terminal rows must be an integer between 1 and 1000" };
+      }
+      return {
+        message: {
+          type: "terminal_open",
+          id,
+          ...(cols !== null ? { cols } : {}),
+          ...(rows !== null ? { rows } : {}),
+        },
+      };
+    }
+    case "terminal_input": {
+      const id = terminalId(value.id);
+      if (!id) return { error: "terminal_input needs an id" };
+      if (typeof value.data !== "string") {
+        return { error: "terminal_input data must be a string" };
+      }
+      return { message: { type: "terminal_input", id, data: value.data } };
+    }
+    case "terminal_resize": {
+      const id = terminalId(value.id);
+      if (!id) return { error: "terminal_resize needs an id" };
+      const cols = terminalSize(value.cols);
+      const rows = terminalSize(value.rows);
+      if (cols === null || rows === null) {
+        return {
+          error: "terminal_resize needs cols and rows between 1 and 1000",
+        };
+      }
+      return { message: { type: "terminal_resize", id, cols, rows } };
+    }
+    case "terminal_close": {
+      const id = terminalId(value.id);
+      if (!id) return { error: "terminal_close needs an id" };
+      return { message: { type: "terminal_close", id } };
+    }
     default:
       return { error: "unknown message type" };
   }
