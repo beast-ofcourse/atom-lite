@@ -738,7 +738,7 @@ export function createFilesPane(deps, tab) {
   function showFile(path) {
     state.selected = path;
     tab.path = path;
-    tab.title = baseName(path);
+    deps.renameTab?.(tab.id, baseName(path));
     expandAncestors(path);
     renderTree(path);
     registry.set(path, tab.id);
