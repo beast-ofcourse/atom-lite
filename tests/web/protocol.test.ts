@@ -10,8 +10,9 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { once } from "node:events";
+import { createHash } from "node:crypto";
 import { request as httpRequest } from "node:http";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { WebSocket } from "ws";
 import { AgentRuntime } from "../../dist/agent/loop.js";
 import { FakeProvider } from "../../dist/providers/fake.js";
@@ -1964,6 +1965,369 @@ test("local images are served from the workspace behind the token", async () => 
     endpoint.searchParams.delete("token");
     endpoint.searchParams.set("path", "assets/pixel.png");
     assert.equal((await fetch(endpoint)).status, 401);
+  } finally {
+    await server.close();
+  }
+});
+
+// Reason: spec (right workbench) — the file tree and the @ picker both read
+// one directory at a time, with dirs first and natural case-insensitive order.
+test("the workspace tree lists directories first in natural order", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-tree-ws-"));
+  mkdirSync(join(workspace, "src"));
+  mkdirSync(join(workspace, "assets"));
+  mkdirSync(join(workspace, "Zed"));
+  writeFileSync(join(workspace, "app.ts"), "const x = 1;\n");
+  writeFileSync(join(workspace, "App2.ts"), "two");
+  writeFileSync(join(workspace, "app10.ts"), "ten");
+  writeFileSync(join(workspace, "src", "nested.ts"), "nested");
+  const built = buildRuntime([], { workspace });
+  const server = await start(built);
+  try {
+    const endpoint = new URL("/tree", server.url);
+    endpoint.searchParams.set("token", server.token);
+    const root = await (await fetch(endpoint)).json();
+    assert.equal(root.path, "");
+    assert.equal(root.parent, null);
+    assert.deepEqual(
+      root.entries.map((entry: any) => entry.name),
+      ["assets", "src", "Zed", "app.ts", "App2.ts", "app10.ts"],
+    );
+    assert.deepEqual(
+      root.entries.map((entry: any) => entry.type),
+      ["dir", "dir", "dir", "file", "file", "file"],
+    );
+    assert.deepEqual(root.entries[3], {
+      name: "app.ts",
+      path: "app.ts",
+      type: "file",
+      size: 13,
+    });
+    assert.equal("size" in root.entries[0], false);
+    assert.equal(root.truncated, false);
+
+    endpoint.searchParams.set("path", "src");
+    const nested = await (await fetch(endpoint)).json();
+    assert.equal(nested.path, "src");
+    assert.equal(nested.parent, null);
+    assert.deepEqual(nested.entries, [
+      { name: "nested.ts", path: "src/nested.ts", type: "file", size: 6 },
+    ]);
+  } finally {
+    await server.close();
+  }
+});
+
+// Reason: the tree is the browser's view into the workspace, so every escape
+// and guard must hold there too, and huge directories must be bound before a
+// browser can enumerate them.
+test("the workspace tree is token-guarded, contained, and bounded", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-tree-guard-ws-"));
+  mkdirSync(join(workspace, "small"));
+  writeFileSync(join(workspace, "small", "a.txt"), "a");
+  mkdirSync(join(workspace, "many"));
+  for (let index = 0; index < 505; index += 1) {
+    writeFileSync(join(workspace, "many", `f${index}.txt`), "x");
+  }
+  for (let dir = 0; dir < 11; dir += 1) {
+    const name = `bulk${dir}`;
+    mkdirSync(join(workspace, name));
+    for (let index = 0; index < 460; index += 1) {
+      writeFileSync(join(workspace, name, `${index}.txt`), "x");
+    }
+  }
+  symlinkSync("/etc/hosts", join(workspace, "leak.txt"));
+  symlinkSync("/etc", join(workspace, "leak-dir"));
+  const built = buildRuntime([], { workspace });
+  const server = await start(built);
+  try {
+    const endpoint = new URL("/tree", server.url);
+    endpoint.searchParams.set("token", server.token);
+
+    endpoint.searchParams.set("path", "many");
+    const many = await (await fetch(endpoint)).json();
+    assert.equal(many.entries.length, 500);
+    assert.equal(many.truncated, true);
+
+    endpoint.searchParams.set("path", "");
+    const root = await (await fetch(endpoint)).json();
+    assert.equal(
+      root.entries.some((entry: any) => entry.name.startsWith("leak")),
+      false,
+    );
+    for (const path of [
+      "leak.txt",
+      "leak-dir",
+      "../../etc",
+      "a".repeat(5000),
+      "small/a.txt",
+    ]) {
+      endpoint.searchParams.set("path", path);
+      assert.equal((await fetch(endpoint)).status, 404, `path ${path}`);
+    }
+
+    endpoint.searchParams.delete("token");
+    endpoint.searchParams.set("path", "small");
+    assert.equal((await fetch(endpoint)).status, 401);
+    endpoint.searchParams.set("token", server.token);
+    assert.equal(
+      (
+        await fetch(endpoint, {
+          headers: { Origin: "http://evil.example" },
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      await rawStatus(
+        server.port,
+        { Host: "evil.example" },
+        `/tree?path=small&token=${server.token}`,
+      ),
+      403,
+    );
+
+    endpoint.searchParams.set("path", "");
+    endpoint.searchParams.set("recursive", "1");
+    const recursive = await (await fetch(endpoint)).json();
+    assert.equal(recursive.entries.length, 5000);
+    assert.equal(recursive.truncated, true);
+  } finally {
+    await server.close();
+  }
+});
+
+// Reason: the file tab streams workspace bytes into the browser, so the
+// endpoint must harden the response and never turn a workspace file into an
+// active document or a local arbitrary-read primitive.
+test("workspace files are served with revisions and hardened headers", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-file-ws-"));
+  mkdirSync(join(workspace, "assets"));
+  const source = "export const answer = 42;\n";
+  const html = "<script>alert(1)</script>";
+  const svg = '<svg onload="alert(1)"></svg>';
+  const pdf = "%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n";
+  const pixel = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/AF+G3FFAAAAAElFTkSuQmCC",
+    "base64",
+  );
+  writeFileSync(join(workspace, "src.ts"), source);
+  writeFileSync(join(workspace, "page.html"), html);
+  writeFileSync(join(workspace, "icon.svg"), svg);
+  writeFileSync(join(workspace, "report.pdf"), pdf);
+  writeFileSync(join(workspace, "assets", "pixel.png"), pixel);
+  writeFileSync(join(workspace, ".env"), "TOKEN=local\n");
+  writeFileSync(join(workspace, "app.lock"), "lock\n");
+  writeFileSync(join(workspace, "binary.exe"), "MZ");
+  writeFileSync(
+    join(workspace, "huge.txt"),
+    Buffer.alloc(20 * 1024 * 1024 + 1),
+  );
+  symlinkSync("/etc/hosts", join(workspace, "leak.txt"));
+  const built = buildRuntime([], { workspace });
+  const server = await start(built);
+  try {
+    const endpoint = new URL("/file", server.url);
+    endpoint.searchParams.set("token", server.token);
+    endpoint.searchParams.set("path", "src.ts");
+    const ok = await fetch(endpoint);
+    assert.equal(ok.status, 200);
+    assert.equal(await ok.text(), source);
+    assert.match(ok.headers.get("content-type") ?? "", /^text\/plain/);
+    assert.equal(Number(ok.headers.get("content-length")), source.length);
+    assert.equal(ok.headers.get("cache-control"), "no-store");
+    assert.equal(ok.headers.get("x-content-type-options"), "nosniff");
+    assert.equal(
+      ok.headers.get("content-security-policy"),
+      "default-src 'none'",
+    );
+    assert.equal(
+      ok.headers.get("x-file-revision"),
+      createHash("sha256").update(source).digest("hex"),
+    );
+
+    for (const [name, expected] of [
+      ["page.html", html],
+      ["icon.svg", svg],
+    ]) {
+      endpoint.searchParams.set("path", name);
+      const response = await fetch(endpoint);
+      assert.match(response.headers.get("content-type") ?? "", /^text\/plain/);
+      assert.equal(await response.text(), expected);
+    }
+    endpoint.searchParams.set("path", "report.pdf");
+    assert.match(
+      (await fetch(endpoint)).headers.get("content-type") ?? "",
+      /^application\/pdf/,
+    );
+    endpoint.searchParams.set("path", "assets/pixel.png");
+    const image = await fetch(endpoint);
+    assert.match(image.headers.get("content-type") ?? "", /^image\/png/);
+    assert.deepEqual(Buffer.from(await image.arrayBuffer()), pixel);
+
+    for (const path of [".env", "app.lock"]) {
+      endpoint.searchParams.set("path", path);
+      const response = await fetch(endpoint);
+      assert.equal(response.status, 200, `path ${path}`);
+      assert.match(response.headers.get("content-type") ?? "", /^text\/plain/);
+    }
+
+    for (const path of [
+      "binary.exe",
+      "huge.txt",
+      "missing.txt",
+      "leak.txt",
+      "../../etc/passwd",
+      "assets",
+      "a".repeat(5000),
+    ]) {
+      endpoint.searchParams.set("path", path);
+      assert.notEqual((await fetch(endpoint)).status, 200, `path ${path}`);
+    }
+
+    endpoint.searchParams.set("path", "src.ts");
+    endpoint.searchParams.delete("token");
+    assert.equal((await fetch(endpoint)).status, 401);
+    endpoint.searchParams.set("token", server.token);
+    assert.equal(
+      (
+        await fetch(endpoint, {
+          headers: { Origin: "http://evil.example" },
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      await rawStatus(
+        server.port,
+        { Host: "evil.example" },
+        `/file?path=src.ts&token=${server.token}`,
+      ),
+      403,
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+// Reason: the Review tab renders workspace changes, so the diff endpoint must
+// return real hunks behind the same token and origin guards as file reads.
+test("the workspace diff returns real hunks behind the token", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-diff-ws-"));
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd: workspace, stdio: "pipe" });
+  writeFileSync(join(workspace, "app.ts"), "one\ntwo\nthree\n");
+  git("init", "-q");
+  git("config", "user.email", "test@example.test");
+  git("config", "user.name", "Test");
+  git("add", ".");
+  git("commit", "-qm", "initial");
+  writeFileSync(join(workspace, "app.ts"), "one\nTWO\nthree\nfour\n");
+  const built = buildRuntime([], { workspace });
+  const server = await start(built);
+  try {
+    const endpoint = new URL("/diff", server.url);
+    endpoint.searchParams.set("token", server.token);
+    const diff = await (await fetch(endpoint)).json();
+    assert.equal(diff.truncated, false);
+    assert.equal(diff.entries.length, 1);
+    const entry = diff.entries[0];
+    assert.equal(entry.path, "app.ts");
+    assert.equal(entry.added, 2);
+    assert.equal(entry.deleted, 1);
+    assert.equal(entry.summary, "+2 -1");
+    assert.equal(entry.hunks.length, 1);
+    assert.match(entry.hunks[0].header, /^@@/);
+    assert.deepEqual(
+      entry.hunks[0].lines.filter((line: any) => line.type !== "context"),
+      [
+        { type: "del", text: "two" },
+        { type: "add", text: "TWO" },
+        { type: "add", text: "four" },
+      ],
+    );
+    assert.equal(
+      entry.hunks[0].lines.some((line: any) => line.text === "one"),
+      true,
+    );
+
+    endpoint.searchParams.delete("token");
+    assert.equal((await fetch(endpoint)).status, 401);
+    endpoint.searchParams.set("token", server.token);
+    assert.equal(
+      (
+        await fetch(endpoint, {
+          headers: { Origin: "http://evil.example" },
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      await rawStatus(
+        server.port,
+        { Host: "evil.example" },
+        `/diff?token=${server.token}`,
+      ),
+      403,
+    );
+
+    const emptyWorkspace = mkdtempSync(join(tmpdir(), "web-diff-empty-ws-"));
+    const emptyServer = await start(
+      buildRuntime([], { workspace: emptyWorkspace }),
+    );
+    try {
+      const emptyEndpoint = new URL("/diff", emptyServer.url);
+      emptyEndpoint.searchParams.set("token", emptyServer.token);
+      const empty = await (await fetch(emptyEndpoint)).json();
+      assert.deepEqual(empty, { entries: [], truncated: false });
+    } finally {
+      await emptyServer.close();
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+// Reason: a huge change must not stall the Review tab, so both the file count
+// and the line count are capped and reported as truncation.
+test("the workspace diff caps files and lines", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-diff-caps-ws-"));
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd: workspace, stdio: "pipe" });
+  const files = 205;
+  for (let index = 0; index < files; index += 1) {
+    writeFileSync(join(workspace, `file${index}.txt`), "old\n");
+  }
+  git("init", "-q");
+  git("config", "user.email", "test@example.test");
+  git("config", "user.name", "Test");
+  git("add", ".");
+  git("commit", "-qm", "initial");
+  for (let index = 0; index < files; index += 1) {
+    const changed =
+      index === 0
+        ? Array.from({ length: 20_500 }, (_, line) => `line ${line}`).join("\n")
+        : "new\n";
+    writeFileSync(join(workspace, `file${index}.txt`), changed);
+  }
+  const built = buildRuntime([], { workspace });
+  const server = await start(built);
+  try {
+    const endpoint = new URL("/diff", server.url);
+    endpoint.searchParams.set("token", server.token);
+    const diff = await (await fetch(endpoint)).json();
+    assert.equal(diff.truncated, true);
+    assert.ok(diff.entries.length <= 200);
+    const lines = diff.entries.reduce(
+      (total: number, entry: any) =>
+        total +
+        entry.hunks.reduce(
+          (sum: number, hunk: any) => sum + hunk.lines.length,
+          0,
+        ),
+      0,
+    );
+    assert.ok(lines <= 20_000);
   } finally {
     await server.close();
   }
