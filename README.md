@@ -2,6 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/atom-lite?color=2c806b&logo=npm)](https://www.npmjs.com/package/atom-lite)
 [![npm downloads](https://img.shields.io/npm/dm/atom-lite?color=2c806b&logo=npm)](https://www.npmjs.com/package/atom-lite)
+[![npm total downloads](https://img.shields.io/badge/npm_total_downloads-6.2k-2c806b?logo=npm)](https://www.npmjs.com/package/atom-lite)
 [![CI](https://github.com/beast-ofcourse/atom-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/beast-ofcourse/atom-lite/actions/workflows/ci.yml)
 [![license](https://img.shields.io/github/license/beast-ofcourse/atom-lite?color=2c806b)](./LICENSE)
 [![node](https://img.shields.io/node/v/atom-lite?color=2c806b&logo=node.js)](https://nodejs.org)
