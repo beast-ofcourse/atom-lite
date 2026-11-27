@@ -8,6 +8,7 @@
 //             | model_changed | runtime_state | models
 //             | agents | agent_changed | attachment | attachment_removed
 //             | skills | mcp | directory | control | error
+//             | terminal_started | terminal_output | terminal_exited
 //   client -> input | stop | approval | question_response | question_dismiss
 //             | list_sessions | new_session | resume_session
 //             | rename_session | delete_session | switch_model | list_agents
@@ -16,9 +17,20 @@
 //             | set_goal | set_goal_criteria | set_goal_constraints
 //             | goal_action | refresh_models | attach_file | remove_attachment
 //             | list_skills | list_mcp | set_mcp_enabled
+//             | terminal_open | terminal_input | terminal_resize | terminal_close
+//
+// HTTP (token in the query string), used by the workbench tabs:
+//   GET /tree?path=… | GET /file?path=… | PUT /file?path=… | GET /diff
+//   plus the existing tokenized /image and /vendor asset routes.
 
 import { buildDiffModel } from "./diff.js";
 import { createPacedText } from "./stream-text.js";
+import { createWorkbench } from "./workbench.js";
+import { registerFiles } from "./files.js";
+import { registerPdfPreview } from "./pdf-view.js";
+import { registerReview } from "./review.js";
+import { registerTerminal } from "./terminal.js";
+import { createMentionPicker } from "./mention.js";
 import {
   normalizeTodos,
   todoCounts,
@@ -113,8 +125,6 @@ const micButton = document.getElementById("mic-button");
 const micIcon = micButton.querySelector("use");
 const todoPanel = document.getElementById("todo-panel");
 const todoToggle = document.getElementById("todo-toggle");
-const todoClose = document.getElementById("todo-close");
-const todoScrim = document.getElementById("todo-scrim");
 const todoList = document.getElementById("todo-list");
 const todoSummary = document.getElementById("todo-summary");
 const todoCount = document.getElementById("todo-count");
@@ -123,7 +133,6 @@ const goalStatement = document.getElementById("goal-statement");
 const goalStatus = document.getElementById("goal-status");
 const goalCriteria = document.getElementById("goal-criteria");
 const goalConstraints = document.getElementById("goal-constraints");
-const todoResizer = document.getElementById("todo-resizer");
 
 // Tool cards cap the visible tail, like the terminal caps live output. The
 // full text stays in the card's data until the card is rebuilt.
@@ -131,16 +140,13 @@ const MAX_TOOL_OUTPUT_CHARS = 60_000;
 const MAX_TOOL_OUTPUT_LINES = 400;
 const MAX_INPUT_HEIGHT = 200;
 const PINNED_SESSIONS_KEY = "atom-lite.web.pinned";
+const WORKSPACE_KEY = "atom-lite.web.workspace";
 const SIDEBAR_KEY = "atom-lite.web.sidebar";
 const SIDEBAR_WIDTH_KEY = "atom-lite.web.sidebar-width";
 const SIDEBAR_DEFAULT_WIDTH = 260;
 const SIDEBAR_MIN_WIDTH = 220;
 const SIDEBAR_MAX_WIDTH = 420;
 const TODO_KEY = "atom-lite.web.todos";
-const TODO_WIDTH_KEY = "atom-lite.web.todos-width";
-const TODO_DEFAULT_WIDTH = 300;
-const TODO_MIN_WIDTH = 240;
-const TODO_MAX_WIDTH = 480;
 const MARKDOWN_CACHE_LIMIT = 300;
 const MARKDOWN_CACHE_MAX_CHARS = 20_000;
 const HISTORY_PAGE_EVENTS = 80;
@@ -155,9 +161,10 @@ const markdown = window.markdownit
   : null;
 
 const mobileQuery = window.matchMedia("(max-width: 768px)");
-const todoOverlayQuery = window.matchMedia("(max-width: 1024px)");
 
 let socket = null;
+const socketListeners = new Set();
+let workbench = null;
 let readOnly = false;
 let pendingApproval = null;
 let lastApproval = null;
@@ -178,7 +185,7 @@ let currentModel = "";
 let modelsCache = [];
 let agentsCache = [];
 let activeAgent = null;
-let workspacePath = "";
+let workspacePath = storageGet(WORKSPACE_KEY) ?? "";
 let nativePickerAvailable = true;
 let sessionMenuTarget = null;
 let renameTargetId = null;
@@ -1665,22 +1672,12 @@ bindPanelResizer({
 let todos = [];
 let currentGoal = null;
 let compactionNotice = null;
-let todoPreference = storageGet(TODO_KEY);
-let todoWidth = TODO_DEFAULT_WIDTH;
-
-function isTodoOverlay() {
-  return todoOverlayQuery.matches;
-}
-
-function todoPanelOpen() {
-  return !todoPanel.hidden;
-}
 
 function clampPanelWidth(value, min, max) {
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
-/** One drag/keyboard resize contract for both side panels. */
+/** Drag and keyboard resize for the sidebar separator. */
 function bindPanelResizer({
   resizer,
   min,
@@ -1749,15 +1746,17 @@ function bindPanelResizer({
   });
 }
 
-function applyTodoWidth(value, persist = true) {
-  todoWidth = clampPanelWidth(value, TODO_MIN_WIDTH, TODO_MAX_WIDTH);
-  document.documentElement.style.setProperty("--todo-width", `${todoWidth}px`);
-  if (persist) storageSet(TODO_WIDTH_KEY, String(todoWidth));
+function tasksTabOpen() {
+  return Boolean(
+    workbench &&
+    !workbench.element.hidden &&
+    workbench.activeTab?.kind === "tasks",
+  );
 }
 
 function syncTodoToggleLabel() {
   const counts = todoCounts(todos);
-  const open = todoPanelOpen();
+  const open = tasksTabOpen();
   const suffix = counts.open > 0 ? `, ${counts.open} open` : "";
   todoToggle.setAttribute(
     "aria-label",
@@ -1767,11 +1766,7 @@ function syncTodoToggleLabel() {
 }
 
 function syncTodoPanel() {
-  const open = todoPanelOpen();
-  const overlay = open && isTodoOverlay();
-  todoToggle.setAttribute("aria-expanded", String(open));
-  todoScrim.hidden = !overlay;
-  document.body.classList.toggle("todo-open", overlay);
+  todoToggle.setAttribute("aria-expanded", String(tasksTabOpen()));
   syncTodoToggleLabel();
 }
 
@@ -1849,11 +1844,11 @@ function setTodos(value, { autoOpen = false } = {}) {
   if (
     autoOpen &&
     todos.length > 0 &&
-    todoPreference === null &&
-    !todoPanelOpen() &&
-    !isTodoOverlay()
+    storageGet(TODO_KEY) === null &&
+    !tasksTabOpen()
   ) {
-    openTodoPanel({ persist: false });
+    storageSet(TODO_KEY, "opened");
+    openTasksTab();
   }
 }
 
@@ -1925,54 +1920,45 @@ function clearCompactionNotice() {
   renderCompactionNotice();
 }
 
-function openTodoPanel({ persist = true } = {}) {
-  todoPanel.hidden = false;
-  if (persist) {
-    todoPreference = "open";
-    storageSet(TODO_KEY, "open");
-  }
+const todoInner = todoPanel.querySelector(".todo-inner");
+
+function ensureWorkbenchOpen() {
+  if (workbench?.element.hidden) document.querySelector(".wb-toggle")?.click();
+}
+
+function openTasksTab() {
+  if (!workbench) return;
+  ensureWorkbenchOpen();
+  workbench.openTab({ id: "tasks", kind: "tasks", title: "Tasks" });
   syncTodoPanel();
 }
 
-function closeTodoPanel({ persist = true } = {}) {
-  const hadFocus = todoPanel.contains(document.activeElement);
-  todoPanel.hidden = true;
-  if (persist) {
-    todoPreference = "closed";
-    storageSet(TODO_KEY, "closed");
-  }
+function closeTasksTab() {
+  const tab = workbench?.activeTab;
+  if (tab?.kind === "tasks") workbench.closeTab(tab.id);
   syncTodoPanel();
-  if (hadFocus) todoToggle.focus();
 }
 
-function toggleTodoPanel() {
-  if (todoPanelOpen()) {
-    closeTodoPanel();
-    return;
-  }
-  openTodoPanel();
-  if (isTodoOverlay()) todoClose.focus({ preventScroll: true });
+function toggleTasksTab() {
+  if (tasksTabOpen()) closeTasksTab();
+  else openTasksTab();
 }
 
-applyTodoWidth(Number(storageGet(TODO_WIDTH_KEY)) || TODO_DEFAULT_WIDTH, false);
+function createTasksPane() {
+  const pane = document.createElement("div");
+  pane.className = "wb-tasks-pane";
+  pane.append(todoInner);
+  return {
+    element: pane,
+    focus() {
+      todoList.querySelector("button, [tabindex]")?.focus?.();
+    },
+  };
+}
+
 renderTodos();
-if (todoPreference === "open") openTodoPanel({ persist: false });
-else syncTodoPanel();
-
-todoToggle.addEventListener("click", toggleTodoPanel);
-todoClose.addEventListener("click", () => closeTodoPanel());
-todoScrim.addEventListener("click", () => closeTodoPanel());
-todoOverlayQuery.addEventListener("change", () => syncTodoPanel());
-bindPanelResizer({
-  resizer: todoResizer,
-  min: TODO_MIN_WIDTH,
-  max: TODO_MAX_WIDTH,
-  defaultWidth: TODO_DEFAULT_WIDTH,
-  getWidth: () => todoWidth,
-  setWidth: applyTodoWidth,
-  direction: "right",
-  canResize: () => !isTodoOverlay(),
-});
+syncTodoPanel();
+todoToggle.addEventListener("click", toggleTasksTab);
 
 /* ---------------- toast ---------------- */
 
@@ -3213,6 +3199,7 @@ function handleMessage(message) {
       activeAgent = typeof message.agent === "string" ? message.agent : null;
       renderAgentLabel();
       workspacePath = message.workspace ?? workspacePath;
+      storageSet(WORKSPACE_KEY, workspacePath);
       currentMode = message.mode ?? "yolo";
       currentEffort = message.effort ?? "medium";
       renderRuntimeState();
@@ -3776,11 +3763,14 @@ function connect() {
     `${protocol}//${location.host}/?token=${encodeURIComponent(TOKEN)}`,
   );
   socket.addEventListener("message", (event) => {
+    let message;
     try {
-      handleMessage(JSON.parse(event.data));
+      message = JSON.parse(event.data);
     } catch {
-      /* ignore malformed frames */
+      return;
     }
+    handleMessage(message);
+    for (const listener of [...socketListeners]) listener(message);
   });
   socket.addEventListener("close", () => {
     metaEl.textContent = "disconnected — retrying…";
@@ -4185,12 +4175,24 @@ document.addEventListener("keydown", (event) => {
     openWorkspaceModal();
     return;
   }
-  if (modifier && event.key.toLowerCase() === "j") {
-    event.preventDefault();
-    toggleTodoPanel();
-    return;
+  if (modifier && event.altKey && !event.shiftKey) {
+    const key = event.key.toLowerCase();
+    if (key === "p") {
+      event.preventDefault();
+      openFileTab();
+      return;
+    }
+    if (key === "t") {
+      event.preventDefault();
+      openTerminalTab();
+      return;
+    }
+    if (key === "r") {
+      event.preventDefault();
+      openReviewTab();
+      return;
+    }
   }
-
   if (!approvalLayer.hidden) return;
 
   if (event.key === "Escape" && !questionModal.hidden) {
@@ -4237,14 +4239,14 @@ document.addEventListener("keydown", (event) => {
     closePopovers();
     return;
   }
-  if (document.body.classList.contains("todo-open")) {
-    event.preventDefault();
-    closeTodoPanel();
-    return;
-  }
   if (document.body.classList.contains("sidebar-open")) {
     event.preventDefault();
     closeMobileSidebar();
+    return;
+  }
+  if (workbench && !workbench.element.hidden) {
+    event.preventDefault();
+    document.querySelector(".wb-toggle")?.click();
     return;
   }
   if (turnActive && !readOnly) {
@@ -4252,6 +4254,134 @@ document.addEventListener("keydown", (event) => {
     stopAgent();
   }
 });
+
+/* ---------------- workbench ---------------- */
+
+function requestWithToken(path, init = {}) {
+  const joiner = path.includes("?") ? "&" : "?";
+  return fetch(`${path}${joiner}token=${encodeURIComponent(TOKEN)}`, init);
+}
+
+async function attachWorkspaceFile(path) {
+  try {
+    const response = await requestWithToken(
+      `/file?path=${encodeURIComponent(path)}`,
+    );
+    if (!response.ok) {
+      showToast(`File not found: ${path}`, "error");
+      return;
+    }
+    const name = path.split("/").pop() || path;
+    const file = new File([await response.blob()], name, {
+      type: response.headers.get("content-type") || "application/octet-stream",
+    });
+    await attachFiles([file]);
+  } catch (error) {
+    showToast(`Could not attach ${path}: ${error.message}`, "error");
+  }
+}
+
+function openFileTab() {
+  if (!workbench) return;
+  ensureWorkbenchOpen();
+  if (document.getElementById("wb-pane-files")) workbench.focusTab("files");
+  else workbench.openTab({ id: "files", kind: "file", title: "Files" });
+  requestAnimationFrame(() => {
+    document.querySelector(".wb-pane:not([hidden]) .files-filter")?.focus();
+  });
+}
+
+function openTerminalTab() {
+  if (!workbench) return;
+  ensureWorkbenchOpen();
+  const count = [...workbench.element.querySelectorAll(".wb-tab-title")].filter(
+    (label) => label.textContent.startsWith("Terminal"),
+  ).length;
+  workbench.openTab({
+    kind: "terminal",
+    title: `Terminal ${count + 1}`,
+    terminalId:
+      crypto.randomUUID?.() ??
+      `terminal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
+  });
+}
+
+function openReviewTab() {
+  if (!workbench) return;
+  ensureWorkbenchOpen();
+  workbench.openTab({ id: "review", kind: "review", title: "Review" });
+}
+
+const deps = {
+  token: TOKEN,
+  getWorkspace: () => workspacePath,
+  getReadOnly: () => readOnly,
+  getMode: () => currentMode,
+  request: requestWithToken,
+  send,
+  onSocket(listener) {
+    socketListeners.add(listener);
+    return () => socketListeners.delete(listener);
+  },
+  attachFile: attachWorkspaceFile,
+  toast: showToast,
+  storage: { get: storageGet, set: storageSet },
+  toggleHost: document.querySelector(".head-right"),
+};
+
+workbench = createWorkbench(deps);
+document.getElementById("app").append(workbench.element);
+
+const registerTabType = deps.registerTabType;
+deps.registerTabType = (kind, factory) =>
+  registerTabType(kind, (paneDeps, tab) => {
+    const pane = factory(paneDeps, tab);
+    if (pane?.element) pane.element.__atomPane = pane;
+    return pane;
+  });
+
+new MutationObserver((records) => {
+  for (const record of records) {
+    for (const node of record.removedNodes) {
+      node.firstElementChild?.__atomPane?.destroy?.();
+    }
+  }
+}).observe(workbench.element.querySelector(".wb-panes"), { childList: true });
+
+const workbenchScrim = document.createElement("div");
+workbenchScrim.className = "wb-scrim";
+workbenchScrim.hidden = true;
+workbenchScrim.addEventListener("click", () => {
+  if (!workbench.element.hidden) document.querySelector(".wb-toggle")?.click();
+});
+document.body.append(workbenchScrim);
+
+function syncWorkbenchScrim() {
+  workbenchScrim.hidden =
+    workbench.element.hidden ||
+    !window.matchMedia("(max-width: 1024px)").matches;
+}
+new MutationObserver(syncWorkbenchScrim).observe(workbench.element, {
+  attributes: true,
+  attributeFilter: ["hidden"],
+});
+window
+  .matchMedia("(max-width: 1024px)")
+  .addEventListener("change", syncWorkbenchScrim);
+document
+  .querySelector(".wb-toggle")
+  ?.addEventListener("click", syncWorkbenchScrim);
+syncWorkbenchScrim();
+
+registerFiles(deps);
+registerPdfPreview(deps);
+registerReview(deps);
+registerTerminal(deps);
+createMentionPicker(deps, inputEl);
+deps.registerTabType("tasks", createTasksPane);
+workbench.element
+  .querySelector(".wb-tabs")
+  .addEventListener("click", syncTodoPanel);
 
 renderAgentLabel();
 syncSendState();
