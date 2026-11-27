@@ -4244,6 +4244,8 @@ document.addEventListener("keydown", (event) => {
     closeMobileSidebar();
     return;
   }
+  // This listener runs before the workbench's, so Escape here must consume the
+  // key or an active turn would also be stopped.
   if (workbench && !workbench.element.hidden) {
     event.preventDefault();
     document.querySelector(".wb-toggle")?.click();
@@ -4331,47 +4333,6 @@ const deps = {
 
 workbench = createWorkbench(deps);
 document.getElementById("app").append(workbench.element);
-
-const registerTabType = deps.registerTabType;
-deps.registerTabType = (kind, factory) =>
-  registerTabType(kind, (paneDeps, tab) => {
-    const pane = factory(paneDeps, tab);
-    if (pane?.element) pane.element.__atomPane = pane;
-    return pane;
-  });
-
-new MutationObserver((records) => {
-  for (const record of records) {
-    for (const node of record.removedNodes) {
-      node.firstElementChild?.__atomPane?.destroy?.();
-    }
-  }
-}).observe(workbench.element.querySelector(".wb-panes"), { childList: true });
-
-const workbenchScrim = document.createElement("div");
-workbenchScrim.className = "wb-scrim";
-workbenchScrim.hidden = true;
-workbenchScrim.addEventListener("click", () => {
-  if (!workbench.element.hidden) document.querySelector(".wb-toggle")?.click();
-});
-document.body.append(workbenchScrim);
-
-function syncWorkbenchScrim() {
-  workbenchScrim.hidden =
-    workbench.element.hidden ||
-    !window.matchMedia("(max-width: 1024px)").matches;
-}
-new MutationObserver(syncWorkbenchScrim).observe(workbench.element, {
-  attributes: true,
-  attributeFilter: ["hidden"],
-});
-window
-  .matchMedia("(max-width: 1024px)")
-  .addEventListener("change", syncWorkbenchScrim);
-document
-  .querySelector(".wb-toggle")
-  ?.addEventListener("click", syncWorkbenchScrim);
-syncWorkbenchScrim();
 
 registerFiles(deps);
 registerPdfPreview(deps);

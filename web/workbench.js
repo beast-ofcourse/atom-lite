@@ -56,6 +56,7 @@ export function createWorkbench(deps) {
   scrim.className = "wb-scrim";
   scrim.hidden = true;
   scrim.addEventListener("click", () => setOpen(false), { signal });
+  document.body.append(scrim);
 
   const toggle = document.createElement("button");
   toggle.type = "button";
@@ -255,7 +256,7 @@ export function createWorkbench(deps) {
     const [tab] = tabs.splice(index, 1);
     const neighbour = tabs[index] ?? tabs[index - 1] ?? null;
     const hadFocus = strip.contains(document.activeElement);
-    paneHosts.get(id)?._destroy?.();
+    paneHosts.get(id)?._pane?.destroy?.();
     paneHosts.get(id)?.remove();
     paneHosts.delete(id);
     recent.unshift({ tab, closed: Date.now() });
@@ -273,6 +274,14 @@ export function createWorkbench(deps) {
     setActive(id);
     focusActiveTab();
     return tabs.find((tab) => tab.id === id);
+  }
+
+  function renameTab(id, title) {
+    const tab = tabs.find((item) => item.id === id);
+    if (!tab || typeof title !== "string" || tab.title === title) return;
+    tab.title = title;
+    renderStrip();
+    persist();
   }
 
   function reopen(entry) {
@@ -541,7 +550,7 @@ export function createWorkbench(deps) {
 
   function clearTabs() {
     for (const host of paneHosts.values()) {
-      host._destroy?.();
+      host._pane?.destroy?.();
       host.remove();
     }
     paneHosts.clear();
@@ -578,12 +587,10 @@ export function createWorkbench(deps) {
     }
     if (event.defaultPrevented) return;
     if (event.key === "Escape" && !element.hidden) {
-      if (
-        document.querySelector(
-          ".modal-layer:not([hidden]), [role=dialog]:not([hidden])",
-        )
-      )
-        return;
+      const overlayOpen = [
+        ...document.querySelectorAll(".modal-layer, [role=dialog]"),
+      ].some((node) => !node.closest("[hidden]"));
+      if (overlayOpen) return;
       event.preventDefault();
       setOpen(false);
       return;
@@ -666,7 +673,7 @@ export function createWorkbench(deps) {
   function destroy() {
     listeners.abort();
     for (const host of paneHosts.values()) {
-      host._destroy?.();
+      host._pane?.destroy?.();
       host.remove();
     }
     paneHosts.clear();
@@ -686,6 +693,7 @@ export function createWorkbench(deps) {
     openTab,
     closeTab,
     focusTab,
+    renameTab,
     get activeTab() {
       return tabs.find((tab) => tab.id === activeId) ?? null;
     },
@@ -693,6 +701,7 @@ export function createWorkbench(deps) {
   deps.openTab = api.openTab;
   deps.closeTab = api.closeTab;
   deps.focusTab = api.focusTab;
+  deps.renameTab = api.renameTab;
 
   setWidth(width);
   restore();
