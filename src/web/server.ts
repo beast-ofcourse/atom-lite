@@ -1,5 +1,10 @@
-import { createServer, type IncomingMessage, type Server } from "node:http";
-import { randomBytes, randomUUID } from "node:crypto";
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
   mkdirSync,
@@ -11,8 +16,17 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, extname, join, resolve, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  extname,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { AgentRuntime } from "../agent/loop.js";
 import type { AgentEvent } from "../agent/types.js";
@@ -41,6 +55,11 @@ import {
   type WebMcpServer,
   type WebModel,
   type WebSkill,
+  type WorkspaceDiff,
+  type WorkspaceDiffEntry,
+  type WorkspaceDiffHunk,
+  type WorkspaceTreeEntry,
+  type WorkspaceTreeListing,
 } from "./protocol.js";
 
 export type WebModelSwitchResult =
@@ -138,6 +157,7 @@ const MIME: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".svg": "image/svg+xml",
   ".json": "application/json; charset=utf-8",
+  ".pdf": "application/pdf",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
@@ -153,9 +173,85 @@ const IMAGE_EXTENSIONS = new Set(
   ),
 );
 
+const FILE_EXTENSIONS = new Set([
+  ".txt",
+  ".md",
+  ".markdown",
+  ".json",
+  ".jsonc",
+  ".json5",
+  ".yaml",
+  ".yml",
+  ".toml",
+  ".ini",
+  ".cfg",
+  ".conf",
+  ".csv",
+  ".tsv",
+  ".log",
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".css",
+  ".scss",
+  ".less",
+  ".html",
+  ".htm",
+  ".xml",
+  ".svg",
+  ".py",
+  ".rb",
+  ".go",
+  ".rs",
+  ".java",
+  ".c",
+  ".h",
+  ".cc",
+  ".cpp",
+  ".hpp",
+  ".cs",
+  ".php",
+  ".swift",
+  ".kt",
+  ".kts",
+  ".scala",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".fish",
+  ".ps1",
+  ".bat",
+  ".cmd",
+  ".sql",
+  ".lua",
+  ".vue",
+  ".svelte",
+  ".astro",
+  ".graphql",
+  ".proto",
+  ".tf",
+  ".diff",
+  ".patch",
+  ".pdf",
+  ...IMAGE_EXTENSIONS,
+]);
+
 const TOKEN_PLACEHOLDER = "__ATOM_LITE_TOKEN__";
 const THEME_PLACEHOLDER = "__ATOM_LITE_THEME__";
 const COOKIE_NAME = "atom_lite_token";
+const WORKSPACE_PATH_MAX_LENGTH = 4096;
+const WORKSPACE_FILE_MAX_BYTES = 20 * 1024 * 1024;
+const WORKSPACE_TREE_MAX_ENTRIES = 500;
+const WORKSPACE_TREE_MAX_NODES = 5_000;
+const WORKSPACE_DIFF_MAX_FILES = 200;
+const WORKSPACE_DIFF_MAX_LINES = 20_000;
+const naturalCompare = new Intl.Collator("en", {
+  numeric: true,
+  sensitivity: "base",
+}).compare;
 
 /**
  * Map a resolved UI theme name onto the web surface. Light, solarized, and
@@ -233,6 +329,216 @@ function createHostCheck(allowedHost?: string) {
       }
     }
     return true;
+  };
+}
+
+function normalizedRelativePath(raw: string): string {
+  return raw.replace(/^\.\//, "").replace(/\/+$/, "");
+}
+
+function resolveInWorkspace(root: string, relativePath: string): string | null {
+  if (
+    relativePath.length > WORKSPACE_PATH_MAX_LENGTH ||
+    relativePath.includes("\0")
+  ) {
+    return null;
+  }
+  const absolute = resolve(root, relativePath || ".");
+  return absolute === root || absolute.startsWith(root + sep) ? absolute : null;
+}
+
+/** Resolve symlinks before containment so a link cannot become a path escape. */
+function containedRealPath(root: string, absolute: string): string | null {
+  const real = realpathSync(absolute);
+  return real === root || real.startsWith(root + sep) ? real : null;
+}
+
+function sendText(res: ServerResponse, status: number, text: string): void {
+  res.writeHead(status, {
+    "content-type": "text/plain; charset=utf-8",
+    "content-length": Buffer.byteLength(text),
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'none'",
+  });
+  res.end(text);
+}
+
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  const payload = JSON.stringify(body);
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "content-length": Buffer.byteLength(payload),
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'none'",
+  });
+  res.end(payload);
+}
+
+function fileContentType(ext: string): string {
+  if (ext === ".html" || ext === ".htm" || ext === ".svg") {
+    return "text/plain; charset=utf-8";
+  }
+  return MIME[ext] ?? "text/plain; charset=utf-8";
+}
+
+function parseWorkspaceDiff(output: string): WorkspaceDiff {
+  const entries: WorkspaceDiffEntry[] = [];
+  let totalLines = 0;
+  let truncated = false;
+  for (const chunk of output.split(/(?=^diff --git )/m)) {
+    if (!chunk.startsWith("diff --git ")) continue;
+    if (entries.length >= WORKSPACE_DIFF_MAX_FILES) {
+      truncated = true;
+      break;
+    }
+    const header = /^\+\+\+ "?b\/(.+?)"?$/m.exec(chunk);
+    const fallback = /^--- "?a\/(.+?)"?$/m.exec(chunk);
+    const path = (header?.[1] ?? fallback?.[1] ?? "").replace(/^"|"$/g, "");
+    const entry: WorkspaceDiffEntry = {
+      path,
+      summary: "",
+      added: 0,
+      deleted: 0,
+      hunks: [],
+    };
+    let hunk: WorkspaceDiffHunk | null = null;
+    for (const line of chunk.split("\n")) {
+      if (line.startsWith("@@")) {
+        hunk = { header: line, lines: [] };
+        entry.hunks.push(hunk);
+        continue;
+      }
+      if (!hunk) continue;
+      const kind = line.startsWith("+")
+        ? "add"
+        : line.startsWith("-")
+          ? "del"
+          : line.startsWith(" ")
+            ? "context"
+            : null;
+      if (!kind) continue;
+      if (totalLines >= WORKSPACE_DIFF_MAX_LINES) {
+        truncated = true;
+        break;
+      }
+      hunk.lines.push({ type: kind, text: line.slice(1) });
+      totalLines += 1;
+      if (kind === "add") entry.added += 1;
+      else if (kind === "del") entry.deleted += 1;
+    }
+    entry.summary = `+${entry.added} -${entry.deleted}`;
+    entries.push(entry);
+    if (truncated) break;
+  }
+  return { entries, truncated };
+}
+
+function workspaceDiff(workspace: string): WorkspaceDiff {
+  const env = {
+    ...process.env,
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_PAGER: "cat",
+  };
+  const args = ["diff", "--no-color", "--no-ext-diff", "--no-textconv"];
+  let result = spawnSync("git", [...args, "HEAD", "--"], {
+    cwd: workspace,
+    encoding: "utf8",
+    env,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  if (result.status !== 0 && !result.stdout) {
+    const fallback = spawnSync("git", [...args, "--"], {
+      cwd: workspace,
+      encoding: "utf8",
+      env,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    if (fallback.stdout) result = fallback;
+  }
+  const diff = parseWorkspaceDiff(result.stdout ?? "");
+  if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ENOBUFS") {
+    diff.truncated = true;
+  }
+  return diff;
+}
+
+function workspaceTree(
+  rootPath: string,
+  requested: string,
+  recursive: boolean,
+): WorkspaceTreeListing | null {
+  const root = realpathSync(rootPath);
+  const absolute = resolveInWorkspace(root, normalizedRelativePath(requested));
+  if (!absolute) return null;
+  const start = containedRealPath(root, absolute);
+  if (!start || !statSync(start).isDirectory()) return null;
+
+  const path = relative(root, start).split(sep).join("/");
+  const entries: WorkspaceTreeEntry[] = [];
+  const queue = [{ dir: start, path }];
+  let truncated = false;
+  while (queue.length > 0 && !truncated) {
+    const level = queue.shift()!;
+    const children = readdirSync(level.dir, { withFileTypes: true })
+      .map((child) => {
+        try {
+          const real = containedRealPath(root, join(level.dir, child.name));
+          if (!real) return null;
+          const info = statSync(real);
+          const type = info.isDirectory()
+            ? "dir"
+            : info.isFile()
+              ? "file"
+              : null;
+          if (!type) return null;
+          return {
+            name: child.name,
+            path: level.path ? `${level.path}/${child.name}` : child.name,
+            type,
+            size: type === "file" ? info.size : undefined,
+            real,
+            symlink: child.isSymbolicLink(),
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter((child): child is NonNullable<typeof child> => child !== null);
+    children.sort((a, b) =>
+      a.type !== b.type
+        ? a.type === "dir"
+          ? -1
+          : 1
+        : naturalCompare(a.name, b.name),
+    );
+    if (children.length > WORKSPACE_TREE_MAX_ENTRIES) truncated = true;
+    for (const child of children.slice(0, WORKSPACE_TREE_MAX_ENTRIES)) {
+      if (entries.length >= WORKSPACE_TREE_MAX_NODES) {
+        truncated = true;
+        break;
+      }
+      entries.push(
+        child.type === "file" && child.size !== undefined
+          ? {
+              name: child.name,
+              path: child.path,
+              type: "file",
+              size: child.size,
+            }
+          : { name: child.name, path: child.path, type: "dir" },
+      );
+      if (recursive && child.type === "dir" && !child.symlink) {
+        queue.push({ dir: child.real, path: child.path });
+      }
+    }
+  }
+  return {
+    path,
+    parent: path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : null,
+    entries,
+    truncated,
   };
 }
 
@@ -987,6 +1293,62 @@ export async function startWebServer(
       if (requestToken(req, url) !== token) {
         res.writeHead(401, { "content-type": "text/plain" });
         res.end("missing or invalid token\n");
+        return;
+      }
+      if (url.pathname === "/diff") {
+        sendJson(res, 200, workspaceDiff(workspace));
+        return;
+      }
+      if (url.pathname === "/file") {
+        const relativePath = normalizedRelativePath(
+          url.searchParams.get("path") ?? "",
+        );
+        const ext = extname(relativePath).toLowerCase();
+        if (!FILE_EXTENSIONS.has(ext)) {
+          sendText(res, 404, "not found\n");
+          return;
+        }
+        try {
+          const root = realpathSync(workspace);
+          const absolute = resolveInWorkspace(root, relativePath);
+          const real = absolute ? containedRealPath(root, absolute) : null;
+          const info = real ? statSync(real) : null;
+          if (!real || !info || !info.isFile()) {
+            sendText(res, 404, "not found\n");
+            return;
+          }
+          if (info.size > WORKSPACE_FILE_MAX_BYTES) {
+            sendText(res, 413, "file too large\n");
+            return;
+          }
+          const bytes = await readFile(real);
+          res.writeHead(200, {
+            "content-type": fileContentType(ext),
+            "content-length": bytes.length,
+            "cache-control": "no-store",
+            "x-content-type-options": "nosniff",
+            "content-security-policy": "default-src 'none'",
+            "x-file-revision": createHash("sha256").update(bytes).digest("hex"),
+          });
+          res.end(bytes);
+        } catch {
+          sendText(res, 404, "not found\n");
+        }
+        return;
+      }
+      if (url.pathname === "/tree") {
+        try {
+          const listing = workspaceTree(
+            workspace,
+            url.searchParams.get("path") ?? "",
+            url.searchParams.get("recursive") === "1" ||
+              url.searchParams.get("recursive") === "true",
+          );
+          if (!listing) sendText(res, 404, "not found\n");
+          else sendJson(res, 200, listing);
+        } catch {
+          sendText(res, 404, "not found\n");
+        }
         return;
       }
       if (url.pathname === "/image") {

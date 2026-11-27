@@ -30,6 +30,50 @@ export interface DirectoryListing {
   directories: Array<{ name: string; path: string }>;
 }
 
+/** One file or directory in a workspace tree listing. Paths are relative. */
+export interface WorkspaceTreeEntry {
+  name: string;
+  path: string;
+  type: "dir" | "file";
+  /** File size in bytes; absent for directories. */
+  size?: number;
+}
+
+/** One bounded directory level, or a recursive walk when requested. */
+export interface WorkspaceTreeListing {
+  path: string;
+  parent: string | null;
+  entries: WorkspaceTreeEntry[];
+  truncated: boolean;
+}
+
+/** One line of a unified workspace diff, without its diff prefix. */
+export interface WorkspaceDiffLine {
+  type: "add" | "del" | "context";
+  text: string;
+}
+
+/** One hunk of a workspace diff for a single file. */
+export interface WorkspaceDiffHunk {
+  header: string;
+  lines: WorkspaceDiffLine[];
+}
+
+/** One changed file in the workspace diff. */
+export interface WorkspaceDiffEntry {
+  path: string;
+  summary: string;
+  added: number;
+  deleted: number;
+  hunks: WorkspaceDiffHunk[];
+}
+
+/** Bounded workspace changes returned by the read-only diff endpoint. */
+export interface WorkspaceDiff {
+  entries: WorkspaceDiffEntry[];
+  truncated: boolean;
+}
+
 /** One skill exposed by the runtime's skill registry. */
 export interface WebSkill {
   name: string;
