@@ -6,6 +6,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every release increments the patch number, regardless of change size: `0.18.0`
 becomes `0.18.1`. Explicitly requested minor versions are the exception.
 
+## v0.19.6 — 2026-11-27
+
+### Added
+
+- `web`: a right-hand workbench with tabs, a workspace file tree, read-only previews with guarded edits, PDF annotations, diff review, PTY terminals, and an `@` file picker.
+- `web`: token-guarded `/tree`, `/file`, and `/diff` endpoints with realpath containment, bounded listings, and explicit truncation.
+- `web`: terminal transport over the browser protocol with resize messages, approval at shell open, output caps, and child cleanup on close or disconnect.
+- `eval`: `--system-prompt` and `--prompt-name` compare prompt variants on the same tasks and record the variant in each report.
+
+### Changed
+
+- `agent`: the default system prompt is a structured operating manual covering investigation, change discipline, verification, and communication.
+- `web`: slash autocomplete spans the composer width, matching the terminal's command panel.
+- `web`: the task ledger and goal render inside the workbench Tasks tab with no change to their behavior.
+- `docs`: the web guide, design system, product context, and README describe the workbench, terminal approval boundary, and project positioning.
+- `packaging`: the web surface declares `node-pty` and allows its native build script.
+
+### Fixed
+
+- `cli`: transcript links open through a platform-safe URL handler that allows only `http`, `https`, and `mailto`.
+- `web`: the context counter reflects the resumed session's usage instead of a stale value.
+- `web`: the PDF canvas no longer collapses to zero width in a narrow dock, and dark-theme secondary copy on raised surfaces meets 4.5:1 contrast.
+- `web`: tab and action icons use authored sprite SVGs instead of Unicode stand-ins.
+
+### Performance
+
+- `web`: the PDF engine and worker load only when a PDF tab opens, so ordinary sessions do not pay for the asset.
+
 ## v0.19.5 — 2026-11-26
 
 ### Added
