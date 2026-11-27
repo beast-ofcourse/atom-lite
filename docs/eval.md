@@ -101,19 +101,21 @@ Every declaration has a `name` (optional; defaults to `type`) and a `type`.
 
 ## Commands
 
-| Command / flag       | Type    | Default        | Behavior                                                                                     |
-| -------------------- | ------- | -------------- | -------------------------------------------------------------------------------------------- |
-| `npm run eval`       | —       | —              | Build and run the eval with the configured provider.                                         |
-| `npm run eval:smoke` | —       | —              | Build and run the fake-provider CI smoke pass.                                               |
-| `--provider NAME`    | string  | config default | Override the provider adapter.                                                               |
-| `--model NAME`       | string  | config default | Override the model.                                                                          |
-| `--tasks-dir PATH`   | string  | `evals/tasks`  | Directory holding task folders.                                                              |
-| `--out PATH`         | string  | `evals/out`    | Directory for reports and artifacts.                                                         |
-| `--task NAME`        | string  | all tasks      | Run one named task.                                                                          |
-| `--suite NAME`       | string  | all suites     | `regression` or `capability`.                                                                |
-| `--trials N`         | integer | `1`            | Independent runs per task; values below 1 become 1.                                          |
-| `--baseline`         | boolean | `false`        | Write `baseline.json`: only the selected suite, or one snapshot per suite with no `--suite`. |
-| `--review [RUN_ID]`  | string  | latest run     | Print failed trials; no value selects the latest run.                                        |
+| Command / flag         | Type    | Default        | Behavior                                                                                     |
+| ---------------------- | ------- | -------------- | -------------------------------------------------------------------------------------------- |
+| `npm run eval`         | —       | —              | Build and run the eval with the configured provider.                                         |
+| `npm run eval:smoke`   | —       | —              | Build and run the fake-provider CI smoke pass.                                               |
+| `--provider NAME`      | string  | config default | Override the provider adapter.                                                               |
+| `--model NAME`         | string  | config default | Override the model.                                                                          |
+| `--tasks-dir PATH`     | string  | `evals/tasks`  | Directory holding task folders.                                                              |
+| `--out PATH`           | string  | `evals/out`    | Directory for reports and artifacts.                                                         |
+| `--task NAME`          | string  | all tasks      | Run one named task.                                                                          |
+| `--suite NAME`         | string  | all suites     | `regression` or `capability`.                                                                |
+| `--trials N`           | integer | `1`            | Independent runs per task; values below 1 become 1.                                          |
+| `--baseline`           | boolean | `false`        | Write `baseline.json`: only the selected suite, or one snapshot per suite with no `--suite`. |
+| `--review [RUN_ID]`    | string  | latest run     | Print failed trials; no value selects the latest run.                                        |
+| `--system-prompt FILE` | string  | unset          | Override the system prompt used for every trial. Enables prompt A/B comparison.              |
+| `--prompt-name NAME`   | string  | unset          | Label recorded in the report for the prompt variant under test.                              |
 
 Pass flags after `--`, as in `npm run eval -- --trials 3`. Provider and model defaults come from [Config](./config.md). `--review` reads stored artifacts and does not re-run tasks or load a provider.
 
@@ -165,6 +167,18 @@ npm run eval -- --out other/out --review
 ```
 
 Each failed trial prints `FAILED <label>`, one `PASS`/`FAIL` line per grader, then any error, check output, and transcript messages. Select a different run with `--review RUN_ID` or a different output directory with `--out`.
+
+## Prompt comparison
+
+Run the same tasks against two prompt variants and compare pass rates and token cost:
+
+```bash
+npm run eval -- --suite capability --trials 3 --baseline
+npm run eval -- --suite capability --trials 3 \
+  --system-prompt ./prompt-v2.md --prompt-name v2
+```
+
+The report's `baselineComparison` shows newly passing and failing tasks; `metrics.distributions` shows the input-token cost of each variant. Keep prompt tasks in the `capability` suite so they do not gate regression.
 
 ## Limits
 

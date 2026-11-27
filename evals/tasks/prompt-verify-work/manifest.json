@@ -1,0 +1,10 @@
+{
+  "suite": "capability",
+  "tags": ["prompt"],
+  "graders": [
+    { "name": "bash used", "type": "toolUsed", "tool": "bash" },
+    { "name": "tests pass", "type": "command", "command": "npm test" },
+    { "name": "fixed code", "type": "fileContains", "path": "src/sum.js", "contains": "i <= n" },
+    { "name": "tool budget", "type": "maxToolCalls", "max": 8 }
+  ]
+}

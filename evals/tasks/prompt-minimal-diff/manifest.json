@@ -1,0 +1,10 @@
+{
+  "suite": "capability",
+  "tags": ["prompt"],
+  "graders": [
+    { "name": "edit used", "type": "toolUsed", "tool": "edit" },
+    { "name": "fixed code", "type": "fileContains", "path": "src/math.js", "contains": "  return x * 2;" },
+    { "name": "line count unchanged", "type": "command", "command": "test $(wc -l < src/math.js) -eq 9" },
+    { "name": "tool budget", "type": "maxToolCalls", "max": 5 }
+  ]
+}

@@ -1,0 +1,1 @@
+{ "name": "prompt-read-before-edit", "scripts": { "test": "node verify.js" } }

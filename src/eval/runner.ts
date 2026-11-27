@@ -123,6 +123,8 @@ export interface EvalReport {
   suite: EvalSuite | "all";
   provider: string;
   model: string;
+  /** Optional label identifying the system prompt variant used for this run. */
+  promptName?: string;
   startedAt: string;
   finishedAt: string;
   tasks: EvalTaskResult[];
@@ -159,6 +161,13 @@ export interface RunEvalOptions {
   trials?: number;
   /** Partial limits override; defaults to the harness DEFAULT_LIMITS. */
   limits?: Partial<import("../types.js").AgentLimits>;
+  /**
+   * Override the system prompt used for every trial. Defaults to the agent's
+   * built-in prompt. Used to compare prompt variants against the same tasks.
+   */
+  systemPrompt?: string;
+  /** Optional label recorded in the report for prompt comparisons. */
+  promptName?: string;
   onProgress?: (msg: string) => void;
 }
 
@@ -680,6 +689,7 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
           tools: BUILTIN_TOOLS,
           mode: "yolo",
           limits: options.limits,
+          systemPrompt: options.systemPrompt,
           onEvent: (e: any) => {
             if (e?.type === "usage") {
               turns += 1;
@@ -778,6 +788,7 @@ export async function runEval(options: RunEvalOptions): Promise<EvalReport> {
     suite: options.suite ?? "all",
     provider: options.provider.id ?? "unknown",
     model,
+    promptName: options.promptName,
     startedAt,
     finishedAt,
     tasks,

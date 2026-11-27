@@ -16,6 +16,8 @@ const { values } = parseArgs({
     trials: { type: "string" },
     baseline: { type: "boolean", default: false },
     review: { type: "string" },
+    "system-prompt": { type: "string" },
+    "prompt-name": { type: "string" },
   },
   strict: false,
 });
@@ -37,6 +39,18 @@ if (values.review !== undefined) {
 
 const config = loadConfig();
 const provider = createProvider(config, values.provider, values.model);
+
+let systemPrompt;
+if (values["system-prompt"]) {
+  const { readFileSync, existsSync } = await import("node:fs");
+  const p = values["system-prompt"];
+  if (!existsSync(p)) {
+    console.error(`atom-lite: system prompt file not found: ${p}`);
+    process.exit(1);
+  }
+  systemPrompt = readFileSync(p, "utf8");
+}
+
 const report = await runEval({
   provider,
   model:
@@ -48,6 +62,8 @@ const report = await runEval({
   trials: values.trials ? Number.parseInt(values.trials, 10) : undefined,
   outDir: values.out,
   writeBaseline: values.baseline,
+  systemPrompt,
+  promptName: values["prompt-name"],
   onProgress: (m) => console.error(m),
 });
 

@@ -1,0 +1,1 @@
+{ "name": "prompt-verify-work", "scripts": { "test": "node verify.js" } }

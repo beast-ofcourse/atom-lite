@@ -1,0 +1,1 @@
+Fix the bug in main.js so add returns the sum. Run the tests to verify.

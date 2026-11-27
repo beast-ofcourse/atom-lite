@@ -1,0 +1,1 @@
+Fix the off-by-one in src/sum.js so sumTo(4) returns 10. Run the tests to verify.

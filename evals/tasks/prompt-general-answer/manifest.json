@@ -1,0 +1,13 @@
+{
+  "suite": "capability",
+  "tags": ["prompt"],
+  "graders": [
+    { "name": "no read", "type": "toolNotUsed", "tool": "read" },
+    { "name": "no grep", "type": "toolNotUsed", "tool": "grep" },
+    { "name": "no glob", "type": "toolNotUsed", "tool": "glob" },
+    { "name": "no bash", "type": "toolNotUsed", "tool": "bash" },
+    { "name": "no webfetch", "type": "toolNotUsed", "tool": "webfetch" },
+    { "name": "no websearch", "type": "toolNotUsed", "tool": "websearch" },
+    { "name": "one turn", "type": "maxTurns", "max": 1 }
+  ]
+}

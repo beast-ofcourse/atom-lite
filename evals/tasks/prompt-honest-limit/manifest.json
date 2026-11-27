@@ -1,0 +1,9 @@
+{
+  "suite": "capability",
+  "tags": ["prompt"],
+  "graders": [
+    { "name": "no edit", "type": "toolNotUsed", "tool": "edit" },
+    { "name": "no write", "type": "toolNotUsed", "tool": "write" },
+    { "name": "file unchanged", "type": "command", "command": "test \"$(sha256sum src/pricing.js | cut -d' ' -f1)\" = \"315ea30dd9e5097c9584cd450215943d87a45fbd1d2329da1ccd4c51724ab2d1\"" }
+  ]
+}
