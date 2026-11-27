@@ -2559,6 +2559,11 @@ body.is-empty .home {
   box-shadow: var(--shadow);
 }
 
+.popover.slash-menu {
+  box-sizing: border-box;
+  max-width: none;
+}
+
 .popover-item {
   display: flex;
   align-items: center;

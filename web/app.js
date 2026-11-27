@@ -2977,6 +2977,21 @@ function exportTranscript() {
   showToast("Transcript exported.");
 }
 
+function placeSlashMenu() {
+  const rect = composerEl.getBoundingClientRect();
+  const gap = 6;
+  const roomAbove = rect.top - gap - 8;
+  const roomBelow = window.innerHeight - rect.bottom - gap - 8;
+  const above = roomAbove >= roomBelow;
+  const room = above ? roomAbove : roomBelow;
+  slashMenu.style.width = `${rect.width}px`;
+  slashMenu.style.left = `${rect.left}px`;
+  slashMenu.style.maxHeight = `${Math.min(420, Math.max(80, room))}px`;
+  const height = slashMenu.offsetHeight;
+  const top = above ? rect.top - height - gap : rect.bottom + gap;
+  slashMenu.style.top = `${Math.max(8, top)}px`;
+}
+
 function updateSlashMenu() {
   const value = inputEl.value;
   const firstLine = value.split("\n")[0];
@@ -3023,7 +3038,7 @@ function updateSlashMenu() {
     slashMenu.append(button);
   }
   slashMenu.hidden = false;
-  placePopover(slashMenu, composerEl, true);
+  placeSlashMenu();
 }
 
 function renderPalette() {
@@ -4135,7 +4150,7 @@ document.addEventListener("click", (event) => {
 
 window.addEventListener("resize", () => {
   closePopovers(slashMenu.hidden ? null : slashMenu);
-  if (!slashMenu.hidden) placePopover(slashMenu, composerEl, true);
+  if (!slashMenu.hidden) placeSlashMenu();
 });
 transcriptEl.addEventListener(
   "scroll",
