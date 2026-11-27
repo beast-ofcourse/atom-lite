@@ -831,6 +831,9 @@ export async function startWebServer(
     removeAttachmentDirectory(previous.id);
     session = next;
     steeringQueue.length = 0;
+    // A switched session has no live context occupancy until its next turn;
+    // drop stale counters and session memory from the previous session.
+    options.runtime.resetContextUsage?.();
     broadcast({
       type: "session_changed",
       sessionId: session.id,

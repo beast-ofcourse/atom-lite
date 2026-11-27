@@ -42,7 +42,14 @@ test("footer renders unknown context as question mark", () => {
     80,
   );
   const plain = rows.map(stripTerminalSequences);
-  assert.ok(plain[1].includes("?/1.0M (auto)"));
+  assert.ok(plain[1].includes("?/1M (auto)"));
+});
+
+test("footer does not invent a zero window for unknown context", () => {
+  const rows = render({ model: "p/m", autoCompact: true }, 80);
+  const plain = rows.map(stripTerminalSequences);
+  assert.ok(plain[0].includes("? (auto)"));
+  assert.ok(!plain[0].includes("0"));
 });
 
 test("footer omits path and model when not supplied", () => {

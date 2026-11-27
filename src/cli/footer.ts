@@ -1,6 +1,9 @@
 import type { Component } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { formatTokens } from "../providers/context-window.js";
+import {
+  formatContextUsage,
+  formatTokens,
+} from "../providers/context-window.js";
 import { darkTheme, type Theme } from "./theme.js";
 
 export interface FooterParts {
@@ -46,15 +49,15 @@ export class Footer implements Component {
       ? truncateToWidth(t.dim(this.parts.pwd), contentWidth, t.dim("..."))
       : undefined;
 
-    const contextWindow = this.parts.window ?? 0;
     const percent = this.parts.percent;
     const autoIndicator = this.parts.autoCompact ? " (auto)" : "";
     const percentText =
-      percent === null || percent === undefined ? "?" : percent.toFixed(1);
-    const contextDisplay =
       percent === null || percent === undefined
-        ? `?/${formatTokens(contextWindow)}${autoIndicator}`
-        : `${percentText}%/${formatTokens(contextWindow)}${autoIndicator}`;
+        ? undefined
+        : `${percent.toFixed(1)}%`;
+    const contextDisplay = percentText
+      ? `${percentText}/${formatTokens(this.parts.window ?? 0)}${autoIndicator}`
+      : `${formatContextUsage(this.parts.used, this.parts.window)}${autoIndicator}`;
 
     const colourBasis = percent ?? 0;
     let contextStr = contextDisplay;

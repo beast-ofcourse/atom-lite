@@ -3070,6 +3070,7 @@ export async function run(args: string[]): Promise<void> {
     }
     runtime.setWorkspace(session.workspace);
     session.appendEvent?.({ type: "session_resumed", from: previous.id });
+    runtime.resetContextUsage();
     runtime.restoreSessionState(next);
     syncGoalPanel();
     restoreTranscript(next);
