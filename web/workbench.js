@@ -1,14 +1,14 @@
 const TAB_KINDS = {
-  file: { icon: "▤", title: "File" },
-  pdf: { icon: "▧", title: "PDF" },
-  terminal: { icon: "›_", title: "Terminal" },
-  review: { icon: "◫", title: "Review" },
-  tasks: { icon: "✓", title: "Tasks" },
-  "new-tab": { icon: "+", title: "New tab" },
+  file: { icon: "i-file", title: "File" },
+  pdf: { icon: "i-file", title: "PDF" },
+  terminal: { icon: "i-terminal", title: "Terminal" },
+  review: { icon: "i-diff", title: "Review" },
+  tasks: { icon: "i-tasks", title: "Tasks" },
+  "new-tab": { icon: "i-plus", title: "New tab" },
 };
 
 const RECENT_LIMIT = 12;
-const DEFAULT_WIDTH = 380;
+const DEFAULT_WIDTH = 520;
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 620;
 
@@ -142,7 +142,20 @@ export function createWorkbench(deps) {
   }
 
   function kindInfo(kind) {
-    return TAB_KINDS[kind] ?? { icon: "·", title: kind };
+    return TAB_KINDS[kind] ?? { icon: "i-file", title: kind };
+  }
+
+  function iconElement(kind) {
+    const icon = document.createElement("span");
+    icon.className = "wb-tab-icon";
+    icon.setAttribute("aria-hidden", "true");
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "icon");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", `#${kindInfo(kind).icon}`);
+    svg.append(use);
+    icon.append(svg);
+    return icon;
   }
 
   function tabTitle(tab) {
@@ -343,10 +356,7 @@ export function createWorkbench(deps) {
         ? `${tabTitle(tab)} — ${tab.path}`
         : tabTitle(tab);
 
-      const icon = document.createElement("span");
-      icon.className = "wb-tab-icon";
-      icon.setAttribute("aria-hidden", "true");
-      icon.textContent = kindInfo(tab.kind).icon;
+      const icon = iconElement(tab.kind);
 
       const title = document.createElement("span");
       title.className = "wb-tab-title";
@@ -419,10 +429,7 @@ export function createWorkbench(deps) {
       const item = document.createElement("button");
       item.type = "button";
       item.className = "wb-recent-entry";
-      const icon = document.createElement("span");
-      icon.className = "wb-tab-icon";
-      icon.setAttribute("aria-hidden", "true");
-      icon.textContent = kindInfo(entry.tab.kind).icon;
+      const icon = iconElement(entry.tab.kind);
       const copy = document.createElement("span");
       copy.className = "wb-recent-copy";
       const title = document.createElement("strong");
@@ -452,17 +459,17 @@ export function createWorkbench(deps) {
     </div>
     <div class="wb-actions">
       <button type="button" class="wb-action" data-action="review">
-        <span class="wb-action-icon" aria-hidden="true">◫</span>
+        <span class="wb-action-icon" aria-hidden="true"><svg class="icon"><use href="#i-diff"></use></svg></span>
         <span class="wb-action-copy"><strong>Review</strong><small>See workspace changes</small></span>
         <kbd>Ctrl+Alt+R</kbd>
       </button>
       <button type="button" class="wb-action" data-action="terminal">
-        <span class="wb-action-icon" aria-hidden="true">›_</span>
+        <span class="wb-action-icon" aria-hidden="true"><svg class="icon"><use href="#i-terminal"></use></svg></span>
         <span class="wb-action-copy"><strong>Terminal</strong><small>Run a shell command</small></span>
         <kbd>Ctrl+Alt+T</kbd>
       </button>
       <button type="button" class="wb-action" data-action="file">
-        <span class="wb-action-icon" aria-hidden="true">▤</span>
+        <span class="wb-action-icon" aria-hidden="true"><svg class="icon"><use href="#i-file"></use></svg></span>
         <span class="wb-action-copy"><strong>Open file</strong><small>Browse the workspace</small></span>
         <kbd>Ctrl+Alt+P</kbd>
       </button>

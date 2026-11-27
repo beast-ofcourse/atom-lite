@@ -175,8 +175,9 @@ transitions collapse.
 
 - The page is a full-viewport grid, `100dvh`, with the sidebar as its own
   column. Only the transcript scrolls; header and composer never cover content.
-- An optional task-ledger panel docks to the right of the transcript. It is a
-  user-toggled work pane, not a dashboard column; the transcript keeps its
+- An optional workbench docks to the right of the transcript. It carries tabs
+  for files, PDFs, Review, terminals, the task ledger, and a new-tab page. It
+  is a user-toggled work pane, not a dashboard column; the transcript keeps its
   single reading column when it is closed.
 - On a new conversation the composer sits in the optical center with the
   greeting above it. After the first message it docks to the bottom of the main
@@ -474,6 +475,40 @@ they produce a toast pointing to `/help`. `/search` filters the sidebar,
 `/theme` accepts `system|light|dark`, `/stop` cancels the running turn, and
 `/export` downloads a Markdown transcript generated in the browser.
 
+### Right-hand workbench
+
+The header workbench toggle or `Ctrl/Cmd+Shift+R` opens a right dock;
+`Ctrl/Cmd+J` selects its Tasks tab. It starts at 520px, resizes by drag or arrow
+keys between 280 and 620px, and persists width and tab layout per workspace in
+browser storage. At `≤1024px` it becomes a drawer over a scrim. The tab strip
+uses the shared 52px header rhythm, hairline separators, 10px radii, and
+authored sprite icons — no Unicode glyphs stand in for icons. `+` opens a
+new-tab page with Review, Terminal, and Open file actions plus a bounded
+Recently closed list; `Ctrl/Cmd+Shift+T` reopens the last closed tab.
+
+A file tab splits a 200px workspace tree from a read-only preview with a
+resizable, keyboard-operable divider. The tree sorts directories first with
+natural case-insensitive order, filters by path segment, and shows full paths
+on hover. The preview highlights text and code with the vendored highlighter,
+shows workspace images through the token-guarded `/image` path, and gives
+unsupported files an explicit no-preview state with size. Edit mode saves with
+a revision guard and is refused for read-only viewers and plan mode.
+
+PDF previews use the vendored engine loaded on first use. A container query
+stacks annotations below the page when the preview is narrow, so the canvas
+never collapses to zero width. Controls carry labels and keyboard focus;
+annotations persist in browser storage keyed by workspace, path, and revision.
+
+The Review tab lists capped workspace diffs with expandable hunks and an
+open-file action. Terminal tabs are PTY-backed, numbered, and resize-aware;
+opening one uses the same approval dialog as the agent's shell tool, and
+read-only or plan-mode tabs are refused. Typing `@` in the composer opens a
+path picker backed by the same tree contract, inserts a `@path` chip, and uses
+the existing attachment flow.
+
+Secondary copy in the tab strip and action cards uses `--text-dim`, not
+`--text-faint`, because raised surfaces reduce contrast.
+
 ### Favicon
 
 `favicon.svg` is an authored 32px mark: a rounded ink tile, a bold white `A`
@@ -525,6 +560,8 @@ chat opens a replacement before the old log is removed.
   (`vendor/LICENSE.highlight.js.txt`)
 - `vendor/mermaid.min.js` — Mermaid 11.12.0, MIT
   (`vendor/LICENSE.mermaid.txt`), loaded lazily only when a mermaid fence exists
+- `vendor/pdf.min.js` and `vendor/pdf.worker.min.js` — PDF.js 6.5.438, Apache-2.0
+  (`vendor/LICENSE.pdf.js.txt`), loaded lazily only when a PDF tab opens
 
 All three are served by the local server with the same per-run token as every
 other asset. There is no build step. Model text is never trusted as HTML. Icons are
@@ -667,6 +704,20 @@ and the fake provider, dark and light, 1440×900 and 390×844.
   dividers, and no inter-row gap; no horizontal overflow appeared at either
   width. Option groups carry ArrowUp/ArrowDown focus movement; the full suite
   passes 873 tests.
+
+- **Right-hand workbench (2026-11-27):** the dock was audited in Chromium at
+  1440×900, 1024×768, 390×844, and 320×700 with the new-tab page, file tree,
+  PDF preview, Review, and terminal tabs open. No horizontal overflow, no
+  undersized interactive targets, a visible 3px focus ring, and zero page or
+  console errors. The detector returned no findings on the served page at
+  1440 and 390; a source scan produced one false positive for the hidden
+  lightbox `<img>` that is populated before display. Dark-theme secondary copy
+  on raised dock surfaces measured 4.14:1 and was moved from `--text-faint` to
+  `--text-dim`, now 6.46:1; light measures 5.37–5.99:1. The PDF canvas was 0px
+  wide in the 380px dock; a container query now stacks annotations below the
+  page and the default dock is 520px, giving a 282px canvas at 1440. Tab and
+  action icons use authored sprite SVGs after Unicode glyphs were found in the
+  rendered tabs.
 
 Accepted limitation: `aria-live="polite"` on the transcript means a screen
 reader may announce streamed updates; this is deliberate for a streaming

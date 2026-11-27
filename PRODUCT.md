@@ -98,12 +98,12 @@ than a lock-in.
   attachments, skills and MCP overlays, a workspace explorer, slash commands and
   a command palette, and System/Light/Dark theming. Explicit opt-in share mode
   binds that surface on the LAN and prints a QR code for phone access.
-  Deferred: ANSI rendering, shell mode, and extension widgets.
+  A right-hand workbench adds tabs, a workspace file tree and read-only preview with guarded edit mode, PDF preview with annotations, a diff review tab, PTY-backed terminal tabs, and an `@` file picker. Extension widgets stay deferred.
 - **Constraints:** TypeScript strict on NodeNext ESM; the small-core principle
   (new built-in tools need strong justification against ADR 0001); local-first
   with no telemetry or hosted database (ADR 0004); the web server binds
   localhost only and is token-guarded against localhost CSRF.
-- **Decided:** the browser is an observe + steer surface for session state — goal, ledger, compaction, approvals, questions, and context meter — not a pixel-parity TUI; terminal-only chrome stays in the TUI (ADR 0024).
+- **Decided:** the browser is an observe + steer surface for session state — goal, ledger, compaction, approvals, questions, and context meter — not a pixel-parity TUI (ADR 0024). ADR 0025 reverses the terminal-only deferral for the right-hand workbench: browser file editing and PTY terminals are in scope there, with approval at shell open. Extension widgets stay deferred.
 
 ## Brand Commitments
 

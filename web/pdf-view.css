@@ -1,4 +1,5 @@
 .pdf-viewer {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -92,6 +93,27 @@
 .pdf-canvas {
   display: block;
   max-width: 100%;
+}
+
+@container (max-width: 520px) {
+  .pdf-body {
+    flex-wrap: wrap;
+    overflow: auto;
+  }
+
+  .pdf-pages {
+    flex: 1 0 100%;
+    min-width: 100%;
+  }
+
+  .pdf-annotations {
+    width: 100%;
+    flex: 0 0 auto;
+    min-height: 148px;
+    max-height: 40%;
+    border-top: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+    border-left: 0;
+  }
 }
 
 .pdf-annotations {
