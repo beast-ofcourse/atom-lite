@@ -2456,6 +2456,71 @@ test("office engine assets are served from a strict same-origin allowlist", asyn
   }
 });
 
+// Reason: spec (ticket 02) — the no-preview card offers a real download. The
+// response forces an attachment with the workspace file's name and keeps the
+// same token, origin, containment and symlink guards as other reads.
+test("no-preview downloads are guarded attachments", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-download-ws-"));
+  const bytes = Buffer.from("binary archive bytes");
+  writeFileSync(join(workspace, "archive.zip"), bytes);
+  writeFileSync(join(workspace, "notes.txt"), "plain text");
+  symlinkSync("/etc/hosts", join(workspace, "leak.zip"));
+  const built = buildRuntime([], { workspace });
+  const server = await start(built);
+  try {
+    const endpoint = new URL("/download", server.url);
+    endpoint.searchParams.set("token", server.token);
+    endpoint.searchParams.set("path", "archive.zip");
+    const ok = await fetch(endpoint);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.headers.get("content-type"), "application/octet-stream");
+    assert.match(
+      ok.headers.get("content-disposition") ?? "",
+      /^attachment; filename="archive\.zip"$/,
+    );
+    assert.equal(ok.headers.get("cache-control"), "no-store");
+    assert.equal(ok.headers.get("x-content-type-options"), "nosniff");
+    assert.match(
+      ok.headers.get("content-security-policy") ?? "",
+      /default-src 'none'.*sandbox/,
+    );
+    assert.deepEqual(Buffer.from(await ok.arrayBuffer()), bytes);
+
+    endpoint.searchParams.set("path", "notes.txt");
+    assert.equal((await fetch(endpoint)).status, 200);
+
+    for (const path of [
+      "leak.zip",
+      "../../etc/passwd",
+      "missing.zip",
+      "a".repeat(5000),
+    ]) {
+      endpoint.searchParams.set("path", path);
+      assert.notEqual((await fetch(endpoint)).status, 200, `path ${path}`);
+    }
+
+    endpoint.searchParams.set("path", "archive.zip");
+    endpoint.searchParams.delete("token");
+    assert.equal((await fetch(endpoint)).status, 401);
+    endpoint.searchParams.set("token", server.token);
+    assert.equal(
+      (await fetch(endpoint, { headers: { Origin: "http://evil.example" } }))
+        .status,
+      403,
+    );
+    assert.equal(
+      await rawStatus(
+        server.port,
+        { Host: "evil.example" },
+        `/download?path=archive.zip&token=${server.token}`,
+      ),
+      403,
+    );
+  } finally {
+    await server.close();
+  }
+});
+
 // Reason: the Review tab renders workspace changes, so the diff endpoint must
 // return real hunks behind the same token and origin guards as file reads.
 test("the workspace diff returns real hunks behind the token", async () => {

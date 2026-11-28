@@ -4327,6 +4327,9 @@ const deps = {
   },
   attachFile: attachWorkspaceFile,
   toast: showToast,
+  copyText,
+  renderMarkdown,
+  renderMermaidBlock,
   storage: { get: storageGet, set: storageSet },
   toggleHost: document.querySelector(".head-right"),
 };

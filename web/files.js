@@ -3,6 +3,7 @@ const DIVIDER_DEFAULT = 200;
 const DIVIDER_MIN = 120;
 const DIVIDER_MAX = 560;
 const PREVIEW_MIN = 180;
+const MEDIA_MAX_BYTES = 256 * 1024 * 1024;
 
 const LANGUAGES = {
   c: "c",
@@ -127,10 +128,79 @@ function isTextFile(path, contentType) {
   );
 }
 
-function noPreviewElement(name, size, detail) {
+const OFFICE_MIME_KINDS = new Map([
+  [
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "document",
+  ],
+  [
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "spreadsheet",
+  ],
+  [
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "presentation",
+  ],
+]);
+const OFFICE_EXTENSION_KINDS = new Map([
+  [".docx", "document"],
+  [".xlsx", "spreadsheet"],
+  [".pptx", "presentation"],
+]);
+
+export function fileKind(path, contentType = "") {
+  const type = contentType.split(";")[0].trim().toLowerCase();
+  const extension = path.toLowerCase().split(".").pop();
+  const ext = path.toLowerCase().includes(".") ? `.${extension}` : "";
+  if (type === "application/pdf" || ext === ".pdf") return "pdf";
+  if (
+    type.startsWith("image/") ||
+    /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(path)
+  )
+    return "image";
+  if (
+    type.startsWith("video/") ||
+    /\.(mp4|webm|mov|mkv|avi|mpeg|mpg|ogv)$/i.test(path)
+  )
+    return "video";
+  if (
+    type.startsWith("audio/") ||
+    /\.(mp3|wav|ogg|oga|opus|m4a|aac|flac|weba)$/i.test(path)
+  )
+    return "audio";
+  if (
+    type === "text/markdown" ||
+    ext === ".md" ||
+    ext === ".markdown" ||
+    ext === ".mdx"
+  )
+    return "markdown";
+  const office = OFFICE_MIME_KINDS.get(type) ?? OFFICE_EXTENSION_KINDS.get(ext);
+  if (office) return office;
+  return isTextFile(path, type) ? "text" : "none";
+}
+
+function guardedUrl(route, path, token) {
+  return `/${route}?token=${encodeURIComponent(token)}&path=${encodeURIComponent(path)}`;
+}
+
+export function mediaUrl(path, token) {
+  return guardedUrl("media", path, token);
+}
+
+export function downloadUrl(path, token) {
+  return guardedUrl("download", path, token);
+}
+
+function imageUrl(path, token) {
+  return guardedUrl("image", path, token);
+}
+
+function noPreviewElement(name, size, detail, options = {}) {
   const box = element("div", "files-no-preview");
   box.append(icon("file", "icon files-state-icon"));
   box.append(element("p", "files-state-title", `No preview for ${name}`));
+  if (options.kind) box.append(element("p", "files-state-kind", options.kind));
   box.append(
     element(
       "p",
@@ -140,6 +210,21 @@ function noPreviewElement(name, size, detail) {
   );
   if (size != null)
     box.append(element("p", "files-state-meta", formatSize(size)));
+  if (options.path != null) {
+    const actions = element("div", "files-state-actions");
+    const download = element("a", "files-action");
+    download.href = downloadUrl(options.path, options.token ?? "");
+    download.download = name;
+    download.setAttribute("aria-label", `Download ${name}`);
+    download.append(icon("download", "icon"), element("span", "", "Download"));
+    const copy = element("button", "files-action");
+    copy.type = "button";
+    copy.setAttribute("aria-label", `Copy path to ${name}`);
+    copy.append(icon("copy", "icon"), element("span", "", "Copy path"));
+    copy.addEventListener("click", () => void options.onCopy?.());
+    actions.append(download, copy);
+    box.append(actions);
+  }
   return box;
 }
 
@@ -203,13 +288,24 @@ export function createFilesPane(deps, tab) {
   const nameLabel = element("span", "files-preview-name");
   const metaLabel = element("span", "files-preview-meta");
   titleWrap.append(nameLabel, metaLabel);
+  const sourceButton = element(
+    "button",
+    "files-action files-mode-action",
+    "Source",
+  );
   const editButton = element("button", "files-action", "Edit");
   const saveButton = element("button", "files-action", "Save");
   const cancelButton = element("button", "files-action", "Cancel");
-  for (const button of [editButton, saveButton, cancelButton]) {
+  for (const button of [sourceButton, editButton, saveButton, cancelButton]) {
     button.type = "button";
   }
-  previewHead.append(titleWrap, editButton, saveButton, cancelButton);
+  previewHead.append(
+    titleWrap,
+    sourceButton,
+    editButton,
+    saveButton,
+    cancelButton,
+  );
   const body = element("div", "files-preview-body");
   previewPane.append(previewHead, body);
   root.append(treePane, divider, previewPane);
@@ -232,6 +328,7 @@ export function createFilesPane(deps, tab) {
     selected: tab.path ?? "",
     file: null,
     editing: false,
+    markdownSource: false,
   };
 
   const registry = openTabs.get(deps) ?? new Map();
@@ -486,6 +583,13 @@ export function createFilesPane(deps, tab) {
   }
 
   function updateActions() {
+    sourceButton.hidden =
+      state.editing || !state.file || state.file.kind !== "markdown";
+    sourceButton.textContent = state.markdownSource ? "Preview" : "Source";
+    sourceButton.setAttribute(
+      "aria-label",
+      state.markdownSource ? "Show rendered Markdown" : "Show Markdown source",
+    );
     editButton.hidden = state.editing;
     saveButton.hidden = !state.editing;
     cancelButton.hidden = !state.editing;
@@ -528,7 +632,183 @@ export function createFilesPane(deps, tab) {
     return pre;
   }
 
+  function kindLabel(kind, path) {
+    const labels = {
+      text: "Text",
+      image: "Image",
+      video: "Video",
+      audio: "Audio",
+      markdown: "Markdown",
+      pdf: "PDF",
+      document: "Word document",
+      spreadsheet: "Spreadsheet",
+      presentation: "Presentation",
+      none: "Unsupported file",
+    };
+    if (labels[kind]) return labels[kind];
+    const extension = path.toLowerCase().split(".").pop() ?? "";
+    return extension ? `${extension.toUpperCase()} file` : "Unknown file";
+  }
+
+  function renderNoPreview(file, detail) {
+    body.append(
+      noPreviewElement(
+        baseName(file.path),
+        file.size,
+        detail ?? "This file type has no preview in the workbench.",
+        {
+          kind: kindLabel(file.kind, file.path),
+          path: file.path,
+          token: deps.token,
+          onCopy: async () => {
+            const copied = await deps.copyText(file.path);
+            deps.toast(
+              copied ? "Path copied." : "Could not copy the path.",
+              copied ? "info" : "error",
+            );
+          },
+        },
+      ),
+    );
+  }
+
+  function renderRegistered(file) {
+    const factory = previews.get(file.kind) ?? previews.get(file.contentType);
+    if (factory) {
+      const result = factory({
+        deps,
+        tab,
+        path: file.path,
+        name: baseName(file.path),
+        contentType: file.contentType,
+        revision: file.revision,
+        size: file.size,
+        content: file.content,
+        container: body,
+      });
+      if (result?.element) {
+        delegate = result;
+        body.append(result.element);
+        return;
+      }
+    }
+    renderNoPreview(
+      file,
+      `${kindLabel(file.kind, file.path)} preview unavailable.`,
+    );
+  }
+
+  function renderImage(file) {
+    const stage = element("div", "files-media-stage");
+    const image = element("img", "files-image files-media");
+
+    const loading = element("div", "files-media-loading");
+    loading.setAttribute("role", "status");
+    loading.append(
+      icon("image", "icon"),
+      element("span", "", "Loading image…"),
+    );
+
+    image.src = imageUrl(file.path, deps.token);
+    image.alt = baseName(file.path);
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.referrerPolicy = "no-referrer";
+    image.draggable = false;
+    image.addEventListener("load", () => loading.remove(), { once: true });
+    image.addEventListener("error", () => {
+      if (state.file !== file || destroyed) return;
+      showMessage(
+        `Could not open ${baseName(file.path)}`,
+        "The image could not be loaded.",
+        "error",
+      );
+    });
+    stage.append(image, loading);
+    body.append(stage);
+  }
+
+  function renderMedia(file) {
+    if (file.size > MEDIA_MAX_BYTES) {
+      renderNoPreview(
+        file,
+        "This media file is larger than the 256 MB streaming limit.",
+      );
+      return;
+    }
+    const stage = element("div", "files-media-stage");
+    const media = element(
+      file.kind === "video" ? "video" : "audio",
+      `files-media files-media-${file.kind}`,
+    );
+    media.controls = true;
+    media.preload = "metadata";
+    media.playsInline = file.kind === "video";
+    media.src = mediaUrl(file.path, deps.token);
+    media.setAttribute("aria-label", baseName(file.path));
+
+    const loading = element("div", "files-media-loading");
+    loading.setAttribute("role", "status");
+    loading.append(
+      icon(file.kind === "video" ? "video" : "audio", "icon"),
+      element("span", "", "Loading media…"),
+    );
+
+    media.addEventListener("loadedmetadata", () => loading.remove(), {
+      once: true,
+    });
+    media.addEventListener("error", () => {
+      if (state.file !== file || destroyed) return;
+      showMessage(
+        `Could not play ${baseName(file.path)}`,
+        "The browser cannot decode this file.",
+        "error",
+      );
+    });
+    stage.append(media, loading);
+    body.append(stage);
+  }
+
+  function renderMarkdown(file) {
+    const page = element("div", "files-markdown msg-markdown");
+    page.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const copy = target.closest("[data-code-copy]");
+      if (!copy) return;
+      const block = copy.closest(".code-block, .mermaid-block");
+      const code = block?.querySelector("pre code")?.textContent ?? "";
+      if (!code) return;
+      void deps.copyText(code).then((ok) => {
+        if (!ok || !page.isConnected) return;
+        copy.textContent = "Copied";
+        setTimeout(() => {
+          if (page.isConnected) copy.textContent = "Copy";
+        }, 1200);
+      });
+    });
+    if (state.markdownSource || typeof deps.renderMarkdown !== "function") {
+      const pre = element("pre", "files-code");
+      const code = element("code");
+      code.textContent = file.content ?? "";
+      pre.append(code);
+      page.append(pre);
+    } else {
+      page.innerHTML = deps.renderMarkdown(file.content ?? "");
+    }
+    body.append(page);
+    if (
+      !state.markdownSource &&
+      typeof deps.renderMermaidBlock === "function"
+    ) {
+      for (const block of page.querySelectorAll(".mermaid-block")) {
+        deps.renderMermaidBlock(block);
+      }
+    }
+  }
+
   function renderBody() {
+    updateActions();
     body.replaceChildren();
     const file = state.file;
     if (!file) {
@@ -548,46 +828,28 @@ export function createFilesPane(deps, tab) {
       return;
     }
     editor = null;
-    if (file.kind === "text") {
-      body.append(renderHighlighted(file));
-    } else if (file.kind === "image") {
-      const image = element("img", "files-image");
-      image.src = `/image?token=${encodeURIComponent(deps.token)}&path=${encodeURIComponent(file.path)}`;
-      image.alt = baseName(file.path);
-      image.loading = "lazy";
-      image.decoding = "async";
-      image.referrerPolicy = "no-referrer";
-      body.append(image);
-    } else if (file.kind === "pdf") {
-      const factory = previews.get("application/pdf");
-      if (factory) {
-        const result = factory({
-          deps,
-          tab,
-          path: file.path,
-          name: baseName(file.path),
-          contentType: file.contentType,
-          revision: file.revision,
-          size: file.size,
-          content: file.content,
-          container: body,
-        });
-        if (result?.element) {
-          delegate = result;
-          body.append(result.element);
-        }
-      }
-      if (!delegate) {
-        body.append(
-          noPreviewElement(
-            baseName(file.path),
-            file.size,
-            "PDF preview unavailable.",
-          ),
-        );
-      }
-    } else {
-      body.append(noPreviewElement(baseName(file.path), file.size));
+    switch (file.kind) {
+      case "text":
+        body.append(renderHighlighted(file));
+        break;
+      case "image":
+        renderImage(file);
+        break;
+      case "video":
+      case "audio":
+        renderMedia(file);
+        break;
+      case "markdown":
+        renderMarkdown(file);
+        break;
+      case "pdf":
+      case "document":
+      case "spreadsheet":
+      case "presentation":
+        renderRegistered(file);
+        break;
+      default:
+        renderNoPreview(file);
     }
   }
 
@@ -604,7 +866,10 @@ export function createFilesPane(deps, tab) {
       refuseEdit("Editing is disabled in plan mode.");
       return false;
     }
-    if (!state.file || state.file.kind !== "text") {
+    if (
+      !state.file ||
+      (state.file.kind !== "text" && state.file.kind !== "markdown")
+    ) {
       refuseEdit("This file cannot be edited in the browser.");
       return false;
     }
@@ -672,11 +937,47 @@ export function createFilesPane(deps, tab) {
   editButton.addEventListener("click", enterEdit);
   cancelButton.addEventListener("click", cancelEdit);
   saveButton.addEventListener("click", () => void saveEdit());
+  sourceButton.addEventListener("click", () => {
+    state.markdownSource = !state.markdownSource;
+    updateActions();
+    renderBody();
+  });
+
+  function treeSize(path) {
+    for (const data of folders.values()) {
+      const entry = data.entries.find((item) => item.path === path);
+      if (entry?.type === "file") return entry.size;
+    }
+    return undefined;
+  }
+
+  async function lookupSize(path, signal) {
+    const known = treeSize(path);
+    if (known != null) return known;
+    const parent = parentPath(path);
+    try {
+      const response = await deps.request(
+        `/tree?path=${encodeURIComponent(parent)}`,
+        { signal },
+      );
+      if (!response.ok) return undefined;
+      const data = await response.json();
+      const entry = Array.isArray(data.entries)
+        ? data.entries.find(
+            (item) => item.path === path && item.type === "file",
+          )
+        : null;
+      return entry?.size;
+    } catch {
+      return undefined;
+    }
+  }
 
   async function loadFile(path) {
     const id = ++loadId;
     disposeDelegate();
     state.editing = false;
+    state.markdownSource = false;
     updateActions();
     setStatus("Loading…");
     showMessage("Loading…", "", "empty");
@@ -685,6 +986,32 @@ export function createFilesPane(deps, tab) {
     fileController = controller;
     controllers.add(controller);
     try {
+      const kind = fileKind(path);
+      if (
+        kind === "video" ||
+        kind === "audio" ||
+        kind === "none" ||
+        kind === "document" ||
+        kind === "spreadsheet" ||
+        kind === "presentation"
+      ) {
+        if (id !== loadId || destroyed) return;
+        const size = await lookupSize(path, controller.signal);
+        if (id !== loadId || destroyed || controller.signal.aborted) return;
+        state.file = {
+          path,
+          kind,
+          contentType: "",
+          revision: "",
+          size,
+          content: "",
+        };
+        setStatus(
+          `${size != null ? `${formatSize(size)} · ` : ""}${kindLabel(kind, path)}`,
+        );
+        renderBody();
+        return;
+      }
       const response = await deps.request(
         `/file?path=${encodeURIComponent(path)}`,
         {
@@ -695,28 +1022,20 @@ export function createFilesPane(deps, tab) {
         throw new Error(`File request failed (${response.status})`);
       const contentType =
         response.headers.get("content-type") ?? "application/octet-stream";
+      if (id !== loadId || destroyed) return;
       const revision = response.headers.get("x-file-revision") ?? "";
       const size = Number(response.headers.get("content-length")) || undefined;
-      const isPdf =
-        /application\/pdf/i.test(contentType) || /\.pdf$/i.test(path);
-      const isImage =
-        /^image\//i.test(contentType) ||
-        /\.(png|jpe?g|gif|webp|avif)$/i.test(path);
       const file = {
         path,
         contentType,
         revision,
         size,
         content: "",
-        kind: isPdf
-          ? "pdf"
-          : isImage
-            ? "image"
-            : isTextFile(path, contentType)
-              ? "text"
-              : "none",
+        kind: fileKind(path, contentType),
       };
-      if (file.kind === "text") file.content = await response.text();
+      if (file.kind === "text" || file.kind === "markdown") {
+        file.content = await response.text();
+      }
       if (id !== loadId || destroyed) return;
       state.file = file;
       const detail = languageForPath(path) ?? contentType.split(";")[0];
