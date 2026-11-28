@@ -1,35 +1,20 @@
-import { downloadUrl, formatSize } from "./files.js";
+import { element, icon } from "./dom.js";
+import { noPreviewCard } from "./file-card.js";
+import { kindLabel } from "./file-kind.js";
 import { createRpcClient } from "./office-worker-rpc.js";
 
 const KINDS = {
-  document: { worker: "docx", label: "Word document" },
-  spreadsheet: { worker: "xlsx", label: "Spreadsheet" },
-  presentation: { worker: "pptx", label: "Presentation" },
+  document: "docx",
+  spreadsheet: "xlsx",
+  presentation: "pptx",
 };
 const ZIP_SIGNATURE = [0x50, 0x4b, 0x03, 0x04];
 const COMPOUND_SIGNATURE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
 const MAX_ZOOM = 4;
 const MIN_ZOOM = 0.25;
 
-function node(tag, className, text) {
-  const element = document.createElement(tag);
-  if (className) element.className = className;
-  if (text != null) element.textContent = text;
-  return element;
-}
-
-function icon(name) {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("class", "icon");
-  svg.setAttribute("aria-hidden", "true");
-  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-  use.setAttribute("href", `#i-${name}`);
-  svg.append(use);
-  return svg;
-}
-
 function control(label, iconName, onClick) {
-  const button = node("button", "office-control");
+  const button = element("button", "office-control");
   button.type = "button";
   button.setAttribute("aria-label", label);
   button.title = label;
@@ -38,44 +23,30 @@ function control(label, iconName, onClick) {
   return button;
 }
 
-function fraction(value) {
+function finiteOrZero(value) {
   return Number.isFinite(value) ? value : 0;
 }
 
 function zoomScale(value) {
-  return `scaleX(${fraction(value).toFixed(4)})`;
+  return `scaleX(${finiteOrZero(value).toFixed(4)})`;
 }
 
 function fallbackCard(context, reason) {
-  const card = node("div", "files-no-preview");
-  card.append(icon("file", "icon files-state-icon"));
-  card.append(node("p", "files-state-title", `No preview for ${context.name}`));
-  card.append(
-    node("p", "files-state-kind", KINDS[context.kind]?.label ?? "Office file"),
-  );
-  card.append(node("p", "files-state-detail", reason));
-  if (context.size != null)
-    card.append(node("p", "files-state-meta", formatSize(context.size)));
-  const actions = node("div", "files-state-actions");
-  const download = node("a", "files-action");
-  download.href = downloadUrl(context.path, context.deps.token);
-  download.download = context.name;
-  download.setAttribute("aria-label", `Download ${context.name}`);
-  download.append(icon("download"), node("span", "", "Download"));
-  const copy = node("button", "files-action");
-  copy.type = "button";
-  copy.setAttribute("aria-label", `Copy path to ${context.name}`);
-  copy.append(icon("copy"), node("span", "", "Copy path"));
-  copy.addEventListener("click", async () => {
-    const copied = await context.deps.copyText(context.path);
-    context.deps.toast(
-      copied ? "Path copied." : "Could not copy the path.",
-      copied ? "info" : "error",
-    );
+  return noPreviewCard({
+    name: context.name,
+    size: context.size,
+    detail: reason,
+    kind: kindLabel(context.kind, context.path),
+    path: context.path,
+    token: context.deps.token,
+    onCopy: async () => {
+      const copied = await context.deps.copyText(context.path);
+      context.deps.toast(
+        copied ? "Path copied." : "Could not copy the path.",
+        copied ? "info" : "error",
+      );
+    },
   });
-  actions.append(download, copy);
-  card.append(actions);
-  return card;
 }
 
 function signatureReason(buffer) {
@@ -126,25 +97,25 @@ export function registerOfficePreviews(deps) {
 }
 
 function createOfficeViewer(context) {
-  const config = KINDS[context.kind];
-  const root = node("div", `office-view office-view--${context.kind}`);
+  const engineName = KINDS[context.kind];
+  const root = element("div", `office-view office-view--${context.kind}`);
   root.setAttribute("role", "region");
   root.setAttribute("aria-label", `${context.name} preview`);
-  const toolbar = node("div", "office-toolbar");
-  const stage = node("div", "office-stage");
+  const toolbar = element("div", "office-toolbar");
+  const stage = element("div", "office-stage");
   stage.tabIndex = 0;
   root.append(toolbar, stage);
 
-  const loading = node("div", "office-loading");
+  const loading = element("div", "office-loading");
   loading.setAttribute("role", "status");
   loading.append(
-    node("span", "office-loading-bar"),
-    node("span", "office-loading-bar"),
-    node("span", "office-loading-bar"),
-    node(
+    element("span", "office-loading-bar"),
+    element("span", "office-loading-bar"),
+    element("span", "office-loading-bar"),
+    element(
       "span",
       "office-loading-text",
-      `Loading ${config.label.toLowerCase()}…`,
+      `Loading ${kindLabel(context.kind, context.path).toLowerCase()}…`,
     ),
   );
   stage.append(loading);
@@ -207,11 +178,11 @@ function createOfficeViewer(context) {
     nextButton = control("Next " + unit.toLowerCase(), "chevron-right", () =>
       navigate(1, pages.length || tabs.length, render),
     );
-    position = node("span", "office-position");
+    position = element("span", "office-position");
     const zoomOut = control("Zoom out", "zoom-out", () =>
       setZoom(zoom / 1.25, render),
     );
-    zoomLabel = node("span", "office-zoom-label");
+    zoomLabel = element("span", "office-zoom-label");
     const zoomIn = control("Zoom in", "zoom-in", () =>
       setZoom(zoom * 1.25, render),
     );
@@ -224,16 +195,16 @@ function createOfficeViewer(context) {
         render,
       );
     });
-    const navigation = node("div", "office-nav");
+    const navigation = element("div", "office-nav");
     navigation.append(previousButton, position, nextButton);
-    const zoomControls = node("div", "office-zoom");
+    const zoomControls = element("div", "office-zoom");
     zoomControls.append(zoomOut, zoomLabel, zoomIn, fit);
     toolbar.append(navigation, zoomControls);
     if (extra) toolbar.append(extra);
   };
 
   const bitmapCanvas = (bitmap, cssWidth, cssHeight) => {
-    const canvas = node("canvas", "office-canvas");
+    const canvas = element("canvas", "office-canvas");
     canvas.width = bitmap.width;
     canvas.height = bitmap.height;
     canvas.style.width = `${cssWidth}px`;
@@ -264,7 +235,7 @@ function createOfficeViewer(context) {
         bitmap?.close();
         return;
       }
-      const holder = node("div", "office-page");
+      const holder = element("div", "office-page");
       holder.style.width = `${page.width * zoom}px`;
       holder.style.height = `${page.height * zoom}px`;
       const canvas = bitmapCanvas(
@@ -272,7 +243,7 @@ function createOfficeViewer(context) {
         page.width * zoom,
         page.height * zoom,
       );
-      const layer = node("div", "office-page-text");
+      const layer = element("div", "office-page-text");
       const spans = await rpc.call(
         "text",
         { index: current },
@@ -282,16 +253,16 @@ function createOfficeViewer(context) {
       );
       if (destroyed || id !== renderId) return;
       for (const span of spans ?? []) {
-        const text = node("span", "office-text-span", span.text);
-        text.style.left = `${fraction(span.left) * 100}%`;
-        text.style.top = `${fraction(span.top) * 100}%`;
-        text.style.fontSize = `${fraction(span.size) * 100}cqw`;
+        const text = element("span", "office-text-span", span.text);
+        text.style.left = `${finiteOrZero(span.left) * 100}%`;
+        text.style.top = `${finiteOrZero(span.top) * 100}%`;
+        text.style.fontSize = `${finiteOrZero(span.size) * 100}cqw`;
         text.style.transform = zoomScale(
           span.transform?.match(/scaleX\(([-\d.]+)\)/)?.[1] ?? 1,
         );
         if (span.dir === "rtl") text.dir = "rtl";
-        if (span.after === "tab") text.append(node("span", "", "\t"));
-        else if (span.after === "br") text.append(node("br"));
+        if (span.after === "tab") text.append(element("span", "", "\t"));
+        else if (span.after === "br") text.append(element("br"));
         layer.append(text);
       }
       holder.append(canvas, layer);
@@ -301,6 +272,9 @@ function createOfficeViewer(context) {
         fail(error?.message ?? "Could not render this page");
     }
   };
+
+  const themeColor = (name) =>
+    getComputedStyle(stage).getPropertyValue(name).trim();
 
   const drawSheetHeaders = (
     draw,
@@ -313,16 +287,13 @@ function createOfficeViewer(context) {
   ) => {
     if (!grid) return;
     draw.setTransform(ratio, 0, 0, ratio, 0, 0);
-    draw.fillStyle =
-      getComputedStyle(stage).getPropertyValue("--office-header") || "#f5f5f5";
+    draw.fillStyle = themeColor("--office-header");
     draw.fillRect(0, 0, headerWidth + viewWidth, headerHeight);
     draw.fillRect(0, 0, headerWidth, headerHeight + viewHeight);
     draw.font = "11px ui-sans-serif, system-ui, sans-serif";
     draw.textAlign = "center";
     draw.textBaseline = "middle";
-    draw.fillStyle =
-      getComputedStyle(stage).getPropertyValue("--office-header-text") ||
-      "#5c5c5c";
+    draw.fillStyle = themeColor("--office-header-text");
     grid.colOffsets.slice(0, -1).forEach((offset, index) => {
       const track = grid.colIndices?.[index] ?? grid.startCol + index;
       draw.fillText(
@@ -339,8 +310,7 @@ function createOfficeViewer(context) {
         headerHeight + (offset + grid.rowOffsets[index + 1]) / 2,
       );
     });
-    draw.strokeStyle =
-      getComputedStyle(stage).getPropertyValue("--office-grid") || "#d4d4d4";
+    draw.strokeStyle = themeColor("--office-grid");
     draw.lineWidth = 1;
     draw.beginPath();
     draw.moveTo(0, headerHeight + 0.5);
@@ -382,15 +352,15 @@ function createOfficeViewer(context) {
         frame?.bitmap?.close();
         return;
       }
-      const holder = node("div", "office-sheet-scroll");
+      const holder = element("div", "office-sheet-scroll");
       if (!frame?.bitmap) {
         holder.append(
-          node("p", "office-empty", "This sheet has no cells to show."),
+          element("p", "office-empty", "This sheet has no cells to show."),
         );
         stage.replaceChildren(holder);
         return;
       }
-      const canvas = node("canvas", "office-canvas");
+      const canvas = element("canvas", "office-canvas");
       canvas.width = Math.ceil((headerWidth + viewWidth) * ratio);
       canvas.height = Math.ceil((headerHeight + viewHeight) * ratio);
       canvas.style.width = `${(headerWidth + viewWidth) * zoom}px`;
@@ -455,11 +425,11 @@ function createOfficeViewer(context) {
       }
       if (painted?.kind !== "painted") {
         stage.replaceChildren(
-          node("p", "office-empty", "This slide could not be rendered."),
+          element("p", "office-empty", "This slide could not be rendered."),
         );
         return;
       }
-      const holder = node("div", "office-slide");
+      const holder = element("div", "office-slide");
       holder.append(
         bitmapCanvas(painted.bitmap, slide.width * zoom, slide.height * zoom),
       );
@@ -481,7 +451,7 @@ function createOfficeViewer(context) {
       }
       const worker = new Worker(
         new URL(
-          `/office-worker-${config.worker}.js?token=${encodeURIComponent(context.deps.token)}`,
+          `/office-worker-${engineName}.js?token=${encodeURIComponent(context.deps.token)}`,
           location.origin,
         ),
         { type: "module" },
@@ -532,11 +502,11 @@ function createOfficeViewer(context) {
             (tab) => tab.index === opened.layout?.info?.activeSheet,
           ),
         );
-        tabStrip = node("div", "office-sheet-tabs");
+        tabStrip = element("div", "office-sheet-tabs");
         tabStrip.setAttribute("role", "tablist");
         tabStrip.setAttribute("aria-label", "Sheets");
         tabs.forEach((tab, index) => {
-          const button = node("button", "office-sheet-tab", tab.name);
+          const button = element("button", "office-sheet-tab", tab.name);
           button.type = "button";
           button.setAttribute("role", "tab");
           button.addEventListener("click", async () => {

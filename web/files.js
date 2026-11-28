@@ -1,159 +1,24 @@
+import { element, icon } from "./dom.js";
+import { recordWorkspacePath, startPathDrag } from "./file-drag.js";
+import { noPreviewCard, formatSize } from "./file-card.js";
+import { fileKind, kindLabel, languageForPath } from "./file-kind.js";
+import {
+  createImagePreview,
+  createMarkdownPreview,
+  createMediaPreview,
+  requestFullscreen,
+} from "./file-previews.js";
+
 const DIVIDER_KEY = "atom-lite.web.files-divider";
 const TREE_KEY = "atom-lite.web.files-tree";
-export const PATH_MIME = "application/x-atom-lite-path";
 const DIVIDER_DEFAULT = 200;
 const DIVIDER_MIN = 120;
 const DIVIDER_MAX = 560;
 const PREVIEW_MIN = 180;
-const ZOOM_STEP = 1.25;
-const MEDIA_MAX_BYTES = 256 * 1024 * 1024;
-
-const LANGUAGES = {
-  c: "c",
-  cjs: "javascript",
-  cpp: "cpp",
-  cs: "csharp",
-  css: "css",
-  diff: "diff",
-  go: "go",
-  h: "c",
-  hpp: "cpp",
-  html: "xml",
-  htm: "xml",
-  java: "java",
-  js: "javascript",
-  json: "json",
-  jsonc: "json",
-  jsx: "javascript",
-  kt: "kotlin",
-  lua: "lua",
-  mjs: "javascript",
-  md: "markdown",
-  patch: "diff",
-  php: "php",
-  py: "python",
-  rb: "ruby",
-  rs: "rust",
-  scss: "scss",
-  sh: "bash",
-  bash: "bash",
-  zsh: "bash",
-  sql: "sql",
-  svg: "xml",
-  swift: "swift",
-  toml: "ini",
-  ts: "typescript",
-  tsx: "typescript",
-  txt: "plaintext",
-  xml: "xml",
-  yaml: "yaml",
-  yml: "yaml",
-};
 
 const openTabs = new WeakMap();
-const treePaths = new WeakMap();
 const previews = new Map();
 const hooked = new WeakSet();
-
-export function parsePathPayload(raw) {
-  if (typeof raw !== "string" || !raw) return [];
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return [];
-  }
-  const items = Array.isArray(parsed) ? parsed : [parsed];
-  const result = [];
-  for (const item of items) {
-    if (!item || typeof item !== "object") return [];
-    const { path, type } = item;
-    if (typeof path !== "string" || !path) return [];
-    if (type !== "file" && type !== "dir") return [];
-    result.push({ path, type });
-  }
-  return result;
-}
-
-export function parsePlainPathData(text) {
-  if (typeof text !== "string" || !text.startsWith("file:")) return null;
-  const path = text.slice("file:".length);
-  return path ? { path } : null;
-}
-
-export function hasWorkspaceDrag(dataTransfer) {
-  return Boolean(dataTransfer?.types?.includes?.(PATH_MIME));
-}
-
-function knownPaths(deps) {
-  let workspaces = treePaths.get(deps);
-  if (!workspaces) {
-    workspaces = new Map();
-    treePaths.set(deps, workspaces);
-  }
-  const workspace = deps.getWorkspace();
-  let paths = workspaces.get(workspace);
-  if (!paths) {
-    paths = new Map();
-    workspaces.set(workspace, paths);
-  }
-  return paths;
-}
-
-export function readWorkspaceDrag(dataTransfer, deps) {
-  const payloads = parsePathPayload(dataTransfer?.getData?.(PATH_MIME) ?? "");
-  const matched = payloads.filter(
-    ({ path, type }) => workspacePathKind(deps, path) === type,
-  );
-  if (matched.length > 0) return matched;
-  const plain = parsePlainPathData(dataTransfer?.getData?.("text/plain") ?? "");
-  if (!plain) return [];
-  const type = workspacePathKind(deps, plain.path);
-  return type ? [{ path: plain.path, type }] : [];
-}
-
-export function workspacePathKind(deps, path) {
-  return knownPaths(deps).get(path)?.type ?? null;
-}
-
-export function workspacePathSize(deps, path) {
-  return knownPaths(deps).get(path)?.size;
-}
-
-function element(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text != null) node.textContent = text;
-  return node;
-}
-
-function icon(name, className = "icon") {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("class", className);
-  svg.setAttribute("aria-hidden", "true");
-  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-  use.setAttribute("href", `#i-${name}`);
-  svg.append(use);
-  return svg;
-}
-
-function drawIcon(paths) {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("class", "icon");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("aria-hidden", "true");
-  svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "1.7");
-  svg.setAttribute("stroke-linecap", "round");
-  svg.setAttribute("stroke-linejoin", "round");
-  for (const path of paths) {
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    line.setAttribute("d", path);
-    svg.append(line);
-  }
-  return svg;
-}
 
 export function sortTreeEntries(entries) {
   return [...entries].sort((a, b) => {
@@ -173,24 +38,6 @@ export function matchesPathFilter(path, query) {
   return lower.split(/[\\/]/).some((segment) => segment.includes(needle));
 }
 
-export function formatSize(bytes) {
-  const value = Number(bytes) || 0;
-  if (value < 1024) return `${value} B`;
-  const units = ["KB", "MB", "GB"];
-  let scaled = value / 1024;
-  let index = 0;
-  while (scaled >= 1024 && index < units.length - 1) {
-    scaled /= 1024;
-    index += 1;
-  }
-  return `${scaled.toFixed(1)} ${units[index]}`;
-}
-
-export function languageForPath(path) {
-  const extension = path.toLowerCase().split(".").pop() ?? "";
-  return LANGUAGES[extension] ?? null;
-}
-
 function baseName(path) {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
@@ -205,123 +52,14 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
-function isTextFile(path, contentType) {
-  const type = (contentType ?? "").split(";")[0].trim().toLowerCase();
-  if (type.startsWith("text/")) return true;
-  if (/(json|xml|yaml|javascript|typescript|x-sh)/.test(type)) return true;
-  return (
-    languageForPath(path) !== null ||
-    /\.(env|ini|cfg|conf|properties|editorconfig|lock)$/i.test(path)
-  );
-}
-
-const OFFICE_MIME_KINDS = new Map([
-  [
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "document",
-  ],
-  [
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "spreadsheet",
-  ],
-  [
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    "presentation",
-  ],
-]);
-const OFFICE_EXTENSION_KINDS = new Map([
-  [".docx", "document"],
-  [".xlsx", "spreadsheet"],
-  [".pptx", "presentation"],
-]);
-
-export function fileKind(path, contentType = "") {
-  const type = contentType.split(";")[0].trim().toLowerCase();
-  const extension = path.toLowerCase().split(".").pop();
-  const ext = path.toLowerCase().includes(".") ? `.${extension}` : "";
-  if (type === "application/pdf" || ext === ".pdf") return "pdf";
-  if (
-    type.startsWith("image/") ||
-    /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(path)
-  )
-    return "image";
-  if (
-    type.startsWith("video/") ||
-    /\.(mp4|webm|mov|mkv|avi|mpeg|mpg|ogv)$/i.test(path)
-  )
-    return "video";
-  if (
-    type.startsWith("audio/") ||
-    /\.(mp3|wav|ogg|oga|opus|m4a|aac|flac|weba)$/i.test(path)
-  )
-    return "audio";
-  if (
-    type === "text/markdown" ||
-    ext === ".md" ||
-    ext === ".markdown" ||
-    ext === ".mdx"
-  )
-    return "markdown";
-  const office = OFFICE_MIME_KINDS.get(type) ?? OFFICE_EXTENSION_KINDS.get(ext);
-  if (office) return office;
-  return isTextFile(path, type) ? "text" : "none";
-}
-
-function guardedUrl(route, path, token) {
-  return `/${route}?token=${encodeURIComponent(token)}&path=${encodeURIComponent(path)}`;
-}
-
-export function mediaUrl(path, token) {
-  return guardedUrl("media", path, token);
-}
-
-export function downloadUrl(path, token) {
-  return guardedUrl("download", path, token);
-}
-
-function imageUrl(path, token) {
-  return guardedUrl("image", path, token);
-}
-
-function noPreviewElement(name, size, detail, options = {}) {
-  const box = element("div", "files-no-preview");
-  box.append(icon("file", "icon files-state-icon"));
-  box.append(element("p", "files-state-title", `No preview for ${name}`));
-  if (options.kind) box.append(element("p", "files-state-kind", options.kind));
-  box.append(
-    element(
-      "p",
-      "files-state-detail",
-      detail || "This file type is not supported.",
-    ),
-  );
-  if (size != null)
-    box.append(element("p", "files-state-meta", formatSize(size)));
-  if (options.path != null) {
-    const actions = element("div", "files-state-actions");
-    const download = element("a", "files-action");
-    download.href = downloadUrl(options.path, options.token ?? "");
-    download.download = name;
-    download.setAttribute("aria-label", `Download ${name}`);
-    download.append(icon("download", "icon"), element("span", "", "Download"));
-    const copy = element("button", "files-action");
-    copy.type = "button";
-    copy.setAttribute("aria-label", `Copy path to ${name}`);
-    copy.append(icon("copy", "icon"), element("span", "", "Copy path"));
-    copy.addEventListener("click", () => void options.onCopy?.());
-    actions.append(download, copy);
-    box.append(actions);
-  }
-  return box;
-}
-
 function fallbackPdfPreview(context) {
   return {
-    element: noPreviewElement(
-      context.name,
-      context.size,
-      "PDF preview loads in a PDF tab. Open this file as a PDF to read and annotate it.",
-    ),
+    element: noPreviewCard({
+      name: context.name,
+      size: context.size,
+      detail:
+        "PDF preview loads in a PDF tab. Open this file as a PDF to read and annotate it.",
+    }),
   };
 }
 
@@ -419,9 +157,7 @@ export function createFilesPane(deps, tab) {
   let editor = null;
   let delegate = null;
   let fileController = null;
-  let stageObserver = null;
-  let fullscreenTarget = null;
-  let fullscreenTrigger = null;
+  const fullscreen = { target: null, trigger: null };
   const mediaKeys = new AbortController();
   const controllers = new Set();
   const treeLoads = new Map();
@@ -602,21 +338,9 @@ export function createFilesPane(deps, tab) {
     }
     row.append(element("span", "files-name", entry.name));
     row.draggable = true;
-    row.addEventListener("dragstart", (event) => {
-      if (!event.dataTransfer) return;
-      event.dataTransfer.setData(
-        PATH_MIME,
-        JSON.stringify({ path: entry.path, type: entry.type }),
-      );
-      event.dataTransfer.setData("text/plain", `file:${entry.path}`);
-      event.dataTransfer.effectAllowed = "copy";
-      const image = row.cloneNode(true);
-      image.className = "files-row files-row-drag-image";
-      image.style.width = `${row.getBoundingClientRect().width}px`;
-      document.body.append(image);
-      event.dataTransfer.setDragImage(image, 12, 12);
-      setTimeout(() => image.remove(), 0);
-    });
+    row.addEventListener("dragstart", (event) =>
+      startPathDrag(event, row, entry),
+    );
     row.addEventListener("click", () => {
       if (isDir) {
         if (expanded.has(entry.path)) expanded.delete(entry.path);
@@ -683,10 +407,12 @@ export function createFilesPane(deps, tab) {
           entries,
           truncated: Boolean(data.truncated),
         });
-        const known = knownPaths(deps);
         for (const entry of entries) {
           if (typeof entry.path !== "string") continue;
-          known.set(entry.path, { type: entry.type, size: entry.size });
+          recordWorkspacePath(deps, entry.path, {
+            type: entry.type,
+            size: entry.size,
+          });
         }
       } catch (error) {
         if (controller.signal.aborted) return;
@@ -776,7 +502,7 @@ export function createFilesPane(deps, tab) {
       "aria-label",
       state.markdownSource ? "Show rendered Markdown" : "Show Markdown source",
     );
-    editButton.hidden = state.editing;
+    editButton.hidden = state.editing || state.file?.kind !== "text";
     saveButton.hidden = !state.editing;
     cancelButton.hidden = !state.editing;
   }
@@ -790,25 +516,6 @@ export function createFilesPane(deps, tab) {
     box.append(element("p", "files-state-title", title));
     if (detail) box.append(element("p", "files-state-detail", detail));
     body.replaceChildren(box);
-  }
-
-  function toolbarButton(label, paths, onClick) {
-    const button = element("button", "files-media-tool");
-    button.type = "button";
-    button.title = label;
-    button.setAttribute("aria-label", label);
-    button.append(drawIcon(paths));
-    button.addEventListener("click", onClick);
-    return button;
-  }
-
-  function requestFullscreen(target, trigger) {
-    if (!target?.requestFullscreen || document.fullscreenElement) return;
-    fullscreenTrigger = trigger ?? null;
-    void target.requestFullscreen().catch(() => {
-      fullscreenTrigger = null;
-      deps.toast("Fullscreen is unavailable for this preview.", "warn");
-    });
   }
 
   function disposeDelegate() {
@@ -837,44 +544,31 @@ export function createFilesPane(deps, tab) {
     return pre;
   }
 
-  function kindLabel(kind, path) {
-    const labels = {
-      text: "Text",
-      image: "Image",
-      video: "Video",
-      audio: "Audio",
-      markdown: "Markdown",
-      pdf: "PDF",
-      document: "Word document",
-      spreadsheet: "Spreadsheet",
-      presentation: "Presentation",
-      none: "Unsupported file",
-    };
-    if (labels[kind]) return labels[kind];
-    const extension = path.toLowerCase().split(".").pop() ?? "";
-    return extension ? `${extension.toUpperCase()} file` : "Unknown file";
-  }
-
   function renderNoPreview(file, detail) {
     body.append(
-      noPreviewElement(
-        baseName(file.path),
-        file.size,
-        detail ?? "This file type has no preview in the workbench.",
-        {
-          kind: kindLabel(file.kind, file.path),
-          path: file.path,
-          token: deps.token,
-          onCopy: async () => {
-            const copied = await deps.copyText(file.path);
-            deps.toast(
-              copied ? "Path copied." : "Could not copy the path.",
-              copied ? "info" : "error",
-            );
-          },
+      noPreviewCard({
+        name: baseName(file.path),
+        size: file.size,
+        detail: detail ?? "This file type has no preview in the workbench.",
+        kind: kindLabel(file.kind, file.path),
+        path: file.path,
+        token: deps.token,
+        onCopy: async () => {
+          const copied = await deps.copyText(file.path);
+          deps.toast(
+            copied ? "Path copied." : "Could not copy the path.",
+            copied ? "info" : "error",
+          );
         },
-      ),
+      }),
     );
+  }
+
+  function previewError(file) {
+    return (title, detail, kind) => {
+      if (state.file !== file || destroyed) return;
+      showMessage(title, detail, kind);
+    };
   }
 
   function renderRegistered(file) {
@@ -903,251 +597,11 @@ export function createFilesPane(deps, tab) {
     );
   }
 
-  function renderImage(file) {
-    const stage = element("div", "files-media-stage files-image-stage");
-    const image = element("img", "files-image files-media");
-    let fitScale = 1;
-    let zoom = 1;
-    let panX = 0;
-    let panY = 0;
-    let origin = null;
-    let nativeWidth = 0;
-    let nativeHeight = 0;
-
-    const loading = element("div", "files-media-loading");
-    loading.setAttribute("role", "status");
-    loading.append(
-      icon("image", "icon"),
-      element("span", "", "Loading image…"),
-    );
-
-    function bound(value, size) {
-      const limit = Math.max(0, (size * fitScale * (zoom - 1)) / 2);
-      return clamp(value, -limit, limit);
-    }
-
-    function paint() {
-      image.style.width = `${nativeWidth}px`;
-      image.style.height = `${nativeHeight}px`;
-      image.style.transform =
-        `translate(-50%, -50%) translate(${panX}px, ${panY}px) ` +
-        `scale(${fitScale * zoom})`;
-      stage.classList.toggle("is-zoomed", zoom > 1);
-    }
-
-    function measure() {
-      const width = Math.max(1, stage.clientWidth - 32);
-      const height = Math.max(1, stage.clientHeight - 32);
-      fitScale =
-        nativeWidth && nativeHeight
-          ? Math.max(
-              0.01,
-              Math.min(1, width / nativeWidth, height / nativeHeight),
-            )
-          : 1;
-      panX = bound(panX, nativeWidth);
-      panY = bound(panY, nativeHeight);
-      paint();
-    }
-
-    const zoomLabel = element("span", "files-zoom-label", "Fit");
-    zoomLabel.setAttribute("role", "status");
-    function setZoom(next) {
-      zoom = clamp(next, 0.5, 8);
-      panX = bound(panX, nativeWidth);
-      panY = bound(panY, nativeHeight);
-      zoomLabel.textContent = zoom === 1 ? "Fit" : `${Math.round(zoom * 100)}%`;
-      paint();
-    }
-
-    const tools = element("div", "files-media-tools");
-    tools.append(
-      toolbarButton("Zoom out", ["M5 12h14"], () => setZoom(zoom / ZOOM_STEP)),
-      toolbarButton("Zoom in", ["M12 5v14", "M5 12h14"], () =>
-        setZoom(zoom * ZOOM_STEP),
-      ),
-      toolbarButton("Fit image to preview", [
-        "M9 4H4v5",
-        "M15 4h5v5",
-        "M20 15v5h-5",
-        "M9 20H4v-5",
-      ], () => {
-        panX = 0;
-        panY = 0;
-        setZoom(1);
-      }),
-      toolbarButton("View image fullscreen", [
-        "M14 4h6v6",
-        "M20 4l-7 7",
-        "M10 20H4v-6",
-        "M4 20l7-7",
-      ], (event) => requestFullscreen(stage, event.currentTarget)),
-      zoomLabel,
-    );
-
-    image.src = imageUrl(file.path, deps.token);
-    image.alt = baseName(file.path);
-    image.loading = "lazy";
-    image.decoding = "async";
-    image.referrerPolicy = "no-referrer";
-    image.draggable = false;
-    image.addEventListener(
-      "load",
-      () => {
-        nativeWidth = image.naturalWidth;
-        nativeHeight = image.naturalHeight;
-        loading.remove();
-        measure();
-      },
-      { once: true },
-    );
-    image.addEventListener("error", () => {
-      if (state.file !== file || destroyed) return;
-      showMessage(
-        `Could not open ${baseName(file.path)}`,
-        "The image could not be loaded.",
-        "error",
-      );
-    });
-    image.addEventListener("pointerdown", (event) => {
-      if (zoom <= 1 || event.button !== 0) return;
-      origin = { x: event.clientX, y: event.clientY };
-      image.setPointerCapture(event.pointerId);
-      image.classList.add("is-dragging");
-    });
-    image.addEventListener("pointermove", (event) => {
-      if (!origin) return;
-      panX = bound(panX + event.clientX - origin.x, nativeWidth);
-      panY = bound(panY + event.clientY - origin.y, nativeHeight);
-      origin = { x: event.clientX, y: event.clientY };
-      paint();
-    });
-    const endPan = () => {
-      origin = null;
-      image.classList.remove("is-dragging");
-    };
-    image.addEventListener("pointerup", endPan);
-    image.addEventListener("pointercancel", endPan);
-    image.addEventListener("lostpointercapture", endPan);
-    stage.addEventListener(
-      "wheel",
-      (event) => {
-        if (!event.ctrlKey && !event.metaKey) return;
-        event.preventDefault();
-        setZoom(zoom * Math.exp(-event.deltaY / 240));
-      },
-      { passive: false },
-    );
-
-    stageObserver?.disconnect();
-    stageObserver = new ResizeObserver(() => {
-      if (stage.isConnected && nativeWidth) measure();
-    });
-    stageObserver.observe(stage);
-    fullscreenTarget = stage;
-    stage.append(image, loading, tools);
-    body.append(stage);
-  }
-
-  function renderMedia(file) {
-    if (file.size > MEDIA_MAX_BYTES) {
-      renderNoPreview(
-        file,
-        "This media file is larger than the 256 MB streaming limit.",
-      );
-      return;
-    }
-    const stage = element("div", "files-media-stage");
-    const media = element(
-      file.kind === "video" ? "video" : "audio",
-      `files-media files-media-${file.kind}`,
-    );
-    media.controls = true;
-    media.preload = "metadata";
-    media.playsInline = file.kind === "video";
-    media.src = mediaUrl(file.path, deps.token);
-    media.setAttribute("aria-label", baseName(file.path));
-
-    const loading = element("div", "files-media-loading");
-    loading.setAttribute("role", "status");
-    loading.append(
-      icon(file.kind === "video" ? "video" : "audio", "icon"),
-      element("span", "", "Loading media…"),
-    );
-
-    media.addEventListener("loadedmetadata", () => loading.remove(), {
-      once: true,
-    });
-    media.addEventListener("error", () => {
-      if (state.file !== file || destroyed) return;
-      showMessage(
-        `Could not play ${baseName(file.path)}`,
-        "The browser cannot decode this file.",
-        "error",
-      );
-    });
-    if (file.kind === "video") {
-      const fullscreenButton = toolbarButton(
-        "View video fullscreen",
-        ["M14 4h6v6", "M20 4l-7 7", "M10 20H4v-6", "M4 20l7-7"],
-        (event) => requestFullscreen(media, event.currentTarget),
-      );
-      media.addEventListener("dblclick", () =>
-        requestFullscreen(media, fullscreenButton),
-      );
-      const tools = element("div", "files-media-tools");
-      tools.append(fullscreenButton);
-      stage.append(tools);
-      fullscreenTarget = media;
-    }
-    stage.append(media, loading);
-    body.append(stage);
-  }
-
-  function renderMarkdown(file) {
-    const page = element("div", "files-markdown msg-markdown");
-    page.addEventListener("click", (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const copy = target.closest("[data-code-copy]");
-      if (!copy) return;
-      const block = copy.closest(".code-block, .mermaid-block");
-      const code = block?.querySelector("pre code")?.textContent ?? "";
-      if (!code) return;
-      void deps.copyText(code).then((ok) => {
-        if (!ok || !page.isConnected) return;
-        copy.textContent = "Copied";
-        setTimeout(() => {
-          if (page.isConnected) copy.textContent = "Copy";
-        }, 1200);
-      });
-    });
-    if (state.markdownSource || typeof deps.renderMarkdown !== "function") {
-      const pre = element("pre", "files-code");
-      const code = element("code");
-      code.textContent = file.content ?? "";
-      pre.append(code);
-      page.append(pre);
-    } else {
-      page.innerHTML = deps.renderMarkdown(file.content ?? "");
-    }
-    body.append(page);
-    if (
-      !state.markdownSource &&
-      typeof deps.renderMermaidBlock === "function"
-    ) {
-      for (const block of page.querySelectorAll(".mermaid-block")) {
-        deps.renderMermaidBlock(block);
-      }
-    }
-  }
-
   function renderBody() {
     updateActions();
-    stageObserver?.disconnect();
-    stageObserver = null;
-    fullscreenTarget = null;
-    fullscreenTrigger = null;
+    disposeDelegate();
+    fullscreen.target = null;
+    fullscreen.trigger = null;
     body.replaceChildren();
     const file = state.file;
     if (!file) {
@@ -1172,14 +626,42 @@ export function createFilesPane(deps, tab) {
         body.append(renderHighlighted(file));
         break;
       case "image":
-        renderImage(file);
+        delegate = createImagePreview({
+          file,
+          deps,
+          name: baseName(file.path),
+          fullscreen,
+          onError: previewError(file),
+        });
+        body.append(delegate.element);
         break;
       case "video":
-      case "audio":
-        renderMedia(file);
+      case "audio": {
+        const preview = createMediaPreview({
+          file,
+          deps,
+          name: baseName(file.path),
+          fullscreen,
+          onError: previewError(file),
+        });
+        if (!preview) {
+          renderNoPreview(
+            file,
+            "This media file is larger than the 256 MB streaming limit.",
+          );
+          break;
+        }
+        delegate = preview;
+        body.append(preview.element);
         break;
+      }
       case "markdown":
-        renderMarkdown(file);
+        delegate = createMarkdownPreview({
+          file,
+          deps,
+          source: state.markdownSource,
+        });
+        body.append(delegate.element);
         break;
       case "pdf":
       case "document":
@@ -1205,10 +687,7 @@ export function createFilesPane(deps, tab) {
       refuseEdit("Editing is disabled in plan mode.");
       return false;
     }
-    if (
-      !state.file ||
-      (state.file.kind !== "text" && state.file.kind !== "markdown")
-    ) {
+    if (state.file?.kind !== "text") {
       refuseEdit("This file cannot be edited in the browser.");
       return false;
     }
@@ -1427,8 +906,8 @@ export function createFilesPane(deps, tab) {
     "fullscreenchange",
     () => {
       if (document.fullscreenElement) return;
-      const trigger = fullscreenTrigger;
-      fullscreenTrigger = null;
+      const trigger = fullscreen.trigger;
+      fullscreen.trigger = null;
       if (trigger?.isConnected) trigger.focus();
     },
     { signal: mediaKeys.signal },
@@ -1452,10 +931,10 @@ export function createFilesPane(deps, tab) {
       const active = document.activeElement;
       if (active && active !== document.body && !active.closest?.(".wb-dock"))
         return;
-      if (!fullscreenTarget) return;
+      if (!fullscreen.target) return;
       event.preventDefault();
       event.stopPropagation();
-      requestFullscreen(fullscreenTarget, null);
+      requestFullscreen(fullscreen.target, null, deps, fullscreen);
     },
     { capture: true, signal: mediaKeys.signal },
   );
@@ -1476,7 +955,6 @@ export function createFilesPane(deps, tab) {
     destroy() {
       destroyed = true;
       mediaKeys.abort();
-      stageObserver?.disconnect();
       for (const controller of controllers) controller.abort();
       controllers.clear();
       disposeDelegate();

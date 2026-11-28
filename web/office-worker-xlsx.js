@@ -1,23 +1,23 @@
-import { serveRpc, Transfer } from "./office-worker-rpc.js";
+import {
+  lazyLoad,
+  serveRpc,
+  stateGuard,
+  Transfer,
+  workerAsset,
+} from "./office-worker-rpc.js";
 
-const token = new URL(self.location.href).searchParams.get("token") ?? "";
-const engineUrl = `/engine/@betteroffice/xlsx/dist/index.js?token=${encodeURIComponent(token)}`;
 const LAST_ROW = 1048575;
 const LAST_COL = 16383;
 
 let engine;
 let state;
 
-async function loadEngine() {
-  if (engine) return engine;
-  engine = await import(engineUrl);
+const loadEngine = lazyLoad(async () => {
+  engine = await import(workerAsset("xlsx", "dist/index.js"));
   return engine;
-}
+});
 
-function required() {
-  if (!state) throw new Error("The worker holds no workbook");
-  return state;
-}
+const required = stateGuard(() => state, "The worker holds no workbook");
 
 function activate(sheet) {
   const opened = required();

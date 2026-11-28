@@ -4327,6 +4327,7 @@ const deps = {
     return () => socketListeners.delete(listener);
   },
   attachFile: attachWorkspaceFile,
+  attachFiles,
   toast: showToast,
   copyText,
   renderMarkdown,

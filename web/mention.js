@@ -2,7 +2,7 @@ import {
   hasWorkspaceDrag,
   readWorkspaceDrag,
   workspacePathSize,
-} from "./files.js";
+} from "./file-drag.js";
 
 const MAX_REQUESTS = 12;
 const MAX_RESULTS = 30;
@@ -282,6 +282,26 @@ export function createMentionPicker(deps, inputEl) {
     }
   }
 
+  async function addFileReference({ path, size, insert, attach, verify }) {
+    close();
+    const before = inputEl.value;
+    const oversized = size != null && size > MAX_ATTACHMENT_BYTES;
+    if (verify !== false && !oversized && !(await fileExists(path)))
+      return false;
+    if (inputEl.value !== before) return false;
+    insert(path);
+    addChip(path);
+    if (oversized) {
+      deps.toast(
+        `${path} is larger than 20 MB; added as a reference only.`,
+        "warn",
+      );
+    } else {
+      await attach();
+    }
+    return true;
+  }
+
   async function choose(entry) {
     const current = token;
     if (!current) return;
@@ -289,13 +309,12 @@ export function createMentionPicker(deps, inputEl) {
       replaceToken(current, `@${entry.path}/`);
       return;
     }
-    close();
-    if (inputEl.value !== current.value) return;
-    if (!(await fileExists(entry.path))) return;
-    if (inputEl.value !== current.value) return;
-    replaceToken(current, `@${entry.path} `);
-    addChip(entry.path);
-    deps.attachFile(entry.path);
+    await addFileReference({
+      path: entry.path,
+      size: workspacePathSize(deps, entry.path),
+      insert: (path) => replaceToken(current, `@${path} `),
+      attach: () => deps.attachFile(entry.path),
+    });
   }
 
   function insertDropReference(path, folder) {
@@ -309,41 +328,66 @@ export function createMentionPicker(deps, inputEl) {
     );
   }
 
-  async function addDroppedPath(entry) {
+  function refuseDrop() {
+    deps.toast("Read-only viewers cannot add file references.", "warn");
+  }
+
+  async function addDroppedFiles(files) {
     if (deps.getReadOnly()) {
-      deps.toast("Read-only viewers cannot add file references.", "warn");
+      refuseDrop();
       return;
     }
     close();
-    const before = inputEl.value;
     try {
-      if (entry.type === "dir") {
-        insertDropReference(entry.path, true);
-        return;
-      }
-      const size = workspacePathSize(deps, entry.path);
-      const oversized = size != null && size > MAX_ATTACHMENT_BYTES;
-      if (!oversized && !(await fileExists(entry.path))) return;
-      if (inputEl.value !== before) return;
-      insertDropReference(entry.path, false);
-      addChip(entry.path);
-      if (oversized) {
-        deps.toast(
-          `${entry.path} is larger than 20 MB; added as a reference only.`,
-          "warn",
-        );
-      } else {
-        deps.attachFile(entry.path);
+      for (const file of files) {
+        await addFileReference({
+          path: file.name,
+          size: file.size,
+          insert: (name) => insertDropReference(name, false),
+          attach: () => deps.attachFiles([file]),
+          verify: false,
+        });
       }
     } finally {
       inputEl.focus();
     }
   }
 
+  async function addDroppedPath(entry) {
+    if (deps.getReadOnly()) {
+      refuseDrop();
+      return;
+    }
+    close();
+    try {
+      if (entry.type === "dir") {
+        insertDropReference(entry.path, true);
+        return;
+      }
+      await addFileReference({
+        path: entry.path,
+        size: workspacePathSize(deps, entry.path),
+        insert: (path) => insertDropReference(path, false),
+        attach: () => deps.attachFile(entry.path),
+      });
+    } finally {
+      inputEl.focus();
+    }
+  }
+
+  function isFileDrag(dataTransfer) {
+    return (
+      Boolean(dataTransfer?.files?.length) ||
+      Boolean(dataTransfer?.types?.includes?.("Files"))
+    );
+  }
+
   function onDragOver(event) {
-    if (deps.getReadOnly() || !hasWorkspaceDrag(event.dataTransfer)) return;
+    const { dataTransfer } = event;
+    if (deps.getReadOnly()) return;
+    if (!hasWorkspaceDrag(dataTransfer) && !isFileDrag(dataTransfer)) return;
     event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
+    dataTransfer.dropEffect = "copy";
     draggingOver = true;
     dropOverlay.hidden = false;
     form.classList.add("is-drop-target");
@@ -354,11 +398,17 @@ export function createMentionPicker(deps, inputEl) {
   }
 
   function onDrop(event) {
-    if (!hasWorkspaceDrag(event.dataTransfer)) return;
+    const { dataTransfer } = event;
+    if (!hasWorkspaceDrag(dataTransfer) && !isFileDrag(dataTransfer)) return;
     event.preventDefault();
     clearDrag();
-    const [entry] = readWorkspaceDrag(event.dataTransfer, deps);
-    if (entry) void addDroppedPath(entry);
+    if (hasWorkspaceDrag(dataTransfer)) {
+      const [entry] = readWorkspaceDrag(dataTransfer, deps);
+      if (entry) void addDroppedPath(entry);
+      return;
+    }
+    const files = [...(dataTransfer.files ?? [])];
+    if (files.length > 0) void addDroppedFiles(files);
   }
 
   function onInput() {
