@@ -76,10 +76,10 @@
     "node": ">=22.19"
   },
   "dependencies": {
-    "@betteroffice/docx": "0.4.3",
-    "@betteroffice/fonts": "0.4.0",
-    "@betteroffice/pptx": "0.2.0",
-    "@betteroffice/xlsx": "0.3.0",
+    "@betteroffice/docx": "0.5.1",
+    "@betteroffice/fonts": "0.4.2",
+    "@betteroffice/pptx": "0.5.1",
+    "@betteroffice/xlsx": "0.5.1",
     "@earendil-works/pi-tui": "^1.6.0",
     "acorn": "^8.15.0",
     "effect": "^4.1.5",
