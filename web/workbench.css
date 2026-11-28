@@ -376,6 +376,38 @@ body.wb-resizing {
   font-size: var(--text-xs);
 }
 
+.wb-toggle.is-drop-target {
+  background: var(--active);
+  outline: 2px dashed var(--focus);
+  outline-offset: 2px;
+}
+
+.wb-drop {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 2px dashed var(--focus);
+  background: color-mix(in srgb, var(--focus) 12%, transparent);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.wb-drop[hidden] {
+  display: none;
+}
+
+.wb-drop .icon {
+  width: 18px;
+  height: 18px;
+  color: var(--focus);
+}
+
 .wb-scrim {
   position: fixed;
   inset: 0;
