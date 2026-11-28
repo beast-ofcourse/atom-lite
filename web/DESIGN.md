@@ -155,8 +155,11 @@ stays at 768px. User bubbles cap at 70% of the column.
 999px, `--radius-composer` 28px. Sidebar rows are 40px high with 6px inline
 gutters. Composer grows to 200px. Motion: one authored sidebar slide/crossfade
 at 200ms `cubic-bezier(.2,0,0,1)`; 120ms hover transitions elsewhere. Streamed
-text never animates in. Under `prefers-reduced-motion: reduce`, all
-transitions collapse.
+text never animates in. The workbench dock and file-tab tree use 200ms width
+transitions, and pane switches cross-fade in 140ms; no transition runs during a
+resize drag (`body.wb-resizing`, `.files-pane.is-resizing`). Under
+`prefers-reduced-motion: reduce`, all transitions and entrance animations
+collapse.
 
 ## Layout
 
@@ -272,6 +275,9 @@ and the resizer is hidden.
 markdown-it with `html: false`; links open in a new tab with
 `rel="noreferrer noopener"` and use the blue link colour with a 2px underline
 offset. Tables scroll inside themselves with hairline borders.
+
+The file tab's Markdown preview uses the same renderer with HTML disabled and
+safe link targets; its `Source` control shows the raw text.
 
 Fenced code is a `.code-block`: 16px radius, 1px hairline, header bar
 (`--code-head`) with the language label and a functional `Copy` button, then a
@@ -447,6 +453,11 @@ turn receives a compact `[Attached local files]` list of paths so the agent's
 `read`/`bash` tools can inspect them. The marker is stripped from the visible
 user bubble. Removing a chip deletes the stored file.
 
+Dragging a workspace tree row into the composer inserts a `@path` reference
+(`@path/` for folders) through the same attachment flow. The drop target shows
+a striped `Drop files to add` overlay that Escape clears. A file over the 20
+MB cap is referenced only, with a notice; read-only viewers cannot use the drop.
+
 ### Skills and MCP overlays
 
 `/skills` requests `list_skills` and opens a centered overlay listing every
@@ -489,15 +500,36 @@ Recently closed list; `Ctrl/Cmd+Shift+T` reopens the last closed tab.
 A file tab splits a 200px workspace tree from a read-only preview with a
 resizable, keyboard-operable divider. The tree sorts directories first with
 natural case-insensitive order, filters by path segment, and shows full paths
-on hover. The preview highlights text and code with the vendored highlighter,
-shows workspace images through the token-guarded `/image` path, and gives
-unsupported files an explicit no-preview state with size. Edit mode saves with
-a revision guard and is refused for read-only viewers and plan mode.
+on hover. A header toggle collapses it to zero width and hides the divider; a
+control in the preview head reopens it at the remembered width, and the choice
+persists per workspace. `Ctrl/Cmd+\` toggles the tree. File and folder rows are
+draggable with copy semantics and a cloned-row drag image: a drop on the
+composer inserts a reference, a drop on the dock opens or focuses the file tab,
+and dropping a folder reveals it in the tree. Clicking a row still opens or
+expands it. Edit mode saves with a revision guard and is refused for read-only
+viewers and plan mode.
 
-PDF previews use the vendored engine loaded on first use. A container query
-stacks annotations below the page when the preview is narrow, so the canvas
-never collapses to zero width. Controls carry labels and keyboard focus;
-annotations persist in browser storage keyed by workspace, path, and revision.
+One dispatch keyed by file kind selects the preview. Text and code use the
+vendored highlighter; images and SVG render as `<img>` through the guarded
+`/image` path with fit, zoom, pan, and fullscreen controls; video and audio use
+native controls with metadata preloading and byte-range seeking through the
+guarded `/media` endpoint, and video adds a fullscreen control and double-click
+entry. `Ctrl/Cmd+Shift+F` fullscreens the active preview and Escape leaves
+fullscreen before it closes the dock. Markdown reuses the transcript renderer
+with HTML disabled, safe links, highlighted fences, and Mermaid diagrams, with
+a `Source` toggle. PDF previews use the vendored engine loaded on first use.
+DOCX, XLSX, and PPTX previews render paged pages, a sheet grid, and slides with
+navigation and zoom; pinned engines load lazily from the token-guarded,
+same-origin `/engine` route, one worker per format, and the worker ends with
+its tab. Engine output is drawn to canvases and text layers built as DOM nodes,
+never injected as markup. Corrupt, encrypted, and legacy Office files fall back
+to the no-preview card, which also covers media over the 256 MB streaming cap
+and shows name, kind, size, Download, and Copy path.
+
+A container query stacks PDF annotations below the page when the preview is
+narrow, so the canvas never collapses to zero width. Controls carry labels and
+keyboard focus; annotations persist in browser storage keyed by workspace,
+path, and revision.
 
 The Review tab lists capped workspace diffs with expandable hunks and an
 open-file action. Terminal tabs are PTY-backed, numbered, and resize-aware;
