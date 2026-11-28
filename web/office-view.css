@@ -1,0 +1,248 @@
+.office-view {
+  --office-header: #f5f5f5;
+  --office-header-text: #5c5c5c;
+  --office-grid: #d4d4d4;
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text, #ececec);
+  background: var(--surface, #2f2f2f);
+  font: var(--font-sans, sans-serif);
+  font-size: var(--text-sm, 13px);
+}
+
+.office-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  background: var(--sidebar-bg, #171717);
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+}
+
+.office-nav,
+.office-zoom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1, 4px);
+}
+
+.office-zoom {
+  margin-inline-start: auto;
+}
+
+.office-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text, #ececec);
+  background: var(--surface, #2f2f2f);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  font: inherit;
+}
+
+.office-control .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.office-control:hover:not(:disabled) {
+  background: var(--active, #3a3a3a);
+  border-color: var(--border-strong, rgba(255, 255, 255, 0.24));
+}
+
+.office-control:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.office-control:focus-visible,
+.office-sheet-tab:focus-visible,
+.office-stage:focus-visible,
+.office-action:focus-visible {
+  outline: 2px solid var(--focus, #a8c7fa);
+  outline-offset: 2px;
+}
+
+.office-position,
+.office-zoom-label {
+  min-width: 68px;
+  color: var(--text-dim, #b4b4b4);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.office-sheet-tabs {
+  display: flex;
+  gap: var(--space-1, 4px);
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-color: var(--scrollbar, rgba(180, 180, 180, 0.35)) transparent;
+}
+
+.office-sheet-tab {
+  flex: 0 0 auto;
+  max-width: 140px;
+  padding: 4px 10px;
+  overflow: hidden;
+  color: var(--text-dim, #b4b4b4);
+  background: transparent;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.office-sheet-tab:hover {
+  color: var(--text, #ececec);
+  background: var(--active, #3a3a3a);
+}
+
+.office-sheet-tab.is-active {
+  color: var(--text, #ececec);
+  background: var(--selection, rgba(168, 199, 250, 0.18));
+  border-color: var(--focus, #a8c7fa);
+}
+
+.office-stage {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: flex-start;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-4, 16px);
+  background: var(--sidebar-bg, #171717);
+  scrollbar-color: var(--scrollbar, rgba(180, 180, 180, 0.35)) transparent;
+}
+
+.office-loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+  width: min(420px, 100%);
+  padding: var(--space-4, 16px);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: var(--radius-lg, 12px);
+}
+
+.office-loading-bar {
+  height: 12px;
+  background: var(--surface, #2f2f2f);
+  border-radius: var(--radius-pill, 999px);
+  animation: office-loading 1.2s ease-in-out infinite alternate;
+}
+
+.office-loading-bar:nth-child(2) {
+  width: 84%;
+}
+
+.office-loading-bar:nth-child(3) {
+  width: 62%;
+}
+
+.office-loading-text {
+  margin-top: var(--space-1, 4px);
+  color: var(--text-dim, #b4b4b4);
+}
+
+@keyframes office-loading {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .office-loading-bar {
+    animation: none;
+  }
+}
+
+.office-page,
+.office-slide {
+  position: relative;
+  flex: 0 0 auto;
+  margin: 0 auto;
+  background: #fff;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  box-shadow: var(--shadow, 0 8px 32px rgba(0, 0, 0, 0.4));
+  container-type: inline-size;
+}
+
+.office-canvas {
+  display: block;
+  max-width: none;
+}
+
+.office-page-text {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.office-text-span {
+  position: absolute;
+  display: inline-block;
+  color: transparent;
+  font-family: sans-serif;
+  line-height: 1.2;
+  transform-origin: left top;
+  white-space: pre;
+  pointer-events: auto;
+  user-select: text;
+}
+
+.office-text-span::selection {
+  color: transparent;
+  background: var(--selection, rgba(168, 199, 250, 0.35));
+}
+
+.office-sheet-scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow: auto;
+  background: #fff;
+  scrollbar-color: var(--scrollbar, rgba(180, 180, 180, 0.35)) transparent;
+}
+
+.office-empty {
+  margin: auto;
+  color: var(--text-dim, #b4b4b4);
+}
+
+@container (max-width: 520px) {
+  .office-toolbar {
+    gap: var(--space-1, 4px);
+    padding: var(--space-2, 8px);
+  }
+
+  .office-zoom {
+    margin-inline-start: 0;
+  }
+
+  .office-position,
+  .office-zoom-label {
+    min-width: 52px;
+  }
+
+  .office-stage {
+    padding: var(--space-2, 8px);
+  }
+}
