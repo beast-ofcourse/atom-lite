@@ -1,7 +1,4 @@
 .office-view {
-  --office-header: #f5f5f5;
-  --office-header-text: #5c5c5c;
-  --office-grid: #d4d4d4;
   container-type: inline-size;
   display: flex;
   flex-direction: column;
@@ -9,27 +6,27 @@
   min-height: 0;
   min-width: 0;
   overflow: hidden;
-  color: var(--text, #ececec);
-  background: var(--surface, #2f2f2f);
-  font: var(--font-sans, sans-serif);
-  font-size: var(--text-sm, 13px);
+  color: var(--text);
+  background: var(--surface);
+  font: var(--font-sans);
+  font-size: var(--text-sm);
 }
 
 .office-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2, 8px);
-  padding: var(--space-2, 8px) var(--space-3, 12px);
-  background: var(--sidebar-bg, #171717);
-  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--sidebar-bg);
+  border-bottom: 1px solid var(--border);
 }
 
 .office-nav,
 .office-zoom {
   display: flex;
   align-items: center;
-  gap: var(--space-1, 4px);
+  gap: var(--space-1);
 }
 
 .office-zoom {
@@ -43,10 +40,10 @@
   width: 28px;
   height: 28px;
   padding: 0;
-  color: var(--text, #ececec);
-  background: var(--surface, #2f2f2f);
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
-  border-radius: var(--radius-sm, 6px);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font: inherit;
 }
@@ -57,8 +54,8 @@
 }
 
 .office-control:hover:not(:disabled) {
-  background: var(--active, #3a3a3a);
-  border-color: var(--border-strong, rgba(255, 255, 255, 0.24));
+  background: var(--active);
+  border-color: var(--border-strong);
 }
 
 .office-control:disabled {
@@ -70,24 +67,24 @@
 .office-sheet-tab:focus-visible,
 .office-stage:focus-visible,
 .office-action:focus-visible {
-  outline: 2px solid var(--focus, #a8c7fa);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
 .office-position,
 .office-zoom-label {
   min-width: 68px;
-  color: var(--text-dim, #b4b4b4);
+  color: var(--text-dim);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
 .office-sheet-tabs {
   display: flex;
-  gap: var(--space-1, 4px);
+  gap: var(--space-1);
   max-width: 100%;
   overflow-x: auto;
-  scrollbar-color: var(--scrollbar, rgba(180, 180, 180, 0.35)) transparent;
+  scrollbar-color: var(--scrollbar) transparent;
 }
 
 .office-sheet-tab {
@@ -95,10 +92,10 @@
   max-width: 140px;
   padding: 4px 10px;
   overflow: hidden;
-  color: var(--text-dim, #b4b4b4);
+  color: var(--text-dim);
   background: transparent;
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
-  border-radius: var(--radius-pill, 999px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
   cursor: pointer;
   font: inherit;
   text-overflow: ellipsis;
@@ -106,14 +103,14 @@
 }
 
 .office-sheet-tab:hover {
-  color: var(--text, #ececec);
-  background: var(--active, #3a3a3a);
+  color: var(--text);
+  background: var(--active);
 }
 
 .office-sheet-tab.is-active {
-  color: var(--text, #ececec);
-  background: var(--selection, rgba(168, 199, 250, 0.18));
-  border-color: var(--focus, #a8c7fa);
+  color: var(--text);
+  background: var(--selection);
+  border-color: var(--focus);
 }
 
 .office-stage {
@@ -124,25 +121,25 @@
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: var(--space-4, 16px);
-  background: var(--sidebar-bg, #171717);
-  scrollbar-color: var(--scrollbar, rgba(180, 180, 180, 0.35)) transparent;
+  padding: var(--space-4);
+  background: var(--sidebar-bg);
+  scrollbar-color: var(--scrollbar) transparent;
 }
 
 .office-loading {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2, 8px);
+  gap: var(--space-2);
   width: min(420px, 100%);
-  padding: var(--space-4, 16px);
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
-  border-radius: var(--radius-lg, 12px);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
 }
 
 .office-loading-bar {
   height: 12px;
-  background: var(--surface, #2f2f2f);
-  border-radius: var(--radius-pill, 999px);
+  background: var(--surface);
+  border-radius: var(--radius-pill);
   animation: office-loading 1.2s ease-in-out infinite alternate;
 }
 
@@ -155,8 +152,8 @@
 }
 
 .office-loading-text {
-  margin-top: var(--space-1, 4px);
-  color: var(--text-dim, #b4b4b4);
+  margin-top: var(--space-1);
+  color: var(--text-dim);
 }
 
 @keyframes office-loading {
@@ -179,9 +176,9 @@
   position: relative;
   flex: 0 0 auto;
   margin: 0 auto;
-  background: #fff;
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
-  box-shadow: var(--shadow, 0 8px 32px rgba(0, 0, 0, 0.4));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
   container-type: inline-size;
 }
 
@@ -211,26 +208,26 @@
 
 .office-text-span::selection {
   color: transparent;
-  background: var(--selection, rgba(168, 199, 250, 0.35));
+  background: var(--selection);
 }
 
 .office-sheet-scroll {
   min-width: 0;
   max-width: 100%;
   overflow: auto;
-  background: #fff;
-  scrollbar-color: var(--scrollbar, rgba(180, 180, 180, 0.35)) transparent;
+  background: var(--surface);
+  scrollbar-color: var(--scrollbar) transparent;
 }
 
 .office-empty {
   margin: auto;
-  color: var(--text-dim, #b4b4b4);
+  color: var(--text-dim);
 }
 
 @container (max-width: 520px) {
   .office-toolbar {
-    gap: var(--space-1, 4px);
-    padding: var(--space-2, 8px);
+    gap: var(--space-1);
+    padding: var(--space-2);
   }
 
   .office-zoom {
@@ -243,6 +240,6 @@
   }
 
   .office-stage {
-    padding: var(--space-2, 8px);
+    padding: var(--space-2);
   }
 }

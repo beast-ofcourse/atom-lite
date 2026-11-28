@@ -1,24 +1,25 @@
-import { serveRpc, Transfer } from "./office-worker-rpc.js";
-
-const token = new URL(self.location.href).searchParams.get("token") ?? "";
-const asset = (pkg, path) =>
-  `/engine/@betteroffice/${pkg}/${path}?token=${encodeURIComponent(token)}`;
+import {
+  lazyLoad,
+  serveRpc,
+  stateGuard,
+  Transfer,
+  workerAsset,
+} from "./office-worker-rpc.js";
 
 let modules;
 let state;
 
-async function loadModules() {
-  if (modules) return modules;
+const loadModules = lazyLoad(async () => {
   const [yrs, editor, layout, render, fonts] = await Promise.all([
-    import(asset("docx", "dist/yrs/index.mjs")),
-    import(asset("docx", "dist/editor/index.mjs")),
-    import(asset("docx", "dist/layout/index.mjs")),
-    import(asset("docx", "dist/layout/render/index.mjs")),
-    import(asset("fonts", "dist/index.js")),
+    import(workerAsset("docx", "dist/yrs/index.mjs")),
+    import(workerAsset("docx", "dist/editor/index.mjs")),
+    import(workerAsset("docx", "dist/layout/index.mjs")),
+    import(workerAsset("docx", "dist/layout/render/index.mjs")),
+    import(workerAsset("fonts", "dist/index.js")),
   ]);
   modules = { yrs, editor, layout, render, fonts };
   return modules;
-}
+});
 
 function bundledFonts(fonts) {
   const shipped = (face) =>
@@ -53,24 +54,24 @@ function layerMeasure() {
 }
 
 async function openDocument(bytes) {
-  const m = await loadModules();
-  const session = await m.yrs.createYrsSession();
+  const modules = await loadModules();
+  const session = await modules.yrs.createYrsSession();
   const document = session.openDocx(new Uint8Array(bytes), true, {
     mediaTokens: true,
   }).document;
   const settings = document.package.settings;
-  const measure = m.layout.createRustMeasureSource({
+  const measure = modules.layout.createRustMeasureSource({
     engine: {
       registerFont: (font) => session.registerFont(font),
       registerSubstituteFont: (id, family) =>
         session.registerSubstituteFont(id, family),
       clearFonts: () => session.clearFonts(),
     },
-    bundled: bundledFonts(m.fonts),
+    bundled: bundledFonts(modules.fonts),
   });
   measure.setCompat(settings?.compatibilityFlags);
 
-  const request = m.editor.buildResidentRegionLayoutRequest(document, 0, {
+  const request = modules.editor.buildResidentRegionLayoutRequest(document, 0, {
     themeColors: Object.fromEntries(
       Object.entries(document.package.theme?.colorScheme ?? {}).filter(
         ([, value]) => value !== undefined,
@@ -89,19 +90,20 @@ async function openDocument(bytes) {
 
   const input = JSON.stringify({ ...request, measurement });
   const reply = session.layoutDocumentWithRegionsRetainedJson(input);
-  const layout = m.editor.workerLayoutComputation(reply).layout;
+  const layout = modules.editor.workerLayoutComputation(reply).layout;
   session.setDisplayWindow(0, layout.pages.length);
-  const extras = m.render.encodeDisplayListFrameExtras({
+  const extras = modules.render.encodeDisplayListFrameExtras({
     measured: [],
     options: undefined,
     layout,
     fontChains: measurement.fontChains,
-    headersFooters: m.editor.getLayoutKernelInputs(layout)?.headersFooters,
+    headersFooters:
+      modules.editor.getLayoutKernelInputs(layout)?.headersFooters,
     resolvedCommentIds: [],
   });
-  let frame = m.render.applyFrameDelta(
+  let frame = modules.render.applyFrameDelta(
     null,
-    m.render.decodeFrameDelta(session.buildDisplayListFrame(extras, 0)),
+    modules.render.decodeFrameDelta(session.buildDisplayListFrame(extras, 0)),
   );
   if (frame.displayList.pages.length === 0) {
     throw new Error("Document produced no pages");
@@ -111,7 +113,7 @@ async function openDocument(bytes) {
     session,
     frame,
     surface: new OffscreenCanvas(1, 1),
-    glyphCache: new m.render.GlyphCache({
+    glyphCache: new modules.render.GlyphCache({
       provider: (font, glyph) => session.outlineGlyphJson(font, glyph),
     }),
     measure: layerMeasure(),
@@ -120,10 +122,7 @@ async function openDocument(bytes) {
   return pageSizes();
 }
 
-function required() {
-  if (!state) throw new Error("The worker holds no document");
-  return state;
-}
+const required = stateGuard(() => state, "The worker holds no document");
 
 function built(index) {
   const { session, frame } = required();

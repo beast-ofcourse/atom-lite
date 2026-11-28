@@ -1,4 +1,5 @@
-import { fileKind, hasWorkspaceDrag, readWorkspaceDrag } from "./files.js";
+import { hasWorkspaceDrag, readWorkspaceDrag } from "./file-drag.js";
+import { FILE_KINDS, fileKind } from "./file-kind.js";
 
 const TAB_KINDS = {
   file: { icon: "i-file", title: "File" },
@@ -161,11 +162,7 @@ export function createWorkbench(deps) {
   }
 
   function onCloseEnd(event) {
-    if (
-      event.target !== element ||
-      event.propertyName !== "width" ||
-      open
-    )
+    if (event.target !== element || event.propertyName !== "width" || open)
       return;
     finishClose();
   }
@@ -632,14 +629,19 @@ export function createWorkbench(deps) {
       }));
   }
 
-  async function fileExists(path) {
+  async function fileExists(path, kind) {
+    const probe = FILE_KINDS[kind]?.probe ?? FILE_KINDS.none.probe;
     try {
       const response = await deps.request(
-        `/file?path=${encodeURIComponent(path)}`,
+        `/${probe.route}?path=${encodeURIComponent(path)}`,
+        probe.headers ? { headers: probe.headers } : undefined,
       );
-      return response.ok;
+      await response.body?.cancel();
+      return (
+        response.ok || (probe.route === "media" && response.status === 416)
+      );
     } catch {
-      return true;
+      return false;
     }
   }
 
@@ -650,10 +652,8 @@ export function createWorkbench(deps) {
     const candidates = sanitizeTabs(data.tabs);
     const present = await Promise.all(
       candidates.map((tab) =>
-        tab.kind === "file" &&
-        tab.path &&
-        ["text", "markdown"].includes(fileKind(tab.path))
-          ? fileExists(tab.path)
+        tab.kind === "file" && tab.path
+          ? fileExists(tab.path, fileKind(tab.path))
           : true,
       ),
     );

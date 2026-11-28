@@ -1,7 +1,11 @@
-import { serveRpc, Transfer } from "./office-worker-rpc.js";
+import {
+  lazyLoad,
+  serveRpc,
+  stateGuard,
+  Transfer,
+  workerAsset,
+} from "./office-worker-rpc.js";
 
-const token = new URL(self.location.href).searchParams.get("token") ?? "";
-const engineUrl = `/engine/@betteroffice/pptx/dist/index.js?token=${encodeURIComponent(token)}`;
 const EMU_PER_PIXEL = 9525;
 const MAX_PIXELS = 3840 * 2160;
 const MAX_SIDE = 16384;
@@ -10,23 +14,17 @@ let engine;
 let fonts;
 let state;
 
-async function loadEngine() {
-  if (engine) return engine;
+const loadEngine = lazyLoad(async () => {
   const [pptx, bundled] = await Promise.all([
-    import(engineUrl),
-    import(
-      `/engine/@betteroffice/fonts/dist/index.js?token=${encodeURIComponent(token)}`
-    ),
+    import(workerAsset("pptx", "dist/index.js")),
+    import(workerAsset("fonts", "dist/index.js")),
   ]);
   engine = pptx;
   fonts = bundled;
   return engine;
-}
+});
 
-function required() {
-  if (!state) throw new Error("The worker holds no presentation");
-  return state;
-}
+const required = stateGuard(() => state, "The worker holds no presentation");
 
 function deckFamilies(inspection) {
   const found = new Set();
@@ -180,9 +178,6 @@ serveRpc({
     }
     if (signal.aborted) return { kind: "cancelled" };
     const bitmap = canvas.transferToImageBitmap();
-    return new Transfer({ kind: "painted", bitmap, vectors: [] }, [bitmap]);
-  },
-  vectors(bitmaps) {
-    for (const entry of bitmaps) entry.bitmap?.close();
+    return new Transfer({ kind: "painted", bitmap }, [bitmap]);
   },
 });

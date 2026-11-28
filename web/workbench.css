@@ -266,6 +266,18 @@ body.wb-resizing {
   }
 }
 
+body.wb-resizing .wb-pane[data-entering],
+body.wb-resizing .wb-pane[data-leaving] {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-pane[data-entering],
+  .wb-pane[data-leaving] {
+    animation: none;
+  }
+}
+
 .wb-pane-error {
   display: grid;
   place-items: center;

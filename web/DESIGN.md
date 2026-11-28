@@ -454,9 +454,13 @@ turn receives a compact `[Attached local files]` list of paths so the agent's
 user bubble. Removing a chip deletes the stored file.
 
 Dragging a workspace tree row into the composer inserts a `@path` reference
-(`@path/` for folders) through the same attachment flow. The drop target shows
-a striped `Drop files to add` overlay that Escape clears. A file over the 20
-MB cap is referenced only, with a notice; read-only viewers cannot use the drop.
+(`@path/` for folders) through the same attachment flow. Dropping files from
+the operating system inserts one `@name` reference per file and attaches each
+through the native picker flow. The drop target shows a striped `Drop files to
+add` overlay that Escape clears. A file over the 20 MB cap is referenced only,
+with a notice; read-only viewers cannot use either drop. The `@` picker and
+both drop paths share one reference helper, so they insert the same removable
+chips.
 
 ### Skills and MCP overlays
 
@@ -506,8 +510,8 @@ persists per workspace. `Ctrl/Cmd+\` toggles the tree. File and folder rows are
 draggable with copy semantics and a cloned-row drag image: a drop on the
 composer inserts a reference, a drop on the dock opens or focuses the file tab,
 and dropping a folder reveals it in the tree. Clicking a row still opens or
-expands it. Edit mode saves with a revision guard and is refused for read-only
-viewers and plan mode.
+expands it. Edit mode is offered for text and code files only; it saves with a
+revision guard and is refused for read-only viewers and plan mode.
 
 One dispatch keyed by file kind selects the preview. Text and code use the
 vendored highlighter; images and SVG render as `<img>` through the guarded
@@ -601,10 +605,18 @@ All three are served by the local server with the same per-run token as every
 other asset. There is no build step. Model text is never trusted as HTML. Icons are
 authored inline SVG (24×24 viewBox, 1.75 stroke) in the page's sprite.
 
+Office viewers use pinned `@betteroffice/docx`, `@betteroffice/xlsx`,
+`@betteroffice/pptx`, and `@betteroffice/fonts` packages as runtime dependencies,
+served through the token-guarded same-origin `/engine` route. Full Office
+coverage was a deliberate user decision; the pinned engines are accepted runtime
+dependencies, installed with the package and loaded lazily per format, not
+optional development tools.
+
 ## Decisions
 
-- One visual world: ChatGPT's achromatic conversation shell. No gradients,
-  glass, glow, or coloured card rules.
+- One visual world: ChatGPT's achromatic conversation shell. No decorative
+  gradients, glass, glow, or coloured card rules. The composer drop overlay's
+  repeating stripes are a functional drop-state signal, not decoration.
 - Blue is a link/focus colour, never a primary button fill. The primary send
   and dialog actions are inverted ink.
 - Assistant prose is unframed; containers appear only for user prompts, tools,

@@ -88,6 +88,9 @@
   --diff-del-word: rgba(255, 105, 97, 0.2);
   --thinking-wash: rgba(226, 178, 90, 0.05);
   --thinking-rail: rgba(226, 178, 90, 0.5);
+  --office-header: #2f2f2f;
+  --office-header-text: #b4b4b4;
+  --office-grid: rgba(255, 255, 255, 0.24);
   --ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
@@ -139,6 +142,9 @@
   --diff-del-word: rgba(192, 57, 43, 0.14);
   --thinking-wash: rgba(138, 90, 0, 0.045);
   --thinking-rail: rgba(138, 90, 0, 0.35);
+  --office-header: #f4f4f4;
+  --office-header-text: #5d5d5d;
+  --office-grid: rgba(13, 13, 13, 0.2);
 }
 
 * {

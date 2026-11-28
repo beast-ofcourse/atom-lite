@@ -5,6 +5,32 @@ export class Transfer {
   }
 }
 
+export function workerAsset(pkg, path) {
+  const token = new URL(self.location.href).searchParams.get("token") ?? "";
+  return `/engine/@betteroffice/${pkg}/${path}?token=${encodeURIComponent(token)}`;
+}
+
+export function lazyLoad(loader) {
+  let pending;
+  return () => {
+    if (!pending) {
+      pending = Promise.resolve().then(loader);
+      pending.catch(() => {
+        pending = undefined;
+      });
+    }
+    return pending;
+  };
+}
+
+export function stateGuard(getState, message) {
+  return () => {
+    const state = getState();
+    if (!state) throw new Error(message);
+    return state;
+  };
+}
+
 export function createRpcClient(worker, onCrash = () => {}) {
   const pending = new Map();
   let closed = false;
