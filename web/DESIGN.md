@@ -501,8 +501,10 @@ annotations persist in browser storage keyed by workspace, path, and revision.
 
 The Review tab lists capped workspace diffs with expandable hunks and an
 open-file action. Terminal tabs are PTY-backed, numbered, and resize-aware;
-opening one uses the same approval dialog as the agent's shell tool, and
-read-only or plan-mode tabs are refused. Typing `@` in the composer opens a
+when the native PTY is unavailable they fall back to a pipe-backed shell without
+full-screen programs or resizing. Opening a terminal uses the same approval
+dialog as the agent's shell tool, and read-only or plan-mode tabs are refused.
+Typing `@` in the composer opens a
 path picker backed by the same tree contract, inserts a `@path` chip, and uses
 the existing attachment flow.
 

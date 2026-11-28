@@ -65,7 +65,9 @@ The Review tab lists workspace changes from a token-guarded read-only endpoint. 
 
 ### Terminals
 
-A terminal tab runs a real shell with the workspace as its working directory. Output renders ANSI colours and follows the tail until you scroll up; Ctrl+C interrupts the running command. Each tab owns one numbered shell and sends resize messages so full-screen programs draw correctly. Terminal count and output buffers are capped. Closing a tab, disconnecting, or stopping the server ends its shell.
+A terminal tab runs a real shell with the workspace as its working directory. Output renders ANSI colours and follows the tail until you scroll up; Ctrl+C interrupts the running command. Each tab owns one numbered shell. Terminal count and output buffers are capped. Closing a tab, disconnecting, or stopping the server ends its shell.
+
+When the native PTY binary is unavailable, Atom-lite falls back to a pipe-backed shell. Commands and coloured output still work, but full-screen programs and terminal resizing are unavailable. This keeps `atom-lite --serve` working after installs where native install scripts are blocked.
 
 Opening a terminal uses the same approval dialog and persona checks as the agent's shell tool. Plan mode and read-only viewers are refused. An interactive shell is not confined to the workspace by a path guard; that is a documented limit of terminal mode.
 

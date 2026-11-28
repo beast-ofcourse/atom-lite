@@ -28,7 +28,10 @@ import {
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { WebSocketServer, type WebSocket } from "ws";
-import { spawn as spawnPty, type IPty } from "node-pty";
+import {
+  openTerminalProcess,
+  type TerminalProcess,
+} from "./terminal-process.js";
 import type { AgentRuntime } from "../agent/loop.js";
 import type { AgentEvent } from "../agent/types.js";
 import {
@@ -625,7 +628,7 @@ interface PendingQuestion {
 interface TerminalSession {
   id: string;
   owner: WebSocket;
-  process: IPty;
+  process: TerminalProcess;
   outputChars: number;
   capped: boolean;
   finished: boolean;
@@ -869,11 +872,11 @@ export async function startWebServer(
     }
     if (closing || !clients.has(client)) return;
     try {
-      const child = spawnPty(shellPath(), [], {
+      const child = await openTerminalProcess(shellPath(), {
         cwd,
         cols: cols ?? 80,
         rows: rows ?? 24,
-        env: { ...process.env, TERM: "xterm-256color" },
+        env: process.env,
       });
       let resolveExit = (): void => {};
       const exited = new Promise<void>((resolve) => {
@@ -908,7 +911,7 @@ export async function startWebServer(
         session.outputChars += text.length;
         if (text) sendTo(client, { type: "terminal_output", id, data: text });
       });
-      child.onExit(({ exitCode }) => {
+      child.onExit((exitCode) => {
         finishTerminal(session, exitCode ?? -1);
       });
       sendTo(client, { type: "terminal_started", id });
