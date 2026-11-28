@@ -13,6 +13,8 @@ const RECENT_LIMIT = 12;
 const DEFAULT_WIDTH = 520;
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 620;
+const DOCK_MOTION_MS = 200;
+const PANE_FADE_MS = 140;
 
 export function createWorkbench(deps) {
   const registry = new Map();
@@ -29,6 +31,11 @@ export function createWorkbench(deps) {
   let sequence = 0;
   let restoreGeneration = 0;
   let dragging = false;
+  let open = false;
+  let closeTimer = 0;
+  let paneLeaveTimer = 0;
+  let leavingPane = null;
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   let dropActive = false;
 
   const element = document.createElement("aside");
@@ -86,7 +93,7 @@ export function createWorkbench(deps) {
   toggle.title = "Workbench (Ctrl+Shift+R)";
   toggle.innerHTML =
     '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M14 4v16"/></svg>';
-  toggle.addEventListener("click", () => setOpen(element.hidden), { signal });
+  toggle.addEventListener("click", () => setOpen(!open), { signal });
   const toggleHost = deps.toggleHost ?? document.querySelector(".head-right");
   toggleHost?.append(toggle);
 
@@ -134,25 +141,79 @@ export function createWorkbench(deps) {
     return window.matchMedia("(max-width: 1024px)").matches;
   }
 
-  function setOpen(open) {
-    if (open === !element.hidden) return;
-    if (open) {
-      returnFocus = document.activeElement;
-      syncWorkspace();
-    }
-    element.hidden = !open;
-    scrim.hidden = !open || !isOverlay();
-    document.body.classList.toggle("wb-open", open);
-    toggle.setAttribute("aria-expanded", String(open));
-    toggle.setAttribute("aria-label", `${open ? "Close" : "Open"} workbench`);
-    writeJSON("open", open);
-    if (open) focusActiveTab();
-    else if (returnFocus?.isConnected) returnFocus.focus();
+  function canAnimate() {
+    return !dragging && !reducedMotion.matches;
+  }
+
+  function finishClose() {
+    clearTimeout(closeTimer);
+    closeTimer = 0;
+    element.removeEventListener("transitionend", onCloseEnd);
+    element.hidden = true;
+    element.dataset.presence = "closed";
+    element.removeAttribute("inert");
+    element.removeAttribute("aria-hidden");
+    scrim.hidden = true;
+    const focus = returnFocus;
+    returnFocus = null;
+    if (focus?.isConnected) focus.focus();
     else toggle.focus();
   }
 
+  function onCloseEnd(event) {
+    if (
+      event.target !== element ||
+      event.propertyName !== "width" ||
+      open
+    )
+      return;
+    finishClose();
+  }
+
+  function setOpen(next, { animate = true } = {}) {
+    if (next === open) return;
+    open = next;
+    clearTimeout(closeTimer);
+    closeTimer = 0;
+    element.removeEventListener("transitionend", onCloseEnd);
+    if (next) {
+      returnFocus = document.activeElement;
+      syncWorkspace();
+      element.hidden = false;
+      element.removeAttribute("inert");
+      element.removeAttribute("aria-hidden");
+      scrim.hidden = !isOverlay();
+      document.body.classList.add("wb-open");
+      toggle.setAttribute("aria-expanded", "true");
+      toggle.setAttribute("aria-label", "Close workbench");
+      writeJSON("open", true);
+      if (!animate || !canAnimate()) {
+        element.dataset.presence = "open";
+      } else {
+        element.dataset.presence = "opening";
+        void element.offsetWidth;
+        element.dataset.presence = "open";
+      }
+      focusActiveTab();
+      return;
+    }
+    document.body.classList.remove("wb-open");
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-label", "Open workbench");
+    writeJSON("open", false);
+    if (!animate || !canAnimate() || element.hidden) {
+      finishClose();
+      return;
+    }
+    element.dataset.presence = "closing";
+    element.setAttribute("aria-hidden", "true");
+    element.setAttribute("inert", "");
+    element.addEventListener("transitionend", onCloseEnd);
+    closeTimer = window.setTimeout(finishClose, DOCK_MOTION_MS + 60);
+  }
+
   function toggleOpen() {
-    setOpen(element.hidden);
+    setOpen(!open);
   }
 
   function nextId() {
@@ -231,13 +292,44 @@ export function createWorkbench(deps) {
     focusActiveTab();
   }
 
+  function resetPaneFade() {
+    clearTimeout(paneLeaveTimer);
+    paneLeaveTimer = 0;
+    if (!leavingPane) return;
+    leavingPane.hidden = true;
+    leavingPane.removeAttribute("data-leaving");
+    leavingPane.removeAttribute("aria-hidden");
+    leavingPane = null;
+  }
+
   function setActive(id, focusPane = false) {
+    const previousId = activeId;
     activeId = tabs.some((tab) => tab.id === id) ? id : null;
+    resetPaneFade();
+    const fade = open && previousId !== activeId && canAnimate();
+    const leaving = fade
+      ? previousId === null
+        ? newTabHost
+        : paneHosts.get(previousId)
+      : null;
     for (const tab of tabs) {
       const host = ensurePane(tab);
+      delete host.dataset.entering;
+      if (host === leaving) continue;
       host.hidden = tab.id !== activeId;
     }
-    newTabHost.hidden = activeId !== null;
+    if (leaving !== newTabHost) newTabHost.hidden = activeId !== null;
+    if (leaving && !leaving.hidden) {
+      leaving.dataset.leaving = "true";
+      leaving.setAttribute("aria-hidden", "true");
+      leavingPane = leaving;
+      paneLeaveTimer = window.setTimeout(resetPaneFade, PANE_FADE_MS);
+    }
+    const entering = activeId === null ? newTabHost : paneHosts.get(activeId);
+    if (fade && entering && !entering.hidden) {
+      void entering.offsetWidth;
+      entering.dataset.entering = "true";
+    }
     if (activeId !== null && focusPane)
       paneHosts.get(activeId)?._pane?.focus?.();
     renderStrip();
@@ -388,6 +480,11 @@ export function createWorkbench(deps) {
       close.textContent = "×";
       close.addEventListener("click", (event) => {
         event.stopPropagation();
+        closeTab(tab.id);
+      });
+      row.addEventListener("auxclick", (event) => {
+        if (event.button !== 1) return;
+        event.preventDefault();
         closeTab(tab.id);
       });
 
@@ -577,6 +674,7 @@ export function createWorkbench(deps) {
   }
 
   function render() {
+    resetPaneFade();
     for (const tab of tabs) ensurePane(tab).hidden = tab.id !== activeId;
     newTabHost.hidden = activeId !== null;
     renderStrip();
@@ -679,7 +777,7 @@ export function createWorkbench(deps) {
     "dragover",
     (event) => {
       if (
-        !element.hidden ||
+        open ||
         isComposerDrop(event.target) ||
         !hasWorkspaceDrag(event.dataTransfer)
       )
@@ -694,7 +792,7 @@ export function createWorkbench(deps) {
     "drop",
     (event) => {
       if (
-        element.hidden &&
+        !open &&
         !isComposerDrop(event.target) &&
         hasWorkspaceDrag(event.dataTransfer)
       ) {
@@ -750,7 +848,7 @@ export function createWorkbench(deps) {
       return;
     }
     if (event.defaultPrevented) return;
-    if (event.key === "Escape" && !element.hidden) {
+    if (event.key === "Escape" && open) {
       const overlayOpen = [
         ...document.querySelectorAll(".modal-layer, [role=dialog]"),
       ].some((node) => !node.closest("[hidden]"));
@@ -829,7 +927,7 @@ export function createWorkbench(deps) {
 
   const overlayQuery = window.matchMedia("(max-width: 1024px)");
   const syncOverlay = () => {
-    scrim.hidden = element.hidden || !overlayQuery.matches;
+    scrim.hidden = !open || !overlayQuery.matches;
   };
   overlayQuery.addEventListener("change", syncOverlay, { signal });
   document.addEventListener("keydown", onKeydown, { signal });
@@ -837,6 +935,9 @@ export function createWorkbench(deps) {
   function destroy() {
     listeners.abort();
     clearDrop();
+    clearTimeout(closeTimer);
+    resetPaneFade();
+    element.removeEventListener("transitionend", onCloseEnd);
     for (const host of paneHosts.values()) {
       host._pane?.destroy?.();
       host.remove();
@@ -870,6 +971,6 @@ export function createWorkbench(deps) {
 
   setWidth(width);
   restore();
-  if (readJSON("open", false) === true) setOpen(true);
+  if (readJSON("open", false) === true) setOpen(true, { animate: false });
   return api;
 }

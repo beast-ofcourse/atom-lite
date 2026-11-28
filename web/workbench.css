@@ -12,10 +12,29 @@
   overflow: hidden;
   background: var(--sidebar-bg);
   border-left: 1px solid var(--border);
+  transition:
+    width 200ms var(--ease),
+    flex-basis 200ms var(--ease),
+    border-left-width 200ms var(--ease),
+    opacity 160ms var(--ease),
+    transform 200ms var(--ease);
 }
 
 .wb-dock[hidden] {
   display: none;
+}
+
+.wb-dock[data-presence="opening"],
+.wb-dock[data-presence="closing"] {
+  width: 0;
+  flex-basis: 0;
+  border-left-width: 0;
+  opacity: 0;
+  transform: translateX(12px);
+}
+
+body.wb-resizing .wb-dock {
+  transition: none;
 }
 
 .wb-resizer {
@@ -211,6 +230,40 @@ body.wb-resizing {
   height: 100%;
   min-height: 0;
   overflow: auto;
+}
+
+.wb-pane[data-entering] {
+  animation: wb-pane-in 140ms var(--ease) both;
+}
+
+.wb-pane[data-leaving] {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  pointer-events: none;
+  animation: wb-pane-out 140ms var(--ease) both;
+}
+
+@keyframes wb-pane-in {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes wb-pane-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
 }
 
 .wb-pane-error {
