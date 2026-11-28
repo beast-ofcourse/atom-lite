@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   symlinkSync,
+  truncateSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -2204,6 +2205,249 @@ test("workspace files are served with revisions and hardened headers", async () 
         server.port,
         { Host: "evil.example" },
         `/file?path=src.ts&token=${server.token}`,
+      ),
+      403,
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+// Reason: spec (ticket 01) — the video and audio previews read bytes from a
+// separate bounded endpoint. It must share the token, origin, host, containment
+// and extension guards, stream only known media types, and stay inert if a
+// browser opens the response directly.
+test("workspace media streams only allowlisted guarded files", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-media-ws-"));
+  const clip = Buffer.from("0123456789abcdef");
+  writeFileSync(join(workspace, "clip.mp4"), clip);
+  const formats: Array<[string, string]> = [
+    ["movie.webm", "video/webm"],
+    ["old.mov", "video/quicktime"],
+    ["film.mkv", "video/x-matroska"],
+    ["tape.avi", "video/x-msvideo"],
+    ["film.mpeg", "video/mpeg"],
+    ["tone.mp3", "audio/mpeg"],
+    ["sound.wav", "audio/wav"],
+    ["note.ogg", "audio/ogg"],
+    ["track.m4a", "audio/mp4"],
+  ];
+  for (const [name] of formats) writeFileSync(join(workspace, name), clip);
+  writeFileSync(join(workspace, "page.html"), "<script>alert(1)</script>");
+  writeFileSync(join(workspace, "icon.svg"), "<svg onload='alert(1)'/>");
+  writeFileSync(join(workspace, "notes.txt"), "plain text");
+  symlinkSync("/etc/hosts", join(workspace, "leak.mp4"));
+  writeFileSync(join(workspace, "huge.mp4"), "");
+  truncateSync(join(workspace, "huge.mp4"), 256 * 1024 * 1024 + 1);
+  const built = buildRuntime([], { workspace });
+  const server = await start(built);
+  try {
+    const endpoint = new URL("/media", server.url);
+    endpoint.searchParams.set("token", server.token);
+    endpoint.searchParams.set("path", "clip.mp4");
+    const ok = await fetch(endpoint);
+    assert.equal(ok.status, 200);
+    assert.match(ok.headers.get("content-type") ?? "", /^video\/mp4/);
+    assert.equal(Number(ok.headers.get("content-length")), clip.length);
+    assert.deepEqual(Buffer.from(await ok.arrayBuffer()), clip);
+    assert.equal(ok.headers.get("cache-control"), "no-store");
+    assert.equal(ok.headers.get("x-content-type-options"), "nosniff");
+    assert.match(
+      ok.headers.get("content-security-policy") ?? "",
+      /default-src 'none'.*sandbox/,
+    );
+    assert.equal(ok.headers.get("accept-ranges"), "bytes");
+    assert.match(ok.headers.get("etag") ?? "", /^W\//);
+    assert.ok(ok.headers.get("last-modified"));
+
+    for (const [name, mime] of formats) {
+      endpoint.searchParams.set("path", name);
+      const response = await fetch(endpoint);
+      assert.equal(response.status, 200, `path ${name}`);
+      assert.equal(
+        response.headers.get("content-type"),
+        mime,
+        `MIME for ${name}`,
+      );
+      await response.arrayBuffer();
+    }
+
+    for (const path of [
+      "page.html",
+      "icon.svg",
+      "notes.txt",
+      "leak.mp4",
+      "../../etc/passwd",
+      "missing.mp4",
+      "a".repeat(5000),
+    ]) {
+      endpoint.searchParams.set("path", path);
+      assert.notEqual((await fetch(endpoint)).status, 200, `path ${path}`);
+    }
+    endpoint.searchParams.set("path", "huge.mp4");
+    assert.equal((await fetch(endpoint)).status, 413, "streaming cap");
+
+    endpoint.searchParams.set("path", "clip.mp4");
+    endpoint.searchParams.delete("token");
+    assert.equal((await fetch(endpoint)).status, 401);
+    endpoint.searchParams.set("token", server.token);
+    assert.equal(
+      (
+        await fetch(endpoint, {
+          headers: { Origin: "http://evil.example" },
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      await rawStatus(
+        server.port,
+        { Host: "evil.example" },
+        `/media?path=clip.mp4&token=${server.token}`,
+      ),
+      403,
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+// Reason: spec (ticket 01) — a media element seeks with byte ranges. The
+// response must advertise partial content, clip open-ended ranges, reject
+// impossible ones with 416, and keep validators on partial responses.
+test("media byte ranges negotiate 206 and 416 with validators", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "web-range-ws-"));
+  const clip = Buffer.from("0123456789abcdef");
+  writeFileSync(join(workspace, "clip.mp4"), clip);
+  const built = buildRuntime([], { workspace });
+  const server = await start(built);
+  try {
+    const endpoint = new URL("/media", server.url);
+    endpoint.searchParams.set("token", server.token);
+    endpoint.searchParams.set("path", "clip.mp4");
+
+    const full = await fetch(endpoint);
+    assert.equal(full.status, 200);
+    const etag = full.headers.get("etag")!;
+    await full.arrayBuffer();
+
+    const partial = await fetch(endpoint, {
+      headers: { Range: "bytes=2-5" },
+    });
+    assert.equal(partial.status, 206);
+    assert.equal(partial.headers.get("content-range"), "bytes 2-5/16");
+    assert.equal(Number(partial.headers.get("content-length")), 4);
+    assert.equal(partial.headers.get("etag"), etag);
+    assert.equal(await partial.text(), "2345");
+
+    const openEnded = await fetch(endpoint, {
+      headers: { Range: "bytes=12-" },
+    });
+    assert.equal(openEnded.status, 206);
+    assert.equal(openEnded.headers.get("content-range"), "bytes 12-15/16");
+    assert.equal(await openEnded.text(), "cdef");
+
+    const suffix = await fetch(endpoint, { headers: { Range: "bytes=-4" } });
+    assert.equal(suffix.status, 206);
+    assert.equal(suffix.headers.get("content-range"), "bytes 12-15/16");
+    assert.equal(await suffix.text(), "cdef");
+
+    const clipped = await fetch(endpoint, {
+      headers: { Range: "bytes=10-99" },
+    });
+    assert.equal(clipped.status, 206);
+    assert.equal(clipped.headers.get("content-range"), "bytes 10-15/16");
+    assert.equal(await clipped.text(), "abcdef");
+
+    for (const range of ["bytes=16-", "bytes=5-2", "bytes=-0"]) {
+      const invalid = await fetch(endpoint, { headers: { Range: range } });
+      assert.equal(invalid.status, 416, `range ${range}`);
+      assert.equal(invalid.headers.get("content-range"), "bytes */16");
+      assert.equal(invalid.headers.get("accept-ranges"), "bytes");
+    }
+
+    const notModified = await fetch(endpoint, {
+      headers: { "If-None-Match": etag },
+    });
+    assert.equal(notModified.status, 304);
+    assert.equal(notModified.headers.get("etag"), etag);
+
+    const staleRange = await fetch(endpoint, {
+      headers: { Range: "bytes=2-5", "If-Range": '"stale"' },
+    });
+    assert.equal(staleRange.status, 200, "a stale If-Range ignores the range");
+    assert.equal(await staleRange.text(), "0123456789abcdef");
+  } finally {
+    await server.close();
+  }
+});
+
+// Reason: spec (ticket 01) — Office engines load lazily from this same origin.
+// The route serves only allowlisted files from the pinned packages, with the
+// correct module and WASM types, and never bypasses the existing guards.
+test("office engine assets are served from a strict same-origin allowlist", async () => {
+  const built = buildRuntime([]);
+  const server = await start(built);
+  try {
+    const endpoint = new URL(
+      "/engine/@betteroffice/xlsx/dist/index.js",
+      server.url,
+    );
+    endpoint.searchParams.set("token", server.token);
+    const module = await fetch(endpoint);
+    assert.equal(module.status, 200);
+    assert.match(module.headers.get("content-type") ?? "", /javascript/);
+    assert.equal(module.headers.get("cache-control"), "no-store");
+    assert.equal(module.headers.get("x-content-type-options"), "nosniff");
+    assert.ok((await module.text()).length > 0);
+
+    const wasm = await fetch(
+      new URL(
+        `/engine/@betteroffice/pptx/dist/generated/pptx_wasm_bg.wasm?token=${server.token}`,
+        server.url,
+      ),
+    );
+    assert.equal(wasm.status, 200);
+    assert.equal(wasm.headers.get("content-type"), "application/wasm");
+    await wasm.arrayBuffer();
+
+    const esm = await fetch(
+      new URL(
+        `/engine/@betteroffice/docx/dist/core.mjs?token=${server.token}`,
+        server.url,
+      ),
+    );
+    assert.equal(esm.status, 200);
+    assert.match(esm.headers.get("content-type") ?? "", /javascript/);
+
+    for (const path of [
+      "/engine/evil/index.js",
+      "/engine/@betteroffice/xlsx/package.json",
+      "/engine/@betteroffice/xlsx/%2e%2e%2f%2e%2e%2fpackage.json",
+      "/engine/@betteroffice/xlsx/dist/missing.js",
+    ]) {
+      assert.notEqual(
+        (await fetch(new URL(`${path}&token=${server.token}`, server.url)))
+          .status,
+        200,
+        `asset ${path}`,
+      );
+    }
+
+    assert.equal(
+      (await fetch(new URL(endpoint.pathname, server.url))).status,
+      401,
+    );
+    assert.equal(
+      (await fetch(endpoint, { headers: { Origin: "http://evil.example" } }))
+        .status,
+      403,
+    );
+    assert.equal(
+      await rawStatus(
+        server.port,
+        { Host: "evil.example" },
+        `${endpoint.pathname}?token=${server.token}`,
       ),
       403,
     );
