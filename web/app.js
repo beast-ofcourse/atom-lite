@@ -27,6 +27,7 @@ import { buildDiffModel } from "./diff.js";
 import { createPacedText } from "./stream-text.js";
 import { createWorkbench } from "./workbench.js";
 import { registerFiles } from "./files.js";
+import { registerOfficePreviews } from "./office-view.js";
 import { registerPdfPreview } from "./pdf-view.js";
 import { registerReview } from "./review.js";
 import { registerTerminal } from "./terminal.js";
@@ -4338,6 +4339,7 @@ workbench = createWorkbench(deps);
 document.getElementById("app").append(workbench.element);
 
 registerFiles(deps);
+registerOfficePreviews(deps);
 registerPdfPreview(deps);
 registerReview(deps);
 registerTerminal(deps);
