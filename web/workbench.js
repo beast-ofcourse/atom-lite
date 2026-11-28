@@ -1,3 +1,5 @@
+import { fileKind, hasWorkspaceDrag, readWorkspaceDrag } from "./files.js";
+
 const TAB_KINDS = {
   file: { icon: "i-file", title: "File" },
   pdf: { icon: "i-file", title: "PDF" },
@@ -27,6 +29,7 @@ export function createWorkbench(deps) {
   let sequence = 0;
   let restoreGeneration = 0;
   let dragging = false;
+  let dropActive = false;
 
   const element = document.createElement("aside");
   element.className = "wb-dock";
@@ -43,6 +46,22 @@ export function createWorkbench(deps) {
   const strip = element.querySelector(".wb-tabs");
   const paneHost = element.querySelector(".wb-panes");
   const resizer = element.querySelector(".wb-resizer");
+
+  const dropHint = document.createElement("div");
+  dropHint.className = "wb-drop";
+  dropHint.hidden = true;
+  dropHint.setAttribute("role", "status");
+  dropHint.innerHTML =
+    '<svg class="icon" aria-hidden="true"><use href="#i-file"></use></svg><span>Drop to preview in workbench</span>';
+  element.append(dropHint);
+
+  function clearDrop() {
+    toggle.classList.remove("is-drop-target");
+    if (!dropActive) return;
+    dropActive = false;
+    dropHint.hidden = true;
+    element.classList.remove("is-drop-target");
+  }
 
   const plus = document.createElement("button");
   plus.type = "button";
@@ -384,7 +403,11 @@ export function createWorkbench(deps) {
         row.classList.remove("wb-tab-dragging"),
       );
       row.addEventListener("dragover", (event) => {
-        if (!event.dataTransfer.types.includes("text/plain")) return;
+        if (
+          hasWorkspaceDrag(event.dataTransfer) ||
+          !event.dataTransfer.types.includes("text/plain")
+        )
+          return;
         event.preventDefault();
         const box = row.getBoundingClientRect();
         const after = event.clientX > box.left + box.width / 2;
@@ -392,6 +415,7 @@ export function createWorkbench(deps) {
       });
       row.addEventListener("dragleave", () => delete row.dataset.drop);
       row.addEventListener("drop", (event) => {
+        if (hasWorkspaceDrag(event.dataTransfer)) return;
         event.preventDefault();
         reorderTab(
           event.dataTransfer.getData("text/plain"),
@@ -529,7 +553,11 @@ export function createWorkbench(deps) {
     const candidates = sanitizeTabs(data.tabs);
     const present = await Promise.all(
       candidates.map((tab) =>
-        tab.kind === "file" && tab.path ? fileExists(tab.path) : true,
+        tab.kind === "file" &&
+        tab.path &&
+        ["text", "markdown"].includes(fileKind(tab.path))
+          ? fileExists(tab.path)
+          : true,
       ),
     );
     if (generation !== restoreGeneration || workspace !== deps.getWorkspace())
@@ -574,6 +602,122 @@ export function createWorkbench(deps) {
     restore();
   }
 
+  function baseName(path) {
+    return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+  }
+
+  function openDroppedFile(path, focus) {
+    const existing = tabs.find(
+      (tab) => tab.kind === "file" && tab.path === path,
+    );
+    if (existing) {
+      if (focus) focusTab(existing.id);
+      return;
+    }
+    const tab = {
+      id: `file:${deps.getWorkspace()}:${path}`,
+      kind: "file",
+      title: baseName(path),
+      path,
+    };
+    if (focus) openTab(tab);
+    else insertTab(tab, { focusPane: false });
+  }
+
+  async function handleDrop(target) {
+    const paths = readWorkspaceDrag(target.dataTransfer, deps);
+    clearDrop();
+    if (paths.length === 0) return;
+    setOpen(true);
+    const files = paths.filter((entry) => entry.type === "file");
+    const folders = paths.filter((entry) => entry.type === "dir");
+    for (const path of files.slice(1).map((entry) => entry.path)) {
+      openDroppedFile(path, false);
+    }
+    if (files.length > 0) openDroppedFile(files[0].path, true);
+    if (folders.length === 0) return;
+    const existing = tabs.find((tab) => tab.kind === "file");
+    if (existing) focusTab(existing.id);
+    else openTab({ kind: "file", title: "Files" });
+    const pane = paneHosts.get(activeId)?._pane;
+    await pane?.reveal?.(folders[0].path);
+  }
+
+  element.addEventListener(
+    "dragover",
+    (event) => {
+      if (!hasWorkspaceDrag(event.dataTransfer)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      dropActive = true;
+      dropHint.hidden = false;
+      element.classList.add("is-drop-target");
+    },
+    { signal },
+  );
+  element.addEventListener(
+    "dragleave",
+    (event) => {
+      if (element.contains(event.relatedTarget)) return;
+      clearDrop();
+    },
+    { signal },
+  );
+  element.addEventListener(
+    "drop",
+    (event) => {
+      if (!hasWorkspaceDrag(event.dataTransfer)) return;
+      event.preventDefault();
+      void handleDrop(event);
+    },
+    { signal },
+  );
+  const isComposerDrop = (target) =>
+    target instanceof Element && Boolean(target.closest("#composer"));
+
+  document.addEventListener(
+    "dragover",
+    (event) => {
+      if (
+        !element.hidden ||
+        isComposerDrop(event.target) ||
+        !hasWorkspaceDrag(event.dataTransfer)
+      )
+        return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      toggle.classList.add("is-drop-target");
+    },
+    { signal },
+  );
+  document.addEventListener(
+    "drop",
+    (event) => {
+      if (
+        element.hidden &&
+        !isComposerDrop(event.target) &&
+        hasWorkspaceDrag(event.dataTransfer)
+      ) {
+        event.preventDefault();
+        toggle.classList.remove("is-drop-target");
+        void handleDrop(event);
+      }
+    },
+    { signal },
+  );
+  document.addEventListener("dragend", clearDrop, { signal });
+  document.addEventListener("drop", clearDrop, { signal });
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key !== "Escape" || !dropActive) return;
+      clearDrop();
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    { capture: true, signal },
+  );
+
   function onKeydown(event) {
     const modifier = event.ctrlKey || event.metaKey;
     const key = event.key.toLowerCase();
@@ -590,6 +734,19 @@ export function createWorkbench(deps) {
     if (modifier && !event.shiftKey && !event.altKey && key === "j") {
       event.preventDefault();
       openTasks();
+      return;
+    }
+    if (modifier && !event.shiftKey && !event.altKey && key === "\\") {
+      const pane =
+        paneHosts.get(activeId)?._pane ??
+        tabs
+          .filter((tab) => tab.kind === "file")
+          .map((tab) => paneHosts.get(tab.id)?._pane)
+          .find(Boolean);
+      if (pane?.toggleTree) {
+        event.preventDefault();
+        pane.toggleTree();
+      }
       return;
     }
     if (event.defaultPrevented) return;
@@ -679,6 +836,7 @@ export function createWorkbench(deps) {
 
   function destroy() {
     listeners.abort();
+    clearDrop();
     for (const host of paneHosts.values()) {
       host._pane?.destroy?.();
       host.remove();

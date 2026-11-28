@@ -3,7 +3,15 @@
 // token makes its media or download request fail.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { downloadUrl, fileKind, mediaUrl } from "../../web/files.js";
+import {
+  PATH_MIME,
+  downloadUrl,
+  fileKind,
+  hasWorkspaceDrag,
+  mediaUrl,
+  parsePathPayload,
+  parsePlainPathData,
+} from "../../web/files.js";
 
 test("preview kind comes from extension before content type", () => {
   const cases = [
@@ -57,6 +65,46 @@ test("office content types map to their document kinds", () => {
     "presentation",
   );
   assert.equal(fileKind("file", "image/svg+xml"), "image");
+});
+
+test("workspace drag payload accepts only file and folder entries", () => {
+  assert.equal(PATH_MIME, "application/x-atom-lite-path");
+  assert.deepEqual(parsePathPayload('{"path":"a/b.txt","type":"file"}'), [
+    { path: "a/b.txt", type: "file" },
+  ]);
+  assert.deepEqual(
+    parsePathPayload(
+      '[{"path":"docs","type":"dir"},{"path":"docs/a.md","type":"file"}]',
+    ),
+    [
+      { path: "docs", type: "dir" },
+      { path: "docs/a.md", type: "file" },
+    ],
+  );
+  for (const raw of [
+    "",
+    "not json",
+    "null",
+    '{"path":42,"type":"file"}',
+    '{"path":"a","type":"link"}',
+    '{"path":"a","type":"file"},',
+  ]) {
+    assert.deepEqual(parsePathPayload(raw), [], raw);
+  }
+});
+
+test("plain-text drag fallback accepts only file-prefixed paths", () => {
+  assert.deepEqual(parsePlainPathData("file:dir/a b.txt"), {
+    path: "dir/a b.txt",
+  });
+  assert.equal(parsePlainPathData("wb-123"), null);
+  assert.equal(parsePlainPathData("file:"), null);
+});
+
+test("workspace drag detection uses the dedicated MIME type", () => {
+  assert.equal(hasWorkspaceDrag({ types: [PATH_MIME, "text/plain"] }), true);
+  assert.equal(hasWorkspaceDrag({ types: ["text/plain"] }), false);
+  assert.equal(hasWorkspaceDrag(null), false);
 });
 
 test("media and download URLs carry the token and encode the path", () => {
