@@ -16,6 +16,7 @@ The command prints a localhost URL with a per-run token. Treat that URL as a sec
 - The first tab controls the session. Later tabs are read-only viewers and take over if the controller leaves.
 - The terminal and server take the same per-session lock, so they cannot drive one log at once.
 - The workbench reads the workspace through token-guarded `/tree`, `/file`, and `/diff` endpoints. Writes go through an explicit, revision-checked `/file` request.
+- Media plays through a token-guarded `/media` read that supports byte ranges and has its own 256 MB cap. Office engines load from a token-guarded, same-origin `/engine` route that serves only allowlisted package assets. These responses carry `no-store` and `x-content-type-options: nosniff`, and symlinks that leave the workspace are rejected. Workspace HTML and SVG are still served as text.
 
 ## Use
 
@@ -35,21 +36,24 @@ Drag the left sidebar's right edge to resize it between 220 and 420 pixels, or f
 
 ## Workbench
 
-The right-hand dock opens with the checklist button in the header or `ctrl/cmd+shift+r`. Drag its left edge to resize it, focus the separator and use the arrow keys, or double-click it to reset. On screens up to 1024px the dock covers the conversation with a scrim; tap the scrim or press Escape to close it. Open state, width, and tab layout are stored in browser storage per workspace and restored on reload.
+The right-hand dock opens with the checklist button in the header or `ctrl/cmd+shift+r`. Drag its left edge to resize it, focus the separator and use the arrow keys, or double-click it to reset. On screens up to 1024px the dock covers the conversation with a scrim; tap the scrim or press Escape to close it. Open state, width, and tab layout are stored in browser storage per workspace and restored on reload. The dock animates open and closed, and focus returns to the control that opened it.
 
 ### Tabs
 
-The dock keeps several tools open as tabs. Each tab shows a type icon and a title, and has a close button. `+` opens a new-tab page with Review, Terminal, and Open file actions plus a bounded Recently closed list. Drag tabs to reorder them, or focus the strip and use the arrow keys. Closing the active tab selects its neighbour; closing the last tab returns to the new-tab page.
+The dock keeps several tools open as tabs. Each tab shows a type icon and a title, and has a close button; middle-click a tab to close it. `+` opens a new-tab page with Review, Terminal, and Open file actions plus a bounded Recently closed list. Drag tabs to reorder them, or focus the strip and use the arrow keys. Switching tabs cross-fades briefly and keeps focus on the tab strip. Closing the active tab selects its neighbour; closing the last tab returns to the new-tab page.
 
-| Shortcut           | Behavior                                         |
-| ------------------ | ------------------------------------------------ |
-| `ctrl/cmd+shift+r` | Toggle the dock                                  |
-| `ctrl/cmd+j`       | Open the Tasks tab                               |
-| `ctrl/cmd+alt+p`   | Open a file tab and focus its filter             |
-| `ctrl/cmd+alt+t`   | Open a terminal tab                              |
-| `ctrl/cmd+alt+r`   | Open the Review tab                              |
-| `ctrl/cmd+shift+t` | Reopen the last closed tab                       |
-| `Escape`           | Close the dock when no dialog or overlay is open |
+| Shortcut           | Behavior                                                     |
+| ------------------ | ------------------------------------------------------------ |
+| `ctrl/cmd+shift+r` | Toggle the dock                                              |
+| `ctrl/cmd+j`       | Open the Tasks tab                                           |
+| `ctrl/cmd+alt+p`   | Open a file tab and focus its filter                         |
+| `ctrl/cmd+alt+t`   | Open a terminal tab                                          |
+| `ctrl/cmd+alt+r`   | Open the Review tab                                          |
+| `ctrl/cmd+shift+t` | Reopen the last closed tab                                   |
+| `ctrl/cmd+\`       | Toggle the workspace tree in the file tab                    |
+| `ctrl/cmd+shift+f` | Fullscreen the active image or video preview                 |
+| Middle-click       | Close a tab                                                  |
+| `Escape`           | Leave fullscreen, then close the dock when no dialog is open |
 
 Tabs whose files no longer exist are skipped on restore, and tabs stay with the workspace where they were opened.
 
@@ -57,7 +61,11 @@ Tabs whose files no longer exist are skipped on restore, and tabs stay with the 
 
 A file tab shows the workspace tree beside a preview, separated by a resizable divider whose width is remembered per workspace. Folders come before files in natural case-insensitive order. The filter matches path segments, and Enter opens the first match. Large folders show a truncation notice, and each row's tooltip gives its full relative path. Selecting a file that is already open focuses its tab instead of adding a duplicate.
 
-Text and code previews highlight by language. A preview is read-only until you choose **Edit**; **Save** uses a token-guarded write, rejects a stale revision, and is refused in plan mode and for read-only viewers. Images are served only from inside the workspace. PDFs render page by page with page navigation, zoom, fit, rotate, download, and print controls; text annotations are stored in browser storage per file revision. Binary and unsupported files show a no-preview state with their size. The preview follows the selected theme.
+The tree header button collapses the tree and hides the divider so the preview takes the space; a button in the preview header reopens it at the same width. The collapsed state is remembered per workspace, and the button exposes its expanded state to screen readers. Drag a file or folder row onto the composer to add a reference, or onto the workbench to preview it; a cloned row follows the pointer, the drag uses copy semantics, and clicking a row still opens or expands it. Dropping several files previews the first and opens the rest as tabs; dropping a folder reveals it in the tree, opening a collapsed tree first. A drop on a closed dock opens the dock.
+
+Text and code previews highlight by language. A preview is read-only until you choose **Edit**; **Save** uses a token-guarded write, rejects a stale revision, and is refused in plan mode and for read-only viewers. Images and SVG render as image elements through the token-guarded `/image` path, never as page markup: they open fitted, then support zoom, pan, and fullscreen. Video and audio play with native controls through the token-guarded `/media` path; metadata loads first and byte ranges let playback seek without downloading the whole file. Video also has a fullscreen control and responds to double-click. Markdown renders with HTML disabled and safe link targets, reusing the transcript's code highlighter and Mermaid renderer; `Source` shows the raw text. PDFs render page by page with page navigation, zoom, fit, rotate, download, and print controls; text annotations are stored in browser storage per file revision. DOCX, XLSX, and PPTX files render as paged pages, a sheet grid, and slides with navigation and zoom. Their pinned engines load on first use from the same-origin `/engine` route, run in one worker per format, and stop when the tab closes. Corrupt, encrypted, and legacy Office files fall back to the no-preview card.
+
+Files with no renderer, and media above the 256 MB streaming cap, show a no-preview card with the file name, kind, and size plus `Download` and `Copy path` actions. Every preview follows the selected theme, and switching files cancels the previous load so a stale response cannot replace the new selection. Controls carry labels and visible focus rings; zoom, fullscreen, and tree controls are reachable by keyboard. Switching out of fullscreen with Escape leaves the dock open.
 
 ### Review
 
@@ -78,6 +86,8 @@ The task ledger and goal render in the Tasks tab, with no change to their behavi
 ### File references
 
 Typing `@` in the composer opens a picker backed by the workspace tree. Type to filter, then use the arrow keys and Enter to choose. Selection inserts a `@path` chip and attaches the file through the existing attachment flow, so the agent can read it in the next turn. Remove the chip to drop the reference. A missing file shows an error instead of being skipped. Read-only viewers cannot use the picker.
+
+Dragging a tree row into the composer uses the same contract. A file inserts a `@path` chip and attaches it; a folder inserts `@path/` without an attachment. Only paths from the loaded tree are accepted, and read-only viewers are refused. A striped overlay labelled `Drop files to add` marks the target while dragging, and Escape clears the drag. The composer regains focus after the drop. A file over the 20 MB attachment cap is referenced but not attached, with a notice; a missing file reports an error.
 
 Assistant text renders as markdown with syntax-highlighted code, local images, and Mermaid diagrams. Tool edits show a unified inline diff. Long sessions load earlier messages on demand.
 
