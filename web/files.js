@@ -1,4 +1,6 @@
 const DIVIDER_KEY = "atom-lite.web.files-divider";
+const TREE_KEY = "atom-lite.web.files-tree";
+export const PATH_MIME = "application/x-atom-lite-path";
 const DIVIDER_DEFAULT = 200;
 const DIVIDER_MIN = 120;
 const DIVIDER_MAX = 560;
@@ -48,8 +50,74 @@ const LANGUAGES = {
 };
 
 const openTabs = new WeakMap();
+const treePaths = new WeakMap();
 const previews = new Map();
 const hooked = new WeakSet();
+
+export function parsePathPayload(raw) {
+  if (typeof raw !== "string" || !raw) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  const items = Array.isArray(parsed) ? parsed : [parsed];
+  const result = [];
+  for (const item of items) {
+    if (!item || typeof item !== "object") return [];
+    const { path, type } = item;
+    if (typeof path !== "string" || !path) return [];
+    if (type !== "file" && type !== "dir") return [];
+    result.push({ path, type });
+  }
+  return result;
+}
+
+export function parsePlainPathData(text) {
+  if (typeof text !== "string" || !text.startsWith("file:")) return null;
+  const path = text.slice("file:".length);
+  return path ? { path } : null;
+}
+
+export function hasWorkspaceDrag(dataTransfer) {
+  return Boolean(dataTransfer?.types?.includes?.(PATH_MIME));
+}
+
+function knownPaths(deps) {
+  let workspaces = treePaths.get(deps);
+  if (!workspaces) {
+    workspaces = new Map();
+    treePaths.set(deps, workspaces);
+  }
+  const workspace = deps.getWorkspace();
+  let paths = workspaces.get(workspace);
+  if (!paths) {
+    paths = new Map();
+    workspaces.set(workspace, paths);
+  }
+  return paths;
+}
+
+export function readWorkspaceDrag(dataTransfer, deps) {
+  const payloads = parsePathPayload(dataTransfer?.getData?.(PATH_MIME) ?? "");
+  const matched = payloads.filter(
+    ({ path, type }) => workspacePathKind(deps, path) === type,
+  );
+  if (matched.length > 0) return matched;
+  const plain = parsePlainPathData(dataTransfer?.getData?.("text/plain") ?? "");
+  if (!plain) return [];
+  const type = workspacePathKind(deps, plain.path);
+  return type ? [{ path: plain.path, type }] : [];
+}
+
+export function workspacePathKind(deps, path) {
+  return knownPaths(deps).get(path)?.type ?? null;
+}
+
+export function workspacePathSize(deps, path) {
+  return knownPaths(deps).get(path)?.size;
+}
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -299,7 +367,16 @@ export function createFilesPane(deps, tab) {
   for (const button of [sourceButton, editButton, saveButton, cancelButton]) {
     button.type = "button";
   }
+  const previewTreeToggle = element(
+    "button",
+    "icon-btn files-preview-tree-toggle",
+  );
+  previewTreeToggle.type = "button";
+  previewTreeToggle.append(icon("panel"));
+  previewTreeToggle.addEventListener("click", () => setCollapsed(false));
+
   previewHead.append(
+    previewTreeToggle,
     titleWrap,
     sourceButton,
     editButton,
@@ -311,10 +388,12 @@ export function createFilesPane(deps, tab) {
   root.append(treePane, divider, previewPane);
 
   const key = `${DIVIDER_KEY}:${deps.getWorkspace()}`;
+  const treeKey = `${TREE_KEY}:${deps.getWorkspace()}`;
   const stored = Number.parseInt(deps.storage.get(key) ?? "", 10);
   let dividerWidth = Number.isFinite(stored)
     ? clamp(stored, DIVIDER_MIN, DIVIDER_MAX)
     : DIVIDER_DEFAULT;
+  let collapsed = deps.storage.get(treeKey) === "true";
   let dragging = false;
   let destroyed = false;
   let loadId = 0;
@@ -322,6 +401,7 @@ export function createFilesPane(deps, tab) {
   let delegate = null;
   let fileController = null;
   const controllers = new Set();
+  const treeLoads = new Map();
   const expanded = new Set();
   const folders = new Map([["", { entries: [], truncated: false }]]);
   const state = {
@@ -335,18 +415,49 @@ export function createFilesPane(deps, tab) {
   if (tab.path) registry.set(tab.path, tab.id);
   openTabs.set(deps, registry);
 
-  function applyWidth() {
+  function maxTreeWidth() {
     const rect = root.getBoundingClientRect();
-    const max =
-      rect.width > 0
-        ? Math.max(DIVIDER_MIN, rect.width - PREVIEW_MIN)
-        : DIVIDER_MAX;
-    treePane.style.flexBasis = `${Math.min(dividerWidth, max)}px`;
+    return rect.width > 0
+      ? Math.max(DIVIDER_MIN, rect.width - PREVIEW_MIN)
+      : DIVIDER_MAX;
+  }
+
+  function applyWidth() {
+    const max = maxTreeWidth();
+    if (!collapsed)
+      treePane.style.flexBasis = `${Math.min(dividerWidth, max)}px`;
     divider.setAttribute("aria-valuemax", String(Math.round(max)));
     divider.setAttribute(
       "aria-valuenow",
       String(Math.round(Math.min(dividerWidth, max))),
     );
+  }
+
+  function applyTree() {
+    root.classList.toggle("is-tree-collapsed", collapsed);
+    treePane.style.flexBasis = collapsed
+      ? "0px"
+      : `${Math.min(dividerWidth, maxTreeWidth())}px`;
+    divider.hidden = collapsed;
+    previewTreeToggle.hidden = !collapsed;
+    for (const button of [treeToggle, previewTreeToggle]) {
+      button.setAttribute("aria-expanded", String(!collapsed));
+      button.setAttribute(
+        "aria-label",
+        collapsed ? "Expand workspace tree" : "Collapse workspace tree",
+      );
+      button.title = `${collapsed ? "Expand" : "Collapse"} workspace tree (Ctrl+\\)`;
+    }
+  }
+
+  function setCollapsed(next) {
+    if (collapsed === next) return;
+    collapsed = next;
+    applyTree();
+    deps.storage.set(treeKey, String(collapsed));
+    if (collapsed && treePane.contains(document.activeElement)) {
+      previewTreeToggle.focus();
+    }
   }
 
   function saveWidth() {
@@ -400,16 +511,23 @@ export function createFilesPane(deps, tab) {
     saveWidth();
     event.preventDefault();
   });
-  applyWidth();
-  requestAnimationFrame(() => {
-    if (!destroyed) applyWidth();
-  });
+  const treeToggle = element("button", "icon-btn files-tree-toggle");
+  treeToggle.type = "button";
+  treeToggle.append(icon("panel"));
+  treeToggle.addEventListener("click", () => setCollapsed(!collapsed));
 
   rootLabel.append(
     icon("folder"),
     element("span", "", baseName(deps.getWorkspace())),
+    treeToggle,
   );
   rootLabel.title = deps.getWorkspace();
+
+  applyWidth();
+  applyTree();
+  requestAnimationFrame(() => {
+    if (!destroyed) applyWidth();
+  });
 
   function hasMatchingDescendant(path, query) {
     const data = folders.get(path);
@@ -460,6 +578,22 @@ export function createFilesPane(deps, tab) {
       row.append(icon("file"));
     }
     row.append(element("span", "files-name", entry.name));
+    row.draggable = true;
+    row.addEventListener("dragstart", (event) => {
+      if (!event.dataTransfer) return;
+      event.dataTransfer.setData(
+        PATH_MIME,
+        JSON.stringify({ path: entry.path, type: entry.type }),
+      );
+      event.dataTransfer.setData("text/plain", `file:${entry.path}`);
+      event.dataTransfer.effectAllowed = "copy";
+      const image = row.cloneNode(true);
+      image.className = "files-row files-row-drag-image";
+      image.style.width = `${row.getBoundingClientRect().width}px`;
+      document.body.append(image);
+      event.dataTransfer.setDragImage(image, 12, 12);
+      setTimeout(() => image.remove(), 0);
+    });
     row.addEventListener("click", () => {
       if (isDir) {
         if (expanded.has(entry.path)) expanded.delete(entry.path);
@@ -503,34 +637,63 @@ export function createFilesPane(deps, tab) {
     }
   }
 
-  async function loadTree(path) {
-    if (folders.get(path)?.loading) return;
-    const controller = new AbortController();
-    controllers.add(controller);
-    folders.set(path, {
-      entries: folders.get(path)?.entries ?? [],
-      loading: true,
-    });
-    try {
-      const response = await deps.request(
-        `/tree?path=${encodeURIComponent(path)}`,
-        { signal: controller.signal },
-      );
-      if (!response.ok)
-        throw new Error(`Tree request failed (${response.status})`);
-      const data = await response.json();
+  function loadTree(path) {
+    const existing = treeLoads.get(path);
+    if (existing) return existing;
+    const task = (async () => {
+      const controller = new AbortController();
+      controllers.add(controller);
       folders.set(path, {
-        entries: Array.isArray(data.entries) ? data.entries : [],
-        truncated: Boolean(data.truncated),
+        entries: folders.get(path)?.entries ?? [],
+        loading: true,
       });
-    } catch (error) {
-      if (controller.signal.aborted) return;
-      folders.set(path, { entries: [], truncated: false });
-      deps.toast(`Could not load folder: ${error.message}`, "error");
-    } finally {
-      controllers.delete(controller);
-      if (!destroyed) renderTree();
+      try {
+        const response = await deps.request(
+          `/tree?path=${encodeURIComponent(path)}`,
+          { signal: controller.signal },
+        );
+        if (!response.ok)
+          throw new Error(`Tree request failed (${response.status})`);
+        const data = await response.json();
+        const entries = Array.isArray(data.entries) ? data.entries : [];
+        folders.set(path, {
+          entries,
+          truncated: Boolean(data.truncated),
+        });
+        const known = knownPaths(deps);
+        for (const entry of entries) {
+          if (typeof entry.path !== "string") continue;
+          known.set(entry.path, { type: entry.type, size: entry.size });
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        folders.set(path, { entries: [], truncated: false });
+        deps.toast(`Could not load folder: ${error.message}`, "error");
+      } finally {
+        controllers.delete(controller);
+        if (!destroyed) renderTree();
+      }
+    })();
+    treeLoads.set(path, task);
+    void task.finally(() => treeLoads.delete(path));
+    return task;
+  }
+
+  async function reveal(path) {
+    setCollapsed(false);
+    if (filter.value.trim()) filter.value = "";
+    const ancestors = [];
+    for (let parent = parentPath(path); parent; parent = parentPath(parent)) {
+      ancestors.unshift(parent);
     }
+    for (const dir of ancestors) {
+      expanded.add(dir);
+      if (!folders.has(dir)) await loadTree(dir);
+    }
+    if (!folders.has(path)) await loadTree(path);
+    if (destroyed) return;
+    expanded.add(path);
+    renderTree(path);
   }
 
   filter.addEventListener("input", () => renderTree());
@@ -1095,6 +1258,8 @@ export function createFilesPane(deps, tab) {
     focus: focusFilter,
     focusFilter,
     select: showFile,
+    toggleTree: () => setCollapsed(!collapsed),
+    reveal,
     destroy() {
       destroyed = true;
       for (const controller of controllers) controller.abort();
@@ -1107,6 +1272,7 @@ export function createFilesPane(deps, tab) {
   };
 
   function focusFilter() {
-    filter.focus();
+    if (collapsed) previewTreeToggle.focus();
+    else filter.focus();
   }
 }

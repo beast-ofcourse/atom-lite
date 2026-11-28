@@ -1,5 +1,12 @@
+import {
+  hasWorkspaceDrag,
+  readWorkspaceDrag,
+  workspacePathSize,
+} from "./files.js";
+
 const MAX_REQUESTS = 12;
 const MAX_RESULTS = 30;
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const TOKEN_PATTERN = /(^|\s)@([^\s@]*)$/;
 
 export function createMentionPicker(deps, inputEl) {
@@ -31,6 +38,23 @@ export function createMentionPicker(deps, inputEl) {
   let requests = 0;
   let generation = 0;
   let loadFailed = false;
+
+  const form = inputEl.closest("form") ?? inputEl.parentElement;
+  const dropOverlay = document.createElement("div");
+  dropOverlay.className = "mention-drop";
+  dropOverlay.hidden = true;
+  dropOverlay.setAttribute("role", "status");
+  dropOverlay.innerHTML =
+    '<svg class="icon" aria-hidden="true"><use href="#i-arrow-up"></use></svg><span>Drop files to add</span>';
+  form.append(dropOverlay);
+  let draggingOver = false;
+
+  function clearDrag() {
+    if (!draggingOver) return;
+    draggingOver = false;
+    dropOverlay.hidden = true;
+    form.classList.remove("is-drop-target");
+  }
 
   function close() {
     open = false;
@@ -274,6 +298,69 @@ export function createMentionPicker(deps, inputEl) {
     deps.attachFile(entry.path);
   }
 
+  function insertDropReference(path, folder) {
+    const start = inputEl.selectionStart ?? inputEl.value.length;
+    const end = inputEl.selectionEnd ?? start;
+    const prefix = start > 0 && !/\s/.test(inputEl.value[start - 1]) ? " " : "";
+    const text = `${prefix}@${path}${folder ? "/" : " "}`;
+    setText(
+      inputEl.value.slice(0, start) + text + inputEl.value.slice(end),
+      start + text.length,
+    );
+  }
+
+  async function addDroppedPath(entry) {
+    if (deps.getReadOnly()) {
+      deps.toast("Read-only viewers cannot add file references.", "warn");
+      return;
+    }
+    close();
+    const before = inputEl.value;
+    try {
+      if (entry.type === "dir") {
+        insertDropReference(entry.path, true);
+        return;
+      }
+      const size = workspacePathSize(deps, entry.path);
+      const oversized = size != null && size > MAX_ATTACHMENT_BYTES;
+      if (!oversized && !(await fileExists(entry.path))) return;
+      if (inputEl.value !== before) return;
+      insertDropReference(entry.path, false);
+      addChip(entry.path);
+      if (oversized) {
+        deps.toast(
+          `${entry.path} is larger than 20 MB; added as a reference only.`,
+          "warn",
+        );
+      } else {
+        deps.attachFile(entry.path);
+      }
+    } finally {
+      inputEl.focus();
+    }
+  }
+
+  function onDragOver(event) {
+    if (deps.getReadOnly() || !hasWorkspaceDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    draggingOver = true;
+    dropOverlay.hidden = false;
+    form.classList.add("is-drop-target");
+  }
+
+  function onDragLeave(event) {
+    if (!form.contains(event.relatedTarget)) clearDrag();
+  }
+
+  function onDrop(event) {
+    if (!hasWorkspaceDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    clearDrag();
+    const [entry] = readWorkspaceDrag(event.dataTransfer, deps);
+    if (entry) void addDroppedPath(entry);
+  }
+
   function onInput() {
     pruneChips();
     if (deps.getReadOnly()) {
@@ -310,6 +397,12 @@ export function createMentionPicker(deps, inputEl) {
   }
 
   function onKeyDown(event) {
+    if (event.key === "Escape" && draggingOver) {
+      clearDrag();
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (!open || event.target !== inputEl || event.isComposing) return;
     const handled = ["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(
       event.key,
@@ -339,16 +432,28 @@ export function createMentionPicker(deps, inputEl) {
   }
 
   inputEl.addEventListener("input", onInput);
+  form.addEventListener("dragover", onDragOver);
+  form.addEventListener("dragleave", onDragLeave);
+  form.addEventListener("drop", onDrop);
   document.addEventListener("keydown", onKeyDown, true);
   document.addEventListener("pointerdown", onPointerDown);
+  document.addEventListener("dragend", clearDrag);
+  document.addEventListener("drop", clearDrag);
 
   return {
     destroy() {
       inputEl.removeEventListener("input", onInput);
+      form.removeEventListener("dragover", onDragOver);
+      form.removeEventListener("dragleave", onDragLeave);
+      form.removeEventListener("drop", onDrop);
       document.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("dragend", clearDrag);
+      document.removeEventListener("drop", clearDrag);
+      clearDrag();
       close();
       chipsEl.remove();
+      dropOverlay.remove();
       picker.remove();
     },
   };
