@@ -529,6 +529,21 @@ function workspaceMediaTarget(
   }
 }
 
+function workspaceDownloadTarget(
+  workspace: string,
+  relativePath: string,
+): { real: string; size: number } | null {
+  try {
+    const root = realpathSync(workspace);
+    const absolute = resolveInWorkspace(root, relativePath);
+    const real = absolute ? containedRealPath(root, absolute) : null;
+    const info = real ? statSync(real) : null;
+    return real && info?.isFile() ? { real, size: info.size } : null;
+  } catch {
+    return null;
+  }
+}
+
 interface EngineAssetTarget {
   real: string;
   ext: string;
@@ -1984,6 +1999,36 @@ export async function startWebServer(
         stream.pipe(res);
         return;
       }
+      if (url.pathname === "/download" && req.method === "GET") {
+        const relativePath = normalizedRelativePath(
+          url.searchParams.get("path") ?? "",
+        );
+        const target = relativePath
+          ? workspaceDownloadTarget(workspace, relativePath)
+          : null;
+        if (!target) {
+          sendText(res, 404, "not found\n");
+          return;
+        }
+        if (target.size > WORKSPACE_MEDIA_MAX_BYTES) {
+          sendText(res, 413, "file too large\n");
+          return;
+        }
+        const filename = basename(relativePath).replace(/[^\x20-\x7e]/g, "_");
+        res.writeHead(200, {
+          "content-type": "application/octet-stream",
+          "content-disposition": `attachment; filename="${filename.replace(/["\\]/g, "_")}"`,
+          "content-length": target.size,
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+          "content-security-policy": "default-src 'none'; sandbox",
+        });
+        const stream = createReadStream(target.real);
+        stream.on("error", () => res.destroy());
+        stream.pipe(res);
+        return;
+      }
+
       if (url.pathname.startsWith("/engine/")) {
         const asset = engineAssetTarget(url.pathname);
         if (!asset) {
