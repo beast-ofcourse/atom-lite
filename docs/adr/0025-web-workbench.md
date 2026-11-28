@@ -2,7 +2,7 @@
 
 Date: 2026-11-27
 Status: Accepted
-Related: 0024 (web surface parity), 0023 (read tool paging)
+Related: 0024 (web surface parity), 0023 (read tool paging), 0026 (streaming media reads)
 
 ## Context
 
@@ -36,7 +36,8 @@ disallowed extensions and sizes, plan mode, read-only viewers, and foreign
 origins or hosts. Reads use the same token, containment, and allowlist guards,
 serve HTML and SVG as text, and set no-store and no-sniff headers. Browser
 storage holds tab layout and annotations only; file edits go to the guarded
-write endpoint.
+write endpoint. ADR 0026 adds the bounded streaming path for media and the
+same-origin asset route for Office engines without changing this rule.
 
 Each terminal tab owns one PTY-backed shell with the workspace as its working
 directory. The workbench supports several concurrent shells up to a cap, ANSI

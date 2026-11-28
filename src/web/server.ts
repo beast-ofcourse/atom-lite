@@ -5,6 +5,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import {
   mkdirSync,
@@ -175,6 +176,28 @@ const MIME: Record<string, string> = {
   ".webp": "image/webp",
   ".avif": "image/avif",
   ".bmp": "image/bmp",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".mov": "video/quicktime",
+  ".mkv": "video/x-matroska",
+  ".avi": "video/x-msvideo",
+  ".mpeg": "video/mpeg",
+  ".mpg": "video/mpeg",
+  ".ogv": "video/ogg",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".ogg": "audio/ogg",
+  ".oga": "audio/ogg",
+  ".opus": "audio/ogg",
+  ".m4a": "audio/mp4",
+  ".aac": "audio/aac",
+  ".flac": "audio/flac",
+  ".weba": "audio/webm",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".wasm": "application/wasm",
+  ".ttf": "font/ttf",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
 };
 
 const IMAGE_EXTENSIONS = new Set(
@@ -258,6 +281,8 @@ const THEME_PLACEHOLDER = "__ATOM_LITE_THEME__";
 const COOKIE_NAME = "atom_lite_token";
 const WORKSPACE_PATH_MAX_LENGTH = 4096;
 const WORKSPACE_FILE_MAX_BYTES = 20 * 1024 * 1024;
+const WORKSPACE_MEDIA_MAX_BYTES = 256 * 1024 * 1024;
+const ENGINE_ASSET_MAX_BYTES = 64 * 1024 * 1024;
 const WORKSPACE_TREE_MAX_ENTRIES = 500;
 const WORKSPACE_TREE_MAX_NODES = 5_000;
 const WORKSPACE_DIFF_MAX_FILES = 200;
@@ -450,6 +475,171 @@ function fileContentType(ext: string): string {
     return "text/plain; charset=utf-8";
   }
   return MIME[ext] ?? "text/plain; charset=utf-8";
+}
+
+const MEDIA_EXTENSIONS = new Set(
+  Object.keys(MIME).filter(
+    (ext) => MIME[ext].startsWith("video/") || MIME[ext].startsWith("audio/"),
+  ),
+);
+const ENGINE_EXTENSIONS = new Set([
+  ".js",
+  ".mjs",
+  ".wasm",
+  ".ttf",
+  ".woff",
+  ".woff2",
+]);
+const ENGINE_ROOTS: Record<string, readonly string[]> = {
+  "@betteroffice/docx": ["dist/"],
+  "@betteroffice/fonts": ["dist/", "assets/"],
+  "@betteroffice/pptx": ["dist/"],
+  "@betteroffice/xlsx": ["dist/"],
+};
+const MEDIA_CONTENT_POLICY =
+  "default-src 'none'; img-src 'self'; media-src 'self'; sandbox";
+
+interface MediaTarget {
+  real: string;
+  ext: string;
+  size: number;
+  mtimeMs: number;
+}
+
+type MediaLookup = { target: MediaTarget } | { tooLarge: true } | null;
+
+function workspaceMediaTarget(
+  workspace: string,
+  relativePath: string,
+): MediaLookup {
+  const ext = extname(relativePath).toLowerCase();
+  if (!MEDIA_EXTENSIONS.has(ext)) return null;
+  try {
+    const root = realpathSync(workspace);
+    const absolute = resolveInWorkspace(root, relativePath);
+    const real = absolute ? containedRealPath(root, absolute) : null;
+    const info = real ? statSync(real) : null;
+    if (!real || !info || !info.isFile()) return null;
+    if (info.size > WORKSPACE_MEDIA_MAX_BYTES) return { tooLarge: true };
+    return {
+      target: { real, ext, size: info.size, mtimeMs: info.mtimeMs },
+    };
+  } catch {
+    return null;
+  }
+}
+
+interface EngineAssetTarget {
+  real: string;
+  ext: string;
+}
+
+function engineAssetTarget(pathname: string): EngineAssetTarget | null {
+  const raw = pathname.startsWith("/engine/")
+    ? pathname.slice("/engine/".length)
+    : "";
+  if (!raw || raw.includes("\\") || raw.includes("\0")) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  if (decoded.includes("\0")) return null;
+  const segments = decoded.split("/");
+  if (
+    segments.some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    return null;
+  }
+  const scoped = segments[0]?.startsWith("@") ?? false;
+  const pkg = scoped ? segments.slice(0, 2).join("/") : segments[0];
+  const rest = segments.slice(scoped ? 2 : 1);
+  const prefixes = ENGINE_ROOTS[pkg];
+  if (!prefixes || rest.length === 0) return null;
+  const subpath = rest.join("/");
+  if (!prefixes.some((prefix) => subpath.startsWith(prefix))) return null;
+  const ext = extname(subpath).toLowerCase();
+  if (!ENGINE_EXTENSIONS.has(ext)) return null;
+  try {
+    const modules = fileURLToPath(
+      new URL("../../node_modules/", import.meta.url),
+    );
+    const packageRoot = realpathSync(resolve(modules, pkg));
+    const real = containedRealPath(packageRoot, resolve(packageRoot, subpath));
+    const info = real ? statSync(real) : null;
+    if (
+      !real ||
+      !info ||
+      !info.isFile() ||
+      info.size > ENGINE_ASSET_MAX_BYTES
+    ) {
+      return null;
+    }
+    return { real, ext };
+  } catch {
+    return null;
+  }
+}
+
+function parseByteRange(
+  header: string | undefined,
+  size: number,
+): { start: number; end: number } | "unsatisfiable" | undefined {
+  const match =
+    header === undefined
+      ? null
+      : /^bytes=\s*(\d*)\s*-\s*(\d*)\s*$/i.exec(header.trim());
+  if (match === null || (match[1] === "" && match[2] === "")) return undefined;
+  if (match[1] === "") {
+    const suffix = Number(match[2]);
+    if (suffix === 0 || size === 0) return "unsatisfiable";
+    return { start: Math.max(size - suffix, 0), end: size - 1 };
+  }
+  const start = Number(match[1]);
+  const end = match[2] === "" ? size - 1 : Number(match[2]);
+  if (start > end || start >= size) return "unsatisfiable";
+  return { start, end: Math.min(end, size - 1) };
+}
+
+function mediaValidators(target: MediaTarget) {
+  const etag = `W/"${target.size.toString(16)}-${Math.trunc(target.mtimeMs).toString(16)}"`;
+  const lastModified = new Date(target.mtimeMs).toUTCString();
+  return { etag, lastModified };
+}
+
+function isNotModified(
+  req: IncomingMessage,
+  etag: string,
+  lastModified: string,
+): boolean {
+  const ifNoneMatch = req.headers["if-none-match"];
+  if (ifNoneMatch !== undefined) {
+    return ifNoneMatch
+      .split(",")
+      .some(
+        (tag) =>
+          tag.trim() === "*" ||
+          tag.trim().replace(/^w\//i, "") === etag.replace(/^w\//i, ""),
+      );
+  }
+  const ifModifiedSince = req.headers["if-modified-since"];
+  return (
+    ifModifiedSince !== undefined &&
+    Date.parse(lastModified) <= Date.parse(ifModifiedSince)
+  );
+}
+
+function matchesIfRange(
+  value: string | undefined,
+  etag: string,
+  lastModified: string,
+): boolean {
+  if (value === undefined) return true;
+  if (/^\s*(w\/)?"/i.test(value)) {
+    return value.trim().replace(/^w\//i, "") === etag.replace(/^w\//i, "");
+  }
+  return Date.parse(value) === Date.parse(lastModified);
 }
 
 function parseWorkspaceDiff(output: string): WorkspaceDiff {
@@ -1716,6 +1906,102 @@ export async function startWebServer(
         } catch {
           res.writeHead(404, { "content-type": "text/plain" });
           res.end("not found\n");
+        }
+        return;
+      }
+
+      if (url.pathname === "/media" && req.method === "GET") {
+        const relativePath = normalizedRelativePath(
+          url.searchParams.get("path") ?? "",
+        );
+        const found = workspaceMediaTarget(workspace, relativePath);
+        if (!found) {
+          sendText(res, 404, "not found\n");
+          return;
+        }
+        if ("tooLarge" in found) {
+          sendText(res, 413, "media too large\n");
+          return;
+        }
+        const target = found.target;
+        const { etag, lastModified } = mediaValidators(target);
+        const headers: Record<string, string> = {
+          "content-type": MIME[target.ext],
+          "cache-control": "no-store",
+          etag,
+          "last-modified": lastModified,
+          "accept-ranges": "bytes",
+          "x-content-type-options": "nosniff",
+          "content-security-policy": MEDIA_CONTENT_POLICY,
+        };
+        if (isNotModified(req, etag, lastModified)) {
+          res.writeHead(304, headers);
+          res.end();
+          return;
+        }
+        const rangeHeader = req.headers.range;
+        const ifRange = req.headers["if-range"];
+        const range =
+          rangeHeader !== undefined &&
+          matchesIfRange(
+            Array.isArray(ifRange) ? ifRange[0] : ifRange,
+            etag,
+            lastModified,
+          )
+            ? parseByteRange(rangeHeader, target.size)
+            : undefined;
+        if (range === "unsatisfiable") {
+          res.writeHead(416, {
+            "content-range": `bytes */${target.size}`,
+            "accept-ranges": "bytes",
+            "cache-control": "no-store",
+            "x-content-type-options": "nosniff",
+            "content-security-policy": MEDIA_CONTENT_POLICY,
+          });
+          res.end();
+          return;
+        }
+        const offset = range?.start ?? 0;
+        const length = range ? range.end - range.start + 1 : target.size;
+        res.writeHead(range ? 206 : 200, {
+          ...headers,
+          "content-length": length,
+          ...(range
+            ? {
+                "content-range": `bytes ${range.start}-${range.end}/${target.size}`,
+              }
+            : {}),
+        });
+        if (length === 0) {
+          res.end();
+          return;
+        }
+        const stream = createReadStream(target.real, {
+          start: offset,
+          end: offset + length - 1,
+        });
+        stream.on("error", () => res.destroy());
+        stream.pipe(res);
+        return;
+      }
+      if (url.pathname.startsWith("/engine/")) {
+        const asset = engineAssetTarget(url.pathname);
+        if (!asset) {
+          sendText(res, 404, "not found\n");
+          return;
+        }
+        try {
+          const bytes = await readFile(asset.real);
+          res.writeHead(200, {
+            "content-type": MIME[asset.ext],
+            "content-length": bytes.length,
+            "cache-control": "no-store",
+            "x-content-type-options": "nosniff",
+            "content-security-policy": "default-src 'none'",
+          });
+          res.end(bytes);
+        } catch {
+          sendText(res, 404, "not found\n");
         }
         return;
       }
